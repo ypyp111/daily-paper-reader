@@ -1,0 +1,379 @@
+Title: Inverse Neural Operator for ODE Parameter Optimization
+
+URL Source: https://arxiv.org/pdf/2603.11854v1
+
+Published Time: Fri, 13 Mar 2026 00:52:45 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# Inverse Neural Operator for ODE Parameter Optimization 
+
+Zhi-Song Liu 1,2 , Wenqing Peng 2,3, Helmi Toropainen 2,3, Ammar Kheder 1,2,Andreas Rupp 4, Holger Fröning 5, Xiaojie Lin 6, and Michael Boy 1,2,3 
+
+> 1
+
+Department of Computational Engineering, Lappeenranta-Lahti University of Technology, Lahti, Finland  
+
+> 2
+
+Atmospheric Modelling Center Lahti (AMC-Lahti), Finland  
+
+> 3
+
+University of Helsinki, Helsinki, Finland  
+
+> 4
+
+Saarland University, Saarbrücken, Germany  
+
+> 5
+
+University of Heidelberg, Heidelberg, Germany  
+
+> 6
+
+Zhejiang University, Hangzhou, China 
+
+zhisong.liu@lut.fi 
+
+Abstract. We propose the Inverse Neural Operator (INO), a two-stage framework for recovering hidden ODE parameters from sparse, partial observations. In Stage 1, a Conditional Fourier Neural Operator (C-FNO) with cross-attention learns a differentiable surrogate that recon-structs full ODE trajectories from arbitrary sparse inputs, suppressing high-frequency artifacts via spectral regularization. In Stage 2, an Amor-tized Drifting Model (ADM) learns a kernel-weighted velocity field in parameter space, transporting random parameter initializations toward the ground truth without backpropagating through the surrogate, avoid-ing the Jacobian instabilities that afflict gradient-based inversion in stiff regimes. Experiments on a real-world stiff atmospheric chemistry bench-mark (POLLU, 25 parameters) and a synthetic Gene Regulatory Net-work (GRN, 40 parameters) show that INO outperforms gradient-based and amortized baselines in parameter recovery accuracy while requir-ing only ∼0.23 s inference time, a 487 × speedup over iterative gradient descent. 
+
+Keywords: Neural Operator · ODE inversion · chemical modeling 
+
+## 1 Introduction 
+
+The mathematical modeling of dynamical systems through Ordinary Differential Equations (ODEs) is a cornerstone of modern scientific inquiry. Gene Regula-tory Networks (GRNs) encode transcriptional interactions that govern cell fate and disease [11, 16]; industrial chemical reactors are designed and controlled via kinetic ODE models whose parameters determine yield and safety [12]; and fluid dynamics at continuum scales is governed by PDE systems whose reduced-order surrogates are themselves ODE-like [5]. In all these domains, the inverse prob-lem, inferring optimal system parameters from observed trajectories, is critical           
+
+> arXiv:2603.11854v1 [cs.LG] 12 Mar 2026 2Z.-S. Liu et al.
+> Fig. 1: ODE parameter optimization via the proposed Inverse Neural Oper-ator (INO). INO recovers hidden ODE parameters from sparse partial observations across two benchmarks. (a) POLLU (chemical kinetics): 25 unknown reaction rate co-efficients governing 20 chemical species. Parameters evolve from random initialization (light orange) toward the ground truth (dark orange), while the predicted trajectory simultaneously converges to the true ODE solution. (b) GRN (gene regulatory net-work): 40 active regulatory coefficients within a 20 ×20 interaction matrix. Residual heatmaps show that both the recovered parameters and the predicted gene expression trajectories converge to near-zero error after optimization.
+
+for accelerating scientific discovery, optimizing industrial production, and en-abling robust uncertainty quantification [39]. Despite its importance, parameter inference is inherently ill-posed. In real-world scenarios, researchers rarely possess the luxury of dense, noise-free, or full-state observations. Instead, they must contend with three compounding dif-ficulties. Observational Sparsity: measurements are often restricted to a handful of discrete time points, a regime where classical adjoint methods become unre-liable [34]. Partial Observability: only a subset of the system’s components can be monitored, leaving latent dynamics hidden. Experimental Noise: stochastic fluctuations and measurement errors obfuscate the underlying physical man-ifold [6]. Traditional approaches rely on iterative optimization-in-the-loop or adjoint-based sensitivity analysis [10,34]. While mathematically grounded, these methods are computationally prohibitive for stiff systems [17], highly sensitive to initialization [37], and frequently trapped in non-convex loss landscapes [41]. Furthermore, while Neural Operators such as FNO [22] have emerged as pow-erful forward surrogates, they are prone to spectral aliasing and high-frequency Inverse Neural Operator for ODE Parameter Optimization 3
+
+distortions under sparse data, producing physically inconsistent oscillations in the recovered trajectories [46]. In this paper, we propose the Inverse Neural Operator (INO), a novel frame-work that treats parameter recovery as an amortized generative task rather than a per-instance optimization problem. Our approach addresses the twin challenges of ill-posedness and computational cost through two primary tech-nical innovations. First, we introduce a Conditional Fourier Neural Operator (C-FNO) integrated with Cross-Attention, which functions as a spectral regu-larizer to suppress the Gibbs phenomenon [13] and ensure temporal coherence. The affine conditioning mechanism of C-FNO is inspired by Feature-wise Linear Modulation [32], adapting feature-wise scale-and-shift to the operator learning setting. Second, we employ an Amortized Drifting Model (ADM) to learn a global vector field in the parameter space, allowing for rapid parameter refine-ment that is significantly more stable than traditional gradient descent. Unlike standard Flow Matching [24], which still relies on backpropagation through the surrogate to compute a gradient-based supervision target, ADM constructs its training signal from a kernel-weighted drifting field built entirely from forward-pass residuals, making it fully Jacobian-free at training time (see Section 3). Empirical evaluations on stiff chemical kinetics (POLLU [44]) and synthetic biological benchmarks (GRN [1]) demonstrate that INO achieves substantial speedups over iterative gradient-based methods while maintaining superior pa-rameter recovery accuracy. Concretely, the ADM requires only 20 integration steps ( ≈ 0.23 s per sample) compared to 100 gradient-descent iterations ( ≈ 112 s), yielding a ∼487 × wall-clock speedup with improved accuracy. Our main contri-butions are: 
+
+– We formulate the Inverse Neural Operator (INO), an amortized framework that sidesteps the instabilities of iterative optimization in high dimensional, ill-posed ODE parameter spaces. 
+
+– We propose a Spectral Cross-Attention mechanism within a Conditional FNO (C-FNO) that mitigates high-frequency distortions in Fourier-based operators, enforcing physical consistency in the learned ODE trajectories. 
+
+– We introduce the Amortized Drifting Model (ADM), which replaces Jacobian-based gradient supervision with a kernel-weighted residual drifting field, transforming the inverse parameter search into a stable, Jacobian-free trans-port problem. We provide theoretical analysis connecting ADM to mean-field interacting particle systems [9,25] and derive conditions under which the en-semble distribution contracts toward the ground-truth parameter. 
+
+## 2 Related Work 
+
+We consider that our work is closely related to two fields of research: 1) neural operators for functional learning, and 2) inverse problems for ODEs/PDEs and their optimization. For 1), we focus on different neural operator architectures for ODE/PDE modeling. For 2), we are interested in solving the ill-posedness problem so we can estimate hidden parameters given limited observation data. 4 Z.-S. Liu et al. 
+
+2.1 Neural Operators for ODE/PDE Modeling 
+
+DeepONet [28] is one of the pioneering works that introduces functional learn-ing: using neural networks to learn the mapping between infinite-dimensional functional spaces. Later, Fourier Neural Operator (FNO) [21, 22] uses the Fast Fourier Transform (FFT) to convert time-series data to the frequency domain, so that the time-dependent integral operation can be computed by matrix mul-tiplication. [40] improves FNO by projecting into the complex domain for Com-plex Neural Operator (CNO) learning. Wavelet Neural Operator (WNO) [42] further improves FNO by using wavelet transforms. Laplacian Neural Oper-ator (LNO) [8] leverages Laplace Transforms to handle non-periodic signals. GINO [23] combines graph and Fourier architectures to learn signed distance functions for 3D PDE problems. UNO [36] builds a hierarchical U-Net shaped neural operator for multiscale feature representation. GANO [35] generalizes generative adversarial nets to function spaces. KANO [2] utilizes Kolmogorov– Arnold Networks embedded in the pseudo-differential operator framework. Most recently, Continuum Attention for Neural Operators [7] is proposed to formulate self-attention as a map between infinite-dimensional function spaces and proving a universal theorem for neural operators. Our C-FNO conditioning mechanism employs affine feature modulation (scale and shift) of latent representations conditioned on ODE parameters, inspired by Feature-wise Linear Modulation [32]. While FiLM was originally developed for visual question answering, its general conditioning principle transfers naturally to operator learning, where parameter embeddings serve as the conditions. 
+
+2.2 Inverse Problems and Parameter Inference 
+
+The study of neural operators applies to many ODE/PDE problems, including fluid dynamics [20], continuum mechanics [47], weather forecasting [19], atmo-spheric chemistry [26], and astrophysics [29]. Many researchers have studied neu-ral operators for PDE/ODE solver acceleration [49], interpretable deep learning models [4], and discovering unknown physics [3]. We are particularly interested in using neural operators for parameter optimization. The computational efficiency of neural operators allows us to quickly solve ODE/PDE problems for arbitrary parameters, enabling inverse problem formu-lations to recover unknown ODE/PDE parameters. This is both computation-ally challenging with existing numerical solvers and ill-posed due to noisy mea-surements and limited data. Markov-Chain Monte-Carlo (MCMC) sampling is often used for inverse problems, but requires extensive forward simulation. Sev-eral works [33, 48] improve on this using neural emulators. [18] discusses PDE parameter optimization on several classic problems. [30] proposes a neural in-verse operator (NIO) combining DeepONet and FNO for forward and backward ODE/PDE simulation. [15] improves DeepONet via an invertible branch net. [27] proposes joint forward and inverse optimization via invertible FNO. However, these methods require multiple stages of training and typically assume access to sufficiently informative observations. Inverse Neural Operator for ODE Parameter Optimization 5
+
+> Fig. 2: Overall architecture of the proposed Inverse Neural Operator (INO).
+> INO decouples forward surrogate learning from inverse parameter recovery across two stages. Stage 1 (CNO): a Conditional FNO with affine parameter modulation and Cross-Attention reconstructs the full ODE trajectory from sparse partial observations. Stage 2 (ADM): the frozen CNO acts as a forward evaluator only; pairwise residuals drive a kernel-weighted drifting field that transports random parameter initializations toward the ground truth without backpropagating.
+
+Our work differs from these approaches in two key respects. First, rather than inverting through a fixed deterministic map, we train an ADM that learns a globally regularized vector field in parameter space, providing robustness to the ill-posedness inherent in sparse-observation settings. Second, by eliminating Jacobian computation from the inversion stage, our method avoids the sensitivity collapse that afflicts gradient-based inversion through stiff neural operators. 
+
+## 3 Method 
+
+3.1 Preliminary 
+
+We begin by revisiting the definition of neural operator learning. Let (x, y ) be pairs of data, where x ∈ X and y ∈ Y are functions defined on a d-dimensional spatial domain Ω ⊂ Rd, and let A : X → Y denote an operator such that A(x) = 
+
+y. The goal of neural operator learning is to find a parametric approximation ˆA
+
+of A, such that for any new input x′ ∈ X we have ˆA(x′) ≈ A (x′). In other words, we aim to learn a mapping in the functional space that generalizes to both seen and unseen inputs. To implement this, we discretize the functions at a set of sensor points 
+
+c1, . . . , c m ∈ Ω and parametrize the neural operator with a set of parameters 6 Z.-S. Liu et al. 
+
+θ ∈ RN . The training of the neural operator can then be formulated as the following optimization problem:    
+
+> min
+> θ∈RN
+> X
+> (x,y )∈data
+> L ˆA(x;θ), y ,(1)
+
+where L is a suitable loss function, such as mean squared error. Recovering the solution operator is challenging in practice, since A is often nonlinear and high-dimensional, and the available data may be scarce or noisy. One effective approach is the Fourier Neural Operator (FNO) [22]. The key idea is to exploit the Fast Fourier Transform (FFT) to convert integral operations with a kernel into multiplications in the frequency domain. For each local domain Ωi ⊂ Ω:         
+
+> Z
+> Ωi
+> k(i)(x−y)ui(y)dy =F−1
+> F(k(i))·F (ui)
+> 
+> (x) = F−1
+> R·F (ui)
+> 
+> (x),x∈Ωi,(2)
+
+where k(i) is the integral kernel, ui is the input function restricted to Ωi, F
+
+and F−1 denote the forward and inverse Fourier transforms respectively, and 
+
+R = F(k(i)) are the truncated Fourier coefficients. This replaces a dense integral with a frequency-domain convolution at quasi-linear complexity O(m log m).
+
+3.2 Proposed INO for Hidden ODE Parameter Optimization 
+
+As shown in Figure 2, we propose a two-stage framework for hidden ODE pa-rameter optimization: 1) a Conditional Neural Operator (CNO) to learn the ODE surrogate, and 2) an Amortized Drifting Model (ADM) for hidden ODE parameter optimization. In step 1, the CNO takes sparse observations at ran-dom time steps and the corresponding ODE parameters to predict the full ODE trajectory. While neural operators are differentiable, differentiability alone does not guarantee stable or global inverse dynamics. Rather than relying on local sensitivity information, our method replaces direct differentiation with a learned global transport field in the parameter space. In the second stage, the trained CNO is frozen and used to supervise the ADM, which learns a kernel-weighted, Jacobian-free inverse mapping. Crucially, the ADM supervision target is con-structed entirely from forward evaluations of Gθ∗ without computing any gra-dient through the surrogate. This is the key distinction from standard Flow Matching (see Section 3.2). 
+
+Conditional Neural Operator Learning. In step 1, given dense ODE trajec-tory points u(ti) sampled from the full time sequence T , and true ODE parame-ters k∗, we randomly sample M time steps trand and their corresponding sparse observations u(trand ) as conditional input to the neural operator G(·). The goal is to approximate the full ODE trajectory:      
+
+> Lf ull traj =1
+> N
+> NX
+> i=0
+> || ˆu(ti)−u(ti)|| 1(3)
+
+where ˆu(ti) is the model prediction at time ti. Different from existing neural operator learning, the proposed CNO: 1) learns conditional trajectory generation Inverse Neural Operator for ODE Parameter Optimization 7
+
+Fig. 3: Overall architecture of the proposed components. Left: the Conditional Neural Operator (CNO), consisting of conditional FNO (C-FNO) blocks and a Cross-Attention block producing the full ODE solution given ODE parameters and partial observations. Right: the Amortized Drifting Model (ADM), consisting of conditional MLP blocks (C-MLP) that learn a kernel-weighted drifting velocity field in parameter space, supervised without backpropagation through the surrogate. 
+
+from known ODE parameters and partial observations, similar to parametrized extrapolation; 2) randomly samples partial ODE observations u(trand ) at each training iteration, so the model learns to map arbitrary partial observations to the unique ODE solution. Note that we keep initial conditions as fixed values. The partial ODE obser-vations are much sparser ( M ≪ N ), making the problem ill-posed. To improve ODE approximation, we combine the Fourier Neural Operator [22] with cross-attention [43] to construct the network. The left subfigure of Figure 3 shows the structure of the proposed CNO. The key idea is to concatenate observed ODE time steps, initial ODE values, and ODE parameters, then project them to the latent space. A novel conditional FNO (C-FNO) block learns correlations between partial observations and ODE parameters in the latent space. Cross-attention then supervises the full trajectory before and after the C-FNO process. Finally, MLP layers project the latent vector back to the spatial domain. Mathematically, let zf eat denote the latent representation of the initial ODE trajectory, and zk the embedded ODE parameters. The C-FNO block learns a conditional parametrized ODE process as: 
+
+c = BN 
+
+
+
+F−1
+
+R · F (zif eat )
+
+
+
++ f (zif eat )
+
+
+
+zi+1  
+
+> f eat
+
+= f   max( c, 0) · (1 + α(zk )) + β(zk ) (4) 
+
+where zif eat is the i-th input ODE latent feature and BN is batch normalization. The affine terms α(zk) and β(zk) implement feature-wise scale-and-shift condi-tioning on the ODE parameters, following the Feature-wise Linear Modulation (FiLM) paradigm [32]. This allows the FNO’s spectral operations to be glob-ally conditioned on the ODE parameter embedding. We stack L C-FNO blocks to obtain the conditional ODE feature zLf eat . Next, we apply cross-attention to compute the long-term time dependency between the initial ODE feature 
+
+z0 
+
+> f eat
+
+= zf eat and the optimized feature zLf eat :8 Z.-S. Liu et al.       
+
+> z=zLf eat + softmax  Q(z0
+> f eat )K(zLf eat )
+> √d
+> V(zLf eat )(5)
+
+where d is the latent dimension and z is the final optimized ODE latent code, projected back to the spatial domain via MLP layers. The cross-attention uses 
+
+z0 
+
+> f eat
+
+as query and zLf eat as key-value, so the initial (unmodified) feature acts as a reference that retrieves temporally coherent structure from the C-FNO-optimized representation. Intuitively, this acts as a residual spectral regularizer: the C-FNO blocks learn to approximate the time integral via truncated FFT, in-troducing potential high-frequency artifacts, while the cross-attention compares the evolved representation against the clean initial feature and suppresses non-physical oscillations. As seen from Figure 6(a), cross-attention effectively enforces temporal coherence, producing smooth, physically consistent trajectories. 
+
+From Gradient-Based Inversion to Jacobian-Free Drifting. Given a pre-trained Conditional Neural Operator Gθ∗ , a natural strategy for inverse pa-rameter recovery is to fix θ∗ and optimize the ODE parameter k using partial trajectory observations:              
+
+> Lpartial traj =1
+> M
+> MX
+> i=0
+> Gθ∗(ki, u (t0), u (ti), T )−u(ti)1
+> ,ki+1 =ki−λ∇kiLpartial traj .
+> (6)
+
+By the chain rule, ∇kL =
+
+ ∂Gθ∗
+
+> ∂k
+
+⊤
+
+∇y L, which requires evaluating the Jaco-bian of the neural operator with respect to the ODE parameters. For stiff or multi-scale dynamical systems, this Jacobian is typically highly anisotropic and ill-conditioned, resulting in unstable gradients and poor conditioning of the in-verse problem. Moreover, since the loss is computed only on sparse observations 
+
+u(tobs ), the inverse mapping is inherently ill-posed: multiple parameter config-urations may generate nearly identical partial trajectories. Consequently, direct gradient descent often suffers from slow convergence, sensitivity collapse, and local minima. One could alternatively train a standard Flow Matching model [24] that learns a velocity field in parameter space. However, the canonical Flow Matching formulation still requires computing the gradient −∇ kτ L through Gθ∗ to obtain the supervision target, inheriting the same Jacobian instabilities described above. 
+
+Amortized Drifting Model (ADM). To eliminate Jacobian dependence en-tirely, we propose the ADM. Rather than supervising the flow model with a gradient-based target v∗ = −∇ kL, ADM replaces this signal with a kernel-based drifting field constructed purely from forward evaluations of Gθ∗ , requiring no backpropagation through the surrogate at any point during training. Let Ri = ˆUi − Ui denote the trajectory residual of sample i, where ˆUi =
+
+Gθ∗ (ki) is computed from a forward pass only. We define a similarity kernel in observation space: 
+
+Kij = exp 
+
+
+
+− ∥Ri − Rj ∥2
+
+σ
+
+
+
+, (7) Inverse Neural Operator for ODE Parameter Optimization 9
+
+where σ is an adaptive bandwidth (median heuristic: σ = med 2/ log B). Samples with similar residual structures are strongly coupled. Let wj = ∥Rj ∥2 denote a residual magnitude weight. For a mini-batch {ki}Bi=1 , the drifting velocity for ODE parameters ki is: 
+
+vdrift  
+
+> i
+
+= − 1
+
+B
+
+> B
+
+X
+
+> j=1
+
+Kij wj (ki − k∗ 
+
+> j
+
+). (8) This formulation requires no backpropagation through Gθ∗ and no Jacobian evaluation. Parameter updates are driven entirely by residual similarity in ob-servation space. We finally train Fϕ to approximate vdrift :
+
+Ldrif t = Fϕ(kτ , ˆU , u obs , τ ) − vdrift (kτ ) 1
+
+, (9) and perform inference by integrating the learned vector field. 
+
+Theoretical Analysis of ADM. The ensemble update in Eq. (8) defines an interacting particle system. As B → ∞ , the empirical measure ρBt = 1
+
+> B
+
+P 
+
+> i
+
+δki(t)
+
+converges to a continuous distribution ρt satisfying the continuity equation: ∂ρ ∂t +
+
+∇k ·  ρ v [ρ] = 0 with the nonlocal velocity field: 
+
+v[ρ]( k, t ) = −
+
+Z
+
+K R(k), R (k′) ∥R(k′)∥ (k − k′ ∗ ) ρ(k′, t ) dk ′. (10) This resonates to a McKean–Vlasov-type aggregation equation [9]. Standard propagation-of-chaos results [38] guarantee that the finite-particle system ap-proximates the mean-field limit in the Wasserstein distance. The structure of vdrift  
+
+> i
+
+shares the kernel-weighted particle interaction of Stein Variational Gradient Descent (SVGD) [25], but differs in two important re-spects: (1) the kernel Kij acts in residual space rather than parameter space, enabling similarity-based coupling across the observation manifold; (2) the repul-sive kernel-gradient term of SVGD is absent, making ADM a consensus scheme designed for optimization rather than posterior sampling. This connects ADM more closely to Ensemble Kalman Inversion [14], which uses empirical cross-covariance as a global preconditioner. The drifting velocity points toward a lower residual norm at every particle location. When the kernel bandwidth σ is large relative to inter-particle residual distances, the field approximates a global consensus pull toward k∗, promoting fast collective convergence. Compared to gradient descent and Flow Matching, the proposed ADM removes Jacobian de-pendence, introduces global mean-field regularization, and yields significantly improved stability in stiff dynamical systems. 
+
+## 4 Experiments 
+
+4.1 Experimental Details Datasets. We evaluate the proposed INO framework on two representative ODE systems: (1) POLLU [44] and (2) GRN [1]. 10 Z.-S. Liu et al. 
+
+POLLU. a widely used stiff ODE system for atmospheric chemistry modeling. It consists of 25 chemical reactions involving 20 species, with reaction rate coef-ficients spanning several orders of magnitude ( 10 −3 to 10 12 ), resulting in highly nonlinear and stiff dynamics. The 25 reaction rate coefficients {ki}24  
+
+> i=0
+
+constitute the unknown ODE parameters to be recovered. The detailed reaction equations are provided in the supplementary material. 
+
+GRN. The GRN dataset models regulatory interactions among n genes through a nonlinear ODE system: dx (t) 
+
+> dt
+
+= c+Kg (x(t)) −Γ x (t), where K ∈ Rn×n denotes the interaction matrix, c ∈ Rn the basal transcription rate, and Γ ∈ Rn the decay rate. We fix the decay and basal rates and focus on estimating the 40 activated (diagonal and off-diagonal) entries of K. Specifically, in line with the GRN biological prior that regulatory networks are sparse, we activate the main diagonal and its immediate off-diagonals, yielding 40 unknown ODE parameters consistent with the GRN figure (Fig. 5) and ablation studies. The interaction coefficients are sampled from N (0 , I ) to generate diverse regulatory regimes. Additional implementation details are provided in the supplementary material. 
+
+Data Generation. We fix initial conditions and vary only the ODE parame-ters. For each system, we generate 50,000 training samples using Latin Hyper-cube Sampling (LHS) to ensure uniform coverage of the parameter space (1,000 held-out test samples for all evaluations). Each trajectory is simulated for 100 time steps, producing observations y ∈ Rn×100 . ODE parameters are linearly normalized to [0 , 1] , while trajectory data are standardized to zero mean and unit variance. Both stages of INO are trained for 1000 epochs. The learning rate is 1 × 10 −3 for Stage 1 (CNO) and 1 × 10 −4 for Stage 2 (ADM). Batch size is 32. All experiments are conducted using PyTorch on a single NVIDIA V100 GPU. 
+
+Evaluation. We assess performance from both the forward modeling and in-verse recovery perspectives. ODE trajectory reconstruction: we measure the dis-crepancy between predicted and ground-truth trajectories using MSE and MAE. 
+
+Parameter recovery: we compute MSE and MAE between estimated and ground-truth ODE parameters. For stochastic inference procedures, we additionally re-port the mean and variance of the recovered parameters to quantify uncertainty. 
+
+4.2 Comparison with State-of-the-Art 
+
+All methods share the same pretrained CNO as their forward surrogate and are evaluated under identical conditions: M =3 sparse observations (much fewer than the N =100 full trajectory time steps), 100 random initializations drawn from N (0 , I ), and 100 optimization iterations where applicable. We compare three categories of method. Gradient-based : Gradient Descent, Stochastic Gra-dient Langevin Dynamics (SGLD), and MCMC, which backpropagate through the frozen CNO at inference. Gradient-free optimizers : CMAES [45], which queries the surrogate as a black box. Inverse operator methods : SPIN-ODE [31], iFNO [27], and NIO [30], which are feed-forward models trained to predict ODE parameters directly from partial observations in a single pass. Table 1 reports parameter recovery and trajectory fitting on POLLU and GRN. Among gradient-based methods, Gradient Descent achieves the lowest Inverse Neural Operator for ODE Parameter Optimization 11 
+
+Table 1: Comparison with state-of-the-art methods for ODE parameter op-timization. We report ODE parameter recovery (Mean, Std, MAE) and trajectory fit-ting (MSE, MAE) on POLLU (25 params) and GRN (40 params). Gradient : whether backpropagation through the surrogate is required at inference. Green : our method. 
+
+Bold : best per column.                                                                                                                    
+
+> Method Grad. POLLU (25 parameters) GRN (40 parameters)
+> Param. Recovery Traj. Fitting Param. Recovery Traj. Fitting
+> Mean ↓Std ↓MAE ↓MSE ↓MAE ↓Mean ↓Std ↓MAE ↓MSE ↓MAE ↓
+> Gradient-based methods
+> Gradient Descent ✓0.0218 0.0901 0.1007 0.0796 0.0277 0.0092 0.0117 0.0129 0.0206 0.0551 SGLD ✓0.0367 0.2221 0.2921 0.1744 0.1107 0.0112 0.0156 0.0144 0.0325 0.0612 MCMC ✓0.0358 0.2364 0.2895 0.2029 0.0977 0.0203 0.0255 0.0310 0.0333 0.0715
+> Gradient-free methods
+> CMAES ✗0.0272 0.1923 0.1389 0.0671 0.0499 0.0189 0.0235 0.0286 0.0314 0.0720 iFNO [27] ✗0.0643 —0.1665 0.0701 0.0855 0.0233 —0.0326 0.0299 0.0613 NIO [30] ✗0.0482 —0.1587 0.0720 0.0932 0.0255 —0.0311 0.0328 0.0704 SPIN-ODE [31] ✗0.0794 —0.1874 0.0989 0.0886 0.0364 —0.0330 0.0341 0.0722 Flow Matching ✗0.0300 0.1740 0.1539 0.0973 0.0855 0.0152 0.0211 0.0201 0.0324 0.0596
+> Drifting Model (Ours) ✗0.0117 0.0972 0.1001 0.0559 0.0207 0.0084 0.0115 0.0131 0.0322 0.0568
+
+standard deviation but at the cost of 100 surrogate evaluations per sample. SGLD and MCMC introduce additional stochasticity that widens variance with-out improving the mean, making them poorly suited to this ill-posed setting. Among inverse operator methods, SPIN-ODE, iFNO, and NIO struggle on the parameter recovery metrics because they optimise for trajectory fit rather than parameter accuracy directly; their slightly better trajectory MSE in Figure 6(b) is a consequence of this objective mismatch, not superior inversion quality. Our Drifting Model achieves the best mean and MAE on both datasets across all compared methods, reducing parameter mean error by 46% over the next best method (Gradient Descent, 0.0218 → 0.0117 on POLLU) while requiring no backpropagation through the surrogate at inference. Figure 6(b) visualizes the ODE trajectories reconstructed by feeding each method’s recovered parameters back into the CNO. The Drifting Model pro-duces trajectories that closely match the ground truth (black dashed) across all five POLLU species shown. Gradient Descent trajectories are visually com-petitive but exhibit occasional instability in stiff species. SPIN-ODE and NIO curves track the shape of the true ODE reasonably well, since their training directly minimizes trajectory error, yet their parameter estimates remain inac-curate, confirming that trajectory fit and parameter accuracy are not equivalent objectives in ill-posed inverse problems. For visual comparison, Figure 4 shows statistics of every ODE parameter. We highlight μ ± σ in dark color and the full range in light color. Gradient Descent shows more dramatic deviation changes, while the Amortized Drifting Model has more steady values across key parameters. Figure 5 shows the full optimization steps using ADM on the GRN dataset with 40 parameters. We see that MSE 12 Z.-S. Liu et al.  
+
+> Fig. 4: Visual comparison of ODE optimization using state-of-the-art meth-ods. Black dots are normalized true ODE parameters. Different colors visualize the mean and variance of different methods starting from different initializations.
+
+losses on ODE and parameter estimation decrease with iteration steps, and the final parameter distribution converges toward the true values. 
+
+4.3 Ablation Studies CNO architecture design. Table 2 ablates each component of the CNO incre-mentally. Replacing plain FNO with C-FNO (row 1 →2) already yields large gains on both datasets, confirming that parameter-conditioned affine modulation [32] is essential for surrogate accuracy. Adding cross-attention (row 2 →3) further re-duces MSE and MAE by suppressing the high-frequency artifacts introduced by truncated FFT, producing smoother and more physically consistent trajectories, see Figure 6(a) for a visual comparison. Switching from fixed to randomly sam-pled observation indices at training time (row 2 →4) gives a comparable gain, as the operator learns to reconstruct the full trajectory from any sparse subset rather than a fixed one. Combining both (row 5, full model) achieves the best results on all four metrics, with MSE dropping from 0.1561 (FNO baseline) to 0.0559 on POLLU, a 2.8× improvement. 
+
+Effect of the Amortized Drifting Model. Table 3 isolates the source of ADM’s gains by comparing three paradigms: direct regression (MLP), iterative optimization (GD), and amortized inference (FM-Grad, ADM). Direct gradient descent achieves competitive accuracy but requires 100 itera-tions ( ∼112 s) and is sensitive to optimizer choice, SGD and Adam differ by 3.5×Inverse Neural Operator for ODE Parameter Optimization 13 
+
+Fig. 5: Visualization of ODE parameter optimization on the GRN dataset. 
+
+Left: MSE losses on ODE fitting and parameter updating over iterations. Middle: distribution of 40 parameters after optimization. Right: residual map between ground truth and final prediction. 
+
+Table 2: Ablation study of CNO architecture. ODE trajectory fitting (MSE ↓, MAE ↓) on POLLU and GRN. Each row adds one component over the previous. Green : full model.                          
+
+> Configuration POLLU GRN
+> MSE ↓MAE ↓MSE ↓MAE ↓
+> Baseline
+> FNO 0.1561 0.0894 0.0597 0.0742
+> Ablations (fixed observations)
+> C-FNO w/o Attn 0.0799 0.0689 0.0428 0.0662 C-FNO w/ Attn 0.0715 0.0556 0.0398 0.0610
+> Ablations (random observations)
+> C-FNO w/o Attn + Rand 0.0694 0.0561 0.0401 0.0607
+> C-FNO w/ Attn + Rand (Ours) 0.0559 0.0207 0.0322 0.0568
+
+Table 3: Comparison of inverse opti-mization strategies. Parameter recov-ery (Mean ↓, Std ↓) on POLLU and GRN. Numbers in parentheses denote optimiza-tion steps. Green : our method.                                
+
+> Method POLLU GRN Time (s)
+> Mean ↓Std ↓Mean ↓Std ↓
+> Regression
+> MLP 0.1023 0.2215 0.0502 0.0486 0.05
+> Iterative optimization
+> GD – SGD (100) 0.0218 0.0901 0.0156 0.0332 112 GD – Adam (100) 0.0756 0.1203 0.0092 0.0117 114
+> Amortized (20 steps)
+> FM-Grad 0.0300 0.1741 0.0152 0.0211 0.21 Drifting Model (Ours) 0.0117 0.0972 0.0084 0.0115 0.23
+
+in mean error on POLLU, necessitating costly hyperparameter tuning. MLP re-gression is the fastest (0.05 s) but the least accurate, confirming that a direct feed-forward mapping is insufficient for this ill-posed problem. To isolate the contribution of the kernel-based drifting field specifically, we introduce FM-Grad: the same Fϕ architecture as ADM, but trained with a stan-dard gradient-based target v∗ = −∇ kτ ∥G θ∗ (kτ ) − yobs ∥1, requiring backprop-agation through the surrogate. FM-Grad improves over plain gradient descent (0.0300 vs. 0.0218 mean on POLLU) while matching its inference speed (0.21 s), confirming that amortization alone is beneficial. However, ADM surpasses FM-Grad by a further 2.6× (0.0117 vs. 0.0300), demonstrating that the performance gain is attributable specifically to the Jacobian-free drifting supervision rather than to the shared architecture. ADM thus achieves the best accuracy across both datasets at 0.23 s inference time, a 487 × speedup over iterative gradient descent with strictly higher accuracy. 
+
+Limitations and future work. The current evaluation covers two ODE bench-marks; real-world measurements introduce additional challenges such as irregu-14 Z.-S. Liu et al.  
+
+> Fig. 6: Visualization of ODE trajectory fitting on the POLLU dataset. (a) Vi-sual comparisons of the proposed CNO with and without cross-attention. (b) ODE tra-jectory fitting using optimized ODE parameters from different methods (black dashed lines: true trajectories; colored lines: model estimations).
+
+lar sampling, heteroscedastic noise, and partial species observability that remain to be addressed. Future work includes validating INO on more complex real-world experimental data [6] and extending the surrogate to PDE settings via spatiotemporal neural operators [22, 23]. 
+
+## Conclusions 
+
+We presented the Inverse Neural Operator (INO), a two-stage framework for recovering hidden ODE parameters from sparse partial observations. The first stage trains a Conditional Fourier Neural Operator (C-FNO) with cross-attention as a differentiable, spectrally regularized forward surrogate. The second stage trains an Amortized Drifting Model (ADM) that learns a globally regularized, Jacobian-free velocity field in the parameter manifold, supervised entirely by forward-pass residuals without any backpropagation through the surrogate. Our ablation experiments confirm that both the cross-attention mechanism and the kernel-based drifting field are essential: removing either component degrades performance, and our controlled FM-Grad comparison demonstrates that the ADM gains stem specifically from the Jacobian-free drifting supervision rather than from amortization alone. Theoretical analysis connects ADM to mean-field interacting particle systems and explains its practical robustness to observation Inverse Neural Operator for ODE Parameter Optimization 15 
+
+noise via ensemble noise averaging and implicit noise marginalization during amortized training. On the POLLU and GRN benchmarks, INO achieves the best ODE parameter recovery accuracy among all compared methods while re-quiring only ∼0.23 s inference per sample, yielding a ∼487 × wall-clock speedup over gradient-descent baselines. 
+
+## References 
+
+1. Alon, U.: An Introduction to Systems Biology: Design Principles of Biologi-cal Circuits. Chapman & Hall/CRC Computational Biology Series, Chapman and Hall/CRC, Boca Raton, 2nd edn. (2019). https://doi.org/10.1201/ 9780429283321 
+
+2. Anonymous: KANO: Kolmogorov-arnold neural operator. In: Submitted to The Fourteenth International Conference on Learning Representations (2025), https: //openreview.net/forum?id=2QmiKXfsIr , under review 3. Boullé, N., Earls, C.J., Townsend, A.: Data-driven discovery of green’s functions with human-understandable deep learning. Sci. Rep. 12 (2022) 4. Bronstein, M.M., Bruna, J., Cohen, T., Velickovic, P.: Geometric deep learning: Grids, groups, graphs, geodesics, and gauges. CoRR abs/2104.13478 (2021), 
+
+https://arxiv.org/abs/2104.13478 
+
+5. Brunton, S.L., Noack, B.R., Koumoutsakos, P.: Machine learning for fluid mechan-ics. Annual Review of Fluid Mechanics 52 , 477–508 (2020) 6. Calderhead, B., Girolami, M., Lawrence, N.D.: Accelerating bayesian inference over nonlinear differential equations with gaussian processes. Advances in Neural Information Processing Systems 21 (2009) 7. Calvello, E., Kovachki, N.B., Levine, M.E., Stuart, A.M.: Continuum attention for neural operators. arXiv preprint arXiv:2406.06486 (2024) 8. Cao, Q., Goswami, S., Karniadakis, G.E.: Laplace neural operator for solving dif-ferential equations (2024) 9. Carrillo, J.A., Fornasier, M., Toscani, G., Vecil, F.: Particle, kinetic, and hydrody-namic models of swarming. In: Mathematical Modeling of Collective Behavior in Socio-Economic and Life Sciences, pp. 297–336. Birkhäuser Boston (2010) 10. Chen, R.T.Q., Rubanova, Y., Bettencourt, J., Duvenaud, D.: Neural ordinary dif-ferential equations. In: Advances in Neural Information Processing Systems. vol. 31 (2018) 11. Davidson, E.H.: Genomic Regulatory Systems: Development and Evolution. Aca-demic Press (2002) 12. Fogler, H.S.: Elements of Chemical Reaction Engineering. Prentice Hall, 5th edn. (2016) 13. Gottlieb, D., Shu, C.W.: On the gibbs phenomenon and its resolution. SIAM Re-view 39 (4), 644–668 (1997) 14. Iglesias, M.A., Law, K.J.H., Stuart, A.M.: Ensemble Kalman methods for inverse problems. Inverse Problems 29 (4), 045001 (2013) 15. Kaltenbach, S., Perdikaris, P., Koutsourelakis, P.S.: Semi-supervised invertible neu-ral operators for bayesian inverse problems (2023) 16. Karlebach, G., Shamir, R.: Modelling and analysis of gene regulatory networks. Nature Reviews Molecular Cell Biology 9(10), 770–780 (2008) 17. Kim, S., Ji, W., Deng, S., Ma, Y., Rackauckas, C.: Stiff neural ordinary differential equations. Chaos 31 (9) (2021) 16 Z.-S. Liu et al. 18. Kovachki, N., Li, Z., Liu, B., Azizzadenesheli, K., Bhattacharya, K., Stuart, A., Anandkumar, A.: Neural operator: Learning maps between function spaces with applications to pdes. J. Mach. Learn. Res. 24 (2022) 19. Lam, R., Sanchez-Gonzalez, A., Willson, M., Wirnsberger, P., Fortunato, M., Alet, F., Ravuri, S., Ewalds, T., Eaton-Rosen, Z., Hu, W., Merose, A., Hoyer, S., Holland, G., Vinyals, O., Stott, J., Pritzel, A., Mohamed, S., Battaglia, P.: Learning skillful medium-range global weather forecasting. Science 382 (6677), 1416–1421 (2023) 20. Li, Z., Peng, W., Yuan, Z., Wang, J.: Long-term predictions of turbulence by implicit u-net enhanced fourier neural operator. Physics of Fluids 35 (7), 075145 (07 2023) 21. Li, Z., Huang, D.Z., Liu, B., Anandkumar, A.: Fourier neural operator with learned deformations for pdes on general geometries. Journal of Machine Learning Research 
+
+24 (388), 1–26 (2023), http://jmlr.org/papers/v24/23-0064.html 
+
+22. Li, Z., Kovachki, N.B., Azizzadenesheli, K., liu, B., Bhattacharya, K., Stuart, A., Anandkumar, A.: Fourier neural operator for parametric partial differen-tial equations. In: International Conference on Learning Representations (2021), 
+
+https://openreview.net/forum?id=c8P9NQVtmnO 
+
+23. Li, Z., Kovachki, N.B., Choy, C., Li, B., Kossaifi, J., Otta, S.P., Nabian, M.A., Stadler, M., Hundt, C., Azizzadenesheli, K., Anandkumar, A.: Geometry-informed neural operator for large-scale 3d pdes. In: Proceedings of the 37th International Conference on Neural Information Processing Systems. NIPS ’23 (2023) 24. Lipman, Y., Chen, R.T.Q., Ben-Hamu, H., Nickel, M., Le, M.: Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 (2022) 25. Liu, Q., Wang, D.: Stein variational gradient descent: A general purpose Bayesian inference algorithm. In: Advances in Neural Information Processing Systems. vol. 29, pp. 2378–2386 (2016) 26. Liu, Z.S., Clusius, P., Boy, M.: Neural network emulator for atmospheric chemical ode. Neural Networks 184 , 107106 (2025) 27. Long, D., Xu, Z., Yuan, Q., Yang, Y., Zhe, S.: Invertible fourier neural operators for tackling both forward and inverse problems. In: The 28th International Conference on Artificial Intelligence and Statistics (2025), https://openreview.net/forum? id=ILmND4b1BK 
+
+28. Lu, L., Jin, P., Pang, G., Zhang, Z., Karniadakis, G.E.: Learning nonlinear oper-ators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence 3(3), 218–229 (2021) 29. Mao, S., Dong, R., Lu, L., Yi, K.M., Wang, S., Perdikaris, P.: Ppdonet: Deep oper-ator networks for fast prediction of steady-state solutions in disk–planet systems. The Astrophysical Journal Letters 950 (2), L12 (jun 2023) 30. Molinaro, R., Yang, Y., Engquist, B., Mishra, S.: Neural inverse operators for solving pde inverse problems (2023), https://arxiv.org/abs/2301.11167 
+
+31. Peng, W., Liu, Z.S., Boy, M.: Spin-ode: Stiff physics-informed neural ode for chem-ical reaction rate estimation pp. 2033 – 2040 (2025) 32. Perez, E., Strub, F., de Vries, H., Dumoulin, V., Courville, A.: FiLM: Visual rea-soning with a general conditioning layer. In: Proceedings of the AAAI Conference on Artificial Intelligence. vol. 32 (2018) 33. Pfaff, T., Fortunato, M., Gonzalez, A.S., Battaglia, P.: Learning mesh-based simu-lation with graph networks. In: Advances in Neural Information Processing Systems (NeurIPS) (2022) 34. Rackauckas, C., Ma, Y., Martensen, J., Warner, C., Zubov, K., Supekar, R., Skin-ner, D., Ramadhan, A., Edelman, A.: Universal differential equations for scientific machine learning. arXiv preprint arXiv:2001.04385 (2020) Inverse Neural Operator for ODE Parameter Optimization 17 35. Rahman, M.A., Florez, M.A., Anandkumar, A., Ross, Z.E., Azizzadenesheli, K.: Generative adversarial neural operators. Trans. Mach. Learn. Res. 2022 (2022) 36. Rahman, M.A., Ross, Z.E., Azizzadenesheli, K.: U-NO: U-shaped neural operators. Transactions on Machine Learning Research (2023), https://openreview.net/ forum?id=j3oQF9coJd 
+
+37. Raue, A., Kreutz, C., Theis, F.J., Timmer, J.: Joining forces of bayesian and fre-quentist methodology: a study for inference in the presence of non-identifiability. Philosophical Transactions of the Royal Society A 371 (1984), 20110544 (2013) 38. Sznitman, A.S.: Topics in propagation of chaos. In: École d’Été de Probabilités de Saint-Flour XIX—1989, Lecture Notes in Mathematics, vol. 1464, pp. 165–251. Springer, Berlin (1991) 39. Tarantola, A.: Inverse Problem Theory and Methods for Model Parameter Esti-mation. SIAM (2005) 40. Tiwari, K., Krishnan, N.M.A., AP, P.: CoNO: Complex neural operator for con-tinuous dynamical systems (2024) 41. Transtrum, M.K., Machta, B.B., Sethna, J.P.: The geometry of nonlinear least squares with applications to sloppy models and optimization. Physical Review E 
+
+83 (3), 036701 (2011) 42. Tripura, T., Chakraborty, S.: Wavelet neural operator for solving parametric partial differential equations in computational mechanics problems. Computer Methods in Applied Mechanics and Engineering 404 , 115783 (2023) 43. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, Ł., Polosukhin, I.: Attention is all you need. In: Advances in neural information processing systems. pp. 5998–6008 (2017) 44. Verwer, J.G.: Gauss-seidel iteration for stiff odes from chemical kinetics. SIAM J. Sci. Comput. 15 , 1243–1250 (1994), https://api.semanticscholar.org/ CorpusID:17935675 
+
+45. Vien, N.A., Dang, V.H., Chung, T.: A covariance matrix adaptation evolution strategy for direct policy search in reproducing kernel hilbert space. In: Zhang, M.L., Noh, Y.K. (eds.) Proceedings of the Ninth Asian Conference on Machine Learning. Proceedings of Machine Learning Research, vol. 77, pp. 606–621. PMLR (15–17 Nov 2017) 46. Wang, S., Wang, H., Perdikaris, P.: Improved architectures and training algorithms for deep operator networks. Journal of Scientific Computing 92 (2), 35 (2022) 47. You, H., Zhang, Q., Ross, C.J., Lee, C.H., Yu, Y.: Learning deep implicit fourier neural operators (ifnos) with applications to heterogeneous material modeling. Computer Methods in Applied Mechanics and Engineering 398 , 115296 (2022) 48. Zhao, Q., Lindell, D.B., Wetzstein, G.: Learning to solve pde-constrained inverse problems with graph networks. In: International Conference on Machine Learning (ICML) (2022) 49. Zheng, H., Nie, W., Vahdat, A., Azizzadenesheli, K., Anandkumar, A.: Fast sam-pling of diffusion models via operator learning. In: International Conference on Machine Learning (ICML). pp. 42390–42402 (2023)
