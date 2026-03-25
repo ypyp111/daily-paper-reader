@@ -1,0 +1,1162 @@
+Title: Sparsely-Supervised Data Assimilation via Physics-Informed Schr\"odinger Bridge
+
+URL Source: https://arxiv.org/pdf/2603.22319v1
+
+Published Time: Wed, 25 Mar 2026 00:03:19 GMT
+
+Number of Pages: 39
+
+Markdown Content:
+# Sparsely-Supervised Data Assimilation via Physics-Informed Schr ¨odinger Bridge 
+
+Dohyun Bu * 1 Chanho Kim * 1 Seokun Choi 2 Jong-Seok Lee 1
+
+# Abstract 
+
+Data assimilation (DA) for systems governed by partial differential equations (PDE) aims to re-construct full spatiotemporal fields from sparse high-fidelity (HF) observations while respecting physical constraints. While full-grid low-fidelity (LF) simulations provide informative priors in multi-fidelity settings, recovering an HF field con-sistent with both sparse observations and the gov-erning PDE typically requires per-instance test-time optimization, which becomes a major bottle-neck in time-critical applications. To alleviate this, amortized reconstruction using generative mod-els has recently been proposed; however, such approaches rely on full-field HF supervision dur-ing training, which is often impractical in real-world settings. From a more realistic perspective, we propose the Physics-Informed Conditional Schr ¨odinger Bridge (PICSB), which transports an informative LF prior toward an observation-conditioned HF posterior without any additional inference-time guidance. To enable learning with-out HF endpoints, PICSB employs an iterative surrogate-endpoint refresh scheme, and directly incorporates PDE residuals into the training ob-jective while enforcing observations via hard con-ditioning throughout sampling. Experiments on fluid PDE benchmarks demonstrate that PICSB enables extremely fast spatiotemporal field recon-struction while maintaining competitive accuracy under sparse HF supervision. 
+
+# 1. Introduction 
+
+Partial differential equations (PDEs) have long provided fun-damental tools for modeling and predicting natural phenom-ena. A central challenge in many fluid and flow applications is full-field reconstruction: recovering a high-resolution spa-tiotemporal field from sparse observations while remaining consistent with the governing dynamics, a setting broadly 
+
+> *
+
+Equal contribution 1Department of Industrial & Systems En-gineering, KAIST, Daejeon, Repulic of Korea 2Department of Mathematical Sciences, KAIST, Daejeon, Repulic of Korea. Cor-respondence to: Jong-Seok Lee <jongseok.lee@kaist.ac.kr >.
+
+Preprint. March 25, 2026. 
+
+studied under data assimilation (DA) (Farchi et al., 2023; Stuart, 2010). In such regimes, the available observations provide only partial coverage, and the underlying physical model provides feasibility constraints on recovering the full field (Buzzicotti, 2023; Rozet & Louppe, 2023). A common way to obtain accurate full-fields is high-fidelity (HF) numerical simulation, but it is often prohibitively time-consuming at the resolutions and regimes of interest (Zhou et al., 2024; He et al., 2020). This computational latency is a major bottleneck in time-critical applications, includ-ing rapid-update numerical weather forecasting (Benjamin et al., 2004), operational ocean prediction (Moore et al., 2019), and real-time hydrologic forecasting (Jafarzadegan et al., 2021). Practitioners therefore rely on low-fidelity (LF) models or proxy fields—from simplified physics and coarse discretizations to observation-based interpolation— which are fast but systematically biased (Niu et al., 2024; Fern´ andez-Godino, 2023; Peherstorfer et al., 2018). These constraints make multi-fidelity DA a common practi-cal regime: abundant LF fields provide informative priors, while HF information is available only through sparse ob-servations (Kou et al., 2022; Chakraborty, 2021). However, even in this multi-fidelity setting, classical physics-based DA typically enforces observation and PDE consistency by solving a new constrained inverse problem for each instance, incurring substantial computational cost (Li et al., 2025a). This motivates amortized reconstruction, which maps a new LF field and a few HF observations directly to a full HF field without test-time re-optimization (Rozet & Louppe, 2023). Recent progress toward amortized reconstruction has been driven by generative modeling. Diffusion models, in par-ticular, have become a standard tool for high-dimensional conditional generation, making sparse-to-full field recov-ery a natural application (Shysheya et al., 2024; Xu & Li, 2025). In PDE-constrained DA, a prevailing recipe learns a diffusion prior over fully observed HF fields and then pro-duces reconstructions via iterative sampling,while enforc-ing consistency with sparse observations and the governing PDE via residual-based guidance during sampling (Huang et al., 2024; Cheng et al., 2025; Utkarsh et al., 2025; Du et al., 2024). While effective, this paradigm typically relies on many sampling steps with inference-time corrections to enforce observations and PDE constraints, increasing inference cost in time-critical settings. 1         
+
+> arXiv:2603.22319v1 [cs.LG] 20 Mar 2026 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge
+> Table 1. Comparison of learning-based field reconstruction methods for PDE-governed systems. Zero-shot indicates amortized reconstruc-tion without test-time re-optimization. DA indicates the capability to solve an observation-conditioned inverse problem using sparse HF observations. Label-Efficient indicates training under sparse HF supervision, where HF targets are available only at partial spatiotemporal locations. Guidance-free indicates that PDE residuals are incorporated directly into training, avoiding inference-time correction.
+
+Method Zero-shot DA Label-Efficient Guidance-free PINNs (Raissi et al., 2019) ✗ ✓ ✓ ✓
+
+MMGN (Luo et al., 2024) ✗ ✓ ✓ ✗
+
+FNO, NOICL (Li et al., 2021; Chen et al., 2024) ✓ ✗ ✗ ✗
+
+P2INN (Cho et al., 2024) ✓ ✗ ✓ ✓
+
+DiffusionPDE, ECI, PCFM ✓ ✓ ✗ ✗
+
+(Huang et al., 2024; Cheng et al., 2025; Utkarsh et al., 2025) PIDM, PalSB, PPIDM ✓ ✓ ✗ ✓
+
+(Shu et al., 2023; Li et al., 2025a; Xu & Li, 2025) 
+
+PICSB (Ours) ✓ ✓ ✓ ✓
+
+An appealing alternative is provided by Schr ¨odinger bridge (SB) formulations, which learn a stochastic optimal trans-port between endpoint distributions. For multi-fidelity DA, SB offers a particularly natural geometry by transporting samples from an informative LF field, often requiring sub-stantially fewer sampling steps than diffusion models that start from uninformative noise. Although SB-based methods for PDE field modeling remain relatively scarce, SB-style transport has been studied extensively in broader genera-tive settings such as image synthesis (Liu et al., 2023) and related bridge formulations (Li et al., 2025b), with recent PDE-based instances emerging as well (Li et al., 2025a). However, existing SB approaches for reconstruction typ-ically still rely on full-field HF supervision to learn the transport. Consequently, amortized multi-fidelity DA under sparse HF supervision remains largely underexplored, par-ticularly for PDE-governed systems that require physically consistent generative models. In this work, we propose the Physics-Informed Conditional Schr ¨odinger Bridge Model (PICSB) for amortized multi-fidelity DA with sparse HF supervision. PICSB models the conditional distribution of the full HF field given an LF input and sparse HF observations, enforcing the observations via hard conditioning. To avoid reliance on full-field HF super-vision, we train PICSB solely from physics residuals, using a conditional SB that starts from an informative LF prior and transports it toward the observation-conditioned HF pos-terior under the governing PDE constraints. This physics-residual objective enables guidance-free inference while retaining the efficiency of LF-to-HF transport, yielding fast reconstruction with few sampling steps. Crucially, since HF endpoints are unavailable, we enable bridge learning via an iterative surrogate-endpoint refresh that periodically updates a slowly moving terminal reference distribution. Our contributions are as follows: • We introduce a guidance-free conditional SB for amor-tized reconstruction from LF inputs and sparse HF observations via hard conditioning, enabling fast infer-ence with few sampling steps. • We provide a consistency result showing that, under identifiability, minimizing the physics-residual objec-tive yields reconstructions close to the observation-conditioned HF solution. • We empirically show that PICSB achieves competi-tive accuracy under sparse HF supervision while deliv-ering orders-of-magnitude faster reconstruction than test-time optimization and guidance-based sampling. 
+
+# 2. Related Works 
+
+Optimization-based DA. Traditional per-instance DA for PDE-governed systems has primarily relied on numerical methods that solve observation-conditioned inverse prob-lems under physical constraints (D’Elia et al., 2012; Lemke & Sesterhenn, 2016). To reduce the high computational cost of such approaches, extensive efforts have focused on efficiency-oriented modeling aimed at HF simulations (Za-uner et al., 2022; Wang et al., 2024). A related class of approaches replaces explicit numerical solvers with neural-network-based optimization formulations, which parameter-ize solution fields with neural networks and minimizing a composite objective that enforces both observation fitting and governing PDE constraints (Raissi et al., 2019). More recently, implicit neural representation methods have been explored to reconstruct continuous spatiotemporal fields from sparse observations by directly optimizing latent rep-resentations (Luo et al., 2024). 
+
+Amortized Reconstruction. To avoid repeated per-instance optimization, recent work has sought zero-shot DA by learning reusable models that can be directly queried at test time. One line of research learns forward solution op-erators that map PDE parameters or initial conditions to full fields, enabling fast evaluation without iterative solvers (Li et al., 2021; Chen et al., 2024; Cho et al., 2024). A second line of work targets amortized inverse reconstruction via generative models, typically trained with fully observed HF fields. Many diffusion-based formulations enforce observa-tion and PDE consistency through inference-time residual 2Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+guidance (Huang et al., 2024; Cheng et al., 2025; Utkarsh et al., 2025), whereas more recent approaches incorporate PDE residuals into the training objective to reduce reliance on inference-time corrections (Shu et al., 2023; Li et al., 2025a; Xu & Li, 2025). 
+
+Limitations. Table 1 summarizes prior learning-based field reconstruction methods for PDE-governed systems in terms of four desirable features: Zero-shot inference, DA 
+
+capability, Label-Efficient learning under sparse HF super-vision, and Guidance-free physics integration via training objectives. First, optimization-based methods can assimilate sparse observations while explicitly enforcing the govern-ing physics, but they are not zero-shot and require test-time re-optimization. Second, operator-learning methods enable zero-shot evaluation but largely act as forward surrogates and thus lack DA capability for observation-conditioned reconstruction. Finally, generative inverse methods provide DA capability, but most existing approaches are not label-efficient, as they assume full-field HF supervision; moreover, guidance-based formulations incur additional inference-time correction costs. Consequently, no existing method simultaneously satisfies all four criteria. 
+
+# 3. Preliminaries 
+
+We consider a multi-fidelity field reconstruction problem on a fixed discrete grid of size n. X0 ∈ Rn denotes a LF field defined on the full grid, X1 ∈ Rn denotes the corresponding HF field on the same grid, and Y ∈ Rm denotes sparse HF observations with m ≪ n. The observations are related through a known operator H : Rn → Rm such that Y =
+
+H(X1). Throughout, we view the LF field X0 as inducing an informative source distribution over HF fields, and we treat the sparse observations Y as conditioning variables. Given 
+
+Y = y, we denote by π0(· | y) and π1(· | y) the conditional distributions of X0 and X1, respectively. 
+
+3.1. Conditional Schr¨ odinger bridge formulation 
+
+For a fixed conditioning variable Y = y. The conditional SB problem seeks a path measure P(· | y) on C = C([0 , 1] , Rn)
+
+whose endpoint marginals satisfy P0(· | y) = π0(· | y) and 
+
+P1(· | y) = π1(· | y) (Shi et al., 2022). Specifically, given an uncontrolled Wiener measure Q as a reference path measure, the conditional SB is defined as 
+
+P⋆(· | y) = argmin  
+
+> P(· | y)
+
+KL( P(· | y) ∥ Q) (1) s.t. P0(· | y) = π0(· | y), P1(· | y) = π1(· | y).
+
+In conditional inverse problems, π0(· | y) can be viewed as an LF-informed source distribution, while π1(· | y) corre-sponds to the desired observation-conditioned HF distri-bution. The SB formulation provides a principled way to transport probability mass between these conditional distri-butions while remaining close to simple reference dynamics. 
+
+3.2. Bridge reference and flow-based parameterization 
+
+Under Q, conditioning on the endpoints (X0, X 1) =(x0, x 1) yields the Brownian bridge Q(· | x0, x 1). With noise scale ε > 0, the intermediate state satisfies 
+
+Xτ | (x0, x 1) ∼ N  (1 −τ )x0 +τ x 1, ε τ (1 −τ ) I, (2) which allows direct sampling at an arbitrary intermediate time τ . This property underlies Iterative Markovian Fitting (IMF) and its diffusion-based implementations (Liu et al., 2023; Shi et al., 2023; Peluchetti, 2023). To construct an explicit sampler, one may parameterize a conditional path measure via a time-dependent velocity field 
+
+vτ (· | y) (Bortoli et al., 2024). Such a parameterization in-duces the controlled diffusion driven by standard Brownian motion Bτ ,
+
+dX τ = vτ (Xτ | y) dτ + √ε dB τ , X0 ∼ π0(· | y). (3) When paired samples {(xi
+
+> 0
+
+, y i, x i
+
+> 1
+
+)}Ni=1 are available, IMF methods learn v by matching the drift of the Brownian bridge, leading to the bridge-matching objective given by 
+
+min  
+
+> v
+
+Ei,τ 
+
+
+
+Exiτ ∼Q(·| xi 
+
+> 0,x i
+> 1)
+
+vτ (xiτ | yi) − xi 
+
+> 1
+
+−xiτ
+
+1−τ
+
+
+
+. (4) 
+
+# 4. Methodology 
+
+We consider the multi-fidelity DA setting in Section 3. The training data consist of pairs Dtrain = {(xi
+
+> 0
+
+, y i)}Ni=1 , where each xi 
+
+> 0
+
+∈ Rn is a full-grid LF field and yi ∈ Rm de-notes sparse HF observations of the corresponding HF field 
+
+xi 
+
+> 1
+
+∈ Rn. Given a new pair (x0, y ) at test time, our goal is to sample plausible HF reconstructions that (i) respect the LF prior information in x0 and (ii) satisfy the sparse observations y, while being physically consistent. We adopt a conditional Schr ¨odinger-bridge viewpoint. In the idealized formulation in Section 3.1, one seeks a conditional path mea-sure P(· | y) whose endpoints match π0(· | y) and π1(· | y).In practice, we are given a concrete LF instance x0 rather than an explicit conditional density π0(· | y). Accordingly, our sampler is implemented as a conditional transport map that starts from the provided x0 and is explicitly conditioned on the sparse observations y, generating a terminal sample 
+
+ˆx1 ∼ πθ (· | x0, y ) which aims to approximate π1(· | y) in an amortized manner. 
+
+4.1. Physics-informed conditional reconstruction 
+
+Since a full-field HF endpoint x1 is unavailable, we specify the target solution set implicitly through observation feasi-bility and PDE consistency. The observation constraint is defined as 
+
+Cy := {x ∈ Rn : H(x) = y}. (5) Throughout, we focus on the standard sparse-sensor setting where H selects a subset of grid coordinates. Let ⊙ denote 3Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 73         
+
+> 60
+> Figure 1. Overview of PICSB training with sparse supervision. The static model (parameters ˜θ) provides surrogate endpoints to construct the bridge reference, while the trainable sampler (parameters θ) is updated by minimizing the physics residual under hard observation projection at every sampling step. Here, with refresh period C= 20 , iteration 73 uses a static model last refreshed at iteration 60 .
+
+element-wise multiplication. We then use the coordinate projection onto Cy :
+
+ΠCy (x) := M ⊙ y + (1 − M) ⊙ x, (6) where M ∈ { 0, 1}n is a binary mask indicating the observed coordinates. Physical consistency is enforced via a discretized PDE resid-ual operator Rh : Rn → Rr with grid spacing h. Due to dis-cretization and numerical approximation, the residual may not attain zero even among observation-consistent states. We thus define the residual floor as 
+
+δ⋆(y; h) := inf 
+
+> x∈C y
+
+∥R h(x)∥, (7) and for any δ > δ ⋆(y; h), we define the δ-feasible physics set as 
+
+Pδ 
+
+> Rh
+
+:= {x ∈ Rn : ∥R h(x)∥ ≤ δ}. (8) Our goal is to learn a conditional sampler whose terminal samples lie in Cy and achieve small residual, i.e., ˆx1 ∈Cy ∩ P δ 
+
+> Rh
+
+with high probability. 
+
+4.2. Learning with surrogate endpoints 
+
+We now specify the sampling procedure and the training ob-jective. Our sampler is parameterized by a time-dependent velocity field vθ (x, τ | y), inducing the controlled diffu-sion in Eq. (3) . Hard observation feasibility is enforced by projection at every discretized step. 
+
+Surrogate bridge reference. Bridge-matching objectives such as Eq. (4) require paired HF endpoints x1, which are unavailable in our setting. We therefore introduce a surro-gate terminal reference ˜π1(· | y), defined as the terminal law induced by a slowly updated static velocity network v˜θ
+
+under hard conditioning. Concretely, drawing ˜x1 ∼ ˜π1(· | y)
+
+means running the sampler Sample ˜θ initialized from the given LF field x0 and projected onto Cy throughout. Given (x0, y ), we sample τ ∼ Unif(0 , 1) and draw an inter-mediate state ˜xτ from the Brownian-bridge closed form in Eq. (2) between endpoints (x0, ˜x1), followed by projection to ensure ˜xτ ∈ C y . Starting from ˜xτ , Algorithm 1 produces a terminal sample 
+
+ˆx1 = Sample θ (˜ xτ | y, τ ). (9) 
+
+Physics-residual training objective. We train the train-able sampler vθ using only PDE residuals: 
+
+L(θ) := E(x0,y )∼D train Eτ ∼Unif(0 ,1) 
+
+h
+
+∥R h(ˆ x1)∥
+
+i
+
+, (10) where ˆx1 denotes the terminal sample produced by Eq. (9) .Intuitively, ˜xτ aligns the training distribution with condi-tional transport from an LF-informed source toward an observation-conditioned terminal law, while the residual ob-jective shapes the terminal samples toward PDE-consistent reconstructions. 
+
+Proposition 4.1 (Stability under identifiability) . Fix y and assume the continuous PDE admits a unique observation-consistent solution x⋆ 
+
+> 1
+
+∈ C y . Assume that local identifiability holds in a neighborhood of x⋆
+
+> 1
+
+, with constants c > 0 and 
+
+η(h), and that the residual sublevel sets are localized with constant β > 0. Then any ˆx1 ∈ C y satisfying ∥R h(ˆ x1)∥ ≤ δ
+
+for some δ ≤ δ⋆(y; h) + β obeys 
+
+∥ˆx1 − x⋆
+
+> 1
+
+∥ ≤ c(δ − δ⋆(y; h)) + η(h). (11) 4Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Algorithm 1 Hard-conditioned sampler Sample θ
+
+Input: initial state xτ at time τ = τt0 ; sparse observations 
+
+y; velocity network vθ ; projection ΠCy in Eq. (6) ; noise scale ε; step size s.
+
+Output: terminal sample ˆx1.
+
+Initialize: xτt0 ← ΠCy (xτ ).
+
+for t = t0, t 0 + 1 , . . . , T − 2 do (1) Velocity evaluation: u ← vθ (xτt | y, τ t).
+
+(2) Euler step: xτt+1 ← xτt + s · u.
+
+(3) Hard Project: xτt+1 ← ΠCy (xτt+1 ).
+
+(4) Noise Injection: xτt+1 ← xτt+1 + √εs z t.
+
+end for Final step (no noise): 
+
+xτT ← ΠCy
+
+ xτT −1 + s · vθ
+
+ xτT −1 y, τ T −1
+
+ .
+
+Return: xτT .The proof is provided in App. A.1. 
+
+Iterative refresh of ˜π1. Because ˜π1(· | y) is model-induced, we adopt a periodic refresh scheme with a slowly updated static model, analogous to target-network stabiliza-tion (Mnih et al., 2015). At refresh round k, we (i) sample surrogate endpoints ˜x1 ∼ ˜π(k)1 (· | y) using v˜θ to instantiate a surrogate Brownian-bridge reference, and (ii) update θ by minimizing Eq. (10) under this fixed reference. This yields a distributional update map 
+
+˜π(k)1 7 → ˜π(k+1) 1 , (12) where ˜π(k+1) 1 denotes the terminal law induced by the up-dated sampler vθ .
+
+Proposition 4.2 (Self-consistency at a fixed point) . Con-sider the sequence {˜π(k)1 }k≥0 generated by Algorithm 2. Assume Rh is Lipschitz on the relevant support and the model class for vθ is sufficiently expressive. Assume further that each refresh round performs exact inner-loop optimiza-tion. If ˜π(k)1 ≡ ˜π(k+1) 1 ≡ ˜π∞ 
+
+> 1
+
+, then samples ˜x1 ∼ ˜π∞ 
+
+> 1
+
+(· | y)
+
+satisfy 
+
+H(˜ x1) = y and E
+
+h
+
+∥R h(˜ x1)∥
+
+i
+
+= inf  
+
+> θ
+
+E
+
+h
+
+∥R h(ˆ x1)∥
+
+i
+
+, (13) 
+
+where ˆx1 = Sample θ (˜ xτ | y, τ ) is defined using the fixed reference ˜π∞ 
+
+> 1
+
+(· | y) as in Algorithm 2, with expectation over the sampling randomness. 
+
+In this idealized regime, the refresh map is self-consistent. Thus, at a fixed point, observation feasibility holds by con-struction and the expected terminal residual attains the inner-loop optimum under the fixed reference. A proof under the stated idealized assumptions is given in App. A.2. 
+
+4.3. Implementation details 
+
+We describe the implementation of Sample θ (Algorithm 1) and the iterative refresh of ˜π1 (Algorithm 2). As summarized in Fig. 1, the static model v˜θ generates surrogate endpoints to define ˜π1, while the trainable model vθ is optimized solely via the physics residuals under hard observation projection. 
+
+Algorithm 2 Training procedure with iterative ˜π1 refresh 
+
+Input: Dtrain ; refresh period C and rounds L; trainable velocity vθ(0) ; projection ΠCy ; sampler Sample θ (·) in Algo-rithm 1; BrownianBridge( ·); residual operator R(·).
+
+Output: trained parameters θ(LN ).
+
+Initialize: set θ ← θ(0) .
+
+for k = 0 , 1, . . . , L − 1 do (0) Refresh static model: ˜θ ← θ.
+
+for j = 0 , 1, . . . , C − 1 do (1) Sample training pair: (x0, y ) ∼ Dtrain .
+
+(2) Surrogate endpoint: ˜x1 ← Sample ˜θ (x0 | y, 0) .
+
+(3) Bridge state: τ ∼ Unif(0 , 1) and 
+
+˜xτ ← ΠCy
+
+ BrownianBridge( x0, ˜x1, τ ).
+
+(4) Reconstruction: ˆx1 ← Sample θ (˜ xτ | y, τ ).
+
+(5) Loss (Eq. (10) ) and update: θ ← θ − η∇θ L.
+
+end for end for Return: θ.
+
+Time-discretized hard-conditioned sampling. We dis-cretize the bridge-time τ ∈ [0 , 1] on a uniform grid τt = t · s
+
+for t = 0 , . . . , T with step size s = 1 /T . Given a state xτt ,each step performs a forward Euler update of the controlled drift followed by hard projection: 
+
+xτt+1 ← ΠCy
+
+ xτt + s v θ (xτt , τ t | y) + √εs z t, (14) where zt ∼ N (0 , I ). Because projection overwrites observed coordinates, we have xτt ∈ C y for all t. Following common inpainting practice, the network is fed the projected state (Liu et al., 2023; Lugmayr et al., 2022) together with a time embedding of τt.
+
+Surrogate bridge training with periodic refresh. At every C-th iteration (Algorithm 2), we refresh the static parameters ˜θ and draw a surrogate endpoint ˜x1 ∼ ˜π1(·| y)
+
+by running Sample ˜θ from x0 under hard conditioning. We then sample ˜xτ from the Brownian-bridge closed form in Eq. (2) with τ ∼ Unif(0 , 1) and project it to enforce 
+
+˜xτ ∈ C y . Starting from ˜xτ , the trainable sampler produces 
+
+ˆx1 = Sample θ (˜ xτ | y, τ ), and we update θ by minimiz-ing Eq. (10) . This can be viewed as learning a stochastic transport from an LF-induced prior toward an observation-conditioned feasible terminal law, with the PDE residual acting as an energy that shapes the terminal distribution, analogous to simulation-based Bayesian learning via diffu-sion bridges (Park et al., 2024). 
+
+# 5. Experiments 
+
+We evaluate PICSB on three PDE benchmarks—1D Burgers, 2D Darcy flow, and 2D Kolmogorov flow—under sparse-observation regimes. Throughout this section, we follow the abstract notation in Sections 3–4. PDEs are defined over a spatial coordinate ξ and a physical time variable γ. For dynamic systems, ξ denotes the spatial coordinate and γ
+
+denotes time; for steady-state problems, only ξ is used. To 5Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge          
+
+> Figure 2. Qualitative comparison of reconstructed fields under (R3). For Burgers and Darcy flow, a single test sample is shown. For Kolmogorov, a snapshot at γ= 0 .64 from the time horizon γ∈(0 ,1.25] is visualized. LF, sparse HF observations (obs.), PINNs, Guidance, and PICSB are compared against the HF reference (ref.). Zoomed-in regions highlight local reconstruction quality.
+
+avoid confusion with PDE-specific notation, we clarify that the reconstructed HF field x1 corresponds to the scalar so-lution field u for the Burgers and Darcy, whereas for the Kolmogorov benchmark it corresponds to the vorticity field 
+
+ω. For each benchmark, we generate 32 training pairs and 4
+
+test pairs. Implementation details and additional experimen-tal results are deferred to the appendix (App. B–C). 
+
+1D Burgers’ Equation. We consider the viscous Burgers’ equation on ξ ∈ (0 , 1) over the time horizon γ ∈ (0 , 1] ,
+
+∂γ u(ξ, γ ) + u(ξ, γ )∇u(ξ, γ ) = ν ∇2u(ξ, γ ),
+
+with initial condition u(ξ, 0) = u0(ξ). Following Huang et al. (2024), HF trajectories are generated by simulating the equation on a 512 × 512 space–time grid with viscos-ity νHF = 0 .01 , and then downsampling to a 128 × 128 
+
+grid. LF inputs are obtained by solving the same equation with a larger viscosity νLF = 0 .1 under the same initial condition, producing smoother dynamics and a systematic cross-fidelity bias. 
+
+Darcy Flow We consider the steady-state Darcy equation on ξ ∈ (0 , 1) 2:
+
+−∇ ·  a(ξ) ∇u(ξ) = f (ξ),
+
+where u(ξ) denotes the pressure field and a(ξ) is a spatially varying permeability coefficient. We assume a known gov-erning operator with Dirichlet boundary condition u(ξ) = 0 
+
+on ∂(0 , 1) 2 and constant forcing f (ξ) = 1 . The permeabil-ity field a(ξ) is provided for each sample, and all fields are represented on a 128 × 128 grid following Huang et al. 6Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge                                    
+
+> Table 2. Relative reconstruction error (in %) on the test set, re-ported as RelError in Eq. (15) under each observation regime (R1–R3). All values are averaged over the four test instances per PDE benchmark. For each task, the best-performing method is underlined , and the overall best result within each PDE benchmark is highlighted in bold .PDE TASK PINNs Guidance PICSB BURGERS
+> R1 8.29 0.99 2.59 R2 13.48 19.04 14.05 R3 11.79 10.66 14.25 DARCY R1 5.69 12.02 0.29 R3 5.64 27.39 0.28
+> KOLMOGOROV
+> R1 64.47 8.99 7.32
+> R2 65.20 10.62 8.66 R3 65.06 10.61 8.37
+
+(2024). HF references correspond to the PDE solution u(ξ)
+
+for the given a(ξ). LF inputs are constructed by applying nearest-neighbor interpolation to the sparse HF measure-ments, yielding a coarse proxy field. 
+
+2D Kolmogorov Flow We use the turbulent 2D Kol-mogorov flow dataset from Shu et al. (2023), also adopted in Li et al. (2025a). We consider the vorticity form of the Navier–Stokes dynamics on a periodic spatial domain 
+
+ξ = ( ξ1, ξ 2) ∈ (0 , 2π)2 over the time horizon γ ∈ (0 , 1.25] :
+
+∂γ ω(ξ, γ ) + v(ξ, γ ) · ∇ ω(ξ, γ ) = 1
+
+Re ∇2ω(ξ, γ ) + f (ξ, γ ),
+
+where ω(ξ, γ ) denotes the vorticity field and v(ξ, γ ) is the corresponding velocity field. Following Shu et al. (2023), we use the Reynolds number Re = 1000 and forcing 
+
+f (ξ, γ ) = −4 cos(4 ξ2)−0.1 ω(ξ, γ ). Spatial fields are dis-cretized on a 256 ×256 grid, and we use 40 uniformly spaced time frames over γ ∈ (0 , 1.25] . HF references are obtained from the provided simulations. LF inputs are constructed by subsampling sparse HF vorticity observations and applying bi-cubic interpolation to obtain a provisional full-field esti-mate. To evaluate physics consistency, we follow Li et al. (2025a) and compute PDE residuals from the vorticity equa-tion; under periodic boundary conditions, the velocity field is recovered from vorticity via the stream function ψ:
+
+v(ξ, γ ) = ∇ × ψ(ξ, γ ), ψ(ξ, γ ) = ∇−2ω(ξ, γ ).
+
+5.1. Baselines 
+
+To our knowledge, no existing method directly addresses our problem setting, which requires zero-shot reconstruction, 
+
+DA from sparse HF observations, and label-efficient training without full-field HF supervision (See Table 1). We therefore compare against two representative baselines that each relax one of these requirements. 
+
+Physics-Informed Neural Networks ( PINNs ). PINNs represent a class of re-optimization-based DA methods that  
+
+> Table 3. Average wall-time (seconds) for inference under (R3).
+
+PDE PINNs Guidance PICSB BURGERS 1733 174 0.023 
+
+DARCY 2682 173 0.023 
+
+KOLMOGOROV 10680 801 0.134 
+
+can assimilate sparse HF observations while explicitly en-forcing governing PDE constraints. In this baseline, the unknown solution field is parameterized by a neural net-work and its parameters are optimized at test time to (i) fit the sparse HF observations and (ii) minimize the PDE resid-ual over the domain. While PINNs support DA from sparse HF observations and are label-efficient, they require per-instance test-time optimization and therefore do not enable zero-shot inference. 
+
+Guidance-based sampling ( Guidance ). This baseline is adapted from PDE-guided diffusion frameworks (Huang et al., 2024), which perform conditional generation via inference-time residual guidance. Since full-grid HF fields are unavailable in our setting, we construct a label-efficient variant by pretraining the generative prior solely on full-grid LF fields. At inference time, sparse HF observations and PDE residuals are incorporated through gradient-based guidance during sampling, without requiring any full-field HF supervision. This variant enables zero-shot DA but re-laxes the label-efficiency requirement by relying on LF-only pretraining. 
+
+5.2. Observation regimes 
+
+We evaluate all methods under three observation regimes that differ in how the HF observation locations are selected. 
+
+(R1) Resampled observations. For dynamic problems (1D Burgers, 2D Kolmogorov), we independently resample a random 10% set of spatial locations at each physical time frame. For the steady Darcy problem, this corresponds to sampling a random 10% subset of grid points per sample. 
+
+(R2) Per-sample fixed sensor set. For dynamic problems, we draw one random 10% sensor set per trajectory and keep it fixed for all time frames of that trajectory, while different trajectories use different sensor sets. For Darcy, this setting coincides with (R1); thus we do not report a separate Darcy result for (R2). 
+
+(R3) Globally fixed sensor network. We choose a single 
+
+10% sensor set once and reuse it for all samples. For dy-namic problems, the same sensor coordinates are applied at every time frame. 
+
+5.3. Evaluation metric 
+
+We measure reconstruction accuracy using the relative L2
+
+error against the full-grid HF reference. For a predicted field 
+
+ˆx1 and its HF reference x1 (with x1 = u for Burgers/Darcy and x1 = ω for Kolmogorov), we compute 7Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+RelError = ∥ˆx1 − x1∥∥x1∥ . (15) For dynamic systems, we aggregate the error over all time frames. We report the average relative error (in %) over the four test instances. 
+
+5.4. Results 
+
+Table 2 reports the relative reconstruction error ( %) under three observation regimes (R1–R3), and Table 3 reports the average inference wall-time under the globally fixed sensor regime (R3). Figure 2 provides qualitative comparisons. 
+
+Accuracy. PICSB performs best on Darcy and Kol-mogorov, while remaining competitive on Burgers. For 
+
+Burgers , both LF-based amortized methods outperform 
+
+PINNs in (R1), indicating that an LF prior together with resampled observations provides sufficient information for accurate recovery. In this easiest regime, Guidance achieves the lowest error, suggesting that when the LF simulation yields a smoother trajectory and observations are dispersed over time, inference-time correction can effectively leverage the accumulated HF coverage. In the more stringent (R2– R3) regimes with fixed sensors, all methods degrade and the gap narrows, consistent with reduced spatial coverage and weaker identifiability from repeatedly observing the same coordinates. For Darcy , PICSB decisively outperforms both baselines. Here, the LF input is a nearest-neighbor interpo-lation of sparse measurements, which induces strong blocky artifacts. A prior pretrained on such LF fields ( Guidance )tends to remain biased toward this coarse manifold even after applying observation/PDE guidance, whereas PICSB learns to correct the interpolation-induced bias by shaping the terminal samples through physics-residual training under hard conditioning. For Kolmogorov , PICSB consistently improves over Guidance across all regimes and dramatically outperforms PINNs . In this turbulent, high-dimensional set-ting, per-instance optimization with PINNs under sparse sensors tends to converge to overly smooth solutions, and 
+
+Guidance is again limited by the quality of the interpolated LF proxy; in contrast, PICSB better preserves vortical struc-ture by directly biasing the learned transport toward PDE-consistent evolution while enforcing observations through-out sampling. 
+
+Time Complexity. PICSB is orders-of-magnitude faster than both baselines. PINNs require hour-level runtimes per sample due to per-instance optimization, while Guidance 
+
+still takes minutes because it relies on many diffusion steps with gradient-based guidance. In contrast, PICSB produces reconstructions in sub-second wall-time across all bench-marks, enabling time-critical DA where solutions must be generated within each update cycle. 
+
+Qualitative visualization. Figure 2 corroborates these trends under the globally fixed sensor regime (R3). For 
+
+Burgers , PINNs tend to over-smooth steep gradients, while PICSB recovers sharper shock-like transitions in the zoomed region. Guidance can appear comparably sharp in some cases, which is consistent with the LF Burgers trajectory providing a relatively smooth, structurally coherent proxy. For Darcy , Guidance outputs remain close to the nearest-neighbor-interpolated LF field, retaining blocky artifacts, whereas PICSB corrects these artifacts and better matches the HF reference. For Kolmogorov , PINNs again produce overly smooth vorticity fields and Guidance remains bi-ased toward the interpolated LF proxy, while PICSB better preserves coherent vortical structures and fine-scale details. Implementation details and additional experiments are pro-vided in App. B–C. 
+
+# 6. Conclusion 
+
+We studied multi-fidelity DA for PDE-governed systems in a practical regime where full-grid LF fields are avail-able, but training-time HF information is limited to sparse observations. To avoid per-instance test-time optimization and the common reliance on full-field HF supervision, we proposed the Physics-Informed Conditional Schr ¨odinger Bridge Model (PICSB), a guidance-free conditional trans-port framework that maps an LF input and sparse HF mea-surements to a distribution of physically consistent HF re-constructions. PICSB enforces observation feasibility via hard projection at every sampling step and shapes the termi-nal distribution using a physics-residual training objective, enabling efficient LF-to-HF correction under sparse super-vision. A key challenge in this regime is learning a bridge without access to HF endpoints. We addressed this by introducing an iterative surrogate-endpoint refresh scheme that maintains a slowly moving terminal reference distribution and supports stable bridge learning from physics residuals alone. Empiri-cally, PICSB achieves the strongest overall accuracy on the Darcy and Kolmogorov benchmarks and remains competi-tive on Burgers, while delivering orders-of-magnitude faster inference than both optimization-based and inference-time-guided diffusion baselines. In particular, PICSB produces sub-second reconstructions, making it compatible with time-critical DA scenarios where assimilation must be performed within each physical update cycle. Several directions are promising for future work. First, ex-tending PICSB to settings with unknown, partially known, or learned operators would broaden its applicability beyond the known-PDE regime. Second, incorporating noise-aware conditioning could improve robustness when HF measure-ments are severely noisy. Finally, broadening PICSB to accommodate less informative LF inputs at inference time is an important avenue for future research. 8Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+# Impact Statement 
+
+This paper presents work whose goal is to advance the field of Machine Learning. There are many potential societal consequences of our work, none which we feel must be specifically highlighted here. 
+
+# References 
+
+Benjamin, S. G., D ´ev ´enyi, D., Weygandt, S. S., Brundage, K. J., Brown, J. M., Grell, G. A., Kim, D., Schwartz, B. E., Smirnova, T. G., Smith, T. L., and Manikin, G. S. An hourly assimilation–forecast cycle: The ruc. Monthly Weather Review , 132(2):495 – 518, 2004. doi: 10.1175/ 1520-0493(2004)132 ⟨0495:AHACTR ⟩2.0.CO;2. Bortoli, V. D., Korshunova, I., Mnih, A., and Doucet, A. Schrodinger bridge flow for unpaired data translation. In 
+
+The Thirty-eighth Annual Conference on Neural Informa-tion Processing Systems , 2024. Buzzicotti, M. Data reconstruction for complex flows using ai: Recent progress, obstacles, and perspectives. Euro-physics Letters , 142(2):23001, 2023. Chakraborty, S. Transfer learning based multi-fidelity physics informed deep neural network. Journal of Com-putational Physics , 426:109942, 2021. Chen, W., Song, J., Ren, P., Subramanian, S., Morozov, D., and Mahoney, M. W. Data-efficient operator learning via unsupervised pretraining and in-context learning. In The Thirty-eighth Annual Conference on Neural Information Processing Systems , 2024. Cheng, C., Han, B., Maddix, D. C., Ansari, A. F., Stuart, A., Mahoney, M. W., and Wang, B. Gradient-free gen-eration for hard-constrained systems. In The Thirteenth International Conference on Learning Representations ,2025. Cho, W., Jo, M., Lim, H., Lee, K., Lee, D., Hong, S., and Park, N. Parameterized physics-informed neural networks for parameterized PDEs. In Forty-first International Con-ference on Machine Learning , 2024. Du, P., Parikh, M. H., Fan, X., Liu, X.-Y., and Wang, J.-X. Conditional neural field latent diffusion model for gener-ating spatiotemporal turbulence. Nature Communications ,15(1):10416, 2024. D’Elia, M., Perego, M., and Veneziani, A. A variational data assimilation procedure for the incompressible navier-stokes equations in hemodynamics. Journal of Scientific Computing , 52(2):340–359, 2012. Farchi, A., Chrust, M., Bocquet, M., Laloyaux, P., and Bonavita, M. Online model error correction with neural networks in the incremental 4d-var framework. Jour-nal of Advances in Modeling Earth Systems , 15(9): e2022MS003474, 2023. Fern ´andez-Godino, M. G. Review of multi-fidelity models. 
+
+Advances in Computational Science and Engineering , 1 (4), 12 2023. doi: 10.3934/acse.2023015. He, L., Qian, W., Zhao, T., and Wang, Q. Multi-fidelity aero-dynamic data fusion with a deep neural network modeling method. Entropy , 22(9):1022, 2020. Huang, J., Yang, G., Wang, Z., and Park, J. J. Diffusion-pde: Generative pde-solving under partial observation. 
+
+Advances in Neural Information Processing Systems , 37: 130291–130323, 2024. Huang, X. and Belongie, S. Arbitrary style transfer in real-time with adaptive instance normalization. In Proceed-ings of the IEEE international conference on computer vision , pp. 1501–1510, 2017. Jafarzadegan, K., Abbaszadeh, P., and Moradkhani, H. Sequential data assimilation for real-time probabilistic flood inundation mapping. Hydrology and Earth Sys-tem Sciences , 25(9):4995–5011, 2021. doi: 10.5194/ hess-25-4995-2021. Karras, T., Aittala, M., Aila, T., and Laine, S. Elucidating the design space of diffusion-based generative models. 
+
+Advances in neural information processing systems , 35: 26565–26577, 2022. Kou, J., Ning, C., and Zhang, W. Transfer learning for flow reconstruction based on multifidelity data. AIAA Journal ,60(10):5821–5842, 2022. Lemke, M. and Sesterhenn, J. Adjoint-based pressure deter-mination from piv data in compressible flows — valida-tion and assessment based on synthetic data. European Journal of Mechanics - B/Fluids , 58:29–38, 2016. ISSN 0997-7546. doi: https://doi.org/10.1016/j.euromechflu. 2016.03.006. Li, Z., Kovachki, N. B., Azizzadenesheli, K., liu, B., Bhat-tacharya, K., Stuart, A., and Anandkumar, A. Fourier neu-ral operator for parametric partial differential equations. In International Conference on Learning Representations ,2021. Li, Z., Dou, H., Fang, S., Han, W., Deng, Y., and Yang, L. Physics-aligned field reconstruction with diffusion bridge. In The Thirteenth International Conference on Learning Representations , 2025a. Li, Z., Lu, X., Zhao, X., Cheng, G., Deng, S., and Yin, J. Walking the schr ¨odinger bridge: A direct trajectory for text-to-3d generation. In The Thirty-ninth Annual 
+
+9Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Conference on Neural Information Processing Systems ,2025b. Liu, G.-H., Vahdat, A., Huang, D.-A., Theodorou, E. A., Nie, W., and Anandkumar, A. I2SB: image-to-image Schr ¨odinger bridge. In Proceedings of the 40th Interna-tional Conference on Machine Learning , 2023. Lugmayr, A., Danelljan, M., Romero, A., Yu, F., Timofte, R., and Van Gool, L. Repaint: Inpainting using denoising diffusion probabilistic models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 11461–11471, June 2022. Luo, X., Xu, W., Nadiga, B., Ren, Y., and Yoo, S. Contin-uous field reconstruction from sparse observations with implicit neural networks. In The Twelfth International Conference on Learning Representations , 2024. Mnih, V., Kavukcuoglu, K., Silver, D., Rusu, A. A., Veness, J., Bellemare, M. G., Graves, A., Riedmiller, M., Fidje-land, A. K., Ostrovski, G., et al. Human-level control through deep reinforcement learning. nature , 518(7540): 529–533, 2015. Moore, A. M., Martin, M. J., Akella, S., Arango, H. G., Balmaseda, M., Bertino, L., Ciavatta, S., Cornuelle, B., Cummings, J., Frolov, S., Lermusiaux, P., Oddo, P., Oke, P. R., Storto, A., Teruzzi, A., Vidard, A., and Weaver, A. T. Synthesis of ocean observations using data assimilation for operational, real-time and reanalysis systems: A more complete picture of the state of the ocean. Frontiers in Marine Science , Volume 6 - 2019, 2019. ISSN 2296-7745. doi: 10.3389/fmars.2019.00090. Niu, R., Wu, D., Kim, K., Ma, Y.-A., Watson-Parris, D., and Yu, R. Multi-fidelity residual neural processes for scal-able surrogate modeling. In Proceedings of the 41st In-ternational Conference on Machine Learning , pp. 38381– 38394, 2024. Park, B., Choi, J., Lim, S., and Lee, J. Stochastic optimal control for diffusion bridges in function spaces. In The Thirty-eighth Annual Conference on Neural Information Processing Systems , 2024. Peherstorfer, B., Willcox, K., and Gunzburger, M. Survey of multifidelity methods in uncertainty propagation, in-ference, and optimization. Siam Review , 60(3):550–591, 2018. Peluchetti, S. Diffusion bridge mixture transports, schr ¨odinger bridge problems and generative modeling. 
+
+Journal of Machine Learning Research , 24(374):1–51, 2023. Raissi, M., Perdikaris, P., and Karniadakis, G. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. ISSN 0021-9991. doi: https://doi.org/10.1016/j.jcp.2018.10.045. Rozet, F. and Louppe, G. Score-based data assimilation. 
+
+Advances in Neural Information Processing Systems , 36: 40521–40541, 2023. Shi, Y., De Bortoli, V., Deligiannidis, G., and Doucet, A. Conditional simulation using diffusion Schr ¨odinger bridges. In Cussens, J. and Zhang, K. (eds.), Proceedings of the Thirty-Eighth Conference on Uncertainty in Artifi-cial Intelligence , volume 180 of Proceedings of Machine Learning Research , pp. 1792–1802. PMLR, 01–05 Aug 2022. Shi, Y., Bortoli, V. D., Campbell, A., and Doucet, A. Dif-fusion schr ¨odinger bridge matching. In Thirty-seventh Conference on Neural Information Processing Systems ,2023. Shu, D., Li, Z., and Farimani, A. B. A physics-informed diffusion model for high-fidelity flow field reconstruction. 
+
+Journal of Computational Physics , 478:111972, 2023. Shysheya, A., Diaconu, C., Bergamin, F., Perdikaris, P., Hern ´andez-Lobato, J. M., Turner, R., and Mathieu, E. On conditional diffusion models for pde simulations. Ad-vances in Neural Information Processing Systems , 37: 23246–23300, 2024. Stuart, A. M. Inverse problems: a bayesian perspective. Acta numerica , 19:451–559, 2010. Utkarsh, U., Cai, P., Edelman, A., Gomez-Bombarelli, R., and Rackauckas, C. V. Physics-constrained flow match-ing: Sampling generative models with hard constraints. In The Thirty-ninth Annual Conference on Neural Infor-mation Processing Systems , 2025. Wang, Y., Li, J., Zhao, W., Navon, I., and Lin, G. Accel-erating inverse inference of ensemble kalman filter via reduced-order model trained using adaptive sparse obser-vations. Journal of Computational Physics , 496:112600, 2024. ISSN 0021-9991. doi: https://doi.org/10.1016/j.jcp. 2023.112600. Xu, Q. and Li, Z. Partial physics informed diffusion model for ocean chlorophyll concentration reconstruction. In 
+
+The Thirty-ninth Annual Conference on Neural Informa-tion Processing Systems , 2025. Zauner, M., Mons, V., Marquet, O., and Leclaire, B. Nudging-based data assimilation of the turbulent flow around a square cylinder. Journal of Fluid Mechanics ,937:A38, 2022. doi: 10.1017/jfm.2022.133. 10 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Zhou, H., Cheng, S., and Arcucci, R. Multi-fidelity physics constrained neural networks for dynamical systems. Com-puter Methods in Applied Mechanics and Engineering ,420:116758, 2024. 11 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+# A. Supplementary for Section 4 
+
+A.1. Proof of Proposition 4.1 Lemma A.1 (Existence of a localization gap) . Fix y and define f (x) := ∥R h(x)∥. Let K ⊆ C y be a compact set and assume that f is continuous on K and admits a unique minimizer: there exists a unique x⋆ 
+
+> 1
+
+∈ K such that 
+
+f (x⋆
+
+> 1
+
+) = min  
+
+> x∈K
+
+f (x) = δ⋆
+
+> K
+
+(y; h).
+
+For any ρ ∈  0, sup z∈K ∥z − x⋆
+
+> 1
+
+∥, define the neighborhood 
+
+Uρ := {x ∈ K : ∥x − x⋆
+
+> 1
+
+∥ ≤ ρ}.
+
+Then the quantity 
+
+¯β(ρ) := min 
+
+> x∈K\U ρ
+
+
+
+f (x) − δ⋆
+
+> K
+
+(y; h)
+
+
+
+is well-defined and satisfies ¯β(ρ) > 0. Consequently, for any 0 < β ≤ ¯β(ρ),
+
+x ∈ K \ U ρ =⇒ f (x) ≥ δ⋆
+
+> K
+
+(y; h) + β. 
+
+Proof. 
+
+Since K is compact and f is continuous, f attains its minimum on K by the Weierstrass extreme value theorem, and by assumption the minimizer is unique at x⋆
+
+> 1
+
+.The set K \ U ρ is compact. Indeed, the set {x ∈ Rn : ∥x − x⋆
+
+> 1
+
+∥ ≥ ρ} is closed, and hence 
+
+K \ U ρ = K ∩ { x : ∥x − x⋆
+
+> 1
+
+∥ ≥ ρ}
+
+is a closed subset of the compact set K, and therefore compact. Since f (x) ≥ δ⋆
+
+> K
+
+(y; h) for all x ∈ K , we have f (x) − δ⋆
+
+> K
+
+(y; h) ≥ 0 on K \ U ρ. Thus the continuous function x 7 →
+
+f (x) − δ⋆
+
+> K
+
+(y; h) attains its minimum on K \ U ρ, so ¯β(ρ) is well-defined and satisfies ¯β(ρ) ≥ 0.To show ¯β(ρ) > 0, assume for contradiction that ¯β(ρ) = 0 . Then by definition of the minimum, there exists ¯x ∈ K \ U ρ
+
+such that f (¯ x) = δ⋆
+
+> K
+
+(y; h). Since ¯x / ∈ U ρ, we have ¯x̸ = x⋆
+
+> 1
+
+, which contradicts the uniqueness of the minimizer. Hence 
+
+¯β(ρ) > 0.
+
+Proposition 4.1 (Stability under identifiability) . Fix y and assume the continuous PDE admits a unique observation-consistent solution x⋆ 
+
+> 1
+
+∈ C y . Assume that local identifiability holds in a neighborhood of x⋆
+
+> 1
+
+, with constants c > 0 and η(h),and that the residual sublevel sets are localized with constant β > 0. Then any ˆx1 ∈ C y satisfying ∥R h(ˆ x1)∥ ≤ δ for some 
+
+δ ≤ δ⋆(y; h) + β obeys 
+
+∥ˆx1 − x⋆
+
+> 1
+
+∥ ≤ c(δ − δ⋆(y; h)) + η(h). (16) 
+
+Proof. 
+
+Fix y and let x⋆ 
+
+> 1
+
+∈ C y denote the unique observation-consistent solution. Recall the residual floor on Cy ,
+
+δ⋆(y; h) := inf 
+
+> x∈C y
+
+∥R h(x)∥.
+
+We now make the assumptions in the statement precise. 
+
+Assumption A.2 (Local identifiability) . There exist ρ > 0, a constant c > 0, and a function η(h) ≥ 0 with η(h) → 0 as 
+
+h → 0 such that, for the neighborhood 
+
+U := {x ∈ Rn : ∥x − x⋆
+
+> 1
+
+∥ ≤ ρ},
+
+the following holds for all x ∈ U ∩ C y :
+
+∥x − x⋆
+
+> 1
+
+∥ ≤ c ∥R h(x)∥ − δ⋆(y; h) + η(h). (17) 12 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Deriving a localization constant on a compact relevant set. Let K ⊆ C y be a compact set that contains ˆx1, and define 
+
+δ⋆
+
+> K
+
+(y; h) := min  
+
+> x∈K
+
+∥R h(x)∥.
+
+Assume that x⋆ 
+
+> 1
+
+is the unique minimizer of f (x) := ∥R h(x)∥ over K. For the same ρ > 0 as above, Lemma A.1 yields a constant 
+
+β := ¯β(ρ) > 0 such that inf  
+
+> x∈K\U
+
+∥R h(x)∥ ≥ δ⋆
+
+> K
+
+(y; h) + β. 
+
+Equivalently, we may record this as the following localization inequality: 
+
+inf  
+
+> x∈K\U
+
+∥R h(x)∥ ≥ δ⋆
+
+> K
+
+(y; h) + β. (18) Now let ˆx1 ∈ K satisfy ∥R h(ˆ x1)∥ ≤ δ for some 
+
+δ ≤ δ⋆
+
+> K
+
+(y; h) + β. 
+
+We first show that ˆx1 ∈ U . If ˆx1 /∈ U , then ˆx1 ∈ K \ U and (18) gives 
+
+∥R h(ˆ x1)∥ ≥ inf  
+
+> x∈K\U
+
+∥R h(x)∥ ≥ δ⋆
+
+> K
+
+(y; h) + β, 
+
+contradicting ∥R h(ˆ x1)∥ ≤ δ ≤ δ⋆
+
+> K
+
+(y; h) + β. Therefore ˆx1 ∈ U .Since ˆx1 ∈ U ∩ C y , we may apply (17) with x = ˆ x1:
+
+∥ˆx1 − x⋆
+
+> 1
+
+∥ ≤ c ∥R h(ˆ x1)∥ − δ⋆(y; h) + η(h).
+
+Using ∥R h(ˆ x1)∥ ≤ δ yields 
+
+∥ˆx1 − x⋆
+
+> 1
+
+∥ ≤ c(δ − δ⋆(y; h)) + η(h),
+
+which proves the claim. The intuition regarding the upper bound on the difference between ˆx1 and x∗ 
+
+> 1
+
+is as follows. First, the upper bound tends to increase as the fidelity of the target PDE becomes higher (HF). Conversely, the bound decreases as the spatial resolution is refined or the time interval narrows. We provide a theoretical verification of these intuitions specifically within the context of the Burgers’ equation. 
+
+Proposition A.3 (Error Bound Stability of 1D Burgers’ Equation) . Suppose the observation constraint set Cy ensures the unique existence of a solution. Let x∗ be the true state and ˆx be the approximate state. Let δ′′ = ∥R (ˆ x) − R (x∗)∥ denote the residual difference. Then, there exists a state error bound function ϵ(δ′′ , PDE fidelity , h ) such that: 
+
+∥ˆx − x∗∥ < ϵ (δ′′ , PDE fidelity , h ) (19) 
+
+where h is the scaling of grid. The error bound ϵ satisfies: 
+
+• ∂ϵ ∂δ ′′ > 0: The bound is monotonically increasing with respect to the residual difference. 
+
+• ϵ increases as the PDE exhibits higher frequency (HF) component 
+
+• ∂ϵ ∂h < 0: As the grid resolution increases ( h → 0), the bound ϵ tends to decrease. Proof. 
+
+To establish the stability-based error bound for the 1D Burgers’ equation, we analyze the relationship between the state error and the residual difference through the following four steps. 13 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+1. Residual and Jacobian Formulation: We consider the discretized residual operator R(x) on a spatio-temporal grid 
+
+(i, j ):
+
+R(xi,j ) = xi,j − xi,j −1
+
+∆t + xi,j 
+
+xi+1 ,j − xi−1,j 
+
+2h − ν xi+1 ,j − 2xi,j + xi−1,j 
+
+h2 (20) Linearizing R around the reference state yields the Jacobian matrix J = 1∆t I + A + D, where D is the symmetric diffusion matrix with Di,i = 2νh2 and Di,i ±1 = − νh2 , and A is the non-symmetric advection matrix capturing local transport. 
+
+2. Spectral Analysis of Spatial Operators: We estimate the lower bound of the minimum eigenvalue of the spatial operator 
+
+M = A+D using the Gershgorin Circle Theorem. For each row i, the Gershgorin disc is centered at Mi,i = 2νh2 + xi+1 −xi−1
+
+> 2h
+
+with radius Ri = |− νh2 + xi 
+
+> 2h
+
+|+|− νh2 − xi 
+
+> 2h
+
+|. Under the refinement condition h < 2ν/ |xi|, the radius reduces to Ri = 2 ν/h 2.By incorporating the global spectral property of the Laplacian ν( πL )2, we obtain a refined lower bound: 
+
+λmin (A + D) ≈ ν
+
+ πL
+
+2
+
++ min 
+
+> i
+
+ xi+1 ,j − xi−1,j 
+
+2h
+
+
+
+(21) 
+
+3. Norm Inequality and Stability Bound: Let e = ˆ x − x∗ be the state error. Applying a first-order Taylor expansion, the residual difference δ′′ = ∥R (ˆ x) − R (x∗)∥ is approximated by ∥J(x∗) · e∥. Using the matrix norm property ∥Je ∥ ≥ 
+
+σmin (J)∥e∥ and approximating the minimum singular value as σmin (J) ≈ 1∆t + λmin (A + D), we derive the stability bound. 
+
+4. Final Error Bound and Interpretation: Combining the above results, we arrive at the final upper bound for the state error: 
+
+∥ˆx − x∗∥ ≤ δ′′  
+
+> 1∆t
+
++ ν   πL
+
+2 + min i
+
+ xi+1 ,j −xi−1,j 
+
+> 2h
+
+ (22) This bound validates our intuition: as ν → 0 (High Fidelity), the diffusive term vanishes and the bound increases. Conversely, as ∆t → 0 (Higher Resolution), the temporal term 1∆t dominates, effectively suppressing the state error. 14 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+A.2. Proof of Proposition 4.2 Lemma A.4 (Hard observation feasibility) . Suppose Sample θ applies the coordinate projection ΠCy at every discretized step. Then its terminal output x1 = Sample θ (x0 | y, 0) satisfies x1 ∈ C y , i.e., H(x1) = y (if Sample θ is randomized). Proof. At each discretized step, the projection ΠCy overwrites the observed coordinates so that the state lies in Cy = {x :
+
+H(x) = y}. By induction over the sampling steps, all intermediate states, and in particular the terminal state, belong to Cy .Hence H(x1) = y.
+
+Lemma A.5 (Existence of an inner-loop minimizer) . Fix y and a reference law ˜π(· | y). Assume J˜π : Θ → R is lower semi-continuous and bounded below, where 
+
+J˜π (θ) := E∥R h(ˆ x1(θ)) ∥, ˆx1(θ) = Sample θ (˜ xτ | y, τ ).
+
+Assume moreover that there exists θ0 ∈ Θ such that the sublevel set 
+
+S := {θ ∈ Θ : J˜π (θ) ≤ J˜π (θ0)}
+
+is nonempty and compact. Then argmin θ∈ΘJ˜π (θ) is nonempty. Proof. We first restate the assumptions in a form used below. 
+
+Lower semi-continuity: for every θ ∈ Θ and every sequence {θk} ⊂ Θ with θk → θ, we have 
+
+J˜π (θ) ≤ lim inf  
+
+> k→∞
+
+J˜π (θk). (23) 
+
+Bounded below: there exists L ∈ R such that 
+
+J˜π (θ) ≥ L for all θ ∈ Θ. (24) Hence m := inf θ∈Θ J˜π (θ) is finite. By definition of m, there exists a sequence {θn} ⊂ Θ such that 
+
+J˜π (θn) → m as n → ∞ . (25) Since J˜π (θ0) ≥ m, the convergence (25) implies that there exists N ∈ N such that for all n ≥ N ,
+
+J˜π (θn) ≤ J˜π (θ0),
+
+hence θn ∈ S for all n ≥ N by definition of S.Because S is compact, the tail sequence {θn}n≥N ⊂ S admits a convergent subsequence: there exist indices nk ≥ N and 
+
+θ⋆ ∈ S such that 
+
+θnk → θ⋆ as k → ∞ .
+
+Applying lower semi-continuity (23) to the convergent subsequence gives 
+
+J˜π (θ⋆) ≤ lim inf  
+
+> k→∞
+
+J˜π (θnk ).
+
+Since J˜π (θn) → m along the full sequence, the subsequence also satisfies J˜π (θnk ) → m, hence lim inf k→∞ J˜π (θnk ) = m.Therefore, 
+
+J˜π (θ⋆) ≤ m. 
+
+On the other hand, by definition of m as the infimum over Θ, we have m ≤ J˜π (θ⋆). Combining the two inequalities yields 
+
+J˜π (θ⋆) = m.Thus θ⋆ attains the minimum of J˜π over Θ, i.e., θ⋆ ∈ argmin θ∈ΘJ˜π (θ), proving that argmin θ∈ΘJ˜π (θ)̸ = ∅.15 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Proposition 4.2 (Self-consistency at a fixed point) . Consider the sequence {˜π(k)1 }k≥0 generated by Algorithm 2. Assume 
+
+Rh is Lipschitz on the relevant support and the model class for vθ is sufficiently expressive. Assume further that each refresh round performs exact inner-loop optimization. If ˜π(k)1 ≡ ˜π(k+1) 1 ≡ ˜π∞ 
+
+> 1
+
+, then samples ˜x1 ∼ ˜π∞ 
+
+> 1
+
+(· | y) satisfy 
+
+H(˜ x1) = y and E
+
+h
+
+∥R h(˜ x1)∥
+
+i
+
+= inf  
+
+> θ
+
+E
+
+h
+
+∥R h(ˆ x1)∥
+
+i
+
+, (26) where ˆx1 = Sample θ (˜ xτ | y, τ ) is defined using the fixed reference ˜π∞ 
+
+> 1
+
+(· | y) as in Algorithm 2, with expectation over the sampling randomness. 
+
+Proof. 
+
+At refresh round k + 1 , the surrogate terminal law ˜π(k+1) 1 (· | y) is, by definition, the distribution of ˜x1 = Sample ˜θ (x0 | y, 0) 
+
+under hard conditioning (Algorithm 2). Lemma A.4 therefore implies H(˜ x1) = y for ˜x1 ∼ ˜π(k+1) 1 (· | y). If ˜π(k+1) 1 ≡ ˜π∞ 
+
+> 1
+
+,this gives the first claim in (26). Fix the reference law ˜π∞ 
+
+> 1
+
+(· | y) and define the fixed-reference objective 
+
+J∞(θ) := J˜π∞ 
+
+> 1
+
+(θ) = E
+
+h
+
+∥R h(ˆ x1)∥
+
+i
+
+, ˆx1 = Sample θ (˜ xτ | y, τ ),
+
+where the expectation is taken over all randomness in the sampling procedure under the fixed reference ˜x1 ∼ ˜π∞ 
+
+> 1
+
+(· | y).By Lemma A.5 (applied with ˜π = ˜ π∞ 
+
+> 1
+
+), the set argmin θ∈ΘJ∞(θ) is nonempty; let θ⋆ ∈ argmin θ∈ΘJ∞(θ). This ensures that, for the fixed reference law ˜π∞ 
+
+> 1
+
+(· | y), the refresh step of Algorithm 2 is well-defined and induces a deterministic update of the surrogate terminal law. A fixed point corresponds to a reference law that is invariant under this update. Now suppose we are at a fixed point ˜π(k)1 ≡ ˜π(k+1) 1 ≡ ˜π∞ 
+
+> 1
+
+. Then the round-k objective coincides with J∞ by construction of Algorithm 2. By the exact inner-loop optimization assumption, the update selects a global minimizer of the round-k
+
+objective, hence we may take the refreshed parameters θ(k+1) to satisfy 
+
+θ(k+1) ∈ argmin θ∈ΘJ∞(θ).
+
+Therefore, 
+
+E
+
+h
+
+∥R h(˜ x1)∥
+
+i
+
+= J∞(θ(k+1) ) = inf  
+
+> θ∈Θ
+
+J∞(θ) = inf  
+
+> θ∈Θ
+
+E
+
+h
+
+∥R h(ˆ x1)∥
+
+i
+
+,
+
+which is exactly the second claim in (26). 16 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+# B. Supplementary for Section 5 
+
+B.1. Implementation Details 
+
+PICSB parameterizes the velocity network vθ (x, cond) using an AdaIN-conditioned U-Net whose overall architecture is based on Bortoli et al. (2024). The network takes as input the current state xτt and a conditioning vector cond . The condi-tioning vector cond = MLP( τt) is generated by a time-embedding network that encodes the diffusion time. Conditioning is injected through Adaptive Instance Normalization (AdaIN((Huang & Belongie, 2017))) in the encoder blocks, enabling the drift to vary with diffusion time while keeping the model fully convolutional over the spatial grid. 
+
+Input representation. Depending on the benchmark, the input field xτt is represented using different tensor encodings. For the Burgers’ equation and Darcy flow, the field is represented as a single channel tensor of shape xτt ∈ RB×1×H×W .For the Kolmogorov flow, the temporal dimension is encoded along the channel axis, resulting in a tensor representation 
+
+xτt ∈ RB×C×H×W , where C denotes the number of time frames and is set to 40 in our experiments. Sparse observations are represented by a boolean mask M with the same shape as xτt , and the corresponding observed values are denoted by y.Hard conditioning is enforced by overwriting the observed entries at every update according to 
+
+xτt ← M ⊙ y + (1 − M) ⊙ xτt ,
+
+which ensures that the observed locations remain fixed throughout both training and sampling. 
+
+AdaIN conditioning. Given an activation tensor xτt ∈ RB×C×H×W and a conditioning vector cond ∈ RB×dcond (dcond 
+
+corresponds to the time embedding dimension), AdaIN injects the conditioning information through channel-wise affine transformations. Specifically, the conditioning vector is linearly projected to produce a pair of scale and shift parameters, 
+
+(γ, β ) = Linear(cond) ∈ RB×(2 C), γ, β ∈ RB×C ,
+
+which are then reshaped to (B, C, 1, 1) and applied to the normalized activations as 
+
+AdaIN( xτt , cond) = γ ⊙ IN( xτt ) + β. 
+
+Here, IN( ·) denotes instance normalization, which normalizes each channel independently using per-sample spatial statistics. By modulating feature statistics in this manner, AdaIN enables the velocity field to vary smoothly with diffusion time while preserving a fully convolutional structure over the spatial grid. 
+
+Network architecture and training hyperparameters. Table 4 summarizes the key architectural and training hyperpa-rameters used for PICSB across all PDE benchmarks. All benchmarks share the same AdaIN-conditioned U-Net backbone; the only benchmark-specific differences are the input/output channel dimensionality, the learning rate used for optimization, and the gradient clipping threshold. The time-embedding network is implemented as a two-layer MLP with a hidden dimension of 16 .All models are trained using a fixed solver discretization with 10 bridge-time steps and a constant noise scale ϵ = 10 −2, and the same settings are used during inference-time sampling to ensure consistency between training and inference dynamics. A refresh period is set to 100 , meaning that the corresponding refresh operation is performed every 100 training iterations, resulting in a total of 100 refreshes over 10 ,000 training iterations. To stabilize optimization under different PDE scalings, gradient clipping is applied during training: for the Burgers and Kolmogorov benchmarks, gradients of both the velocity network and the time-embedding network are clipped with a maximum norm of 1, whereas for the Darcy benchmark—which exhibits significantly different scaling due to the elliptic operator and permeability coefficient—a much smaller clipping threshold of 10 −5 is used. These settings were found to be crucial for stable training across all benchmarks. 
+
+PINNs. We implement the PINNs baseline as a coordinate-based MLP that parameterizes the unknown solution field as 
+
+uϕ(ξ, γ ) (or uϕ(ξ) for steady-state), and optimizes the network parameters independently for each test instance using Adam for 100 k steps (Table 5). The MLP consists of stacked fully connected layers with tanh activations and Xavier initialization, and its input dimensionality is benchmark-dependent: (ξ, γ ) for Burgers and Darcy, and (ξ1, ξ 2, γ ) for Kolmogorov, while the output is always scalar-valued. At each optimization step, the loss is a weighted sum of an observation-fitting term and a physics residual term, λobs Lobs +
+
+λphys Lphys , where Lphys is computed by evaluating the governing PDE residual at Ncolloc collocation points via a dedicated physics-loss routine. For the observation term, we fit the network to the available sparse HF observations. 17 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Table 4. PICSB architectural and training hyperparameters used for each PDE benchmark. All benchmarks share the same network architecture and training schedule, except for the input/output channel dimensionality and learning rate. The table summarizes the key structural and optimization-related hyperparameters that define the PICSB model. PDE ENC . CH . DEC . CH . #E NC . #D EC . KERNEL dcond BRIDGE -TIME STEPS ϵ LR TRAIN ITERS .BURGERS 128 , 256 256 , 128 2 2 3 × 3 8 10 10 −2 10 −3 100 K                            
+
+> DARCY 128 ,256 256 ,128 223×3810 10 −210 −6100 K
+> KOLMOGOROV 128 ,256 256 ,128 223×3810 10 −210 −3100 K
+
+For Darcy, Dirichlet boundary conditions are explicitly enforced by sampling Nbc boundary coordinates on ∂(0 , 1) 2 and adding an extra boundary penalty weighted by λbc . To stabilize optimization under Darcy’s scaling, we additionally apply gradient clipping with a maximum norm of 10 −5 during each training step, whereas the other benchmarks do not require this clipping. After optimization, we recover the full-grid field by evaluating the trained coordinate MLP on a dense coordinate mesh. 
+
+Table 5. PINNs architectural and optimization hyperparameters used for each PDE benchmark. The table summarizes the key structural and optimization-related hyperparameters that define the PINNs baseline, with Darcy-specific stabilization settings reported in the last column. PDE Hidden dim Depth Ncolloc λobs λphys LR Epochs Extra settings Burgers 512 6 8192 1.0 1.0 10 −3 100k –Darcy 512 6 8192 1.0 1.0 10 −3 100k λbc =1 , N bc =2048 , grad clip (1e-5) Kolmogorov 256 4 8192 1.0 1.0 10 −3 100k –
+
+Guidance-based sampling ( Guidance ). We implement an inference-time guidance baseline adapted from PDE-guided diffusion pipelines (Huang et al., 2024), in which conditional generation is achieved by augmenting an unconditional EDM sampler with gradient-based corrections derived from sparse HF observations and PDE residuals. Since full-grid HF trajectories are unavailable for training in our multi-fidelity setting, the generative prior is pretrained solely on full-grid LF fields, and HF information is incorporated only at inference time through guidance. Given an EDM noise schedule (σmin , σ max , ρ ) and a fixed number of sampling steps, each sampling step first performs a standard EDM update consisting of an Euler step followed by a second-order correction (Karras et al., 2022), producing a proposal state xt. Guidance is then applied by differentiating scalar loss functions with respect to the current iterate and updating the state along the resulting gradients. Across all benchmarks, both the observation loss and the physics loss are computed using ℓ2 norms of their respective residuals. The observation term penalizes mismatches between the current field and the sparse HF measurements, while the physics term penalizes violations of the governing PDE evaluated on the current field. During sampling, gradients of these losses with respect to xt are used to steer the trajectory toward observation-consistent and physically plausible solutions. For the Burgers and Kolmogorov benchmarks, guidance is applied in a stage-wise manner. During the early portion of the sampling trajectory, only observation guidance is used to rapidly align the generated samples with the sparse HF measurements. After a 80% of the total sampling steps, PDE guidance is activated, and the update combines a reduced observation step with an additional physics-based correction. The corresponding weights (λobs , λ phys ) are reported in Table 6. For Darcy, additional stabilization is required due to the markedly different scaling induced by the elliptic operator and the spatially varying permeability field. In this case, boundary consistency is explicitly enforced during sampling by introducing a boundary residual term defined on a boundary mask. Separate step sizes are used for observation, PDE, and boundary guidance, and the corresponding gradients are optionally normalized and clipped to improve robustness under varying state scales. These Darcy-specific settings are also summarized in Table 6. 
+
+B.2. Additional Experimental Results 
+
+B.2.1. A DDITIONAL QUALITATIVE VISUALIZATIONS FOR THE MAIN EXPERIMENTS 
+
+We present additional qualitative visualizations of PICSB for the main experiments. Figure 3 and Figure 4 report reconstruc-tion results for the Burgers and Darcy benchmarks, respectively, while Figures 5–7 visualize the Kolmogorov benchmark at 18 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Table 6. Guidance-based sampling hyperparameters used for each PDE benchmark. All benchmarks use the same noise schedule parameters 
+
+(σmin , σ max , ρ ) and the same number of sampling iterations. Observation and PDE guidance are applied in a stage-wise manner, while Darcy additionally employs boundary guidance with separate step sizes. PDE Sampling steps σmin σmax ρ λobs λphys λbc 
+
+## Burgers 2000 0.002 80 7 320 100 –Darcy 2000 0.002 80 7 10 −3 10 −1 10 −1
+
+## Kolmogorov 2000 0.002 80 7 3.2 × 10 6 1000 –
+
+Figure 3. Additional visualization illustrating reconstruction performance for Burgers’ equation. Each row corresponds to a different test sample. Columns show the sparse HF observations used for conditioning (obs.), the LF input, reconstructions obtained under different reconstruction regimes (R1–R3), and the HF reference solution (ref.). Relative reconstruction errors are reported below each reconstructed field. 
+
+multiple representative temporal frames. All figures report reconstruction results across all regimes (R1–R3) and all test samples (four instances), together with the corresponding HF reference solutions. Reported relative errors are computed per sample and shown below each reconstructed field. B.2.2. I NFERENCE DYNAMICS COMPARISON BETWEEN PICSB AND GUIDANCE 
+
+This section provides a comparison of inference dynamics between PICSB and the guidance-based diffusion baseline. Figures 8, 9, and 10 visualize the evolution of reconstructed fields for the Burgers, Darcy, and Kolmogorov (frame 20), respectively. Across all benchmarks, the guidance-based sampling method relies on a long diffusion trajectory with hundreds to thousands of sampling steps before meaningful large-scale structures emerge. During early and intermediate stages of sampling, the reconstructed fields remain dominated by noise, and coherent solution structures typically emerge only appear near the end of the diffusion process. In contrast, PICSB directly transports the LF prior toward the observation-conditioned HF posterior through a Schr ¨odinger bridge formulation. As a result, physically consistent large-scale structures are recovered within a significantly smaller number of inference steps. Intermediate states produced by PICSB remain stable and structured throughout the inference trajectory, demonstrating a substantial improvement in inference efficiency compared to diffusion-based guidance sampling. B.2.3. I NFERENCE WITH REDUCED OBSERVATION AVAILABILITY 
+
+In this experiment, we investigate the robustness of PICSB to further reductions in observation availability at inference time, while keeping the LF prior and the trained model fixed. All models are trained using the same LF–HF pairs described in Section 5 and are optimized with sparse HF observations covering 10% of the spatial grid. 19 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 4. Additional visualization illustrating reconstruction performance for Darcy flow. Each row corresponds to a different test sample. Columns show the sparse HF observations used for conditioning (obs.), the LF input, reconstructions obtained under different reconstruction regimes (R1–R3), and the HF reference solution (ref.). Relative reconstruction errors are reported below each reconstructed field. 
+
+Figure 5. Additional visualization illustrating reconstruction performance for Kolmogorov flow at frame 1. Each row corresponds to a different test sample. Columns show the sparse HF observations used for conditioning (obs.), the LF input, reconstructions obtained under different reconstruction regimes (R1–R3), and the HF reference solution (ref.). Relative reconstruction errors are reported below each reconstructed field. 
+
+At inference time, instead of providing the full 10% observation set used during training, we deliberately subsample this set and condition the model on only a fraction of the available measurements. Specifically, we randomly retain either 50% or 
+
+10% of the original observation locations, corresponding to conditioning on 5% and 1% of the full grid, respectively. This setup allows us to isolate the effect of reduced observational information during inference without changing the learned LF-to-HF transport mechanism. Figure 12 shows reconstruction results for the Burgers’ equation across all observation regimes (R1–R3) and all test samples. When only 1% of observations are provided, reconstruction quality degrades noticeably across all regimes, with increased 20 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 6. Additional visualization illustrating reconstruction performance for Kolmogorov flow at frame 20. Each row corresponds to a different test sample. Columns show the sparse HF observations used for conditioning (obs.), the LF input constructed from sparse observations via interpolation, reconstructions obtained under different reconstruction regimes (R1–R3), and the HF reference solution (ref.). Relative reconstruction errors are reported below each reconstructed field. 
+
+Figure 7. Additional visualization illustrating reconstruction performance for Kolmogorov flow at frame 38. Each row corresponds to a different test sample. Columns show the sparse HF observations used for conditioning (obs.), the LF input constructed from sparse observations via interpolation, reconstructions obtained under different reconstruction regimes (R1–R3), and the HF reference solution (ref.). Relative reconstruction errors are reported below each reconstructed field. 
+
+bias and loss of sharp transition structure. When 5% of observations are available, reconstruction quality is consistently better than in the 1% setting, indicating that increased observation availability alleviates some of the degradation caused by extreme sparsity. However, the reconstructed fields still exhibit discrepancies from the HF reference, and the overall reconstruction quality remains limited. Moreover, this behavior is primarily observed for the Burgers equation; for more complex systems such as Darcy and Kolmogorov, inference with 5% or fewer observations is largely unsuccessful without additional adaptation. These observations suggest that, while PICSB can partially tolerate reduced observation availability at inference time, simply subsampling the observation set without modifying the trained model is insufficient for reliably handling more complex dynamics. Motivated by this limitation, we further investigate whether finetuning can improve inference under severely 21 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 8. Inference dynamics comparison between PICSB and guidance-based sampling for Burgers’ equation. 
+
+22 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 9. Inference dynamics comparison between PICSB and guidance-based sampling for Darcy flow. 
+
+23 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 10. Inference dynamics comparison between PICSB and guidance-based sampling for Kolmogorov flow at frame 20. 
+
+24 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 11. Reconstruction results under 5% sparse observations for the Burgers’ equation. 
+
+Figure 12. Reconstruction results under 1% sparse observations for the Burgers’ equation. 
+
+reduced observation regimes in Section C.2. 25 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+# C. Supplementary Experiments 
+
+C.1. Inference under Noisy Sparse Observations 
+
+In this experiment, we compare PICSB with guidance-based sampling under inference-time noise corruption in sparse HF observations. For PICSB, we use the same pretrained models as in the main experiments (Section 5), without any retraining or finetuning. At inference time, Gaussian noise is added to the sparse HF observations as 
+
+ϵ ∼ N (0 , σ 2), σ = α · std( data ),
+
+where the noise level α is set to 1% , 3% , 5% , 10% , and 15% .For Darcy and Kolmogorov, the noisy sparse HF observations are interpolated to construct the corresponding LF inputs using the same interpolation schemes as in the main experiments (nearest-neighbor for Darcy and bi-cubic for Kolmogorov). These noisy LF inputs are then provided to PICSB, while the noisy sparse HF observations are enforced via hard conditioning. For Burgers, no interpolation-based LF construction is involved, and the original LF inputs from the main experiments are used; only the hard conditioning is applied using the noisy sparse HF observations. For guidance-based sampling, the same LF-pretrained models are used. During inference, guidance is applied using the noisy sparse HF observations, following the standard guidance formulation without any additional noise-aware modification. Both methods are evaluated under identical noise realizations for fair comparison. 
+
+Quantitative results. Figure 21 reports the relative reconstruction error as a function of inference-time noise level across all datasets and observation regimes. As the noise level increases, the reconstruction error increases for both PICSB and guidance-based sampling in all settings. For the Kolmogorov flow, the two methods exhibit largely similar trends with respect to noise level across all sensor regimes (R1–R3). In particular, the relative error increases at a comparable rate for both PICSB and guidance-based sampling, indicating that the overall sensitivity to observation noise is similar for this system. In contrast, for the Burgers equation, clearer differences emerge between the two approaches. Except for the per-sample fixed sensor regime (R2), PICSB consistently shows a more moderate increase in relative error as noise level increases, whereas guidance-based sampling exhibits a steeper error growth. This difference is especially pronounced in the randomly resampled sensor (R1) and globally fixed sensor regimes (R3), where the error of guidance-based sampling grows rapidly with increasing noise, while PICSB maintains a more gradual degradation. For Darcy flow, the quantitative curves may initially suggest that guidance-based sampling is less sensitive to increasing noise levels, as its relative error remains nearly constant across noise magnitudes. However, this behavior should not be interpreted as robustness to noise. As illustrated by the qualitative results in Figures 16 and 17, guidance-based sampling fails to produce physically meaningful target samples even at low noise levels. In this setting, the LF prior for Darcy is constructed via nearest-neighbor interpolation from sparse HF observations, resulting in a discretized and piecewise-constant LF representation. When combined with guidance-based sampling, the noisy observation gradients are insufficient to effectively steer the generative process toward a valid HF solution. Consequently, the guidance-based method exhibits consistently high error regardless of the noise level, reflecting a fundamental limitation in leveraging the available observations rather than genuine robustness to noise. In contrast, PICSB maintains lower reconstruction error with a gradual increase as noise grows, indicating that it is able to utilize noisy sparse observations more effectively through hard conditioning within the learned LF-to-HF transport, even in the presence of discretized LF inputs. 
+
+Qualitative analysis. Figures 13–20 provide qualitative comparisons under increasing noise levels. For Burgers, PICSB preserves the global solution structure and smooth transitions even under moderate noise, whereas guidance-based sampling exhibits visible artifacts and amplified noise patterns. For Darcy and Kolmogorov systems, the effect of noisy interpolation is evident for both methods; nevertheless, PICSB produces reconstructions that remain visually coherent and closer to the HF reference, while guidance-based sampling increasingly suffers from noise amplification and loss of structural consistency. Overall, these results characterize how reconstruction error evolves as a function of inference-time noise in sparse obser-vations. As the noise level increases, the relative error increases for both PICSB and guidance-based sampling across all datasets and observation regimes. However, the rate at which the error grows differs between the two approaches, depending on the system and observation setting. 26 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Across many configurations, PICSB exhibits a more gradual increase in relative error as noise increases, whereas guidance-based sampling tends to show a steeper degradation, particularly at higher noise levels. This difference reflects how noisy sparse observations are incorporated during inference: PICSB enforces noisy measurements through hard conditioning within a learned LF-to-HF transport, while guidance-based sampling directly injects gradients derived from noisy observations, which can lead to stronger error amplification as noise increases. 
+
+C.2. Finetuning across Different Levels of Observation Sparsity 
+
+In Section B.2.3, we observed that directly applying models trained with 10% sparse observations to substantially sparser inference regimes (e.g., 1% or 5% of the full grid) leads to severe degradation. Inference under such extreme sparsity remains challenging in general when no additional adaptation is performed, particularly for more complex dynamics. To further investigate whether limited adaptation can mitigate this limitation, we conduct additional finetuning experiments across different levels of observation sparsity. All models are first pretrained using 10% sparse HF observations, following the same configuration as in the main experiments. For Darcy and Kolmogorov, LF inputs are constructed from the 10% sparse HF observations via nearest-neighbor and bi-cubic interpolation, respectively, and used during training. For Burgers, the same LF inputs as in the main experiments are used. 
+
+Finetuning Regime 1. Starting from these pretrained models, we first consider finetuning under lower observation availability by subsampling the original 10% observation set. Specifically, we retain either 50% or 10% of the available observation points, corresponding to conditioning at the 5% and 1% observation levels, respectively. For Darcy and Kolmogorov, the resulting observation sets are used to construct the corresponding LF inputs using the same interpolation schemes as in training, while hard conditioning is imposed at the selected sparse locations. For Burgers, the LF inputs remain unchanged, and only the hard conditioning set is reduced accordingly. 
+
+Finetuning Regime 2. While the finetuning strategy in Regime 1 yields reasonable reconstructions at the 5% observation level, it fails to maintain performance when the observation level is reduced to 1% (see Figures ?? –?? ). To further examine this limitation, we consider an alternative finetuning strategy aimed at improving robustness across different observation sparsity levels. Starting from the same 10% -pretrained models, finetuning is performed using the same observation datasets as in Regime 1. However, rather than finetuning separately for each observation level, we adopt an integrated mode in which finetuning is carried out on a nested collection of observation subsets corresponding to 10% , 5% , and 1% of the full grid. In this setting, the finetuning dataset is formed by aggregating these nested sparsity levels, allowing the model to adapt simultaneously across different observation regimes. The optimizer state and learning rate settings are identical to those used in Regime 1, with finetuning performed for the same total budget of 20 ,000 iterations. After finetuning, inference is evaluated separately under 5% and 1% observation regimes. As a result, Figures 25, 26, and 27 show that finetuning under the integrated mode maintains stable reconstruction quality at the 5% observation level. At the more challenging 1% observation level, Figures 22, 23, and 24 demonstrate that the integrated finetuning strategy yields improved robustness relative to finetuning performed separately for each observation level. Although the reconstructions obtained at 1% sparsity remain imperfect and exhibit non-negligible errors, integrated finetuning enables meaningful recovery in scenarios where per-level finetuning largely fails. Overall, these results indicate that aggregating multiple observation sparsity levels during finetuning can partially alleviate the degradation caused by extreme observation scarcity, while substantial performance gaps persist in such severely underdetermined settings. 27 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 13. Inference under noisy observations for Burgers’ equation with randomly resampled sensors (R1). Each row corresponds to a different test sample, and each column corresponds to a noise level, with the HF reference solution shown in the rightmost column. Relative reconstruction errors are reported below each predicted field. 
+
+28 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 14. Inference under noisy observations for Burgers’ equation with per-sample fixed sensors (R2). Each row corresponds to a different test sample, and each column corresponds to a noise level, with the HF reference solution shown in the rightmost column. Relative reconstruction errors are reported below each predicted field. 
+
+29 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 15. Inference under noisy observations for Burgers’ equation with a fixed sensor set (R3). Each row corresponds to a different test sample, and each column corresponds to a noise level, with the HF reference solution shown in the rightmost column. Relative reconstruction errors are reported below each predicted field. 
+
+30 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 16. Inference under noisy observations for Darcy flow with randomly resampled sensors (R1). Each row corresponds to a different test sample, and each column corresponds to a noise level, with the HF reference solution shown in the rightmost column. Relative reconstruction errors are reported below each predicted field. 
+
+31 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 17. Inference under noisy observations for Darcy flow with a fixed sensor set (R3). Each row corresponds to a different test sample, and each column corresponds to a noise level, with the HF reference solution shown in the rightmost column. Relative reconstruction errors are reported below each predicted field. 
+
+32 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 18. Inference under noisy sparse observations for Kolmogorov flow with randomly resampled sensors (R1). Each row corresponds to a different test sample, and each column corresponds to a noise level, with the HF reference solution shown in the rightmost column. Relative reconstruction errors are reported below each predicted field. 
+
+33 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 19. Inference under noisy observations for Kolmogorov flow with per-sample fixed sensors (R2). Each row corresponds to a different test sample, and each column corresponds to a noise level, with the HF reference solution shown in the rightmost column. Relative reconstruction errors are reported below each predicted field. 
+
+34 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 20. Inference under noisy observations for Kolmogorov flow with a fixed sensor set (R3). Each row corresponds to a different test sample, and each column corresponds to a noise level, with the HF reference solution shown in the rightmost column. Relative reconstruction errors are reported below each predicted field. 
+
+35 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 21. Inference under noisy observations for Kolmogorov flow with a fixed sensor set (R3). Each row corresponds to a different test sample, and each column corresponds to a noise level, with the HF reference solution shown in the rightmost column. Relative reconstruction errors are reported below each predicted field. 
+
+Figure 22. Finetuning and inference results under 1% sparse observations for the Burgers’ equation with integrated finetuning. 
+
+36 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 23. Finetuning and inference results under 1% sparse observations for Darcy flow with integrated finetuning. 
+
+Figure 24. Finetuning and inference results under 1% sparse observations for the Kolmogorov flow with integrated finetuning. 
+
+37 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 25. Finetuning and inference results under 5% sparse observations for the Burgers’ equation with integrated finetuning. 
+
+Figure 26. Finetuning and inference results under 5% sparse observations for Darcy flow with integrated finetuning. 
+
+38 Sparsely-Supervised Data Assimilation via Physics-Informed Schr¨ odinger Bridge 
+
+Figure 27. Finetuning and inference results under 5% sparse observations for the Kolmogorov flow with integrated finetuning. 
+
+39
