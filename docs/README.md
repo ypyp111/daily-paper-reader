@@ -6,61 +6,43 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-03-29
-- 运行时间：2026-03-29 20:03:57 UTC
+- 最新运行日期：2026-03-30
+- 运行时间：2026-03-30 20:16:35 UTC
 - 运行状态：成功
-- 本次总论文数：13
+- 本次总论文数：7
 - 精读区：3
-- 速读区：10
+- 速读区：4
 
 ### 今日简报（AI）
-今日深度解析 13 篇前沿论文，聚焦神经算子在复杂物理系统控制与可靠性分析中的突破性应用。
-重点推荐受神经科学启发的 CoNBONet 框架与多相流实时控制技术，展示了 AI 在工业级任务中的高可靠性。
-建议关注算子学习与量子计算、热力学描述符的跨界融合，探索物理增强深度学习的落地可能。
-- 详情：[/202603/29/README](/202603/29/README)
+今日深度解析物理信息神经网络（PINN）在热冲压工艺中的应用，并探讨了求解偏微分方程的边界神经元新方法。
+满分论文展示了 PINN 结合序列编码器在工业温控中的巨大潜力，边界神经元法则为 PDE 求解提供了高效新路径。
+建议重点研读 AI 赋能物理仿真的前沿案例，并关注大模型在自我进化与气象模拟中的跨界表现。
+- 详情：[/202603/30/README](/202603/30/README)
 
 ### 精读区论文标签
-1. [CoNBONet: Conformalized Neuroscience-inspired Bayesian Operator Network for Reliability Analysis](/202603/29/2603.21678v1-conbonet-conformalized-neuroscience-inspired-bayesian-operator-network-for-reliability-analysis)  
+1. [Physics-Informed Neural Networks and Sequence Encoder: Application to heating and early cooling of thermo-stamping process](/202603/30/2603.26245v1-physics-informed-neural-networks-and-sequence-encoder-application-to-heating-and-early-cooling-of-thermo-stamping-process)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：物理信息神经网络与序列编码器结合
+2. [Boundary neuron method for solving partial differential equations](/202603/30/2603.26643v1-boundary-neuron-method-for-solving-partial-differential-equations)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：用于求解偏微分方程的浅层网络
+3. [Kantorovich--Kernel Neural Operators: Approximation Theory, Asymptotics, and Neural Network Interpretation](/202603/30/2603.26418v1-kantorovich--kernel-neural-operators-approximation-theory-asymptotics-and-neural-network-interpretation)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：用于动力系统可靠性分析的贝叶斯算子网络
-2. [Real-time control of multiphase processes with learned operators](/202603/29/2603.25308v1-real-time-control-of-multiphase-processes-with-learned-operators)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：用于多相过程控制的学习算子
-3. [Physics-informed structured learning of a class of recurrent neural networks with guaranteed properties](/202603/29/2603.25574v1-physics-informed-structured-learning-of-a-class-of-recurrent-neural-networks-with-guaranteed-properties)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：循环神经网络的物理信息学习框架
+   evidence：深度神经网络算子的逼近理论
 
 ### 速读区论文标签
-1. [Unveiling the Mechanism of Continuous Representation Full-Waveform Inversion: A Wave Based Neural Tangent Kernel Framework](/202603/29/2603.22362v1-unveiling-the-mechanism-of-continuous-representation-full-waveform-inversion-a-wave-based-neural-tangent-kernel-framework)  
+1. [Graph-Based Meshfree Multi-scale Coarse Space Approximation for Two-Level Schwarz Methods](/202603/30/2603.26149v1-graph-based-meshfree-multi-scale-coarse-space-approximation-for-two-level-schwarz-methods)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于波动方程参数估计的基于坐标的神经网络
-2. [Predicting Grain Growth Evolution Under Complex Thermal Profiles with Deep Learning through Thermal Descriptor Modulation](/202603/29/2603.24090v1-predicting-grain-growth-evolution-under-complex-thermal-profiles-with-deep-learning-through-thermal-descriptor-modulation)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：深度学习加速基于PDE的晶粒生长模拟
-3. [Mitigating Barren Plateaus via Domain Decomposition in Variational Quantum Algorithms for Nonlinear PDEs](/202603/29/2603.24523v1-mitigating-barren-plateaus-via-domain-decomposition-in-variational-quantum-algorithms-for-nonlinear-pdes)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：用于非线性偏微分方程的变分量子算法
-4. [Nonlinear Model Order Reduction on Quadratic Manifolds via Greedy Algorithms with Dimension-Dependent Regularization](/202603/29/2603.24962v1-nonlinear-model-order-reduction-on-quadratic-manifolds-via-greedy-algorithms-with-dimension-dependent-regularization)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：用于参数化偏微分方程的数据驱动方法
-5. [Process-Aware AI for Rainfall-Runoff Modeling: A Mass-Conserving Neural Framework with Hydrological Process Constraints](/202603/29/2603.25093v1-process-aware-ai-for-rainfall-runoff-modeling-a-mass-conserving-neural-framework-with-hydrological-process-constraints)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：在建模中强制执行守恒原理的物理感知AI框架
-6. [A Distribution-to-Distribution Neural Probabilistic Forecasting Framework for Dynamical Systems](/202603/29/2603.25370v1-a-distribution-to-distribution-neural-probabilistic-forecasting-framework-for-dynamical-systems)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：动力系统的神经概率预测框架
-7. [GasNiTROM: Model Reduction via Non-Intrusive Optimization of Oblique Projection Operators and Guaranteed-Stable Latent-Space Dynamics](/202603/29/2603.21254v1-gasnitrom-model-reduction-via-non-intrusive-optimization-of-oblique-projection-operators-and-guaranteed-stable-latent-space-dynamics)  
+   evidence：用于达西流模拟的图神经网络
+2. [Experiential Reflective Learning for Self-Improving LLM Agents](/202603/30/2603.24639v1-experiential-reflective-learning-for-self-improving-llm-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：投影算子的非侵入式优化
-8. [How unconstrained machine-learning models learn physical symmetries](/202603/29/2603.24638v1-how-unconstrained-machine-learning-models-learn-physical-symmetries)  
+   evidence：用于复杂推理和问题解决的自改进LLM智能体
+3. [On Neural Scaling Laws for Weather Emulation through Continual Training](/202603/30/2603.25687v1-on-neural-scaling-laws-for-weather-emulation-through-continual-training)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于物理模拟和对称性学习的机器学习模型
-9. [Layer-Specific Lipschitz Modulation for Fault-Tolerant Multimodal Representation Learning](/202603/29/2603.25103v1-layer-specific-lipschitz-modulation-for-fault-tolerant-multimodal-representation-learning)  
+   evidence：科学机器学习中天气预报的神经缩放法则
+4. [Monotone 2D Integration Scheme for Mean-CVaR Optimization via Fourier-Trained Transition Kernels](/202603/30/2603.26291v1-monotone-2d-integration-scheme-for-mean-cvar-optimization-via-fourier-trained-transition-kernels)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于容错性的神经算子分析
-10. [Automating Computational Chemistry Workflows via OpenClaw and Domain-Specific Skills](/202603/29/2603.25522v1-automating-computational-chemistry-workflows-via-openclaw-and-domain-specific-skills)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：通过智能体技能设计自动化计算化学
+   evidence：用于随机控制积分的傅里叶训练转移核
 
 
 <div class="dpr-home-promo-card">

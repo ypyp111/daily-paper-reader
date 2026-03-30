@@ -1,0 +1,1415 @@
+Title: Graph-Based Meshfree Multi-scale Coarse Space Approximation for Two-Level Schwarz Methods
+
+URL Source: https://arxiv.org/pdf/2603.26149v1
+
+Published Time: Mon, 30 Mar 2026 00:45:10 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Graph-Based Meshfree Multi-scale Coarse Space Approximation for Two-Level Schwarz Methods 
+
+## Yucheng Liu 1, Tak Shing Au Yeung 2, Eric T. Chung 1, and Simon See 21Department of Mathematics, The Chinese University of Hong Kong, Shatin, Hong Kong SAR, China. 
+
+> 2
+
+## NVIDIAAI Technology Center NVAITC, NVIDIA, USA 
+
+Abstract 
+
+Efficient simulation of Darcy flow in highly heterogeneous porous media requires iterative solvers that remain robust under large permeability contrasts and mixed boundary conditions. Spectral coarse spaces in two-level overlapping Schwarz methods provide such robustness, but their practical use is often limited by an expensive setup phase dominated by many local generalized eigenvalue solves. We propose a purely algebraic, coarse-space approximation that avoids these repeated local eigensolves by using a graph neural network operating on the system-matrix graph. On the analysis side, we introduce a coefficient-weighted subspace-distance measure to quantify the discrepancy between the approximated and target local multiscale coarse spaces, and we derive a condition-number bound for the resulting preconditioned operator in terms of this distance. This bound yields a principled supervised-training objective and links learning error to solver performance. Numerical experiments on 2D and 3D high-contrast Darcy systems with varying mixed boundary conditions demonstrate that the proposed approach substantially reduces setup cost and improves end-to-end time-to-solution, while preserving robust convergence across the tested contrasts and boundary configurations. 
+
+Keywords : multiscale method, coarse space, two-level schwarz methods 
+
+MSC codes : 65N08, 65N15, 65N55 
+
+# 1 Introduction 
+
+Accurate simulation of flow in porous media underpins reservoir forecasting, groundwater management, and geothermal exploration [1, 2, 3]. A central difficulty is the multiscale variability of permeability, spanning pore-scale features to field-scale geologic structures. Resolving this heterogeneity is crucial: overly homoge-nized models can yield unreliable predictions of fluxes and plume migration [4, 5]. For Darcy-flow models, additional complications arise from high-contrast permeability fields and mixed boundary conditions that vary with operating regimes. After discretization, these features translate into strongly ill-conditioned linear systems with challenging spectra. Because direct solvers are often limited by memory and computational complexity at scale, Krylov subspace methods are the workhorse; their practical performance, however, depends not only on iteration counts but also on the setup cost of the preconditioner and its robustness to large coefficient contrasts and changing boundary constraints. Robust preconditioning for such problems has advanced considerably over the past decades. Classical incomplete factorizations, e.g., ILU [6, 7], are appealing for their simplicity and modest memory foot-print, but they may deteriorate for highly heterogeneous coefficients and large-scale systems. To reduce mesh-dependent convergence, algebraic multigrid (AMG) [8] is widely used and often achieves near-optimal complexity for elliptic problems; nevertheless, standard coarsening and interpolation heuristics can lose ro-bustness in high-contrast, strongly anisotropic, or channelized media [9]. Domain decomposition offers a complementary route to scalability. In particular, two-level overlapping Schwarz methods [10, 11] show that 1
+
+> arXiv:2603.26149v1 [math.NA] 27 Mar 2026
+
+robustness to coefficient variation hinges on the choice of coarse space. In high-contrast settings where stan-dard coarse spaces are inadequate, spectral multiscale techniques—such as the Generalized Multiscale Finite Element Method (GMsFEM) [12, 13, 14, 15, 16] and the GenEO framework [17, 11]—provide a principled remedy. These methods enrich the coarse space by solving local generalized eigenproblems that identify the dominant low-energy modes. To reduce dependence on mesh geometry and enable a unified treatment in 2D and 3D, these spectral ideas can be cast in a purely algebraic two-level overlapping Schwarz framework that uses only the graph of the system matrix [18, 19, 20, 21]. Nevertheless, even in algebraic form, the setup phase can dominate the total cost because it requires solving many local eigenproblems, creating a bottleneck for end-to-end simulations. Specifically, we avoid repeated local generalized eigensolves at setup by using a graph neural network (GNN) to approximate the local spectral coarse spaces from the system-matrix graph and associated fea-tures. We introduce a subspace-distance measure between the learned and target local coarse spaces and show that the condition number of the resulting preconditioned operator can be bounded in terms of this distance along with standard Schwarz constants. Guided by this bound, we train the GNN in a supervised fashion to minimize the subspace distance to the target spectral coarse space. The approach enables an adaptive local coarse dimension across subdomains, allocating more basis vectors to regions associated with low-energy modes induced by high contrast or channelization. The resulting two-level preconditioner is symmetric positive definite (SPD) by construction, and is therefore compatible with the Conjugate Gradi-ent method. By incorporating boundary-condition descriptors into features of the input graph, the trained model generalizes across a range of mixed boundary conditions in our tests without problem-specific tuning. Numerical experiments on 2D and 3D Darcy problems show iteration counts comparable to exact spectral coarse spaces while substantially reducing setup time, leading to improved end-to-end time-to-solution. The paper is organized as follows: Section 2 introduces the purely algebraic two-level overlapping Schwarz preconditioner; Section 3 develops the learning-based construction and analysis; Section 4 reports numerical results; and Section 5 concludes with future directions. 
+
+# 2 Preliminaries 
+
+## 2.1 Problem setting 
+
+Consider the Darcy flow problem characterized by highly heterogeneous permeability. Let Ω ⊂ Rd, d ∈ { 2, 3},be a bounded Lipschitz domain with boundary ∂Ω = Γ D ∪ ΓN , where Γ D and Γ N denote the Dirichlet and Neumann boundaries, respectively. 
+
+
+
+κ−1u + ∇p = 0 in Ω ,
+
+∇ · u = f in Ω ,p = pD on Γ D ,
+
+u · n = g on Γ N .
+
+(1) Let NΩ denote the dimension of the discrete space associated with a finite volume discretization. In this work, We focus on the large systems of linear algebraic equations 
+
+Au = f, A ∈ RNΩ×NΩ , f ∈ RNΩ ,
+
+arising from this method. 
+
+## 2.2 Domain decomposition and subdomain coverings 
+
+Let G(A) denote the undirected adjacency graph associated with a sparse, symmetric, positive semidefinite matrix A, and index its vertex set V by the integers 1 through NΩ. We partition G(A) into k ≪ NΩ
+
+nonoverlapping subgraphs using a graph partitioning method (e.g., METIS). Equivalently, this induces a partition of the vertex set into disjoint subsets VI,i , i ∈ [1 , k ]. For δ ∈ N, define V δ 
+
+> Γ,i
+
+to be the set of 2vertices in V \ VI,i whose graph distance from VI,i is within δ. We obtain, via the above graph partition, the corresponding decomposition of the physical domain into the interior subdomains Ω I,i and the interface regions Ω δ
+
+> Γ,i
+
+, where i is from 1 to k Fig. 1. Accordingly, the overlapping subdomain and corresponding local vertex set are Ωδi := Ω I,i ∪ Ωδ
+
+> Γ,i
+
+, V δi := VI,i ∪ V δ
+
+> Γ,i
+
+, Ni = V δi .v1
+
+> v2
+> v3
+> v4
+> v5
+> v6
+> v7
+> v8
+> v9
+> v10
+> v11
+> v12
+> v13
+> v14
+
+Local Set V δ 
+
+> 1
+
+Local Set V δ
+
+> 2
+
+Disjoint Subset VI, 1 Disjoint Subset VI, 2        
+
+> Vδ
+> Γ,1⊂Vδ
+> 1Vδ
+> Γ,2⊂Vδ
+> 2
+
+Interface Regions Ωδ          
+
+> Γ
+> vVertex v∈VVI, 1VI, 2Vδ
+> 1Vδ
+> 2
+
+Figure 1: An illustration of the overlapping graph partition: the vertex set V is first partitioned into disjoint subsets VI, 1 and VI, 2 (shaded regions). The local vertex sets V δ 
+
+> 1
+
+and V δ 
+
+> 2
+
+(outlined regions) are then formed by including the halo vertices V δ 
+
+> Γ,i
+
+within graph distance δ.For each vertex v ∈ V , define 
+
+dv := # {V δi : 1 ≤ i ≤ k, v ∈ V δi },
+
+so that v belongs to dv of the local vertex sets. For each overlapping subdomain Ω δi , denote its complement in Ω by Ω δc,i . Based on the graph partitioning, let Ri denote the restriction operator from the global domain to the i-th overlapping subdomain, that is, Ri : Ω → Ωδi . Using the vertex degrees dv , we define an algebraic partition of unity via positive diagonal matrices Di such that 
+
+> k
+
+X
+
+> i=1
+
+R⊤ 
+
+> i
+
+DiRi = In.
+
+## 2.3 Local overlapping solvers 
+
+In each overlapping subdomain Ω δi , define the local operator Ai := RiAR ⊤ 
+
+> i
+
+. Given a global residual r, the local overlapping solvers is obtained by solving the subproblem Aiui = Rir and prolongating back via R⊤ 
+
+> i
+
+.The first-level of additive Schwarz preconditioner aggregates these local corrections 
+
+M −11 =
+
+> k
+
+X
+
+> i=1
+
+R⊤ 
+
+> i
+
+DiA−1 
+
+> i
+
+Ri. (2) 32.4 Coarse space correction 
+
+Based on the overlapping partitioning of A, let Pi be the permutation that orders the unknowns as ( I, Γ, c )with respect to subdomain i. we have local block splitting matrix for each i ∈ [1 , k ], 
+
+PiAP Ti =
+
+
+
+AII,i AIΓ,i 0
+
+AΓI,i AΓΓ ,i AΓc,i 
+
+0 AcΓ,i Acc,i 
+
+ .
+
+Define si ∈ R|V δ
+
+> Γ,i
+
+|
+
+(si)j = X
+
+> l
+
+|(AΓc,i )jl |, Si := diag( si),
+
+and set ˜AΓΓ ,i = AΓΓ ,i − Si.
+
+The corrected local block is then ˜Ai =
+
+AII,i AIΓ,i 
+
+AΓI,i ˜AΓΓ ,i 
+
+
+
+.
+
+Two bilinear forms ai(·, ·) and ˜ ai(·, ·) corresponding to the i-th subdomain are defined to construct local generalized multiscale coarse space, where 
+
+ai(u, v ) = v⊤ΠiDiAiDiΠiu, ˜ai(u, v ) = v⊤ ˜Aiu, ∀u, v ∈ RNi
+
+and Π i is the orthogonal projection on image space of ˜Ai, i.e., Π i : RNi → Im( ˜Ai). Now, define the following local generalized spectral problem: 
+
+ai(u, v ) = λ˜ai(u, v ), ∀v ∈ Rni . (3) The local generalized multiscale coarse space is 
+
+Xi = span {u | ai(u, v ) = λ˜ai(u, v ), ∀v ∈ Rni , |λ| ≥ τ } .
+
+In this paper, for each subdomain we select the nc eigenvectors associated with the largest nc generalized eigenvalues to form the local generalized multiscale coarse space; we denote the nc-th largest eigenvalue on subdomain i by τi.Finally, we define the local coarse space by taking the Euclidean orthogonal complement within ker( ˜Ai): 
+
+ (ker( DiAiDi) ∩ ker( ˜Ai)) ⊥ ∩ ker( ˜Ai) ⊕ Xi,
+
+The basis of the i-th local coarse space is assembled as the column matrix Zi. The global restriction for the coarse correction is assembled as 
+
+R⊤ 
+
+> 0
+
+= R⊤ 
+
+> 1
+
+D1Z1 · · · R⊤ 
+
+> k
+
+DkZk
+
+ .
+
+Given a global residual r, the coarse space correction is obtained by solving the subproblem R0AR ⊤ 
+
+> 0
+
+u0 =
+
+Rir and prolongating back via R⊤ 
+
+> 0
+
+. The second-level of additive Schwarz preconditioner is 
+
+M −12 = R⊤ 
+
+> 0
+
+(R0AR ⊤ 
+
+> 0
+
+)−1R0. (4) 
+
+## 2.5 Albebraic two-level schwarz preconditioner 
+
+The algebraic two-level Schwarz preconditioner is defined by the additive combination of the local overlapping level and the coarse level: 
+
+M −1 
+
+> AM S
+
+= M −11 + M −12 . (5) 43 Methodology 
+
+In the construction of an algebraic two-level Schwarz preconditioner, a collection of local generalized spectral problems Eq. (3) must be solved on overlapping subdomains to generate the multiscale subspaces used to build the coarse space. As reviewed in the preceding section, each local spectral problem is assembled purely from the sparse symmetric subdomain matrix Ai induced by the overlapping graph partition, together with partition-dependent diagonal modifications, which can be encoded by nodewise properties, dv and sv .This observation motivates a graph-based abstraction of the local spectral construction: we represent each subdomain by an attributed weighted graph whose connectivity and edge weights are given by the sparsity pattern and entries of Ai, while the node features are defined as a three-dimensional vector. Specifically, for a node v in the overlapping subdomain, this feature vector consists of the type of the node (set to 1 if v lies on the subdomain boundary and 0 if in the interior), the value dv , and the diagonal correction sv (defined as 0 if v is in the interior). On this representation, we employ a graph neural network to iteratively update node embeddings and to predict the multiscale basis functions associated with each subdomain, thereby providing a data-driven surrogate for the repeated solution of local generalized spectral problems within the two-level Schwarz framework. In what follows, we denote the matrix encoding the connectivity and edge weights of the graph derived from an overlapping subdomain as A (corresponding to Ai defined above), and the node feature matrix as Z.
+
+## 3.1 Neural network architectures 
+
+SP-LPMA GUNet Fig. 2 (spectral-prior low-pass multiscale-attentive Graph U-Net) is built by integrating a spectral low-pass frontend, a Graph U-Net, and multi-head attention. Given the graph structure of each subdomain, the model directly learns local generalized eigenvectors that span the required coarse space. Detailed architectural specifications are provided below. Input Z    
+
+> ()
+> Input A
+> ()
+> Initial
+> Feature
+> Normal-
+> ized S
+> Smoothed
+> Feature
+> Output
+> ()
+> Preprocessing
+> (Graph Normalization  Feature Initialization )
+> Linear Readou t
+> Multi-Scale
+> Graph
+> U-Net Block
+> Spectral
+> Low-Pass
+> Frontend
+> (APPNP-K
+> Diffusion)
+
+Figure 2: SP-LPMA GUNet Structure 
+
+• Input: A ∈ Rn×n, Z ∈ Rn×3, where n is the number of nodes in a subdomain. 
+
+• Pre-processing: – Graph Normalization: We compute the degree matrix D = diag( dv ) ∈ Rn×n and construct the normalized adjacency matrix: 
+
+S = D− 12 AD − 12 ∈ Rn×n.
+
+5– Feature Initialization: The input coordinates Z are mapped to an initial high-dimensional feature space via a linear transformation: 
+
+H0 = ZW pre + bpre ∈ Rn×d0 ,
+
+where Wpre ∈ R3×d0 and bpre ∈ Rd0 are trainable weights and biases, and d0 is the initial hidden dimension. 
+
+• Spectral Low-Pass Frontend Block: This block projects the columns of H0 (graph features) onto the low-frequency subspace spanned by the columns of S as follows [22]: 
+
+– APPNP Diffusion: We apply K steps of personalized PageRank-style diffusion. Let V0 = H0,then for t = 1 , . . . , K :
+
+Vt = SV t−1, Hlow = (1 − α)
+
+> K
+
+X
+
+> t=0
+
+αtVt ∈ Rn×d0 ,
+
+where K ∈ N+ (number of diffusion steps) and α ∈ (0 , 1) (teleport probability) are predefined hyperparameters. 
+
+– Residual Normalization: 
+
+Hin = LayerNorm( Hlow + βH 0) ∈ Rn×d0 ,
+
+where β is a hyperparameter. Here, LayerNorm normalizes the features across the channel di-mension for each node independently, which means that the mean and standard deviation are computed over each row vector of length d0.
+
+• Multi-Scale Attention via Graph U-Net Block (Fig. 3): This module employs a U-shaped architecture of depth L for feature aggregation [23]. Let nl and dl denote the number of nodes and the feature dimension at resolution level l (with n0 = n). We employ Nhead attention heads in the signed attentive convolution [24], where dhead is the feature dimension of each head; hence the concatenated per-node output dimension at the level l is dl+1 = Nhead × dhead . Let the initial state be H(0) = Hin 
+
+and A(0) = A.
+
+– Encoder (Downscaling): For each level l = 0 , . . . , L − 1: 
+
+∗ Signed Attentive Convolution: We decompose A(l) into positive and negative components 
+
+A(l)+ and A(l)−. Let N ±(i) be the set of neighbors of node i in A(l)±. For each attention head h ∈ { 1, . . . , N head }:
+
+Qh = H(l)W (l) 
+
+> h
+
+∈ Rnl×dhead ,e(h)± 
+
+> ij
+
+= tanh  Qh[i, :] + Qh[j, :] ah + γ±A(l)± 
+
+> ij
+
+,α(h)± 
+
+> ij
+
+= exp( e(h)± 
+
+> ij
+
+)/ X 
+
+> k∈N ±(i)
+
+exp( e(h)± 
+
+> ik
+
+),Oh[i, :] = X 
+
+> j∈N +(i)
+
+α(h)+  
+
+> ij
+
+Qh[j, :] − X 
+
+> j∈N −
+> (i)
+
+α(h)− 
+
+> ij
+
+Qh[j, :] ,
+
+where W (l) 
+
+> h
+
+∈ Rdl×dhead , ah ∈ Rdhead , and γ± ∈ R are trainable parameters. The outputs from all heads are concatenated along the feature dimension, denoted by ∥, followed by an Exponential Linear Unit (ELU) activation: 
+
+H(l)skip = ELU 
+
+ Nhead  
+
+> h=1
+
+Oh
+
+
+
+∈ Rnl×dl+1 .
+
+6∗ Graph Pooling: We compute score s(l) = H(l)skip w(l) 
+
+> p
+
+∈ Rnl using trainable vector w(l) 
+
+> p
+
+∈
+
+Rdl+1 . Define the index set I(l+1) ⊂ { 1, . . . , n l} corresponding to the nodes with the top 
+
+kl = ⌊prate nl⌋ highest scores, where prate ∈ (0 , 1) is the pooling ratio hyperparameter. The coarsened graph and features are constructed by extracting the submatrix and sub-tensor indexed by I(l+1) :
+
+H(l+1) = H(l)skip [I(l+1) , :] ⊙ sigmoid  s(l)[I(l+1) ] ∈ Rnl+1 ×dl+1 ,A(l+1) = A(l)[I(l+1) , I(l+1) ] ∈ Rnl+1 ×nl+1 ,
+
+where ⊙ denotes element-wise multiplication, and nl+1 = kl.
+
+– Bottleneck Layer: At the coarsest level L, a residual fully-connected layer is applied: 
+
+H(L)dec = H(L) +
+
+
+
+H(L)Wfc + bfc 
+
+
+
+∈ RnL×dL ,
+
+with trainable parameters Wfc ∈ RdL×dL and bfc ∈ RdL .
+
+– Decoder (Upscaling): For each level l = L − 1, . . . , 0: 
+
+∗ Unpooling and Gated Skip Fusion: We restore the spatial resolution by mapping the features 
+
+H(l+1) dec back to their original indices I(l+1) in an nl-dimensional space, padding unselected nodes with zeros. Let this unpooled feature matrix be H(l)up ∈ Rnl×dl+1 . It is then fused with the encoder’s skip connection via a learned gating mechanism: 
+
+U (l) =
+
+h
+
+H(l)up ∥ H(l)skip 
+
+i
+
+W (l) 
+
+> s
+
+∈ Rnl×dl+1 ,g(l) = sigmoid( U (l)W (l) 
+
+> g
+
++ b(l) 
+
+> g
+
+) ∈ Rnl×dl+1 ,Y (l) = g(l) ⊙ H(l)up + (1 − g(l)) ⊙ H(l)skip ∈ Rnl×dl+1 ,
+
+where W (l) 
+
+> s
+
+∈ R2dl+1 ×dl+1 and W (l) 
+
+> g
+
+∈ Rdl+1 ×dl+1 are trainable weight matrices. 
+
+∗ Attentive Convolution: The fused features are refined on the graph A(l) using the same Signed Attentive Convolution operator defined in the encoder: 
+
+H(l)dec = AttnConv  Y (l), A (l) ∈ Rnl×dl .
+
+The final output of the U-Net block is H(0) dec ∈ Rn×d0 .
+
+• Linear Readout Block: Map refined fine-scale features to the spectral subspace estimate of dimen-sion nc: bX = H(0) dec Wout + bout ∈ Rn×nc ,
+
+where Wout ∈ Rd0×nc and bout ∈ Rnc are trainable parameters. 
+
+## 3.2 Loss function 
+
+The two-level Schwarz coarse space is spanned by locally constructed generalized multiscale basis functions extended to the global domain. To enable direct learning of the basis function set within each local subdo-main, we introduce a metric to quantify discrepancies between local coarse spaces. Specifically, leveraging the inner product induced by the right-hand-side operator of the generalized local spectral problem, we define a projection-based distance between the target and predicted subspaces. In neural network training, we adopt dist ˜A(target , prediction) as the loss function; its precise definition is provided below. 7Figure 3: Three Level Graph U-Net Structure 
+
+Definition 1. Denote 
+
+Xj = span {xj, 1, x j, 2, . . . , x j,n c }, Yj = [ ψj, 1ψj, 2 . . . ψ j,n c ],
+
+where Xj is the j-th local coarse space, {ψj, 1, ψ j, 2, . . . , ψ j,n c } is an orthonormal basis of subspace Xj with respect to the inner product ( ·, ·) ˜Aj and they are arranged column-wise to form the matrix denoted as Yj .For two local coarse spaces X(1)  
+
+> j
+
+and X(2)  
+
+> j
+
+defined on the same coarse element ( j-th), we define the distance dist ˜Aj (X(1)  
+
+> j
+
+, X (2)  
+
+> j
+
+) = 
+
+
+
+nc − (Y (1)  
+
+> j
+
+)⊺ ˜Aj Y (2)  
+
+> j2
+> F
+
+1/2
+
+, (6) where · F is Frobenius norm. For notational simplicity, we henceforth suppress the coarse-element index j whenever no ambiguity can arise. 
+
+Theorem 3.1. The distance in Definition 1 enjoys the following properties: 
+
+• Basis invariance: it is independent of the choice of (·, ·) ˜A-orthonormal bases for the subspaces. 
+
+• Non-negativity: nc − (Y (1) )⊺ ˜A Y (2) 2 
+
+> F
+
+≥ 0.
+
+• Positive definiteness: dist ˜A(X(1) , X (2) ) = 0 if and only if X(1) = X(2) (as subspaces). 
+
+• Symmetry: dist ˜A(X(1) , X (2) ) = dist ˜A(X(2) , X (1) ).
+
+• Triangle inequality: for any X(1) , X (2) , X (3) ,
+
+dist ˜A(X(1) , X (2) ) + dist ˜A(X(2) , X (3) ) ≥ dist ˜A(X(1) , X (3) ).
+
+The proof can be found in [25]. Before demonstrating the suitability of the proposed loss function for the two-level Schwarz precondi-tioner, we first establish the necessary theoretical groundwork. To quantify the performance of the two-level Schwarz preconditioner, we present the following conver-gence analysis. The proof can be found in [20, 19]. 8Lemma 3.2. Following the notation in Section 2, for any i ∈ [1 , k ], assume Ii ⊆ Im( ˜Ai) and Ki ⊆ ker( ˜Ai),with Ki containing (ker( DiAiDi) ∩ ker( ˜Ai)) ⊥ ∩ ker( ˜Ai). Let τi be a strictly positive real number and Πi be an orthogonal projection onto the subspace Si = Ki ⊕ Ii. If the local coarse spaces in the two-level Schwarz preconditioner chosen as Si and the following inequality holds: 
+
+(u − Πiu)⊤DiAiDi(u − Πiu) ≤ τiu⊤ ˜Aiu ∀u ∈ RNi , (7) 
+
+the condition number of matrix preconditioned by Eq. (5) can be bounded by 
+
+κ2(M −1 
+
+> AM S
+
+A) ≤ (kc + 1) 
+
+
+
+2 + (2 kc + 1) km max  
+
+> i
+
+τi
+
+
+
+, (8) 
+
+where kc denotes the minimum number of colors required to color the graph of A such that every two neigh-boring subdomains have different colors and km denotes the maximum number of overlapping subdomains sharing a row of A.
+
+Next, we show that the coefficient τi in Eq. (9) only depend on the subspace of the Im( ˜Ai). 
+
+Lemma 3.3. Let B, ˜B ∈ Rm×m be two symmetric positive semidefinite matrices. Let ker( ˜B), Im( ˜B) be the null space and image space of ˜B, respectively. Suppose subspaces K and I satisfy 
+
+I ⊆ Im( ˜B), (ker( B) ∩ ker( ˜B)) ⊥ ∩ ker( ˜B) ⊆ K ⊆ ker( ˜B).
+
+Let Π denote the orthogonal projector onto the subspace S := K ⊕ I and τ > 0 be arbitrary. Then the following two statements are equivalent. 
+
+• For any u ∈ Rm, we have 
+
+(u − Πu)⊤B(u − Πu) ≤ τ u ⊤ ˜Bu. 
+
+• For any v ∈ Im( ˜B), ΠI is the ˜B-orthogonal projector onto the subspace I, we have 
+
+(v − ΠI v)⊤B(v − ΠI v) ≤ τ v ⊤ ˜Bv. 
+
+Proof. Because ˜B is symmetric positive semidefinite matrix, we have the orthogonal decomposition Im( ˜B) ⊕ ker( ˜B) = Rm.
+
+(⇒) Assume the first statement holds. Let v ∈ Im( ˜B) ⊂ Rm. Then v satisfies (v − Πv)⊤B(v − Πv) ≤ τ v ⊤ ˜Bv. 
+
+By the definition of Π and S = K ⊕ I, the projection Π v admits a unique decomposition Πv = uK + uI , with uK ∈ K, u I ∈ I. 
+
+Since K ⊆ ker( ˜B), we have uK ∈ ker( ˜B). But Im( ˜B) ⊥ ker( ˜B) and v ∈ Im( ˜B), so uK = 0. Hence, Πv = uI = Π I v. We obtain (v − ΠI v)⊤B(v − ΠI v) ≤ τ v ⊤ ˜Bv. 
+
+(⇐) Assume the second statement holds. Let u ∈ Rm. Write u = v + w, where v ∈ Im( ˜B), w ∈ ker( ˜B). By assumption, (v − ΠI v)⊤B(v − ΠI v) ≤ τ v ⊤ ˜Bv. 
+
+Due to (ker( B) ∩ ker( ˜B)) ⊥ ∩ ker( ˜B) = ker ⊥(B) ∩ ker( ˜B), we have ker ⊥(B) ∩ ker( ˜B) ⊂ K ⊂ ker( ˜B). By the definition of Π and w ∈ ker( ˜B), we can get w − Πw ∈ ker( ˜B) \ K ⊂ ker( ˜B) \ (ker ⊥(B) ∩ ker( ˜B)) = ker( ˜B) ∩ ker( B). hence (u − Πu)⊤B(u − Πu) = ( v − Πv)⊤B(v − Πv).
+
+Due to Π v = Π I v,(u − Πu)⊤B(u − Πu) = ( v − ΠI v)⊤B(v − ΠI v) ≤ τ u ⊤ ˜Bu. 
+
+9Theorem 3.4. Let M −1 
+
+> AM S
+
+is the two-level Schwarz preconditioner with local generalized multiscale coarse spaces Xi, ˆXi and local coarse space ˆSi defined by 
+
+• Xi = span {xi, 1, x i, 2, . . . , x i,n c }, which is the subspace spanned by the eigenvectors, corresponding to the nc largest eigenvalues solved by Eq. (3) .
+
+• ˆXi = span {ˆxi, 1, ˆxi, 2, . . . , ˆxi,n c }.
+
+• ˆSi = ((ker( DiAiDi) ∩ ker( ˜Ai)) ⊥ ∩ ker( ˜Ai)) ⊕ ˆXi, where Ai, D i, ˜Ai are the local operator for subdomian 
+
+Ωδi .Then the condition number of matrix preconditioned by Eq. (5) can be bounded by 
+
+κ2(M −1 
+
+> AM S
+
+A) ≤ (kc + 1) 
+
+
+
+2 + (2 kc + 1) km max  
+
+> i
+
+(2 τi + 4 Mi dist 2˜Ai ( ˆXi, X i)) 
+
+
+
+(9) 
+
+where τi is the nc-th largest eigenvalue of the relevant local spectral problem, Mi is the strictly positive real number such that · 2 
+
+> DiAiDi
+
+≤ Mi · 2˜Ai
+
+as introduced in [19], kc and km are defined in Theorem 3.2. Proof. For clarity, we omit the subdomain index i.
+
+Notation and Projections Let T, ˆT ∈ Rn×nc
+
+be matrices whose columns form ˜A-orthonormal bases for the coarse spaces X and ˆX, respectively. The ˜A-orthogonal projections onto these spaces are given by Π = T T ⊤ ˜A and ˆΠ = ˆT ˆT ⊤ ˜A. We also define the associated Euclidean orthogonal projections in the transformed space: Π0 = ˜A1/2T ( ˜A1/2T )⊤, ˆΠ0 = ˜A1/2 ˆT ( ˜A1/2 ˆT )⊤.
+
+Note that Π 0 and ˆΠ0 are symmetric idempotent matrices with rank nc, satisfying ˜A1/2Π = Π 0 ˜A1/2 and ˜A1/2 ˆΠ = ˆΠ0 ˜A1/2.
+
+Error Decomposition. We aim to bound the energy norm of the error v − ˆΠv. By the triangle inequality, we have: 
+
+∥v − ˆΠv∥2 
+
+> DAD
+
+≤ 2∥v − Πv∥2 
+
+> DAD
+
++ 2 ∥Πv − ˆΠv∥2
+
+> DAD
+
+. (10) The first term represents the approximation error of the exact coarse space. By Assumption Theorem 3.2, it is bounded by: 
+
+∥v − Πv∥2 
+
+> DAD
+
+≤ τ ∥v∥2˜A. (11) 
+
+Bound on Perturbation Error For the second term in Eq. (10), we utilize the norm equivalence ∥ · ∥2 
+
+> DAD
+
+≤ M ∥ · ∥ 2˜A. Let v0 = ˜A1/2v, then ∥v∥ ˜A = ∥v0∥2. We derive: 
+
+∥Πv − ˆΠv∥2 
+
+> DAD
+
+≤ M ∥Πv − ˆΠv∥2˜A
+
+= M ∥ ˜A1/2(Π − ˆΠ) v∥22
+
+= M ∥(Π 0 − ˆΠ0)v0∥22
+
+≤ M ∥Π0 − ˆΠ0∥22 ∥v∥2˜A.
+
+(12) 10 Relation to Subspace Distance It remains to bound the spectral norm ∥Π0 − ˆΠ0∥2. We consider the Frobenius norm squared, utilizing the property that for any projection matrix P , tr( P 2) = tr( P ) = rank( P ): 
+
+∥Π0 − ˆΠ0∥2 
+
+> F
+
+= tr(Π 20) + tr( ˆΠ20) − 2 tr(Π 0 ˆΠ0)= 2 nc − 2 tr 
+
+
+
+( ˜A1/2T )( ˜A1/2T )⊤( ˜A1/2 ˆT )( ˜A1/2 ˆT )⊤
+
+.
+
+Using the cyclic property of the trace, tr( AB ) = tr( BA ), the last term simplifies to: tr 
+
+
+
+T ⊤ ˜A ˆT ˆT ⊤ ˜AT 
+
+
+
+= ∥ ˆT ⊤ ˜AT ∥2 
+
+> F
+
+.
+
+Thus, by the definition of the distance between subspaces in the ˜A-inner product: 
+
+∥Π0 − ˆΠ0∥22 ≤ ∥ Π0 − ˆΠ0∥2 
+
+> F
+
+= 2 
+
+
+
+nc − ∥ ˆT ⊤ ˜AT ∥2
+
+> F
+
+
+
+= 2 dist 2˜A(X, ˆX). (13) 
+
+Conclusion. Substituting Eq. (11), Eq. (12), and Eq. (13) back into Eq. (10), we obtain: 
+
+∥v − ˆΠv∥2 
+
+> DAD
+
+≤
+
+
+
+2τ + 4 M dist 2˜A(X, ˆX)
+
+
+
+∥v∥2˜A.
+
+This completes the proof. 
+
+# 4 Numerical experiments 
+
+All neural network training is conducted on a single NVIDIA RTX 5880 Ada Generation GPU, while the remaining iterative solving processes are performed on an Intel Core i9-12900 CPU. This configuration is primarily adopted due to the relatively small scale of the cases, which limits the full utilization of the GPU’s high parallel computing power. Additionally, this approach helps reduce unnecessary energy consumption and improves resource efficiency. The neural network training is implemented in PyTorch, whereas the iterative solver relies on SciPy’s sparse matrix routines. 
+
+## 4.1 Multi-scale basis approximation experiments 
+
+To facilitate efficient training without incurring the prohibitive costs of repeated PDE discretizations, we employ a synthetic algebraic data generation strategy designed to emulate the spectral and structural prop-erties of discretized elliptic operators. We construct a dataset of random sparse weighted graphs, where the sparsity—defined by the number of nonzeros (NNZ) relative to the number of vertices N —is constrained to the interval [3 N, 7N ]. This range is rigorously selected to replicate the connectivity patterns characteristic of standard five-point (2D) and seven-point (3D) finite difference stencils. Consistent with the domain decom-position strategy utilized in our preconditioner, we apply an overlapping graph partitioning scheme to these global graphs. This process yields a collection of weighted subgraphs Gi = ( Vi, E i), with the partitioner tuned to enforce an average subdomain size of approximately 2000 vertices, consistent with the typical local problem dimension in our target large-scale applications. In total, we generate 10000 subdomain graphs, of which 8000 are used for training and the remaining 2000 are reserved for validation. We systematically evaluate the SP-LPMA GUNet architecture (detailed in Fig. 2) to determine the optimal network depth. Specifically, we vary the internal depth of the Graph U-Net blocks (Fig. 3) while maintaining invariant architectural components and training protocols to ensure a controlled ablation study. The training dynamics, including loss trajectories and learning rate schedules, are visualized in Figs. 4 to 7. The convergence dynamics vary significantly with the hierarchical depth of the architecture. Within a baseline of 200 epochs, the two- and three-level models demonstrate robust convergence, with the validation loss reaching a steady asymptote. In contrast, the four-level model exhibits a slower convergence rate, failing to fully converge at 200 epochs (Fig. 6). Although extending the training to 300 epochs allows the four-level 11 configuration to stabilize (Fig. 7), the resulting reduction in approximation error is marginal compared to the three-level model. This indicates that the deeper architecture complicates the optimization landscape without yielding a commensurate gain in expressive power for the target physical system. Consequently, the three-level model provides an optimal trade-off between numerical accuracy and computational efficiency, and is thus adopted for all subsequent simulations.                               
+
+> 025 50 75 100 125 150 175 200
+> Epoch
+> 10 −2
+> 10 −1
+> 10 0
+> Loss
+> 025 50 75 100 125 150 175 200
+> Epoch
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> Learning Rate ( ×10 −4)
+> 160 180 200
+> Epoch
+> 1.0
+> 1.5
+> 2.0
+> Loss ( ×10 −2)
+> Best: 0.011611
+> Epoch 192
+> 025 50 75 100 125 150 175 200
+> Epoch
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> Best Validation Loss
+> Train loss Validation loss Learning rate Final best Running best
+
+Figure 4: Training results for the two level SP-LPMA GUNet over 200 epochs. To validate the approximation fidelity of the selected three-level model, we conduct a qualitative com-parison between the predicted multiscale basis functions and the reference bases derived from exact local generalized eigenvalue problems. Figure 8 illustrates this comparison on a representative graph subdomain. The visual agreement confirms that the learned model effectively captures the dominant spectral modes required for the construction of the coarse space. 
+
+## 4.2 Preconditioner comparison 
+
+We assess the proposed learning-based multiscale basis functions by analyzing the convergence of a two-level additive Schwarz preconditioner for the Darcy flow problem with highly heterogeneous permeability. Let Ω ⊂ Rd (d ∈ 2, 3) be a bounded Lipschitz domain with boundary ∂Ω = Γ D ∪ ΓN (Γ D ∩ ΓN = ∅). The mixed boundary value problem is given by Eq. (1). Discretization is performed using a cell-centered finite volume method on structured Cartesian grids. A velocity-elimination procedure based on trapezoidal quadrature [26] reduces the system to a pressure-only Two-Point Flux Approximation (TPFA) scheme. Interface transmissibilities are computed via harmonic averaging to accommodate the heterogeneity of κ(x). Dirichlet and Neumann conditions are enforced via numerical flux modifications and prescribed boundary fluxes, respectively. This formulation yields a sparse linear system Ap = b, where A is symmetric positive definite (SPD) provided κ is scalar and Γ D has non-zero measure. 12 0 25 50 75 100 125 150 175 200                       
+
+> Epoch
+> 10 −2
+> 10 −1
+> 10 0
+> Loss
+> 025 50 75 100 125 150 175 200
+> Epoch
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> Learning Rate ( ×10 −4)
+> 160 180 200
+> Epoch
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> Loss ( ×10 −2)
+> Best: 0.009686
+> Epoch 191
+> 025 50 75 100 125 150 175 200
+> Epoch
+> 0.0
+> 0.2
+> 0.4
+> Best Validation Loss
+> Train loss Validation loss Learning rate Final best Running best
+
+Figure 5: Training results for the three level SP-LPMA GUNet over 200 epochs. 
+
+4.2.1 2D experiments 
+
+We consider steady Darcy flow on the unit square Ω = (0 , 1) 2, discretized on a uniform 2048 × 2048 grid. To assess robustness and out-of-distribution generalization with respect to boundary forcing and medium complexity, we test two orthogonal boundary configurations and two permeability families. 
+
+Boundary configurations We denote by C1 and C2 two Dirichlet–Neumann decompositions inducing flow along the coordinate axes: 
+
+• Configuration C1 (flow in y-direction). Dirichlet conditions are imposed on {y = 0 } ∪ { y = 1 }
+
+with pD = 0 at y = 0 and pD = 1 at y = 1; homogeneous Neumann conditions ( g = 0) are applied on 
+
+{x = 0 } ∪ { x = 1 }.
+
+• Configuration C2 (flow in x-direction). Dirichlet conditions are imposed on {x = 0 } ∪ { x = 1 }
+
+with pD = 1 at x = 0 and pD = 0 at x = 1; homogeneous Neumann conditions ( g = 0) are applied on 
+
+{y = 0 } ∪ { y = 1 }.
+
+Permeability family I: log-normal random fields. We generate continuous heterogeneous media by setting κ(x) = exp( Z(x)), where Z is a zero-mean Gaussian random field with anisotropic exponential covariance 
+
+CZ (x, y) = σ2 exp −
+
+s
+
+(x1 − y1)2
+
+η21
+
++ (x2 − y2)2
+
+η22
+
+!
+
+,
+
+with σ2 = 2 and correlation lengths η1, η 2. Figure 9 reports time-to-accuracy curves under C1 and C2,together with a representative permeability realization. 13 0 50 100 150 200               
+
+> Epoch
+> 10 −2
+> 10 −1
+> 10 0
+> Loss
+> 050 100 150 200
+> Epoch
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Learning Rate ( ×10 −4)
+> 160 180 200
+> Epoch
+> 2
+> 3
+> 4
+> 5
+> Loss ( ×10 −2)
+> Best: 0.012735
+> Epoch 197
+> 050 100 150 200
+> Epoch
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> Best Validation Loss
+> Train loss Validation loss Learning rate Final best Running best
+
+Figure 6: Training results for the four level SP-LPMA GUNet over 200 epochs. 
+
+Permeability family II: high-permeability channels (DFN-like). We consider discontinuous, high-contrast media with a background matrix permeability κm = 1 and Nc randomly placed channels, where 
+
+Nc ∼ Unif {8, . . . , 20 }. Each channel is a line segment with length L ∼ Unif[300 , 1000] (grid units) and width 
+
+w ∼ Unif[3 , 8], assigned permeability κc, while the remaining region keeps κm. We test two contrast ratios to quantify robustness as discontinuities and preferential paths become more severe. Results are shown in Figure 10 for κc = 10 3 and in Figure 11 for κc = 10 5, each under C1 and C2.
+
+4.2.2 3D experiments 
+
+We next consider Ω = (0 , 1) 3 on a 256 × 256 × 256 grid, using the same evaluation protocol: two orthogonal boundary configurations and the same two permeability families extended to three dimensions. 
+
+Boundary configurations Let ∂Ω = Γ (k) 
+
+> D
+
+∪ Γ(k) 
+
+> N
+
+denote the Dirichlet–Neumann decomposition for con-figuration Ck, k ∈ { 1, 2}:
+
+• Configuration C1 (flow in y-direction). 
+
+Γ(1)  
+
+> D
+
+= [0 , 1] × { 0, 1} × [0 , 1] , Γ(1)  
+
+> N
+
+= ∂Ω \ Γ(1)  
+
+> D
+
+.
+
+We impose g = 0 on Γ (1)  
+
+> N
+
+and set pD = 0 at y = 0, pD = 1 at y = 1. 
+
+• Configuration C2 (flow in x-direction). 
+
+Γ(2)  
+
+> D
+
+= {0, 1} × [0 , 1] × [0 , 1] , Γ(2)  
+
+> N
+
+= ∂Ω \ Γ(2)  
+
+> D
+
+.
+
+We impose g = 0 on Γ (2)  
+
+> N
+
+and set pD = 1 at x = 0, pD = 0 at x = 1. 14 0 50 100 150 200 250 300                   
+
+> Epoch
+> 10 −2
+> 10 −1
+> 10 0
+> Loss
+> 050 100 150 200 250 300
+> Epoch
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> Learning Rate ( ×10 −4)
+> 260 280 300
+> Epoch
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> Loss ( ×10 −2)
+> Best: 0.009396
+> Epoch 300
+> 050 100 150 200 250 300
+> Epoch
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> Best Validation Loss
+> Train loss Validation loss Learning rate Final best Running best
+
+Figure 7: Training results for the four level SP-LPMA GUNet over 300 epochs. 
+
+Permeability family I: log-normal random fields We sample κ(x) = exp( Z(x)) with zero-mean GRF 
+
+Z and 3D anisotropic exponential covariance 
+
+CZ (x, y) = σ2 exp −
+
+s
+
+(x1 − y1)2
+
+η21
+
++ (x2 − y2)2
+
+η22
+
++ (x3 − y3)2
+
+η23
+
+!
+
+,
+
+where σ2 = 2 and η1, η 2, η 3 are correlation lengths. Figure 12 summarizes the corresponding time-to-accuracy results under C1 and C2.
+
+Permeability family II: high-permeability channels (3D) We construct discontinuous 3D chan-nelized media with κm = 1 and randomly distributed tubular channels of permeability κc. We sample 
+
+Nc ∼ Unif {6, . . . , 15 }; each channel starts from a random line segment of length L ∼ Unif[80 , 200], then is dilated to a tube with radius r ∼ Unif[2 , 5]. We again test κc ∈ { 10 3, 10 5}.Time-to-accuracy curves are reported in Figure 13 ( κc = 10 3) and Figure 14 ( κc = 10 5), under both C1
+
+and C2.For each case, although the NN-accelerated basis represents an approximate multiscale subspace and can lead to a mildly larger iteration count, the preconditioner setup is significantly faster, resulting in consistently improved end-to-end time-to-accuracy. 
+
+# 5 Conclusion 
+
+We developed a purely algebraic, learning-based coarse-space construction for two-level overlapping Schwarz preconditioning of high-contrast Darcy systems. The key idea is to replace the repeated solution of local 15 0 500 1000 
+
+> Column Index
+> 0
+> 200
+> 400
+> 600
+> 800
+> 1000
+> Row Index
+
+Matrix Structure & Values ( Aij )
+
+Size: 1173 × 1173 | NNZ: 5713 (Density: 0.42%)  
+
+> -5
+> 0
+> 5
+> Matrix Value ( Aij )
+> 1e6
+> No.1
+> = 4.4324 e 03
+> Exact Eigenvectors Approximate Eigenvectors
+> No.2
+> = 8.7316 e 03
+> No.3
+> = 1.2292 e 02
+> No.4
+> = 1.4680 e 02
+> No.5
+> = 1.9702 e 02
+> -2
+> -1
+> 0
+> 1
+> 2
+> Eigenvector Value
+> 1e-5
+
+Figure 8: Qualitative evaluation of multiscale basis functions approximation on a representative graph subdomain. generalized eigenproblems during setup by a graph neural network that predicts local coarse spaces from the system-matrix graph. On the theoretical side, we introduced a coefficient-weighted subspace-distance 16 Permeability Field (x)   
+
+> 123
+
+0 5 10 15 20 
+
+Cumulative Time (s) 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0 
+
+> Relative Error
+> Setup Done Setup Done
+> 9 steps 11 steps
+
+Convergence (Vertical Flow) 
+
+> ADD (9 iters)
+> NN (11 iters)
+
+0 5 10 15 20 
+
+Cumulative Time (s) 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0 
+
+> Relative Error
+> Setup Done Setup Done
+> 9 steps 10 steps
+
+Convergence (Horizontal Flow) 
+
+> ADD (9 iters)
+> NN (10 iters)
+
+Figure 9: Performance on a 2D heterogeneous log-normal permeability field. Left: permeability realization 
+
+κ(x) generated from a Gaussian random field Z = log κ with exponential covariance (Section 4.2.1) on a 2048 × 2048 mesh. Middle/Right: time-to-accuracy comparison between ADD and NN for C1 (vertical flow) and C2 (horizontal flow). Curves report relative error versus cumulative time (setup + solve); dotted lines mark the end of setup and the dashed line denotes the target tolerance 10 −8.Permeability Field (x)    
+
+> 10 010 110 210 3
+
+0 5 10 15 20 
+
+Cumulative Time (s) 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0 
+
+> Relative Error
+> Setup Done Setup Done
+> 12 steps 13 steps
+
+Convergence (Vertical Flow) 
+
+> ADD (12 iters)
+> NN (13 iters)
+
+0 10 20 
+
+Cumulative Time (s) 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0 
+
+> Relative Error
+> Setup Done Setup Done
+> 14 steps 14 steps
+
+Convergence (Horizontal Flow) 
+
+> ADD (14 iters)
+> NN (14 iters)
+
+Figure 10: Performance on a 2D high-contrast discrete fracture network (DFN). Left: Permeability realiza-tion κ(x) featuring randomly distributed high-conductivity fractures (channels with κ = 10 3) embedded in a homogeneous background matrix on a 2048 × 2048 mesh. Middle/Right: Time-to-accuracy comparison between ADD and NN for C1 (vertical flow) and C2 (horizontal flow). Curves report relative error versus cumulative time (setup + solve); dotted lines mark the end of setup and the dashed line denotes the target tolerance 10 −8.measure and established a condition-number bound for the resulting preconditioned operator in terms of this distance. This result provides a principled objective for supervised training and connects the learning error to solver performance. In our experiments, the training objective converged to a final loss of 9 .4 × 10 −3. Across the considered permeability contrasts and mixed boundary conditions, the proposed approach consistently reduces the dominant setup cost. In both 2D and 3D, the setup time is typically reduced by about 75%–80%, which translates into an overall end-to-end time-to-solution reduction of about 25%–30%. While the learned 17 Permeability Field (x)   
+
+> 10 010 210 4
+
+0 10 20 
+
+Cumulative Time (s) 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0 
+
+> Relative Error
+> Setup Done Setup Done
+> 14 steps
+> 15 steps
+
+Convergence (Vertical Flow) 
+
+> ADD (14 iters)
+> NN (15 iters)
+
+0 10 20 
+
+Cumulative Time (s) 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0 
+
+> Relative Error
+> Setup Done Setup Done
+> 14 steps 15 steps
+
+Convergence (Horizontal Flow) 
+
+> ADD (14 iters)
+> NN (15 iters)
+
+Figure 11: Performance on a 2D high-contrast discrete fracture network (DFN). Left: Permeability realiza-tion κ(x) featuring randomly distributed high-conductivity fractures (channels with κ = 10 5) embedded in a homogeneous background matrix on a 2048 × 2048 mesh. Middle/Right: Time-to-accuracy comparison between ADD and NN for C1 (vertical flow) and C2 (horizontal flow). Curves report relative error versus cumulative time (setup + solve); dotted lines mark the end of setup and the dashed line denotes the target tolerance 10 −8.3D Permeability Field ( )     
+
+> 0.75 1.00 1.25 1.50
+
+0 10 20 30 
+
+Cumulative Time (s) 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0 
+
+> Relative Error
+> Setup Done Setup Done
+> 11 steps 12 steps
+
+Convergence (Vertical Flow) 
+
+> ADD (11 iters)
+> NN (12 iters)
+
+0 10 20 30 
+
+Cumulative Time (s) 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0 
+
+> Relative Error
+> Setup Done Setup Done
+> 11 steps 11 steps
+
+Convergence (Horizontal Flow) 
+
+> ADD (11 iters)
+> NN (11 iters)
+
+Figure 12: Performance on a 3D heterogeneous log-normal permeability field. Left: permeability realization 
+
+κ(x) generated from a Gaussian random field Z = log κ with exponential covariance (Section 4.2.2) on a 256 × 256 × 256 mesh. Middle/Right: time-to-accuracy comparison between ADD and NN for C1 (vertical flow) and C2 (horizontal flow). Curves report relative error versus cumulative time (setup + solve); dotted lines mark the end of setup and the dashed line denotes the target tolerance 10 −8.coarse space slightly increase the Krylov solve time in some cases, the total time is consistently improved because the setup phase is substantially accelerated. These results indicate that learning-based coarse-space construction can deliver robust and practically efficient two-level Schwarz preconditioning for heterogeneous porous-media flow simulations. 18 3D Permeability Field ( ) 
+
+0 10 20 30 
+
+Cumulative Time (s) 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0 
+
+> Relative Error
+> Setup Done Setup Done
+> 12 steps 14 steps
+
+Convergence (Vertical Flow) 
+
+> ADD (12 iters)
+> NN (14 iters)
+
+0 10 20 30 
+
+Cumulative Time (s) 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0 
+
+> Relative Error
+> Setup Done Setup Done
+> 13 steps 14 steps
+
+Convergence (Horizontal Flow) 
+
+> ADD (13 iters)
+> NN (14 iters)
+
+Figure 13: Performance on a 3D high-contrast discrete fracture network (DFN). Left: Permeability realiza-tion κ(x) featuring randomly distributed high-conductivity fractures (channels with κ = 10 3) embedded in a homogeneous background matrix on a 256 ×256 ×256 mesh. Middle/Right: Time-to-accuracy comparison between ADD and NN for C1 (vertical flow) and C2 (horizontal flow). Curves report relative error versus cumulative time (setup + solve); dotted lines mark the end of setup and the dashed line denotes the target tolerance 10 −8.3D Permeability Field ( ) 
+
+0 10 20 30 
+
+Cumulative Time (s) 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0 
+
+> Relative Error
+> Setup Done Setup Done
+> 13 steps 14 steps
+
+Convergence (Vertical Flow) 
+
+> ADD (13 iters)
+> NN (14 iters)
+
+0 10 20 30 
+
+Cumulative Time (s) 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0 
+
+> Relative Error
+> Setup Done Setup Done
+> 13 steps 14 steps
+
+Convergence (Horizontal Flow) 
+
+> ADD (13 iters)
+> NN (14 iters)
+
+Figure 14: Performance on a 3D high-contrast discrete fracture network (DFN). Left: Permeability realiza-tion κ(x) featuring randomly distributed high-conductivity fractures (channels with κ = 10 5) embedded in a homogeneous background matrix on a 256 ×256 ×256 mesh. Middle/Right: Time-to-accuracy comparison between ADD and NN for C1 (vertical flow) and C2 (horizontal flow). Curves report relative error versus cumulative time (setup + solve); dotted lines mark the end of setup and the dashed line denotes the target tolerance 10 −8.
+
+# Acknowledgement 
+
+The research of Eric Chung is partially supported by the Hong Kong RGC General Research Fund (Projects: 14305423 and 14305624), as well as the 1+1+1 CUHK-CUHK(SZ)-GDSTC Joint Collaboration Fund 19 (Project: 2025A0505000059). 
+
+# References 
+
+[1] R. Helmig, et al., Multiphase flow and transport processes in the subsurface: a contribution to the modeling of hydrosystems, Vol. 1, Springer, 1997. [2] C. Zheng, G. D. Bennett, et al., Applied contaminant transport modeling, Vol. 2, Wiley-Interscience New York, 2002. [3] J. H. Abou-Kassem, S. M. Farouq-Ali, M. R. Islam, Petroleum Reservoir Simulations, Elsevier, 2013. [4] L. W. Gelhar, Stochastic subsurface hydrology from theory to applications, Water Resources Research 22 (9S) (1986) 135S–145S. [5] Y. Rubin, Applied stochastic hydrogeology, Oxford University Press, 2003. [6] J. A. Meijerink, H. A. Van Der Vorst, An iterative solution method for linear systems of which the coefficient matrix is a symmetric m-matrix, Mathematics of computation 31 (137) (1977) 148–162. [7] Y. Saad, Iterative methods for sparse linear systems, SIAM, 2003. [8] J. W. Ruge, K. St¨ uben, Algebraic multigrid, in: Multigrid methods, SIAM, 1987, pp. 73–130. [9] W. L. Wan, T. F. Chan, B. Smith, An energy-minimizing interpolation for robust multigrid methods, SIAM Journal on Scientific Computing 21 (4) (1999) 1632–1649. [10] A. Toselli, O. Widlund, Domain decomposition methods-algorithms and theory, Vol. 34, Springer Sci-ence & Business Media, 2004. [11] V. Dolean, P. Jolivet, F. Nataf, An introduction to domain decomposition methods: algorithms, theory, and parallel implementation, SIAM, 2015. [12] Y. Efendiev, J. Galvis, X.-H. Wu, Multiscale finite element methods for high-contrast problems using local spectral basis functions, Journal of Computational Physics 230 (4) (2011) 937–955. [13] Y. Efendiev, J. Galvis, T. Y. Hou, Generalized multiscale finite element methods (gmsfem), Journal of computational physics 251 (2013) 116–135. [14] E. T. Chung, Y. Efendiev, W. T. Leung, Constraint energy minimizing generalized multiscale finite element method, Computer Methods in Applied Mechanics and Engineering 339 (2018) 298–319. [15] E. T. Chung, Y. Efendiev, T. Y. Hou, Multiscale Model Reduction, Springer, 2023. [16] C. Ye, S. Fu, E. T. Chung, J. Huang, A robust two-level overlapping preconditioner for darcy flow in high-contrast media, SIAM Journal on Scientific Computing 46 (5) (2024) A3151–A3176. [17] N. Spillane, V. Dolean, P. Hauret, F. Nataf, C. Pechstein, R. Scheichl, Abstract robust coarse spaces for systems of pdes via generalized eigenproblems in the overlaps, Numerische Mathematik 126 (4) (2014) 741–770. [18] A. Heinlein, A. Klawonn, S. Rajamanickam, O. Rheinbach, Frosch: A fast and robust overlapping schwarz domain decomposition preconditioner based on xpetra in trilinos, in: International Conference on Domain Decomposition Methods, Springer, 2018, pp. 176–184. [19] H. Al Daas, L. Grigori, A class of efficient locally constructed preconditioners based on coarse spaces, SIAM Journal on Matrix Analysis and Applications 40 (1) (2019) 66–91. 20 [20] H. Al Daas, P. Jolivet, T. Rees, Efficient algebraic two-level schwarz preconditioner for sparse matrices, SIAM Journal on Scientific Computing 45 (3) (2023) A1199–A1213. [21] H. Al Daas, P. Jolivet, F. Nataf, P.-H. Tournier, A robust algebraic two-level schwarz preconditioner for sparse matrices, SIAM Journal on Scientific Computing 47 (4) (2025) A2378–A2402. [22] J. Gasteiger, A. Bojchevski, S. G¨ unnemann, Predict then propagate: Graph neural networks meet personalized pagerank, arXiv preprint arXiv:1810.05997 (2018). [23] H. Gao, S. Ji, Graph u-nets, IEEE Transactions on Pattern Analysis and Machine Intelligence 44 (9) (2022) 4948–4960. [24] J. Huang, H. Shen, L. Hou, X. Cheng, Signed graph attention networks, in: International conference on artificial neural networks, Springer, 2019, pp. 566–577. [25] Y. Liu, S. Fu, Y. Zhou, C. Ye, E. T. Chung, Learning a generalized multiscale prolongation operator, arXiv preprint arXiv:2410.06832 (2024). [26] T. Arbogast, M. F. Wheeler, I. Yotov, Mixed finite elements for elliptic problems with tensor coefficients as cell-centered finite differences, SIAM Journal on Numerical Analysis 34 (2) (1997) 828–852. 21
