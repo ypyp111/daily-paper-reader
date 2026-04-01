@@ -6,67 +6,67 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-03-31
-- 运行时间：2026-03-31 20:20:09 UTC
+- 最新运行日期：2026-04-01
+- 运行时间：2026-04-01 19:52:03 UTC
 - 运行状态：成功
 - 本次总论文数：15
-- 精读区：8
-- 速读区：7
+- 精读区：6
+- 速读区：9
 
 ### 今日简报（AI）
-今日深度解析 15 篇 AI+Science 论文，重点聚焦流体力学长程预测与热力学结构化建模的满分突破。
-DSO 双尺度算子与热力学约束神经网络表现卓越，为复杂物理系统的长期稳定模拟与物理一致性提供了全新范式。
-建议优先研读物理信息驱动的算子学习相关成果，这是提升 AI 模拟可靠性与泛化能力的必经之路。
-- 详情：[/202603/31/README](/202603/31/README)
+今日聚焦 PINN 框架的重大突破，深度解析多尺度声子传输与奇异扰动边界层问题的统一求解方案。
+满分论文提出的加权损失机制与辅助框架显著提升了复杂物理场的模拟精度，结合硬约束的神经黎曼求解器正重塑非线性控制领域。
+推荐优先研读针对奇异扰动问题的 PINN 优化策略，这是提升物理仿真鲁棒性的关键技术路径。
+- 详情：[/202604/01/README](/202604/01/README)
 
 ### 精读区论文标签
-1. [DSO: Dual-Scale Neural Operators for Stable Long-term Fluid Dynamics Forecasting](/202603/31/2603.26800v1-dso-dual-scale-neural-operators-for-stable-long-term-fluid-dynamics-forecasting)  
+1. [A Unified Multiscale Auxiliary PINN Framework for Generalized Phonon Transport](/202604/01/2603.28932v1-a-unified-multiscale-auxiliary-pinn-framework-for-generalized-phonon-transport)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：用于流体动力学PDE的双尺度神经算子
-2. [A Comparative Investigation of Thermodynamic Structure-Informed Neural Networks](/202603/31/2603.26803v1-a-comparative-investigation-of-thermodynamic-structure-informed-neural-networks)  
+   evidence：用于声子输运方程的多尺度辅助PINN
+2. [A Unified Weighted-Loss Physics-Informed Neural Network for Boundary Layer Problems in Singularly Perturbed PDEs](/202604/01/2603.29249v1-a-unified-weighted-loss-physics-informed-neural-network-for-boundary-layer-problems-in-singularly-perturbed-pdes)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：比较用于求解偏微分方程的热力学结构信息神经网络
-3. [Learnable Viscosity Modulation in Physics-Informed Neural Networks for Incompressible Flow Reconstruction](/202603/31/2603.27496v1-learnable-viscosity-modulation-in-physics-informed-neural-networks-for-incompressible-flow-reconstruction)  
+   evidence：用于奇异摄动PDE边界层问题的加权损失PINN
+3. [Lie Generator Networks for Nonlinear Partial Differential Equations](/202604/01/2603.29264v1-lie-generator-networks-for-nonlinear-partial-differential-equations)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：具有可学习粘性调节的PINN用于纳维-斯托克斯方程
-4. [Physics-Guided Transformer (PGT): Physics-Aware Attention Mechanism for PINNs](/202603/31/2603.27929v1-physics-guided-transformer-pgt-physics-aware-attention-mechanism-for-pinns)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：用于PINN的物理感知注意力机制
-5. [Deflation-PINNs: Learning Multiple Solutions for PDEs and Landau-de Gennes](/202603/31/2603.27936v1-deflation-pinns-learning-multiple-solutions-for-pdes-and-landau-de-gennes)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：结合PINN和DeepONet以寻找PDE的多个解
-6. [Comparing Physics-Informed and Neural ODE Approaches for Modeling Nonlinear Biological Systems: A Case Study Based on the Morris-Lecar Model](/202603/31/2603.26921v1-comparing-physics-informed-and-neural-ode-approaches-for-modeling-nonlinear-biological-systems-a-case-study-based-on-the-morris-lecar-model)  
+   evidence：Lie 生成器网络-Koopman (LGN-KM) 神经算子
+4. [Mimosa Framework: Toward Evolving Multi-Agent Systems for Scientific Research](/202604/01/2603.28986v1-mimosa-framework-toward-evolving-multi-agent-systems-for-scientific-research)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：比较PINN与神经ODE在非线性系统中的表现
-7. [Neural operator accelerated atomistic to continuum concurrent multiscale simulations of viscoelasticity](/202603/31/2603.27430v1-neural-operator-accelerated-atomistic-to-continuum-concurrent-multiscale-simulations-of-viscoelasticity)  
+   evidence：利用大语言模型构建的用于科学研究的可演化多智能体框架
+5. [Biomimetic PINNs for Cell-Induced Phase Transitions: UQ-R3 Sampling with Causal Gating](/202604/01/2603.29184v1-biomimetic-pinns-for-cell-induced-phase-transitions-uq-r3-sampling-with-causal-gating)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于多尺度模拟和本构映射的循环神经网络算子
-8. [SIMR-NO: A Spectrally-Informed Multi-Resolution Neural Operator for Turbulent Flow Super-Resolution](/202603/31/2603.28073v1-simr-no-a-spectrally-informed-multi-resolution-neural-operator-for-turbulent-flow-super-resolution)  
+   evidence：用于相变的仿生PINN
+6. [Stochastic Dimension Implicit Functional Projections for Exact Integral Conservation in High-Dimensional PINNs](/202604/01/2603.29237v1-stochastic-dimension-implicit-functional-projections-for-exact-integral-conservation-in-high-dimensional-pinns)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于湍流的神经算子
+   evidence：高维PINN中的精确积分守恒
 
 ### 速读区论文标签
-1. [AIRA_2: Overcoming Bottlenecks in AI Research Agents](/202603/31/2603.26499v1-aira2-overcoming-bottlenecks-in-ai-research-agents)  
+1. [Koopman-based surrogate modeling for reinforcement-learning-control of Rayleigh-Benard convection](/202604/01/2603.28074v1-koopman-based-surrogate-modeling-for-reinforcement-learning-control-of-rayleigh-benard-convection)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：流体动力学强化学习控制的代理建模
+2. [Sampling-Horizon Neural Operator Predictors for Nonlinear Control under Delayed Inputs](/202604/01/2603.29119v1-sampling-horizon-neural-operator-predictors-for-nonlinear-control-under-delayed-inputs)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：用于解决控制系统中隐式ODE的神经算子设计
+3. [Learning the Exact Flux: Neural Riemann Solvers with Hard Constraints](/202604/01/2603.30007v1-learning-the-exact-flux-neural-riemann-solvers-with-hard-constraints)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：用于在计算流体动力学中近似精确黎曼解法器的神经网络
+4. [Predictor-Based Output-Feedback Control of Linear Systems with Time-Varying Input and Measurement Delays via Neural-Approximated Prediction Horizons](/202604/01/2603.29117v1-predictor-based-output-feedback-control-of-linear-systems-with-time-varying-input-and-measurement-delays-via-neural-approximated-prediction-horizons)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于自动化科学发现和实验吞吐量的AI研究智能体
-2. [Data-driven discovery and control of multistable nonlinear systems and hysteresis via structured Neural ODEs](/202603/31/2603.27024v1-data-driven-discovery-and-control-of-multistable-nonlinear-systems-and-hysteresis-via-structured-neural-odes)  
+   evidence：使用神经算子学习逆延迟映射
+5. [SimMOF: AI agent for Automated MOF Simulations](/202604/01/2603.29152v1-simmof-ai-agent-for-automated-mof-simulations)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：通过结构化Neural ODE发现非线性系统
-3. [Divergence-free Linearized Neural Networks: Integral Representation and Optimal Approximation Rates](/202603/31/2603.28638v1-divergence-free-linearized-neural-networks-integral-representation-and-optimal-approximation-rates)  
+   evidence：基于大语言模型的多智能体框架，用于自动化模拟工作流
+6. [Metriplector: From Field Theory to Neural Architecture](/202604/01/2603.29496v1-metriplector-from-field-theory-to-neural-architecture)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于无散矢量场的神经网络
-4. [Agentic Personas for Adaptive Scientific Explanations with Knowledge Graphs](/202603/31/2603.21846v1-agentic-personas-for-adaptive-scientific-explanations-with-knowledge-graphs)  
+   evidence：用于场动力学和泊松方程求解的神经架构
+7. [Koopman Operator Identification of Model Parameter Trajectories for Temporal Domain Generalization (KOMET)](/202604/01/2603.26923v1-koopman-operator-identification-of-model-parameter-trajectories-for-temporal-domain-generalization-komet)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于科学解释和发现的智能体角色
-5. [Domain decomposition of large neural network surrogate models](/202603/31/2603.26396v1-domain-decomposition-of-large-neural-network-surrogate-models)  
+   evidence：通过 Koopman 算子识别来确定主导线性算子
+8. [Foundations of Polar Linear Algebra](/202604/01/2603.28939v1-foundations-of-polar-linear-algebra)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：工程中神经网络代理模型的区域分解法
-6. [Interpretable Physics Extraction from Data for Linear Dynamical Systems using Lie Generator Networks](/202603/31/2603.27442v1-interpretable-physics-extraction-from-data-for-linear-dynamical-systems-using-lie-generator-networks)  
+   evidence：从谱视角重新审视算子学习
+9. [Variational Graph Neural Networks for Uncertainty Quantification in Inverse Problems](/202604/01/2603.29515v1-variational-graph-neural-networks-for-uncertainty-quantification-in-inverse-problems)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于线性动力系统和物理提取的深度学习
-7. [Deep Research of Deep Research: From Transformer to Agent, From AI to AI for Science](/202603/31/2603.28361v1-deep-research-of-deep-research-from-transformer-to-agent-from-ai-to-ai-for-science)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：科学AI智能体与大语言模型演进
+   evidence：深度机器学习用于计算力学和反问题
 
 
 <div class="dpr-home-promo-card">
