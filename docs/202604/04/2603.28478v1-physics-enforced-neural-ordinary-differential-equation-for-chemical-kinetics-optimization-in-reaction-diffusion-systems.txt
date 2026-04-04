@@ -1,0 +1,758 @@
+Title: 2603.28478v1.pdf
+
+URL Source: https://arxiv.org/pdf/2603.28478v1
+
+Published Time: Tue, 31 Mar 2026 02:09:29 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+1
+
+# Physics-Enforced Neural Ordinary Differential Equation for Chemical Kinetics Optimization in Reaction-Diffusion Systems 
+
+Feixue Cai a , Hua Zhou a , Zhuyin Ren a, * 
+
+> a
+
+Institute for Aero Engine, Tsinghua University, Beijing 100084, China 
+
+* Corresponding author:  zhuyinren@tsinghua.edu.cn 
+
+Abstract 
+
+Calibrating chemical kinetics in a reaction-diffusion system is challenging because of complex dynamics governed by tightly coupled chemistry and transport, while experimental observations are often sparse and noisy. We propose a physics consistent diffusion-chemistry coupled neural ordinary differential equation (Diff-Chem Neural ODE) that embeds Arrhenius-structured reaction neurons into a fully differentiable streamline formulation and explicitly accounts for diffusion coupling. This design enables direct gradient-based analysis of kinetic parameters without sampling-based pretraining. We validate this method on burner-stabilized flat and stagnation reacting flows using mechanisms spanning different stiffness ranges. The proposed method reproduces species profiles with near-reference accuracy, whereas a pure chemistry Neural ODE that neglects diffusion coupling may misplace ignition and generate an incorrect thin reaction zone. Diff-Chem Neural ODE is more robust than pure chemistry Neural ODE and provides substantial speedups for gradient evaluation compared with fully discretized computations. In kinetics refinement, optimizing only a limited set of “primal” species reduces the loss by over 98% and simultaneously recovers unobserved variables, demonstrating physically consistent global control. Finally, tests with 1-20% noise in the objective show stable convergence without local overfitting, supporting its applicability under noisy measurements. 
+
+Keywords: Reaction-Diffusion; Neural ordinary differential equations; Chemical kinetic; Kinetic parameter optimization 
+
+1. Introduction 
+
+Energy conversion and propulsion devices are governed by the coupled evolution of temperature and species fields under transport and chemical transformation [1-3]. Similar coupled transport-chemistry dynamics also arise in a broad class of reacting media beyond energy systems, including heterogeneous catalytic reactors in chemical processing [4,5], reaction-diffusion fronts in nano materials [6] and biological media [7] etc. In continuum form, the correspond dynamics are often represented as an integrated Reaction-Diffusion (R-D) system or Reaction-Diffusion-Convection (R-D-C) system in which transport processes interact with reactive process [1]: i) advection (flow transport); ii) molecular species diffusion; iii) heat conduction; iv) chemical source terms. These systems form a series of Partial Differential Equations (PDEs) structure, which implies that the state of an operating device is determined not only by intrinsic chemical time scales but also by transport-controlled access to, and residence on, specific regions of thermo-chemical phase space [4,8]. Consequently, 2
+
+the fidelity of reaction kinetics has direct implications for predicting and optimizing stability margins, conversion efficiency, and pollutant formation, particularly when temperature composition feedback and gradient-driven fluxes are significant. 
+
+The inclusion of diffusion/convection introduces nonlinear terms and strong coupling to the velocity field, which substantially increases analytical and numerical complexity, particularly in regimes with sharp gradients [9]. Thus, the transport and chemistry coupling system becomes decisive near operational limits, where small deviations in kinetics can lead to large shifts in stability boundaries [10-12]. As an example, in canonical burner-stabilized configurations, the dominant gradients are aligned with a principal direction and the system is frequently treated using quasi-one-dimensional descriptions [13]; this structure is valuable precisely because it isolates the coupled effects of chemistry and molecular transport (including differential diffusion and heat release) under well-controlled boundary conditions. Early measurements in hydrocarbon diffusion flames already emphasized the tight interplay between chemical pathways and transport processes [14]. The complementary burner-stabilized stagnation configuration introduces a controlled strain field and strong flow-chemistry interaction, enabling systematic interrogation of kinetics-transport coupling and, when relevant, extinction/near-extinction behavior [15]. These canonical examples highlight that, in realistic operating regimes, diffusion and convection can directly condition the reachable states and their stability, rather than acting as secondary perturbations. 
+
+Despite this, for energy conversion systems, kinetic mechanism calibration and optimization for hydrocarbon and related fuels has predominantly been performed in homogeneous reactor settings, where governing equations reduce to an Ordinary Differential Equation (ODE) system under perfect -mixing) assumptions [16,17]. While such optimization is effective for matching ignition delays and perfectly-stirred reactor data, it is structurally limited in representing transport-constrained trajectories and flow-reaction coupling that emerge in spatially inhomogeneous reactors. In particular, objectives defined solely on well-mixed ODE trajectories do not encode diffusion- and convection-induced constraints that become prominent in strained flames, wall-influenced reacting layers, or other near-limit regimes [18]. As a result, ODE-only optimization may under-sample or entirely omit the portions of phase space that are most relevant for stability and performance in practical devices. The above limitations are closely related to the theory of low-dimensional structure in reacting systems. For homogeneous kinetics, chemical-manifold methods exploit stiffness-induced attraction toward slow sets [19-23]. These methods characterize fast/slow subspaces and support systematic reduction of detailed chemistry [19,24]. However, when spatial transport is comparable to reaction in conditioning the evolution, the relevant attracting sets are those of the coupled PDE operator, and they generally do not coincide with the slow sets implied by the homogeneous ODE alone [25]. This motivates Reaction-Diffusion (R-D) manifold approaches that incorporate transport effects into reduced state-space descriptions [25-27]. 
+
+At the same time, mechanism refinement has also long incorporated R-D-C informed observables, including laminar flame velocities, flame-structure quantities, and extinction-related metrics in canonical 1D strained-flame configurations [28,29]. The primary practical limitation of such R-D-C driven calibration is often not the absence of transport physics in the objective, but the computational burden associated with repeatedly evaluating transport-chemistry coupled simulations over wide condition spaces and high-dimensional parameter sets. This burden becomes particularly acute when detailed or skeletal mechanisms with 𝒪𝒪 (10~10 3) reactions and 𝒪𝒪 (10 2~10 4) species are optimized [30], as each forward evaluation requires solving a stiff, coupled transport-reaction boundary value problem, and the number of evaluations required by uncertainty 3
+
+quantification, or Bayesian inference workflows can be substantial [29,31-33]. 
+
+Recent advances in scientific machine learning provide additional tools to operationalize this requirement [33,34]. Neural Ordinary Differential Equations (Neural ODEs) [35] parameterize the time derivative of a state by a learnable function and compute trajectories using ODE solvers, enabling end-to-end training through differentiable integration. For reacting systems, this paradigm offers a natural mechanism for gradient-based parameter learning at the level of continuous-time dynamics, and has been extended to address stiffness and multiscale kinetics through algorithmic and architectural modifications (e.g., stiff Neural ODE formulations and stabilized training strategies) [36]. Moreover, domain-structured Neural ODE variants can hard-encode chemical interpretability: the Chemical Reaction Neural Network (CRNN) architecture embeds the law of mass action and Arrhenius kinetics directly into the network so that weights/biases correspond to stoichiometry and kinetic parameters [37-39]. And the chemical reactor nets can be modeled through Neural ODE and non-ideal reactors [40,41]. More generally, universal differential equation formulations provide a unifying perspective in which mechanistic models are augmented with learnable components while retaining differentiable simulation for parameter estimation and model discovery [42]. In parallel, Physics-Informed Neural Networks (PINNs) embed PDE residuals into training objectives and have been used to infer solutions and parameters of nonlinear PDE systems from sparse data, thereby enabling inverse problems under governing-equation constraints [43]. In kinetics contexts, representative “chemistry-aware PINN” implementations explicitly incorporate mass-action and conservation laws into the PINN loss to reduce nonphysical errors and data dependence [44,45]. Complementarily, recent work demonstrates that enforcing conservation laws in neural surrogates can be done not only via soft penalties but also via plug-and-play correction constraint strategies, substantially improving stability in long-horizon reactive evolution [46]. 
+
+However, existing Neural ODE- and PINN-based paradigms do not, in their standard formulations, directly address the specific challenge posed by R-D native kinetics optimization. Most Neural ODE applications to kinetics learning are trained on effectively 0D (well-mixed) trajectories, so the learned continuous-time vector field is informed primarily by homogeneous evolution and is not systematically exposed to the transport-admissible pathways and constraints induced by diffusion and convection in spatially inhomogeneous reactors [37]. Conversely, PINNs enforce PDE consistency by embedding residuals into a global training objective, but for stiff, multiscale reacting systems this monolithic enforcement can be difficult to optimize [47] and may not naturally preserve reaction-level interpretability (e.g., pathway attribution and identifiable kinetic parameters) that is essential for mechanism refinement. These observations suggest a gap between i) data-driven continuous-time learning that is efficient and differentiable but often transport-agnostic, and ii) PDE-constrained learning that is transport-consistent but can be computationally and algorithmically challenging for stiff detailed chemistry and may obscure mechanism structure. Therefore, a transport-consistent learning formulation for kinetics optimization should: i) retain reaction-level structure, ii) remain differentiable for gradient-based optimization under stiffness, and iii) expose the learning process to transport-constrained trajectories that characterize real reactors. 
+
+Therefore, we propose a physics-enforced diffusion-chemistry coupled neural ordinary differential equation (Diff-Chem Neural ODE) for efficient, transport-consistent kinetics analysis and optimization in R-D systems. Section 2 reformulates the steady reacting-flow PDEs into a residence-time/streamline ODE for differentiable integration, and presents the Diff-Chem Neural ODE with Arrhenius-structured reaction neurons and diffusion modeled as explicit forcing. Section 3 describes the test cases, validates against reference solutions, and evaluates robustness and efficiency under perturbed initial conditions, noisy measurements, and 4
+
+runtime/gradient benchmarks. We then demonstrate kinetics refinement using objectives defined on a limited set of measurable species. Conclusions are given in Section 4. 
+
+2. Theoretical formulations 
+
+2.1. Governing equations for reaction-diffusion-convection systems 
+
+As mentioned above, the transport due to molecular diffusion and velocity will introduce diffusion and convection effects into the reaction process. Considering a typical reacting flow with 𝑁𝑁 𝑆𝑆 species and 𝑁𝑁 𝑅𝑅 
+
+reactions, it can be described by series of PDE system including mass, momentum, energy and species conservations (where the body forces are neglected for common cases). In general, the governing equations can be expressed as: 
+
+𝜕𝜕𝜕𝜕 𝜕𝜕𝜕𝜕 + ∇ ∙ (𝜕𝜕 𝑼𝑼 ) = 0  (1) 
+
+𝜕𝜕 (𝜕𝜕 𝑼𝑼 )
+
+𝜕𝜕𝜕𝜕 + ∇(𝜕𝜕 𝑼𝑼⨂𝑼𝑼 ) = −∇𝑃𝑃 + ∇ ∙ �𝜇𝜇∇𝑼𝑼 + 𝜇𝜇 (∇𝑼𝑼 )⊤ − 23 𝜇𝜇 (∇ ∙ 𝑼𝑼 )𝐈𝐈�  (2) 
+
+𝜕𝜕 (𝜕𝜕 𝑌𝑌 𝑖𝑖 )
+
+𝜕𝜕𝜕𝜕 + ∇ ∙ (𝜕𝜕 𝑼𝑼𝑌𝑌 𝑖𝑖 ) = −∇ ∙ 𝑱𝑱 𝑖𝑖 + 𝑀𝑀 𝑖𝑖 𝜔𝜔̇ 𝑖𝑖 , � 𝑌𝑌 𝑖𝑖 𝑁𝑁 𝑆𝑆 𝑖𝑖=1 
+
+= 1  (3) 
+
+𝜕𝜕𝜕𝜕𝑐𝑐 𝑝𝑝 𝑇𝑇 𝜕𝜕𝜕𝜕 + ∇ ∙ � 𝜕𝜕 𝑐𝑐 𝑝𝑝 𝑼𝑼𝑇𝑇� − 𝜕𝜕 𝑃𝑃 
+
+𝜕𝜕𝜕𝜕 = ∇ ∙ (𝜆𝜆∇𝑇𝑇 ) − ∇ ∙ �� ℎ 𝑖𝑖 𝑱𝑱 𝑖𝑖 𝑁𝑁 𝑆𝑆 𝑖𝑖=1 � − � 𝑀𝑀 𝑖𝑖 ℎ𝑖𝑖 𝜔𝜔̇ 𝑖𝑖 𝑁𝑁 𝑆𝑆 𝑖𝑖=1 
+
+(4) 
+
+Here, ∇ is the variable’s gradients to Eulerian locations and ⨂ the tensor product. The  𝜕𝜕  and 𝑼𝑼 are the density of mixture fluid/gas and velocity vector, 𝑃𝑃 the pressure, 𝜇𝜇 the dynamic viscosity. And ℎ 𝑖𝑖 is the enthalpy of 𝑖𝑖 𝑡𝑡ℎ species, 𝑇𝑇 the temperature, 𝜆𝜆 the thermal conductivity, 𝑐𝑐 𝑝𝑝 the heat capacity at constant pressure, 𝜔𝜔̇ 𝑖𝑖 the mole-based net production rate of 𝑖𝑖 𝑡𝑡ℎ species, 𝑀𝑀 𝑖𝑖 the molecular weight of species 𝑖𝑖 , and 
+
+𝑱𝑱 𝑖𝑖 the diffusion flux of 𝑖𝑖 𝑡𝑡ℎ species, 𝑌𝑌 𝑖𝑖 the mass fraction of 𝑖𝑖 𝑡𝑡ℎ species. The diffusion flux 𝑱𝑱 𝑖𝑖 is modeled based on Fick’s law and mix-averaged correction: 
+
+𝑱𝑱 𝑖𝑖 = −𝜕𝜕 𝐷𝐷 𝑖𝑖 ′ 𝛻𝛻𝑌𝑌 𝑖𝑖 + 𝜕𝜕 𝑌𝑌 𝑖𝑖 � 𝐷𝐷 𝑘𝑘 ′ 𝛻𝛻𝑌𝑌 𝑘𝑘 𝑘𝑘 
+
+(5) 
+
+The 𝐷𝐷′ is the diffusion coefficients. 
+
+The chemical production rate is calculated from elementary reactions: 
+
+� 𝑣𝑣 𝑖𝑖𝑖𝑖 ′ 𝑋𝑋 𝑖𝑖 𝑁𝑁 𝑆𝑆 𝑖𝑖 𝐾𝐾 𝑓𝑓 ,𝑖𝑖 
+
+⇌𝐾𝐾 𝑟𝑟 ,𝑖𝑖 � 𝑣𝑣 𝑖𝑖𝑖𝑖 ′′ 𝑋𝑋 𝑖𝑖 𝑁𝑁 𝑆𝑆 𝑖𝑖 
+
+, 𝑋𝑋 𝑖𝑖 = 𝑌𝑌 𝑖𝑖 𝑀𝑀 𝑖𝑖 
+
+(6) 
+
+Where 𝑣𝑣 𝑖𝑖𝑖𝑖 ′ and 𝑣𝑣 𝑖𝑖𝑖𝑖 ′′ are the stoichiometric coefficients of species 𝑖𝑖 in reaction 𝑗𝑗 , respectively, 𝑋𝑋 𝑖𝑖 the mole fraction of species 𝑖𝑖 . 𝐾𝐾 𝑓𝑓 ,𝑖𝑖  and 𝐾𝐾 𝑟𝑟 ,𝑖𝑖  are the forward and reverse rate constant of species 𝑖𝑖 in reaction 𝑗𝑗 , which are determined by Arrhenius equations: 
+
+𝐾𝐾 𝑓𝑓 ,𝑖𝑖  = 𝐴𝐴 𝑖𝑖 𝑇𝑇 𝛽𝛽 𝑗𝑗 exp( − Ea 𝑖𝑖 
+
+𝑅𝑅 𝑇𝑇 ) (7) 5
+
+𝐾𝐾 𝑟𝑟 ,𝑖𝑖  =
+
+𝐴𝐴 𝑖𝑖 𝑇𝑇 𝛽𝛽 𝑗𝑗 exp �− Ea 𝑖𝑖 
+
+𝑅𝑅 𝑇𝑇 �
+
+exp �− ∆𝐺𝐺 𝑖𝑖 
+
+> 0
+
+𝑅𝑅 𝑇𝑇  � (𝑅𝑅 𝑇𝑇 )− ∑ �𝑣𝑣 𝑖𝑖 𝑗𝑗   
+
+> ′′ −𝑣𝑣 𝑖𝑖 𝑗𝑗
+> ′�𝑖𝑖
+
+(8) 
+
+Here, 𝐴𝐴 is the pre-exponential factor (also called Arrhenius constant), 𝛽𝛽 the temperature exponent, 𝐸𝐸𝐸𝐸 the activation energy, 𝑅𝑅 the universal gas constant, ∆𝐺𝐺 0 the standard Gibbs free energy change. Thus, the net production rate 𝜔𝜔̇ 𝑖𝑖 is: 
+
+𝜔𝜔̇ 𝑖𝑖 = 𝑀𝑀 𝑖𝑖 � ��𝑣𝑣 𝑖𝑖𝑖𝑖 ′′ − 𝑣𝑣 𝑖𝑖𝑖𝑖 ′ � �𝐾𝐾 𝑓𝑓 ,𝑖𝑖  � 𝐶𝐶 𝑖𝑖 𝑣𝑣 𝑖𝑖 𝑗𝑗 
+
+> ′
+
+− 𝐾𝐾 𝑟𝑟 ,𝑖𝑖  � 𝐶𝐶 𝑖𝑖 𝑣𝑣 𝑖𝑖 𝑗𝑗 
+
+> ′′ 𝑁𝑁 𝑆𝑆 𝑖𝑖=1 𝑁𝑁 𝑆𝑆 𝑖𝑖=1
+
+�� 𝑁𝑁 𝑅𝑅 
+
+> 𝑖𝑖 =1
+
+, 𝐶𝐶 𝑖𝑖 = 𝜕𝜕 𝑌𝑌 𝑖𝑖 𝑀𝑀 𝑖𝑖 
+
+(9) 
+
+Among the governing equations, chemical effect mainly works on the species and energy equations, and strongly affect the results in species distribution. With mass conservation in Eq.  (1) , the species conservation equations can be written as: 
+
+𝜕𝜕  𝜕𝜕𝑌𝑌 𝑖𝑖 𝜕𝜕𝜕𝜕 + 𝜕𝜕 𝑼𝑼 ∙ ∇𝑌𝑌 𝑖𝑖 
+
+> ���������
+> Convection
+
+= 𝒮𝒮 diff 𝑌𝑌 (𝑌𝑌 𝑖𝑖 )
+
+> ���������
+> Diffusion
+
++ 𝑀𝑀 𝑖𝑖 𝜔𝜔̇ 𝑖𝑖 
+
+> �����
+> Reaction
+
+(10) 
+
+Where the 𝒮𝒮 diff 𝑌𝑌 (𝑌𝑌 𝑖𝑖 ) = −∇ ∙ 𝑱𝑱 𝑖𝑖 represent the source term from diffusion in the right hand side of Eq.  (3) ,respectively. Now that this formular stains with nonlinear convection term  𝜕𝜕 𝑼𝑼 ∙ ∇𝑌𝑌 𝑖𝑖 , a transfer from R-D-C system to R-D system can be achieved by switch Eulerian frame to Lagrangian frame based on the residence time 𝜏𝜏 along with the streamline whose arc is ℓ:
+
+𝑼𝑼 ∙ ∇𝑌𝑌 𝑖𝑖 = | 𝑼𝑼 | 𝑑𝑑𝑌𝑌 𝑖𝑖 𝑑𝑑ℓ  (11) 
+
+𝑑𝑑 𝜏𝜏  = 𝑑𝑑ℓ 
+
+|𝑼𝑼 | ⇒ 𝑼𝑼 ∙ ∇𝑌𝑌 𝑖𝑖 = 𝑑𝑑𝑌𝑌 𝑖𝑖 𝑑𝑑 𝜏𝜏  (12) 
+
+Following the same strategy, the species and energy transport equation of a R-D-C system can be transferred to a R-D system as: 
+
+𝜕𝜕  𝑑𝑑𝑌𝑌 𝑖𝑖 𝑑𝑑 𝜏𝜏  = 𝒮𝒮 diff 𝑌𝑌 (𝑌𝑌 𝑖𝑖 ) + 𝑀𝑀 𝑖𝑖 𝜔𝜔̇ 𝑖𝑖 + ℛ time 𝑌𝑌 (𝑌𝑌 𝑖𝑖 ) (13) 
+
+𝜕𝜕 𝑐𝑐 𝑝𝑝 𝑑𝑑 𝑇𝑇 
+
+𝑑𝑑 𝜏𝜏  = 𝒮𝒮 diff 𝑇𝑇 (𝑇𝑇 ) − � 𝑀𝑀 𝑖𝑖 ℎ𝑖𝑖 𝜔𝜔̇ 𝑖𝑖 𝑁𝑁 𝑆𝑆 𝑖𝑖=1 
+
++ ℛ time 𝑇𝑇 (𝑇𝑇 ) (14) 
+
+Where the 𝒮𝒮 diff 𝑇𝑇 (𝑇𝑇 ) = ∇ ∙ (𝜆𝜆∇𝑇𝑇 ) − ∇ ∙ �∑ ℎ𝑖𝑖 𝑱𝑱 𝑖𝑖 𝑁𝑁 𝑆𝑆 𝑖𝑖=1 � is the diffusion source term in the right hand side of energy conservation Eq.  (4) . ℛ time 𝑌𝑌 (𝑌𝑌 𝑖𝑖 ) = −𝜕𝜕  𝑑𝑑𝑌𝑌 𝑖𝑖 𝑑𝑑 𝑡𝑡  and ℛ time 𝑇𝑇 (𝑇𝑇 ) = −𝜕𝜕 𝑐𝑐 𝑝𝑝 𝑑𝑑 𝑇𝑇  
+
+> 𝑑𝑑 𝑡𝑡
+
+represents the time variant residual of species and temperature in Eulerian frame, respectively. 
+
+In most cases in chemical studies, the experiments are often collected from a steady or quasi-steady state for stable solution, which means the time variant in Eulerian frame approaches zero: 𝑑𝑑 (∙) 
+
+> 𝑑𝑑 𝑡𝑡
+
+→ 0, ℛ time → 0. So, the R-D system can be solved by the following equations in the Lagrangian context as: 6
+
+𝜕𝜕  𝑑𝑑𝑌𝑌 𝑖𝑖 𝑑𝑑 𝜏𝜏  = 𝒮𝒮 diff ,sol 𝑌𝑌 (𝑌𝑌 𝑖𝑖 )
+
+> �����������
+> Diffusion
+
++ 𝑀𝑀 𝑖𝑖 𝜔𝜔̇ 𝑖𝑖 
+
+> �����
+> Reaction
+
+(15) 
+
+𝜕𝜕 𝑐𝑐 𝑝𝑝 𝑑𝑑 𝑇𝑇 
+
+𝑑𝑑 𝜏𝜏  = 𝒮𝒮 diff ,sol 𝑇𝑇 (𝑇𝑇 )
+
+> �����������
+> Diffusion
+
++ ( − � 𝑀𝑀 𝑖𝑖 ℎ𝑖𝑖 𝜔𝜔̇ 𝑖𝑖 𝑁𝑁 𝑆𝑆 𝑖𝑖=1 
+
+> �������������
+
+)
+
+> Reaction
+
+(16) 
+
+In a traditional and widely applied way, the ideal Lagrangian reactor in a pure chemical ODE raised assumptions of perfect stirred and uniform mixed in the Lagrangian particle. This would lead to ∇(∙) → 0 ,
+
+𝒮𝒮 diff → 0, and a pure reaction ODE system as: 
+
+𝜕𝜕  𝑑𝑑𝑌𝑌 𝑖𝑖 𝑑𝑑 𝜏𝜏  = 𝑀𝑀 𝑖𝑖 𝜔𝜔̇ 𝑖𝑖 
+
+> �����
+> Reaction
+
+(17) 
+
+𝜕𝜕 𝑐𝑐 𝑝𝑝 𝑑𝑑 𝑇𝑇 
+
+𝑑𝑑 𝜏𝜏  = − � 𝑀𝑀 𝑖𝑖 ℎ𝑖𝑖 𝜔𝜔̇ 𝑖𝑖 𝑁𝑁 𝑆𝑆 𝑖𝑖=1 
+
+> �������������
+> Reaction
+
+(18) 
+
+2.2. Diffusion-chemistry coupled Neural ODEs 
+
+Following the instinct from pure reaction ODE system, it’s natural to couple neural ordinary differential equations into the iteration, and make the neuron represents every time differential part of the variable. Take example of species mass fraction, which is directly calculated from chemical reaction, the universal neuron 𝓝𝓝 
+
+at time step 𝑛𝑛 and the iteration of species will be: 
+
+𝑑𝑑𝑌𝑌 𝑖𝑖 𝑑𝑑 𝜏𝜏  (𝑌𝑌 𝑖𝑖 𝑛𝑛 , 𝜏𝜏 𝑛𝑛 ) = 𝓝𝓝 (𝑌𝑌 𝑖𝑖 𝑛𝑛 , 𝒯𝒯 𝑛𝑛 ) (19) 
+
+𝑌𝑌 𝑖𝑖 𝑛𝑛+1 = ODEsolver �𝓝𝓝 (𝑌𝑌 𝑖𝑖 𝑛𝑛 ), 𝑌𝑌 𝑖𝑖 0 � (20) 
+
+However, this kind of universal neuron structure can not capture the chemistry directly through mechanism since it only contains single state variable about species. From Arrhenius law, we know that the time variants are strongly depended by mechanism and Arrhenius coefficients 𝜽𝜽 (represents the integrated contribution of 
+
+𝐴𝐴 , 𝛽𝛽 , Ea ), so it’s hard to get accessible and continuous information through such universal neuron. Previous CRNN method [37] directly implements the Arrhenius law into the neuron for stable convergence: 𝓝𝓝 =
+
+𝓝𝓝 Chem �𝑌𝑌 𝑖𝑖 𝑛𝑛 , 𝜏𝜏 𝑛𝑛 ; ( 𝑇𝑇 𝑛𝑛 , 𝜽𝜽 )� . But this structure can only be applied in reaction ODE. Thus, we proposed the diffusion-chemistry coupled structure of Diff-Chem neuron as: 
+
+𝑑𝑑𝑌𝑌 𝑖𝑖 𝑑𝑑 𝜏𝜏  (𝑌𝑌 𝑖𝑖 𝑛𝑛 , 𝜏𝜏 𝑛𝑛 ) = 𝓝𝓝 = 𝓝𝓝 Diff−Chem �𝑌𝑌 𝑖𝑖 𝑛𝑛 , 𝜏𝜏 𝑛𝑛 ; ( 𝑇𝑇 𝑛𝑛 , 𝑃𝑃 𝑛𝑛 , 𝒮𝒮 diff 𝑛𝑛 , 𝜽𝜽 )� (21) 
+
+Fig. 1  shows the integrated structure of Diff-Chem Neural ODE, where the single Arrhenius layer provides the reaction rate for one of the reactions, and the reaction layer gives time-differentiated outcomes (presented by 𝝓𝝓 here) coupled with diffusion terms. The integration of this ODE system is along the residence direction from stream inlet (corresponding to 𝜏𝜏 0 ) to stream outlet (corresponding to 𝜏𝜏 𝑀𝑀 ). Note that the forced state variable temperature and pressure here is for defining reaction rates and densities, and these will not affect the derivative process from time-differentiated outcomes to the chemical mechanism since the Arrhenius-reaction layers coupled the mechanism’s contribution directly. This structure has several characteristics as: 7
+
+ End-to-End differentiation for chemical mechanism : the Arrhenius-reaction layers encode mechanistic contributions explicitly, enabling direct and continuous gradients with respect to kinetic coefficients and reaction pathways, with reaction-level interpretability. 
+
+ Stiffness-aware numerical integration : the Arrhenius form parameterization constrains the sensitivity of chemical terms, while the flux-forced diffusion term avoids entangling transport effects with chemistry, improving numerical stability and allowing robust residence-direction integration with stiff-capable ODE solvers. 
+
+ Pretraining-free : the mechanism-embedded inductive bias and structured parameterization directly as the learnable weights of neurons, allowing training from scratch without staged pretraining. 
+
+ Streamline-interpreted PDE applicability : by integrating along the residence direction and introducing diffusion as a forced flux term, Diff-Chem Neural ODE naturally extends Arrhenius-embedded chemical neural networks from reaction ODEs to R-D-C PDE surrogates. 
+
+Fig. 1. Integrated structure of Diff-Chem Neural ODE. 
+
+2.3. Differentiation and optimization strategy 
+
+Let 𝜏𝜏 ∈ [𝜏𝜏 0, 𝜏𝜏 𝑀𝑀 ] denote the residence time coordinate, and the transported thermo-chemical state be 𝝓𝝓 
+
+which contains 𝑇𝑇 and {𝑌𝑌 𝑖𝑖 }𝑖𝑖=1 𝑁𝑁 𝑆𝑆 . The Diff-Chem ODE follows integration with solver operator 𝜓𝜓 as: 
+
+𝑑𝑑𝝓𝝓 𝑑𝑑 𝜏𝜏  = 𝒇𝒇 (𝝓𝝓 (𝜏𝜏 ); 𝜽𝜽 ) = 𝓢𝓢 chem 𝝓𝝓 (𝝓𝝓 (𝜏𝜏 ); 𝜽𝜽 ) + 𝓢𝓢 diff 𝝓𝝓 (𝜏𝜏 ) (22) 
+
+𝝓𝝓 (𝜏𝜏 𝑀𝑀 ) = 𝜓𝜓 (𝝓𝝓 (𝜏𝜏 0), 𝒇𝒇 (∙; 𝜽𝜽 ), 𝜏𝜏 0, 𝜏𝜏 𝑀𝑀 ) (23) 8
+
+Consider the objective function to be the minimum loss 𝐿𝐿 with reference fields 𝝓𝝓 � sampled at {𝜏𝜏 𝑚𝑚 }𝑚𝑚=0 𝑀𝑀 :
+
+𝐿𝐿 (𝜽𝜽 ) = ℯ �𝝓𝝓 (𝜏𝜏 𝑚𝑚 ), 𝝓𝝓 �(𝜏𝜏 𝑚𝑚 )� (24) 
+
+Where ℯ(∙) represents the mismatch such as Mean Absolute Error (MAE) or Mean Squared Error. 
+
+We employ two complementary differentiation routes: forward mode and adjoint/reverse mode. Forward mode AD propagates tangents from inlet to outlet along the residence marching direction. Adjoint mode using an interpolating adjoint strategy, and the key object is the adjoint propagated from outlet to inlet [48]. 
+
+Define the first order gradient matrix 𝑮𝑮 = 𝜕𝜕𝝓𝝓 𝜕𝜕𝜽𝜽 . Differentiating Diff-Chem ODE yields standard forward gradients system: 
+
+𝑑𝑑 
+
+𝑑𝑑 𝜏𝜏  �𝜕𝜕𝝓𝝓 𝜕𝜕𝜽𝜽 � = 𝑑𝑑 
+
+𝑑𝑑𝜽𝜽 �𝑑𝑑𝝓𝝓 𝑑𝑑 𝜏𝜏  � = 𝑑𝑑 𝒇𝒇 
+
+𝑑𝑑𝜽𝜽 = 𝜕𝜕 𝒇𝒇 
+
+𝜕𝜕𝝓𝝓 𝜕𝜕𝝓𝝓 𝜕𝜕𝜽𝜽 + 𝜕𝜕 𝒇𝒇 
+
+𝜕𝜕𝜽𝜽  (25) 
+
+𝑑𝑑 𝑮𝑮 
+
+𝑑𝑑 𝜕𝜕  = 𝜕𝜕 𝒇𝒇 
+
+𝜕𝜕𝝓𝝓 
+
+> ���
+> 𝓙𝓙 𝜙𝜙 (𝜏𝜏 )
+
+𝑮𝑮 + 𝜕𝜕 𝒇𝒇 
+
+𝜕𝜕𝜽𝜽 
+
+> ���
+> 𝓙𝓙 𝜃𝜃 (𝜏𝜏 )
+
+(26) 
+
+Where the Jacobian matrix 𝓙𝓙 𝜙𝜙 and 𝓙𝓙 𝜃𝜃 can be directly obtained through AD technique. Thus, the forward mode just needed for integrating an augmented ODE 
+
+𝑑𝑑 𝑑𝑑 𝜏𝜏  � 𝝓𝝓 
+
+vec( 𝑮𝑮 )� = �𝒇𝒇 (𝝓𝝓 (𝜏𝜏 ); 𝜽𝜽 )vec �𝓙𝓙 𝜙𝜙 (𝜏𝜏 )𝑮𝑮 + 𝓙𝓙 𝜃𝜃 (𝜏𝜏 )�� (27) 
+
+with stiff-capable time stepping consistent with the primal solve. This is why forward sensitivities remain stable for stiff source terms. So, the gradients for objective function under forward mode is: 
+
+𝜕𝜕 𝐿𝐿 
+
+𝜕𝜕𝜽𝜽 = 𝜕𝜕ℯ 𝜕𝜕𝝓𝝓 𝑮𝑮  (28) 
+
+Although the forward mode is clean and stable, when parameter dimension is large, the forward mode will become expensive since it’s number of ODE scales linearly in the number of parameters times state variables [38]. So, the adjoint/reverse mode is also employed here for increasing efficiency in large number of parameters. And for a stable convergence in both non-stiff and stiff case, we used interpolating adjoint method for stable convergence [36]. 
+
+Define an adjoint variable 𝐚𝐚 
+
+𝐚𝐚 (𝜏𝜏 ) = 𝜕𝜕 𝐿𝐿 
+
+𝜕𝜕𝝓𝝓 (𝜏𝜏 ) (29) 
+
+The adjoint evolves backward between observation points according to: 
+
+𝑑𝑑𝐚𝐚 𝜏𝜏  = −𝓙𝓙 𝜙𝜙 (𝜏𝜏 )⊤ 𝐚𝐚 (𝜏𝜏 ) (30) 
+
+𝐚𝐚 (𝜏𝜏 𝑚𝑚− ) = 𝐚𝐚 (𝜏𝜏 𝑚𝑚+ ) + 𝜕𝜕 ℯ
+
+𝜕𝜕𝝓𝝓 �𝝓𝝓 (𝜏𝜏 𝑚𝑚 )
+
+(31) 
+
+Thus, the gradient is then given by: 
+
+𝜕𝜕 𝐿𝐿 
+
+𝜕𝜕𝜽𝜽 = � 𝐚𝐚 (𝜏𝜏 )⊤ 𝓙𝓙 𝜃𝜃 (𝜏𝜏 )  
+
+> 𝜏𝜏 𝑀𝑀 𝜏𝜏 0
+
+𝑑𝑑 𝜏𝜏  (32) 
+
+Define the integration state vector function 𝐠𝐠 :9
+
+𝐠𝐠 (𝜏𝜏 ) = � 𝐚𝐚 (𝜏𝜏 )⊤ 𝓙𝓙 𝜃𝜃 (𝜏𝜏 ) 
+
+> 𝜏𝜏 𝑀𝑀 𝜏𝜏
+
+𝑑𝑑 𝜏𝜏  (33) 
+
+𝑑𝑑𝐠𝐠 𝜏𝜏  = −𝐚𝐚 (𝜏𝜏 )⊤ 𝓙𝓙 𝜃𝜃 (𝜏𝜏 ) = −𝓙𝓙 𝜃𝜃 (𝜏𝜏 )⊤ 𝐚𝐚 (𝜏𝜏 ) (34) 
+
+So that 𝐠𝐠 (𝜏𝜏 𝑀𝑀 ) = 0 and 𝐠𝐠 (𝜏𝜏 0) = ∫ 𝐚𝐚 (𝜏𝜏 )⊤ 𝓙𝓙 𝜃𝜃 (𝜏𝜏 )   
+
+> 𝜏𝜏 𝑀𝑀 𝜏𝜏 0
+
+𝑑𝑑 𝜏𝜏 , and the gradient becomes: 
+
+𝜕𝜕 𝐿𝐿 
+
+𝜕𝜕𝜽𝜽 = 𝐠𝐠 (𝜏𝜏 0) (35) 
+
+Thus, the adjoint mode is achieved by solving adjoint augmented system as:  
+
+> 𝑑𝑑 𝑑𝑑 𝜏𝜏
+
+�𝐚𝐚 𝐠𝐠 � = �−𝓙𝓙 𝜙𝜙 (𝜏𝜏 )⊤𝐚𝐚 (𝜏𝜏 )
+
+−𝓙𝓙 𝜃𝜃 (𝜏𝜏 )⊤ 𝐚𝐚 (𝜏𝜏 )�, 𝐚𝐚 (𝜏𝜏 𝑀𝑀+ ) = 0 , 𝐠𝐠 (𝜏𝜏 𝑀𝑀 ) = 0  (36) 
+
+A practical challenge in stiff ODEs is that reverse integration needs access to 𝝓𝝓 (𝜏𝜏 ) when evaluating 
+
+𝓙𝓙 𝜙𝜙 (𝜏𝜏 ) and 𝓙𝓙 𝜃𝜃 (𝜏𝜏 ) . The interpolating adjoint strategy addresses this by constructing a continuous approximation 𝝓𝝓 �(𝜏𝜏 ) from the forward solution: 
+
+1) Forward pass (primal solve): integrate Eq.  (22)  and  (23)  and store states at solver steps 
+
+{( 𝜏𝜏 𝑚𝑚 , 𝝓𝝓 𝑚𝑚 )} 𝑚𝑚=0 𝑀𝑀 ;
+
+2) Dense interpolation by selected method 𝑀𝑀 : 𝝓𝝓 �(𝜏𝜏 ) = 𝑀𝑀 (𝜏𝜏 ; {( 𝜏𝜏 𝑚𝑚 , 𝝓𝝓 𝑚𝑚 )} 𝑚𝑚=0 𝑀𝑀 ) . where 𝑀𝑀 can be a piecewise polynomial (e.g., Hermite/cubic) consistent with the ODE solver’s dense output. 
+
+So, the Jacobian matrix can be given by 𝓙𝓙 𝜙𝜙 (𝜏𝜏 ) = 𝜕𝜕𝒇𝒇 𝜕𝜕𝝓𝝓 � 𝝓𝝓=𝝓𝝓 � (𝜏𝜏 )
+
+and 𝓙𝓙 𝜃𝜃 (𝜏𝜏 ) = 𝜕𝜕𝒇𝒇 𝜕𝜕𝜽𝜽 � 𝝓𝝓=𝝓𝝓 � (𝜏𝜏 ).
+
+After differentiation, the gradients of objective function are obtained, and the optimization could be directly implemented through gradient-based optimization. Denote the gradient-based optimizer as 𝜂𝜂 , the update of parameters can be written as: 
+
+𝜽𝜽 𝑘𝑘+1 = 𝜽𝜽 𝑘𝑘 + 𝜂𝜂 �𝜽𝜽 𝑘𝑘 , 𝜕𝜕 𝐿𝐿 
+
+𝜕𝜕𝜽𝜽 � 𝜽𝜽 𝑘𝑘 � (37) 
+
+The optimizer is the adaptive moment estimation (Adam) [49] for its fast and stable convergence in stochastic gradient descent tasks, and the learning rate is set as 0.01. 
+
+Algorithm 1: Pseudocode for Diff-Chem Neural ODE based optimization strategy 
+
+Block  Pseudocode  Key outputs 
+
+1 Inputs  Observation data 𝝓𝝓 � as reference; Initial chemical states 𝜽𝜽 0 ;Optimizer setting 𝜂𝜂 (Adam ); Maximum iteration steps 𝑁𝑁 opt ;
+
+-
+
+2 Initialization of forced profiles 
+
+Compute forced profiles 𝑇𝑇 , 𝑃𝑃 , 𝓢𝓢 diff 𝝓𝝓 from initial fully discretized solutions 
+
+𝑇𝑇 , 𝑃𝑃 , 𝓢𝓢 diff 𝝓𝝓 
+
+3 Diff-Chem model  Define RHS: 𝒇𝒇 (𝝓𝝓 (𝜏𝜏 ); 𝜽𝜽 ) = 𝓢𝓢 𝑐𝑐ℎ𝑒𝑒 𝑚𝑚  
+
+> 𝝓𝝓
+
+(𝝓𝝓 (𝜏𝜏 ); 𝜽𝜽 ) + 𝓢𝓢 𝑑𝑑 𝑖𝑖𝑓𝑓𝑓𝑓  
+
+> 𝝓𝝓
+
+(𝜏𝜏 ) ;
+
+Define loss: 𝐿𝐿 (𝜽𝜽 ) = ℯ �𝝓𝝓 (𝜏𝜏 𝑚𝑚 ), 𝝓𝝓 � (𝜏𝜏 𝑚𝑚 )�
+
+𝒇𝒇 , 𝐿𝐿 0
+
+4 Iterat ion  For 𝑘𝑘 =0,1, …, 𝑁𝑁 opt -1, do 
+
+4.1 Primal solve  Solve {𝜏𝜏 𝑚𝑚 , 𝝓𝝓 𝑚𝑚 }𝑚𝑚 𝑀𝑀 ← 𝝓𝝓 (𝜏𝜏 𝑀𝑀 ) = 𝜓𝜓 (𝝓𝝓 (𝜏𝜏 0), 𝒇𝒇 , 𝜏𝜏 0, 𝜏𝜏 𝑀𝑀 ) by ODE solver 𝜓𝜓 (e.g., BDF /TRBDF [50] )
+
+{𝜏𝜏 𝑚𝑚 , 𝝓𝝓 𝑚𝑚 }𝑚𝑚 𝑀𝑀 
+
+4.2 Evaluate loss  𝝓𝝓 𝑚𝑚 ← (i) forward mode: direct readout; else (ii) adjoint mode: interpolate 𝝓𝝓 �(𝜏𝜏 ); Compute loss 𝐿𝐿 𝑘𝑘 
+
+𝐿𝐿 𝑘𝑘 
+
+4.3 Gradients  ∇ 𝜽𝜽 𝑘𝑘 𝐿𝐿 𝑘𝑘 ← 𝓙𝓙 𝜙𝜙 𝑘𝑘 , 𝓙𝓙 𝜃𝜃 𝑘𝑘 : Propagate gradients by selected AD methods;  ∇ 𝜽𝜽 𝑘𝑘 𝐿𝐿 𝑘𝑘 10                                       
+
+> Integrate augment ODEs
+> 4.4 Update 𝜽𝜽 𝑘𝑘+1 ← 𝜽𝜽 𝑘𝑘 +𝜂𝜂�𝜽𝜽 𝑘𝑘 ,∇𝜽𝜽 𝑘𝑘 𝐿𝐿 𝑘𝑘 �,update kinetic parameters;
+> �𝑇𝑇 𝑘𝑘+1 ,𝑃𝑃 𝑘𝑘+1 ,𝓢𝓢 diff 𝝓𝝓 ,𝑘𝑘+1 �← 𝜽𝜽 𝑘𝑘+1 , update profiles
+> 𝜽𝜽 𝑘𝑘+1 ,𝑇𝑇 𝑘𝑘+1 ,
+> 𝑃𝑃 𝑘𝑘+1 ,𝓢𝓢 diff 𝑘𝑘+1
+> 4.5 Stopping if convergence (e.g., ‖∇𝐿𝐿‖ small, or max iters)
+> then break .
+> 5Return -Final 𝜽𝜽 opt
+
+As conducted from above, the overall procedure can be summarized as an iterative “simulate-compare-update” loop built around a differentiable reaction-diffusion system, which has been shown in Algorithm 1. First, it takes measured/high-fidelity) trajectories as the reference and initializes the unknown kinetic/chemical parameters with a reasonable initial guess. Any externally prescribed conditions that drive the dynamics are prepared so that the model can be evaluated consistently over time. Given these inputs, the system evolution is then generated by integrating the ODE forward in time with a solver suitable for both non-stiff and stiff chemistry, producing a predicted state trajectory. This prediction is compared against the reference data at the available observation times, and the discrepancy is aggregated into a scalar objective function. Because the simulator is differentiable end-to-end, gradients of the objective with respect to the kinetic parameters can be obtained. Finally, an optimizer uses these gradients to update the parameters, and the cycle repeats until the loss stops improving or a preset iteration budget is reached. The output is a calibrated parameter set that best aligns the simulated dynamics with the observed behavior. 
+
+We implemented the whole workflow into two versions based on open-source platforms in Just-In-Time (JIT) language Julia and Python language. In Julia language, we mainly used open-source platform Arrhenius.jl 
+
+[51] and DifferentialEquations.jl [52] for chemical calculation and differential equations. While in Python language, we mainly used a C++ complied open-source platform Cantera [53] with mature integrated differentiable chemical framework, and Scikit-Learn [54], Pytorch [55] platforms for gradients computation and mature optimizers. The ODE solver is coupled in the platforms, and we mainly use the stiff-robust solvers [50]. Since the computation in Python-based version can be more stable for Cantera’ s high robustness in species normalization, we use Julia-based version for only low stiffness cases while Python-based version and forward mode AD for higher stiffness cases. 
+
+3. Demonstration in reacting flows 
+
+In this study, two canonical burner-stabilized reacting-flow configurations are selected as representative gas-phase oxidation cases for validation, with a focus on mechanism optimization. Oxidation under combustion-relevant conditions features intense heat release and pronounced kinetic stiffness (wide time-scale separation), which provides a stringent and practically relevant benchmark for verifying the robustness and effectiveness of the proposed methods.  Fig. 2  shows the configurations. 
+
+The Burner-Stabilized Flat (BSF) reacting flow provides a chemically well-defined environment with minimal geometric complexity, making it suitable for assessing detailed reaction mechanisms and transport models under controlled residence time and thermal conditions. The distributed stabilization by aporous/plenum-fed burner yields an approximately planar reaction zone over the central region, and the dominant gradients are aligned with the burner-normal direction, so the configuration is often treated using a quasi-one-dimensional description for the core region. This case is selected because it isolates chemistry and molecular transport effects (e.g., differential diffusion and heat release) while avoiding uncertainties associated 11 
+
+with multidimensional flame curvature and complex aerodynamics. Boundary conditions are imposed at the burner exit (inlet) by prescribing the mixture composition (species mass fractions or mole fractions), inlet temperature, and either mass flux or axial velocity (equivalently, the inlet Reynolds number), together with the operating pressure. The burner surface can be modeled as isothermal at a specified burner temperature or as a prescribed heat-loss boundary (where burner heat conduction is represented). At the downstream boundary, a pressure outlet is typically applied with convective (zero-gradient) conditions for species and temperature, ensuring a non-reflecting outflow as the solution approaches the fully reacted/post-reacting state. 
+
+The Burner-Stabilized Stagnation (BSS) reacting flow is selected as a complementary canonical case because it introduces a controlled strain field and strong flow-chemistry interaction while retaining a clean, well-characterized geometry. An axisymmetric jet issued from the burner decelerates toward a stagnation surface, producing a well-defined stagnation point and an adjustable strain rate, which enables systematic interrogation of kinetics-transport coupling and, when relevant, extinction/near-extinction behavior. Near the centerline the structure is commonly represented along the stagnation streamline, which motivates reduced-order (quasi-1D) treatments without changing the physical interpretation of the boundary conditions. Boundary conditions include prescribed inlet composition, inlet temperature, and inlet velocity (or mass flux) at the burner exit, together with the operating pressure; symmetry on the axis ( 𝑼𝑼 𝑟𝑟 =0 and zero radial gradients of scalar quantities); and wall conditions at the stagnation plate such as no-slip for velocity and a specified thermal condition (isothermal wall temperature or adiabatic wall), with an impermeable boundary for species (zero normal diffusive flux) unless heterogeneous chemistry or wall transpiration is considered. The outer/far-field boundary is typically treated as a pressure outlet (or specified co-flow when present) with convective/zero-gradient conditions for transported scalars to avoid artificially constraining the reacting flow. 
+
+Fig. 2. Configurations of (a) Burner-stabilized flat, and (b) Burner-stabilized stagnation flames. 
+
+For comprehensive study of current method in different scenario, three representative mechanisms are selected here for validations, as shown in  Table 1 . The selected set spans a wide range of chemical complexity and numerical stiffness, from a small hydrogen combustion mechanism (Li-H2, 9 species/19 reactions; low stiffness) to two methane/hydrocarbon combustion mechanisms of increasing size (DRM19, 21 species/84 reactions; moderate stiffness; and GRI3.0, 53 species/325 reactions; high stiffness). All mechanisms are evaluated under the same two burner-stabilized reacting-flow configurations (BSF and BSS), so that the influence of mechanism size and stiffness on the optimization performance can be assessed consistently across both unstrained and strained oxidation environments. 12 
+
+Table 1: Mechanism summary 
+
+Mechanism name 
+
+Species  Reactions  Fuel type  Test flow  Stiffness level 
+
+Li-H2  9 19  Hydrogen  BSF&BSS  Low 
+
+DRM19  21  84  Methane (Hydrocarbon) 
+
+BSF&BSS  Moderate 
+
+GRI3.0  53  325  Methane (Hydrocarbon) 
+
+BSF&BSS  High 
+
+3.1. Comparison in accuracy 
+
+As mentioned, the Diff-Chem model can directly predict the whole R-D system, while the previous pure chemical model which based on perfect mixed assumption can not give a comprehensive representation. So, we first conduct verifications of the Diff-Chem model based on cases listed in  Table 1 , and the results of BSF flame and BSS flame are shown in  Fig. 3  and  Fig. 4 , respectively. 
+
+Fig. 3. Comparison of different methods for BSF flames using Li-H2 mechanism (first row), DRM19 mechanism (second row), and GRI3.0 mechanism (last row). 13 
+
+Fig. 4. Comparison of different methods for BSS flames using Li-H2 mechanism (first row), DRM19 mechanism (second row), and GRI3.0 mechanism (last row). 
+
+In these two figures, the first column presents the base temperature and residence-time profiles for the current cases, while the second and third columns report the predicted concentrations of representative major and minor species, respectively. First, the temperature and residence-time profiles show that the residence time in the BSS flame exhibits substantially stronger nonlinearity than that in the BSF flame due to the stagnation effect. This enhanced nonlinearity is accompanied by a reduction in temperature and species concentrations in the BSS configuration. Notably, the temperature predictions are identical for Diff-Chem Neural ODE and the pure-chemistry Neural ODE (hereafter, Pure-Chem Neural ODE), because both models use exactly the same state variables extracted from the full PDE solutions to ensure a fair comparison; consequently, the only distinction between the two models is whether diffusion terms are included (as illustrated in  Fig. 1 ). In contrast, the species predictions reveal a pronounced discrepancy attributable to diffusion. Across all cases, Diff-Chem Neural ODE reproduces the full-PDE reference with essentially exact agreement, whereas Pure-Chem Neural ODE exhibits substantial deviations. 
+
+More importantly, Pure-Chem Neural ODE effectively neglects the preheat and reaction processes preceding intense combustion, thereby yielding an incorrect ignition location and an unrealistically thin reaction zone. This deficiency is critical for mechanism assessment: inaccurate gradients in an excessively thin flame region prevent reliable quantification of kinetic contributions both upstream of ignition and in the vicinity of the flame front. Upon closer inspection, for the low-stiffness hydrogen BSF flames based on the Li-H2 mechanism, Pure-Chem Neural ODE fails to predict even the post-flame major-species levels accurately, which in turn introduces large errors in reaction-rate calculations that depend directly on species composition. For the high-stiffness hydrocarbon flames governed by the DRM19 and GRI3.0 mechanisms, although post-flame errors are smaller than in the hydrogen cases, the minor species still exhibit an unphysically abrupt, near-14 
+
+discontinuous variation at the flame front. 
+
+For the BSS flame, the overall conclusions are consistent with those for the BSF flame, but an additional feature arises near the stagnation point. Pure-Chem Neural ODE tends to predict a premature “stagnation” behavior, because it is overly sensitive to local temperature decreases upstream of the stagnation point. In the diffusion-coupled system, however, the influence of temperature is moderated by transport and diffusive redistribution; incorporating diffusion therefore enables Diff-Chem Neural ODE to produce markedly improved predictions. We also observe that, at the stagnation point in the BSS flame, Diff-Chem Neural ODE slightly underpredicts minor-species levels relative to the reference. This discrepancy is attributable to the residence-time estimation at stagnation, where the velocity approaches zero and the conventional definition becomes singular; the residence time is instead inferred via continuity-based arguments and cannot be made perfectly exact. This issue does not affect the central conclusions, because i) minor-species concentrations in this region are already extremely small and thus not the primary focus, and ii) after reducing the BSS configuration to a centerline one-dimensional model, a known probe effect exists [56] —one typically shifts a few grid points upstream of the stagnation point to better represent the centerline of the original high-dimensional axisymmetric solution. In summary, Diff-Chem Neural ODE clearly outperforms Pure-Chem Neural ODE in directly predicting species composition: it faithfully captures diffusion-coupled effects and consistently reflects them in the resulting species profiles. 
+
+3.2. Comparison in robustness and efficiency 
+
+Above results show the accuracy of current diffusion-chemical coupled model compared with previous pure chemical model, while the robustness and efficiency of them can be compared further through disturbed initial states and gradients propagation tests.  Fig. 5  gives an example of selected components’ evolution along with ODE solver’s iterative time steps. This compared point is the hydrogen BSF flame’s last grid point, denoted as ‘Target at 𝜏𝜏 ∗’, and the x-axis indicate the ODE solver’s internal time evolution when it is iterating for the objective time 𝜏𝜏 ∗. It can be seen that the components evolute more and more close to the final target by ODE solver, but the converged solution of pure chemical method shows large deviations from the target. The last column gives the evolution trajectory of components’ absolute error, and it indicate that the Pure-Chem Neural ODE can not converge to the true value even after ODE solver’s iteration. For Diff-Chem Neural ODE, the start error can be reduced and finally converge to the true target value. 
+
+Further, different levels of gaussian random disturbances 𝒩𝒩 (0, 𝜎𝜎 2) are added into the initial components’ state to examine the performance under random initialization from fake states.  Fig. 6  compares the error distributions for three noise levels, 𝜎𝜎 =0.05, 0.10 and 0.20, with 1,000 samples in each setting. The blue curves correspond to the diffusion-chemistry coupled method, whereas the orange curves represent the pure-chemistry method. From the statistical means, Diff-Chem Neural ODE consistently achieves smaller errors and thus higher accuracy. As the sampling bandwidth (noise level) increases, the error distributions of both methods broaden accordingly; however, the Pure-Chem Neural ODE exhibits a markedly larger and wider spread, indicating substantially higher sensitivity to initialization noise. This behavior is expected: perturbations in the initial state directly bias the reaction rates evaluated at the same nominal state, and such rate errors propagate through the ODE integration and accumulate over iterations. Overall, Diff-Chem Neural ODE maintains a uniformly smaller error across all noise levels. 
+
+Fig. 7  further reports the computational cost of several approaches for gradient evaluation. For a fair comparison, all tests are conducted under the same setting: the GRI3.0 mechanism (325 reactions) in a non-stiff 15 
+
+hydrogen flame, and the reported quantity is the average gradient computed using forward finite differences. Under this protocol, every method must solve one baseline system and an additional 325 perturbed systems to obtain the gradient, ensuring an identical number of model evaluations across methods. As shown, the fully discretized PDE approach is the slowest, since each evaluation requires iterating the complete PDE system. Both Neural ODE-based approaches provide substantial speedups. Pure-Chem Neural ODE yields the lowest wall-clock time, because the purely chemical system is generally less stiff than the diffusion-coupled system and therefore requires fewer adaptive step-size reductions during ODE integration. However, when accuracy is taken into account, Diff-Chem Neural ODE offers the best overall trade-off, delivering both high computational efficiency and the most accurate results. 
+
+Fig. 5. ODE internal evolution results of representative mole fractions (first and second column), and absolute error (third column). 
+
+Fig. 6. PDF of final absolute relative error under different disturbance levels: 𝝈𝝈 =0.05 (first column), 
+
+𝝈𝝈 =0.10 (second column), and 𝝈𝝈 =0.20 (third column). 
+
+Fig. 7. Gradient computational time of different methods. 16 
+
+3.3. Kinetics optimization by Diff-Chem Neural ODEs 
+
+Diff-Chem Neural ODE leverages a differentiable architecture to directly obtain sensitivity contributions associated with chemical reactions, eliminating the need for additional sampling-based pre-training and enabling immediate use in gradient-based optimization. More importantly, this framework supports chemical path–based optimization under limited experimental observability (e.g., a restricted set of operating conditions and/or a limited number of measurable species), and therefore exhibits strong generalization capability. In what follows, we conduct optimization tests for the flames listed in  Table 1 .
+
+For each flame, we uniformly sample 50 grid points along the streamwise direction and select several representative species as optimization targets, referred to here as primal species; the remaining species excluded from the objective are termed secondary species. We set up this ‘only primal species’-oriented optimization because of that, in experiments, the detectable species are constrained by the current measurement techniques’ limitations, which means the true values we can obtained for kinetic studies are limited to a few specific species. This setting can help verify the capabilities and effectiveness of current method under such scenarios. Besides, to account for the large differences in species magnitudes, we employ log-MSE as the optimization loss to balance scales across species. For H 2 flames, the primal species are H 2, O 2, and H 2O. For CH 4 flames, the primal species are O 2, CO 2 , H 2O, OH, CO, O, and H. Following the Arrhenius law, we define the scaled reaction-rate parameters as the kinetic optimization inputs, 𝜃𝜃 = 𝐾𝐾 /𝐾𝐾 𝑟𝑟 𝑒𝑒𝑓𝑓 , so that the ground-truth value is 𝜃𝜃 𝑟𝑟 𝑒𝑒𝑓𝑓  = 1 . In the optimization tests, we initialize 𝜃𝜃 by randomly perturbing each component within [-0.5, 2], i.e., up to 
+
+approximately twofold smaller or larger than the reference value. 
+
+Fig. 8  and  Fig. 9  present the loss-evolution curves for the BSF and BSS flames, respectively. The horizontal axis denotes the updated state obtained after each optimization iteration, and we cap the optimization at 100 steps. For a more complete comparison, whenever the loss does not exhibit a clear increase, we allow the optimization to proceed to the maximum number of iterations. Across all cases, the loss decreases effectively and is ultimately reduced by more than 98%. Small oscillations are observed, which is expected: we do not tune the hyperparameters of gradient descent, but instead evaluate all cases under an identical set of hyperparameters. Nevertheless, the final loss values are close to convergence, with neither noticeable rebound nor renewed rapid decline, indicating that the optimization setup is stable and appropriate. More importantly, the losses of secondary species which are not concerned in optimized objects can also be reduced along the primal species. This shows the high generality of current Diff-Chem method for its effective optimization in unseen species. 
+
+Fig. 8. Losses evolution in BSF flames for primal species (left column) and secondary species (right column). 17 
+
+Fig. 9. Losses evolution in BSS flames for primal species (left column) and secondary species (right column). 
+
+Fig. 10  and  Fig. 11  provide a detailed comparison of the solutions before and after optimization. For clarity, the plotted species mole-fraction profiles include only a subset of representative species selected from both the primal and secondary sets; the remaining species exhibit similar behavior. Moreover, we focus on regions with the most pronounced changes, as variations elsewhere are consistent but less visually distinctive. Overall, all variables evolve from the dashed initial state toward the final optimized state and ultimately match the target (reference) profiles almost exactly. Importantly, the optimization objective is defined only on the primal species, meaning that temperature and all secondary species are never directly “seen” by the gradient-based optimizer. Nonetheless, they also converge to the reference solution. This provides strong evidence that the physics-consistent neural formulation achieves effective global control of the coupled system. More importantly, the shift in the ignition location (core reaction zone) is also corrected accurately through optimization, further demonstrating the strong physical consistency and optimization capability of the proposed method. 
+
+In addition, to examine the consistency between gradient descent and the evolution of the kinetic inputs, 
+
+Fig. 12  reports the trajectories of the kinetic-input scalars and the mean gradient magnitude for five representative reactions selected from the Li-H2 BSS flame. The results show that reactions associated with larger gradient magnitudes tend to be driven back toward the ground-truth value of 1, whereas those with small gradient magnitudes exhibit no clear monotonic trend and may fluctuate as they are indirectly affected by the updates of other, more influential reactions. This observation indicates that the directions of input updates are consistent with the gradient signals: larger gradients induce larger and more systematic corrections. These findings also suggest that, in the present system, reactions with small gradients have limited impact on the solution and can be regarded as low-sensitivity reactions. Such information can serve as a useful reference for subsequent kinetic refinement or targeted reaction optimization. At the same time, the observed behavior highlights the non-uniqueness of reaction-kinetic parameterization under specific structural constraints, i.e., multiple parameter combinations may produce comparably similar macroscopic flame responses. 
+
+In summary, these results collectively demonstrate the effectiveness and scalability of Diff-Chem Neural ODE for optimization tasks, enabling efficient, physically consistent optimization even under limited measurement conditions. 18 
+
+Fig. 10. Comparisons of initial and optimized states in BSF flames. 
+
+Fig. 11. Comparisons of initial and optimized states in BSS flames. 19 
+
+Fig. 12. Comparisons of specific reactions’ kinetic inputs (left column) and gradients (right column) evolutions in Li-H2 BSS flame. 
+
+3.4. Kinetics optimization with noise disturbance 
+
+Although Diff-Chem Neural ODE can successfully achieve physically consistent optimization, practical experimental measurements often contain uncertainty and noise, which may propagate through the objective function and potentially bias the inferred kinetics. We therefore conduct a preliminary robustness study by injecting Gaussian measurement noise into the primal species used to construct the loss. Specifically, we perturb the primal species observations with random gaussian noise at levels of 1%, 5%, 10%, and 20%. 
+
+Fig. 13  summarizes the optimized loss for each case as a function of the noise level. Overall, the final loss does not exhibit a significant degradation as the noise increases. For hydrocarbon flames, the optimized loss is nearly unchanged, and in some cases even decreases slightly, which can be attributed to the stochastic nature of the perturbations and the fact that the optimization effectively averages noise across multiple locations/species in the objective. Hydrogen flames show a modest increase in the final loss with increasing noise, yet the optimization does not collapse; the loss remains within a low range, indicating stable convergence under noisy supervision. To quantify species-level accuracy,  Fig. 14  reports the distribution of relative errors for two representative major species (e.g., H 2 and O 2) after optimization at different noise levels. The noise-induced performance degradation is moderate: the relative errors remain well controlled (within 2% for these major species), and the distribution shifts only slightly as the noise level increases. This suggests that the optimized solution is not overly sensitive to moderate measurement noise in the objective. 
+
+Furthermore,  Fig. 15  and  Fig. 16  visualize the optimized profiles for several representative species in the BSF and BSS flames under the 10% noise setting. In these figures, the gray dashed curves denote the noisy measurements used in the objective function, the dashed curves indicate the initial state, the solid curves represent the optimized state, and the black dash-dotted curves correspond to the clean reference data. Notably, even under noisy supervision, the optimized state aligns closely with the clean reference profiles, without exhibiting local, pointwise overfitting to the noisy targets. This behavior indicates that Diff-Chem Neural ODE provides an implicit regularization through its physics-consistent diffusion-chemistry coupling and the shared 20 
+
+kinetic-parameterization across all sampled spatial locations. As a result, the optimizer is constrained to follow globally consistent kinetic updates that simultaneously explain multiple correlated observables, rather than fitting noise at isolated points. In other words, the proposed framework exhibits meaningful noise robustness: it can recover a physically consistent solution that generalizes beyond noisy measurements and remains faithful to the underlying clean flame dynamics. 
+
+Fig. 13. Optimized losses of BSF flames (left column) and BSS flames (right column) under different noise levels. 
+
+Fig. 14. Optimized relative error of representative species in BSF flames under different noise levels. 
+
+Fig. 15. Comparisons of representative species of initial and optimized states in BSF flames under 10% noise level. 21 
+
+Fig. 16. Comparisons of representative species of initial and optimized states in BSS flames under 10% noise level. 
+
+4. Conclusion 
+
+In this work, we developed a transport-chemistry coupled neural ordinary differential equation framework for R-D system modeling and kinetics optimization. By embedding Arrhenius-structured reaction neurons into a fully differentiable architecture and explicitly accounting for diffusion coupling along the streamline formulation, the proposed method preserves physical consistency while remaining directly usable for gradient-based optimization without sampling-based pretraining. Comprehensive evaluations on BSF and BSS reacting flows, covering mechanisms with varying stiffness (Li-H2, DRM19, and GRI3.0), show that Diff-Chem Neural ODE reproduces full-PDE species profiles with near-reference accuracy. In contrast, a pure-chemistry Neural ODE that neglects transport coupling can introduce large deviations in species fields, misplace the ignition location, and yield unrealistically thin reaction zones, which in turn undermines mechanistic interpretation and sensitivity assessment near the flame front and in the pre-ignition region. 
+
+We further demonstrated that Diff-Chem Neural ODE is robust and effective for optimization applications under practical constraints. Under randomized initial-state perturbations, Diff-Chem Neural ODE consistently exhibits smaller and narrower error distributions than the pure-chemistry baseline. In gradient evaluation, it achieves substantial speedups compared to fully discretized PDE computations while maintaining the best accuracy and efficiency trade-off among the tested approaches when diffusion-chemistry coupling is essential. For kinetics refinement, using only a limited set of primal species in the objective, the method reliably reduces the loss by more than 98% and restores both flame structure and ignition location; notably, temperature and secondary species (which never directly included in the loss) also recover to the reference solution, indicating physically consistent global control of the coupled system. Sensitivity evolution further confirms that reactions with larger gradient magnitudes are preferentially corrected toward reference kinetic inputs, while low-gradient reactions exert limited influence, providing actionable guidance for prioritizing kinetic updates and revealing potential non-uniqueness in parameter identification. Finally, preliminary tests with measurement noise injected into primal species (1%-20%) show stable convergence without local overfitting: optimized profiles remain 22 
+
+smooth and closely match clean references, with only moderate degradation in hydrogen cases and near-invariant performance in hydrocarbon flames. 
+
+Overall, Diff-Chem Neural ODE offers a scalable and physically faithful route to efficient kinetics optimization in diffusion-coupled reacting systems, particularly suited to settings with limited and noisy experimental observables. Future work will extend Diff-Chem Neural ODE to multi-dimensional flame configurations and broader transport models (e.g., differential diffusion and multicomponent transport) to further improve realism. We also plan to integrate explicit uncertainty quantification and noise-aware objectives to enable more reliable kinetic inference from sparse, heterogeneous experimental datasets. 
+
+Declaration of competing interest 
+
+All authors declare that they have no conflict of interest to this work. 
+
+Acknowledgments 
+
+This work was supported by grants from the National Natural Science Foundation of China (No. 52025062). 
+
+References 
+
+[1] J.A. Miller, R. Sivaramakrishnan, Y. Tao, C.F. Goldsmith, M.P. Burke, A.W. Jasper, N. Hansen, N.J. Labbe, P. Glarborg and J. Zádor, Combustion chemistry in the twenty-first century: Developing theory-informed chemical kinetics models, Progress in Energy and Combustion Science. 83 (2021) 100886. 
+
+https://doi.org/https://doi.org/10.1016/j.pecs.2020.100886 .
+
+[2] S. Posch, C. Gößnitzer, M. Lang, R. Novella, H. Steiner and A. Wimmer, Turbulent combustion modeling for internal combustion engine CFD: A review, Progress in Energy and Combustion Science. 106 (2025) 101200.  https://doi.org/https://doi.org/10.1016/j.pecs.2024.101200 .
+
+[3] S. Kim and S. Deng, Learning reaction-transport coupling from thermal waves, Nature Communications. 15 (2024) 9930.  https://doi.org/10.1038/s41467-024-54177-2 .
+
+[4] A. Bruix, J.T. Margraf, M. Andersen and K. Reuter, First-principles-based multiscale modelling of heterogeneous catalysis, Nature Catalysis. 2 (2019) 659-670.  https://doi.org/10.1038/s41929-019-0298-
+
+3.
+
+[5] L.A. Vandewalle, R. Van de Vijver, K.M. Van Geem and G.B. Marin, The role of mass and heat transfer in the design of novel reactors for oxidative coupling of methane, Chemical Engineering Science. 198 (2019) 268-289.  https://doi.org/https://doi.org/10.1016/j.ces.2018.09.022 .
+
+[6] I.R. Epstein and B. Xu, Reaction–diffusion processes at the nano- and microscales, Nature Nanotechnology. 11 (2016) 312-319.  https://doi.org/10.1038/nnano.2016.41 .
+
+[7] S. Kondo and T. Miura, Reaction-Diffusion Model as a Framework for Understanding Biological Pattern Formation, Science. 329 (2010) 1616-1620.  https://doi.org/10.1126/science.1179047 .
+
+[8] A.G. Dixon and B. Partopour, Computational Fluid Dynamics for Fixed Bed Reactor Design, Annual Review of Chemical and Biomolecular Engineering. 11 (2020) 109-130. 
+
+https://doi.org/https://doi.org/10.1146/annurev-chembioeng-092319-075328 .
+
+[9] H. Tsuji, Counterflow diffusion flames, Progress in Energy and Combustion Science. 8 (1982) 93-119. 
+
+https://doi.org/https://doi.org/10.1016/0360-1285(82)90015-6 .
+
+[10] T. Schuller, T. Poinsot and S. Candel, Dynamics and control of premixed combustion systems based on flame transfer and describing functions, Journal of Fluid Mechanics. 894 (2020) P1. 23 
+
+https://doi.org/10.1017/jfm.2020.239 .
+
+[11] A.S. Morgans and D. Yang, Thermoacoustic Instability in Combustors, Annual Review of Fluid Mechanics. 57 (2025) 9-33.  https://doi.org/https://doi.org/10.1146/annurev-fluid-121021-032828 .
+
+[12] C.K. Law, C.J. Sung, G. Yu and R.L. Axelbaum, On the structural sensitivity of purely strained planar premixed flames to strain rate variations, Combustion and Flame. 98 (1994) 139-154. 
+
+https://doi.org/https://doi.org/10.1016/0010-2180(94)90204-6 .
+
+[13] M.D. Smooke, Solution of burner-stabilized premixed laminar flames by boundary value methods, Journal of Computational Physics. 48 (1982) 72-105.  https://doi.org/https://doi.org/10.1016/0021-
+
+9991(82)90036-5 .
+
+[14] K.C. Smyth and J.H. Miller, Chemistry of Molecular Growth Processes in Flames, Science. 236 (1987) 1540-1546.  https://doi.org/10.1126/science.236.4808.1540 .
+
+[15] C.J. Sun, C.J. Sung, D.L. hu and C.K. Law, Response of counterflow premixed and diffusion flames to strain rate variations at reduced and elevated pressures, Symposium (International) on Combustion. 26 (1996) 1111-1120.  https://doi.org/https://doi.org/10.1016/S0082-0784(96)80326-2 .
+
+[16] R. Shan and T. Lu, Ignition and extinction in perfectly stirred reactors with detailed chemistry, Combustion and Flame. 159 (2012) 2069-2076.  https://doi.org/https://doi.org/10.1016/j.combustflame.2012.01.023 .
+
+[17] H.J. Curran, Developing detailed chemical kinetic mechanisms for fuel combustion, Proceedings of the Combustion Institute. 37 (2019) 57-81.  https://doi.org/https://doi.org/10.1016/j.proci.2018.06.054 .
+
+[18] C.B. Reuter, R. Zhang, O.R. Yehia, Y. Rezgui and Y. Ju, Counterflow flame experiments and chemical kinetic modeling of dimethyl ether/methane mixtures, Combustion and Flame. 196 (2018) 1-10. 
+
+https://doi.org/https://doi.org/10.1016/j.combustflame.2018.06.004 .
+
+[19] Z. Ren and S.B. Pope, The geometry of reaction trajectories and attracting manifolds in composition space, Combustion Theory and Modelling. 10 (2006) 361-388.  https://doi.org/10.1080/13647830500448297 .
+
+[20] U. Maas and S.B. Pope, Simplifying chemical kinetics: Intrinsic low-dimensional manifolds in composition space, Combustion and Flame. 88 (1992) 239-264.  https://doi.org/https://doi.org/10.1016/0010-
+
+2180(92)90034-M .
+
+[21] O. Gicquel, N. Darabiha and D. Thévenin, Liminar premixed hydrogen/air counterflow flame simulations using flame prolongation of ILDM with differential diffusion, Proceedings of the Combustion Institute. 28 (2000) 1901-1908.  https://doi.org/https://doi.org/10.1016/S0082-0784(00)80594-9 .
+
+[22] S.H. Lam and D.A. Goussis, The CSP method for simplifying kinetics, International Journal of Chemical Kinetics. 26 (1994) 461-486.  https://doi.org/https://doi.org/10.1002/kin.550260408 .
+
+[23] M. Valorani and D.A. Goussis, Explicit Time-Scale Splitting Algorithm for Stiff Problems: Auto-ignition of Gaseous Mixtures behind a Steady Shock, Journal of Computational Physics. 169 (2001) 44-79. 
+
+https://doi.org/https://doi.org/10.1006/jcph.2001.6709 .
+
+[24] Z. Ren, S.B. Pope, A. Vladimirsky and J.M. Guckenheimer, The invariant constrained equilibrium edge preimage curve method for the dimension reduction of chemical kinetics, The Journal of Chemical Physics. 124 (2006) 114111.  https://doi.org/10.1063/1.2177243 .
+
+[25] M.J. Davis, Low-Dimensional Manifolds in Reaction−Diffusion Equations. 1. Fundamental Aspects, The 
+
+Journal of Physical Chemistry A. 110 (2006) 5235-5256.  https://doi.org/10.1021/jp055592s .
+
+[26] M.J. Davis, Low-Dimensional Manifolds in Reaction−Diffusion Equations. 2. Numerical Analysis and 
+
+Method Development, The Journal of Physical Chemistry A. 110 (2006) 5257-5272. 
+
+https://doi.org/10.1021/jp055593k .24 
+
+[27] J.A. van Oijen, A. Donini, R.J.M. Bastiaans, J.H.M. ten Thije Boonkkamp and L.P.H. de Goey, State-of-the-art in premixed combustion modeling using flamelet generated manifolds, Progress in Energy and Combustion Science. 57 (2016) 30-74.  https://doi.org/https://doi.org/10.1016/j.pecs.2016.07.001 .
+
+[28] A.A. Konnov, A. Mohammad, V.R. Kishore, N.I. Kim, C. Prathap and S. Kumar, A comprehensive review of measurements and data analysis of laminar burning velocities for various fuel+air mixtures, Progress in Energy and Combustion Science. 68 (2018) 197-267. 
+
+https://doi.org/https://doi.org/10.1016/j.pecs.2018.05.003 .
+
+[29] H. Wang and D.A. Sheen, Combustion kinetic model uncertainty quantification, propagation and minimization, Progress in Energy and Combustion Science. 47 (2015) 1-31. 
+
+https://doi.org/https://doi.org/10.1016/j.pecs.2014.10.002 .
+
+[30] M.S. Johnson, H.-W. Pang, M. Liu and W.H. Green, Species selection for automatic chemical kinetic mechanism generation, International Journal of Chemical Kinetics. 57 (2025) 93-107. 
+
+https://doi.org/https://doi.org/10.1002/kin.21762 .
+
+[31] S. Shahpouri, A. Norouzi, C. Hayduk, A. Fandakov, R. Rezaei, C.R. Koch and M. Shahbakhti, Laminar Flame Speed modeling for Low Carbon Fuels using methods of Machine Learning, Fuel. 333 (2023) 126187.  https://doi.org/https://doi.org/10.1016/j.fuel.2022.126187 .
+
+[32] J. Wang, Z. Zhou, K. Lin, C.K. Law and B. Yang, Facilitating Bayesian analysis of combustion kinetic models with artificial neural network, Combustion and Flame. 213 (2020) 87-97. 
+
+https://doi.org/https://doi.org/10.1016/j.combustflame.2019.11.035 .
+
+[33] M. Ihme, W.T. Chung and A.A. Mishra, Combustion machine learning: Principles, progress and prospects, Progress in Energy and Combustion Science. 91 (2022) 101010. 
+
+https://doi.org/https://doi.org/10.1016/j.pecs.2022.101010 .
+
+[34] S. Deng, L. Wang, S. Kim and B.C. Koenig, Scientific machine learning in combustion for discovery, simulation, and control, Proceedings of the Combustion Institute. 41 (2025) 105796. 
+
+https://doi.org/https://doi.org/10.1016/j.proci.2025.105796 .
+
+[35] R.T.Q. Chen, Y. Rubanova, J. Bettencourt and D.K. Duvenaud, Neural Ordinary Differential Equations, in: S. Bengio, H. Wallach, H. Larochelle, K. Grauman, N. Cesa-Bianchi and R. Garnett (Eds.), Curran Associates, Inc. 
+
+[36] S. Kim, W. Ji, S. Deng, Y. Ma and C. Rackauckas, Stiff neural ordinary differential equations, Chaos: An Interdisciplinary Journal of Nonlinear Science. 31 (2021) 093122.  https://doi.org/10.1063/5.0060697 .
+
+[37] W. Ji and S. Deng, Autonomous Discovery of Unknown Reaction Pathways from Data by Chemical Reaction Neural Network, The Journal of Physical Chemistry A. 125 (2021) 1082-1092. 
+
+https://doi.org/10.1021/acs.jpca.0c09316 .
+
+[38] X. Su, W. Ji, J. An, Z. Ren, S. Deng and C.K. Law, Kinetics parameter optimization of hydrocarbon fuels via neural ordinary differential equations, Combustion and Flame. 251 (2023) 112732. 
+
+https://doi.org/https://doi.org/10.1016/j.combustflame.2023.112732 .
+
+[39] B.C. Koenig, P. Zhao and S. Deng, Comprehensive thermal-kinetic uncertainty quantification of lithium-ion battery thermal runaway via bayesian chemical reaction neural networks, Chemical Engineering Journal. 507 (2025) 160402.  https://doi.org/https://doi.org/10.1016/j.cej.2025.160402 .
+
+[40] T. Kircher and M. Votsmeier, Learning kinetics from non-ideal reactors by implicitly solved finite volumes and global reaction neural networks, Chemical Engineering Journal. 522 (2025) 166749. 
+
+https://doi.org/https://doi.org/10.1016/j.cej.2025.166749 .25 
+
+[41] K. Hajireza, D. Eklund and R. Andersson, Enhancing generalization and training efficiency of neural ordinary differential equations for chemical reactor modeling, Chemical Engineering Journal. 519 (2025) 165183.  https://doi.org/https://doi.org/10.1016/j.cej.2025.165183 .
+
+[42] C. Rackauckas, Y. Ma, J. Martensen, C. Warner, K. Zubov, R. Supekar, D. Skinner, A. Ramadhan and A. Edelman, Universal Differential Equations for Scientific Machine Learning, 2021. 
+
+[43] M. Raissi, P. Perdikaris and G.E. Karniadakis, Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations, Journal of Computational Physics. 378 (2019) 686-707. 
+
+https://doi.org/https://doi.org/10.1016/j.jcp.2018.10.045 .
+
+[44] S. Zhang, C. Zhang and B. Wang, CRK-PINN: A physics-informed neural network for solving combustion reaction kinetics ordinary differential equations, Combustion and Flame. 269 (2024) 113647. 
+
+https://doi.org/https://doi.org/10.1016/j.combustflame.2024.113647 .
+
+[45] C. Yu, P. Shrotriya, X. Li and U. Maas, Reduced modeling of the NOx formation based on the reaction-diffusion manifolds method for counterflow diffusion flames, Proceedings of the Combustion Institute. 39 (2023) 1587-1596.  https://doi.org/https://doi.org/10.1016/j.proci.2022.08.010 .
+
+[46] T. Wang, Y. Yi, J. Yao, Z.-Q.J. Xu, T. Zhang and Z. Chen, Enforcing physical conservation in neural network surrogate models for complex chemical kinetics, Combustion and Flame. 275 (2025) 114105. 
+
+https://doi.org/https://doi.org/10.1016/j.combustflame.2025.114105 .
+
+[47] W. Ji, W. Qiu, Z. Shi, S. Pan and S. Deng, Stiff-PINN: Physics-Informed Neural Network for Stiff Chemical Kinetics, The Journal of Physical Chemistry A. 125 (2021) 8098-8106. 
+
+https://doi.org/10.1021/acs.jpca.1c05102 .
+
+[48] Y. Ma, V. Dixit, M.J. Innes, X. Guo and C. Rackauckas, A Comparison of Automatic Differentiation and Continuous Sensitivity Analysis for Derivatives of Differential Equation Solutions, 2021 IEEE High Performance Extreme Computing Conference (HPEC), 2021, 1-9. 
+
+[49] D.P. Kingma and J. Ba, Adam: A Method for Stochastic Optimization, arXiv preprint. arXiv: 1412.6980 (2014).  https://doi.org/https://doi.org/10.48550/arXiv.1412.6980 .
+
+[50] G.D. Byrne and A.C. Hindmarsh, Stiff ODE solvers: A review of current and coming attractions, Journal of Computational Physics. 70 (1987) 1-62.  https://doi.org/https://doi.org/10.1016/0021-
+
+9991(87)90001-5 .
+
+[51] W. Ji, X. Su, B. Pang, S.J. Cassady, A.M. Ferris, Y. Li, Z. Ren, R. Hanson and S. Deng, Arrhenius.jl: A Differentiable Combustion SimulationPackage, 2021. 
+
+[52] C. Rackauckas and Q. Nie, Differentialequations.jl–a performant and feature-rich ecosystem for s olving differential equations in julia, Journal of Open Research Software. 5 (2017) 15. 
+
+[53] D.G. Goodwin, R.L. Speth, H.K. Moffat and B.W. Weber, Cantera: An Object-oriented Software Toolkit for Chemical Kinetics, Th ermodynamics, and Transport Processes v2.5.1 (Version Version), Publisher, Access Date|.  https://doi.org/DOI |. 
+
+[54] F. Pedregosa, G. Varoquaux, A. Gramfort, V. Michel, B. Thirion, O. Grisel, M. Blondel, P. Prettenhofer, R. Weiss, V. Dubourg, J. Vanderplas, A. Passos, D. Cournapeau, M. Brucher, M. Perrot and E. Duchesnay, Scikit-learn: Machine Learning in Python, Journal of Machine Learning Research. 12 (2011) 2825-2830. 
+
+[55] A. Paszke, S. Gross, F. Massa, A. Lerer, J. Bradbury, G. Chanan, T. Killeen, Z. Lin, N. Gimelshein, L. Antiga, A. Desmaison, A. Kopf, E. Yang, Z. DeVito, M. Raison, A. Tejani, S. Chilamkurthy, B. Steiner, L. Fang, J. Bai and S. Chintala, PyTorch: An Imperative Style, High-Performance Deep Learning 26 
+
+Library, in: H. Wallach, H. Larochelle, A. Beygelzimer, F. Buc, E. Fox and R. Garnett (Eds.), Curran Associates, Inc. 
+
+[56] C. Saggese, A. Cuoci, A. Frassoldati, S. Ferrario, J. Camacho, H. Wang and T. Faravelli, Probe effects in soot sampling from a burner-stabilized stagnation flame, Combustion and Flame. 167 (2016) 184-197. 
+
+https://doi.org/https://doi.org/10.1016/j.combustflame.2016.02.013 .
