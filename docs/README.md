@@ -6,41 +6,55 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-05
-- 运行时间：2026-04-05 19:23:57 UTC
+- 最新运行日期：2026-04-06
+- 运行时间：2026-04-06 20:37:11 UTC
 - 运行状态：成功
-- 本次总论文数：6
-- 精读区：0
-- 速读区：6
+- 本次总论文数：11
+- 精读区：7
+- 速读区：4
 
 ### 今日简报（AI）
-今日速览 6 篇前沿成果，聚焦 AI 驱动的科研创意进化与复杂数学问题的符号化求解。
-重点推荐 FlowPIE 框架，它通过流引导文献探索实现了测试时科研思路的自动化演进。
-建议关注 AI for Science 的读者深入了解如何利用自动化工具辅助科研构思与算子优化。
-- 详情：[/202604/05/README](/202604/05/README)
+今日深度解析 11 篇 AI+Science 论文，聚焦物理信息神经网络（PINNs）在复杂动力学与热工仿真中的前沿突破。
+重点推荐 WGFINNs 框架与 PINN-FDM 耦合算法，它们通过弱形式与混合建模显著提升了物理系统模拟的精度与稳定性。
+建议开发者深入探索物理先验与传统数值算子的融合，以应对高要求的工业级仿真挑战。
+- 详情：[/202604/06/README](/202604/06/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [WGFINNs: Weak formulation-based GENERIC formalism informed neural networks'](/202604/06/2604.02601v1-wgfinns-weak-formulation-based-generic-formalism-informed-neural-networks)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：基于弱形式的物理信息神经网络
+2. [A Numerical Method for Coupling Parameterized Physics-Informed Neural Networks and FDM for Advanced Thermal-Hydraulic System Simulation](/202604/06/2604.02663v1-a-numerical-method-for-coupling-parameterized-physics-informed-neural-networks-and-fdm-for-advanced-thermal-hydraulic-system-simulation)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：用于热工水力模拟的参数化物理信息神经网络
+3. [Fast and Accurate Inverse Blood Flow Modeling from Minimal Cuff-Pressure Data via PINNs](/202604/06/2604.03221v1-fast-and-accurate-inverse-blood-flow-modeling-from-minimal-cuff-pressure-data-via-pinns)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：PINN用于逆向血流建模和血液动力学
+4. [A Unified Multiscale Auxiliary PINN Framework for Generalized Phonon Transport](/202604/06/2603.28932v2-a-unified-multiscale-auxiliary-pinn-framework-for-generalized-phonon-transport)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：用于玻尔兹曼输运方程的多尺度辅助PINN
+5. [Generalized Transferable Neural Networks for Steady-State Partial Differential Equations](/202604/06/2604.03020v1-generalized-transferable-neural-networks-for-steady-state-partial-differential-equations)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：基于神经网络的稳态 PDE 求解器
+6. [Learning Contractive Integral Operators with Fredholm Integral Neural Operators](/202604/06/2604.03034v1-learning-contractive-integral-operators-with-fredholm-integral-neural-operators)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：用于非线性椭圆PDE的Fredholm积分神经算子
+7. [High-Precision Phase-Shift Transferable Neural Networks for High-Frequency Function Approximation and PDE Solution](/202604/06/2604.03186v1-high-precision-phase-shift-transferable-neural-networks-for-high-frequency-function-approximation-and-pde-solution)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：用于高频函数逼近和PDE求解的神经网络
 
 ### 速读区论文标签
-1. [FlowPIE: Test-Time Scientific Idea Evolution with Flow-Guided Literature Exploration](/202604/05/2603.29557v1-flowpie-test-time-scientific-idea-evolution-with-flow-guided-literature-exploration)  
+1. [STDDN: A Physics-Guided Deep Learning Framework for Crowd Simulation](/202604/06/2604.02756v1-stddn-a-physics-guided-deep-learning-framework-for-crowd-simulation)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：基于 LLM 的自主科学创意生成代理框架
-2. [Symbolic Density Estimation: A Decompositional Approach](/202604/05/2603.27955v1-symbolic-density-estimation-a-decompositional-approach)  
+   evidence：用于微分方程网络的物理引导深度学习
+2. [Goal-Conditioned Neural ODEs with Guaranteed Safety and Stability for Learning-Based All-Pairs Motion Planning](/202604/06/2604.02821v1-goal-conditioned-neural-odes-with-guaranteed-safety-and-stability-for-learning-based-all-pairs-motion-planning)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：神经常微分方程用于基于学习的运动规划
+3. [Adaptive Local Frequency Filtering for Fourier-Encoded Implicit Neural Representations](/202604/06/2604.02846v1-adaptive-local-frequency-filtering-for-fourier-encoded-implicit-neural-representations)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于符号密度估计和回归的AI框架
-3. [A Unified Algebraic Framework for Subspace Pruning in Koopman Operator Approximation via Principal Vectors](/202604/05/2603.29001v1-a-unified-algebraic-framework-for-subspace-pruning-in-koopman-operator-approximation-via-principal-vectors)  
+   evidence：傅里叶编码的隐式神经常规表示
+4. [On Data-Driven Koopman Representations of Nonlinear Delay Differential Equations](/202604/06/2604.03086v1-on-data-driven-koopman-representations-of-nonlinear-delay-differential-equations)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：动力系统的Koopman算子近似
-4. [UQ-SHRED: uncertainty quantification of shallow recurrent decoder networks for sparse sensing via engression](/202604/05/2604.01305v1-uq-shred-uncertainty-quantification-of-shallow-recurrent-decoder-networks-for-sparse-sensing-via-engression)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：使用神经网络重建时空场
-5. [CuTeGen: An LLM-Based Agentic Framework for Generation and Optimization of High-Performance GPU Kernels using CuTe](/202604/05/2604.01489v1-cutegen-an-llm-based-agentic-framework-for-generation-and-optimization-of-high-performance-gpu-kernels-using-cute)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：基于大模型的GPU内核优化智能体框架
-6. [Disentangled Deep Priors for Bayesian Inverse Problems](/202604/05/2604.02304v1-disentangled-deep-priors-for-bayesian-inverse-problems)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：用于物理系统贝叶斯反问题的深度生成模型
+   evidence：微分方程的Koopman表示
 
 
 <div class="dpr-home-promo-card">
