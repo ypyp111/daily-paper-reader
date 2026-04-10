@@ -1,0 +1,618 @@
+Title: Assessing Large Language Models for Stabilizing Numerical Expressions in Scientific Software
+
+URL Source: https://arxiv.org/pdf/2604.04854v3
+
+Published Time: Fri, 10 Apr 2026 00:05:14 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Assessing Large Language Models for Stabilizing Numerical Expressions in Scientific Software 
+
+# Tien Nguyen 
+
+tiennguyen@vt.edu Virgnia Tech Blacksburg, Virginia, USA 
+
+# Kirshanthan Sundararajah 
+
+kirshanthans@vt.edu Virgnia Tech Blacksburg, Virginia, USA 
+
+# Muhammad Ali Gulzar 
+
+gulzar@cs.vt.edu Virgnia Tech Blacksburg, Virginia, USA 
+
+## Abstract 
+
+Scientific software relies on high-precision computation, yet finite floating-point representations can introduce precision errors that propagate in safety-critical domains. Despite the growing use of large language models (LLMs) in scientific applications, their relia-bility in handling floating-point numerical stability has not been systematically evaluated. This paper evaluates LLMs’ reasoning on high-precision numerical computation through two numerical stabilization tasks: (1) detecting instability in numerical expressions by generating error-inducing inputs ( detection ), and (2) rewriting expressions to improve numerical stability ( stabilization ). Using popular numerical benchmarks, we assess six LLMs on nearly 2,470 numerical structures, including nested conditionals, high-precision literals, and multi-variable arithmetic. Our results show that LLMs are equally effective as state-of-the-art traditional approaches in detecting and stabilizing numerically unstable computations. More notably, LLMs outperform baseline methods precisely where the latter fail: in 17.4% (431) of expressions where the baseline does not improve accuracy, LLMs successfully stabilize 422 (97.9%) of them, and achieve greater stability than the baseline across 65.4% (1,615) of all expressions. However, LLMs struggle with control flow and high-precision literals, consistently removing such structures rather than reasoning about their nu-merical implications, whereas they perform substantially better on purely symbolic expressions. Together, these findings suggest that LLMs are effective at stabilizing expressions that classical tech-niques cannot, yet struggle when exact numerical magnitudes and control flow semantics must be precisely reasoned about, as such concrete patterns are rarely encountered during training. 
+
+## Keywords 
+
+Large Language Model, Floating-Point, Numerical Stability 
+
+ACM Reference Format: 
+
+Tien Nguyen, Kirshanthan Sundararajah, and Muhammad Ali Gulzar. 2026. Assessing Large Language Models for Stabilizing Numerical Expressions in Scientific Software. In Proceedings of IEEE/ACM Automated Software Engineering (ASE ’26). ACM, New York, NY, USA, 12 pages. https://doi.org/ XXXXXXX.XXXXXXX  
+
+> Permission to make digital or hard copies of all or part of this work for personal or classroom use is granted without fee provided that copies are not made or distributed for profit or commercial advantage and that copies bear this notice and the full citation on the first page. Copyrights for components of this work owned by others than the author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or republish, to post on servers or to redistribute to lists, requires prior specific permission and/or a fee. Request permissions from permissions@acm.org.
+> ASE ’26, Munich, Germany
+> ©2026 Copyright held by the owner/author(s). Publication rights licensed to ACM. ACM ISBN 978-x-xxxx-xxxx-x/YYYY/MM https://doi.org/XXXXXXX.XXXXXXX
+
+## 1 Introduction 
+
+Numerical faults are common in scientific software [ 12 , 13 ]. Due to the finite nature of floating-point in computing presentation, round-ing errors, cancellation [ 16 ], overflow, underflow, and numerical instability [ 25 ] cause results to deviate from the mathematically exact values. For example, in finite-precision arithmetic, comput-ing 𝑒 1000 may overflow in standard floating-point, even though the mathematical result is finite, illustrating a deviation from the exact value. These issues can accumulate and lead to software faults, as evidenced by recent CVEs [ 7– 9] involving mishandled floating-point arithmetic expressions. Addressing this challenge typically requires reasoning over large input spaces to ensure no configura-tion triggers undefined behavior. Take the quadratic formula 𝑥 = −𝑏 ±√𝑏 2 −4𝑎𝑐  
+
+> 2𝑎
+
+as a simple example. Despite being mathematically correct, its direct floating-point im-plementation can be numerically unstable, particularly √𝑏 2 − 4𝑎𝑐 
+
+becomes close to 𝑏 when 𝑏 2 ≫ 4𝑎𝑐 . In this situation, the compu-tation involves subtracting nearly equal large numbers, causing catastrophic cancellation and loss of significant bits. For instance, with 𝑎 = 𝑐 = 1, when 𝑏 gets higher than 10 5, one root is computed as 
+
+𝑥 1 = −0.00010000000111176632 , while the more stable formulation yields 𝑥 1 = −0.00010000000100000001 . This discrepancy arises be-cause the floating-point representation cannot accurately capture the small difference between the nearly equal terms, producing spurious digits due to rounding error. In practice, such cases can also lead to finite-precision-based attacks [ 19 ], where inputs are deliberately structured to amplify rounding error, cancellation, or instability under floating-point arithmetic to reveal failure modes. To mitigate these issues, prior work has explored automated detection and correction techniques, including precision tuning, static analysis, and algebraic rewriting. Tools such as Herbie [ 29 ], Daisy [ 5 ], and FPGen [ 18 ] systematically transform or analyze nu-merical expressions and programs to reduce rounding error and improve stability. These approaches rely on domain-specific algo-rithms and handcrafted search strategies, forming a strong baseline for evaluating numerical correctness and stability. Large language models (LLMs) have demonstrated strong per-formance in symbolic reasoning and structured problem solving [21 , 28 ]. However, their reliability in scientific computing, particu-larly numerical reasoning over floating-point expressions, remains largely underexplored. Existing evidence suggests that performance on numerical tasks is sensitive to task complexity [ 11 ], and incor-rect outputs in testing or repair workflows can have serious conse-quences [ 14 ]. We hypothesize that LLMs possess symbolic reasoning capabilities, enabling them to reason about symbolic expressions and identify potential numerical instability. However, their performance may lack rigor in accurately assessing the magnitude, range, and  
+
+> arXiv:2604.04854v3 [cs.SE] 8 Apr 2026 ASE ’26, October 12–16, 2026, Munich, Germany Tien Nguyen, Kirshanthan Sundararajah, and Muhammad Ali Gulzar
+
+sensitivity of numerical errors. This hypothesis stems from the fact that LLMs are designed to extrapolate learned statistical patterns over symbolic expressions, enabling them to associate symbolic structures with known instability patterns. However, training on exact, high-precision numerical values is largely absent, leaving LLMs unable to characterize the magnitude of the error. 
+
+Contributions. We conduct a systematic evaluation of LLMs’ abil-ity to reason about numerical computations, focusing on the de-tection and mitigation of instability. Numerical stability can be viewed as a two-part problem, analogous to fault detection and repair: first, identifying inputs that trigger high floating-point er-ror ( detection ), and second, generating transformations that reduce such errors ( stabilize ). To this end, we design two complementary experimental tasks that target different aspects of stability anal-ysis. First, we introduce an error-inducing input generation task, which evaluates whether models can detect inputs that maximize floating-point error, using a state-of-the-art benchmark from prior work [ 18 ]. Our analysis shows that numerical issues primarily arise from expression-level computations rather than the surrounding software. Motivated by this, the second task focuses on stabilizing floating-point expressions, where models generate transformations to improve numerical stability. To materialize such evaluations, we must address three key chal-lenges. First, existing expression benchmarks and their stable vari-ants may appear in LLM training data, leading to potential data contamination and giving LLMs an unfair advantage. Second, these benchmarks provide limited control over expression complexity, hindering systematic evaluation of LLM capabilities. Lastly, they also contain a relatively small number of expressions, limiting the ability to draw generalizable conclusions. To address these chal-lenges, we construct a new dataset by generating composed expres-sions from existing source benchmarks [ 29 ]. This method creates a potentially large number of previously unseen expressions, with controllable complexity across arithmetic operations, symbolic vari-ables, and control flows. 
+
+Evaluation Setting. We evaluate six state-of-the-art LLM models, both open-source and commercial, in two phases: instability detec-tion and stabilizing. For the instability detection, we use 21 source functions from prior work [ 18 ], converted into Python implemen-tations, using FPGen as a baseline, as it discovers floating-point precision errors in mathematical libraries. In a stabilizing task, we apply three composition techniques (described in Section 4.2.1) on expressions from prior benchmark [ 29 ] and sample evenly across them, varying the number of variables and conditional structures, resulting in a total of 2,470 expressions. In total, our experiments comprise approximately 400,000 prompts across both tasks and consume about 2.3 billion tokens. 
+
+Study Results. Overall, we observe that LLMs are as effective as classical baselines such as FPGen [ 18 ] and Herbie [ 29 ] at detecting and stabilizing numerical instability. However, individual perfor-mance varies across LLMs, where commercial large-sized LLMs (e.g., Claud Haiku) and LLMs trained on mathematical problems (e.g., Phi4). In the instability detection task, LLMs match or exceed approxi-mately half of the benchmarks in generating inputs that maximize relative error between high-precision and float-64 computation. Notably, some models, such as Phi4 and GPT-OSS, can exploit nu-merical structure (e.g., QR decomposition) to induce extremely large relative errors. Surprisingly, their performance deteriorates on func-tions with simpler computations, such as summations, vector dot products, and convolutions. In the expression stabilizing task (improving the accuracy of the expression output by rewriting it), LLMs consistently approach the performance of baseline [ 29 ] across structural settings—including conditional branching, high-precision literals, number of variables, and arithmetic depth—while others perform substantially worse. We observe that few-shot prompting generally improves perfor-mance over zero-shot. LLMs achieve numerical stabilization on up to 80.4% of expressions in the dataset, approaching the baseline’s performance of 82.6%, with accuracy improvements ranging from 5.2% to 13.2%. Notably, the expressions stabilized by the LLM do not fully overlap with those stabilized by the baseline. In 17.4% (431) of expressions where the baseline fails to improve accuracy, the LLM successfully stabilizes 422 (97.9%) of them. Moreover, across the entire dataset, the LLM achieves greater stability than the baseline for 65.4% (1,615) of all expressions. These results provide actionable insights that LLMs can stabilize numerical expressions that classical methods cannot, offering complementary benefits. LLM stabilization improves accuracy up to 14% from the original average of 84.1%. More importantly, LLMs’ performance degrades as structural complexity increases, including sensitivity to branch-ing, composition depth, and precision interactions. LLMs remove conditionals in up to 31.9% of cases and high-precision literals in up to 77% of cases compared to just 1.1% for the baseline, suggesting LLMs’ low reasoning around high precision literals and control flow. This is consistent with our hypothesis that LLMs lack the rigor to accurately assess the magnitude, range, and sensitivity of numerical errors. High-precision literals are rarely encountered as concrete values during training, whereas LLMs recognize control-flow syntax but fail to reason about their implications for numerical stability. 
+
+## 2 Background and Related Work 
+
+The IEEE-754 standard [ 1, 17 ] formally defines the representation and semantics of floating-point numbers, including rounding modes, overflow behavior, and special values. These works form the the-oretical basis for understanding numerical error propagation and the limitations of finite-precision computation. 
+
+Floating-Point Analysis and Stabilization. A large body of work has focused on automatically analyzing and improving nu-merical accuracy in floating-point programs. Herbie [ 29 ] comprises a series of work on detecting and stabilizing inaccurate expressions. It synthesizes improved expressions that reduce numerical error by searching for algebraically equivalent rewrites. Daisy [ 5] pro-vides static analysis techniques to compute sound error bounds for floating-point programs. FPGen [ 18 ] generates floating-point ex-pressions to stress-test numerical analysis tools. FPTaylor [ 34 ] uses symbolic Taylor expansions and optimization techniques to derive tight error bounds. Herbgrind [ 31 ] complements static methods by dynamically tracing floating-point executions to identify sources of numerical instability. These tools emphasize analysis, optimization, and debugging of floating-point errors, often focusing on either Assessing Large Language Models for Stabilizing Numerical Expressions in Scientific Software ASE ’26, October 12–16, 2026, Munich, Germany 
+
+static guarantees or dynamic error attribution. While these tools represent decades of static, dynamic, rule- and heuristic-based de-velopment, LLMs have not yet been explored as alternatives to such approaches. This motivates our study of LLMs as a complementary approach for detecting and mitigating floating-point errors. 
+
+Floating-Point Benchmarking. Benchmark suites have been developed to evaluate the numerical correctness and performance of floating-point systems. FPBench [ 10 ] defines a standardized rep-resentation for floating-point benchmarks to support reproducible evaluation of accuracy and optimization techniques. Wang et al. [35 ] introduce benchmark suites for decimal floating-point applica-tions spanning financial and commercial workloads such as banking, risk management, and billing systems. Laguna et al. [ 22 ] present HPC-oriented benchmark suites covering proxy applications across MPI, OpenMP, and performance-portability frameworks. These benchmarks primarily focus on system evaluation, numerical cor-rectness, and performance across representative workloads, rather than program transformation or rewriting quality. 
+
+LLMs for Mathematics and Symbolic Reasoning. Recent ad-vances in LLMs have demonstrated strong capabilities in mathemati-cal reasoning. Program-of-Thoughts [ 6] further separates reasoning from computation by generating executable code for numerical eval-uation. Minerva [ 23 ] shows that large-scale training on technical corpora enables LLMs to solve challenging mathematical and sci-entific problems. Toolformer [ 32 ] enables models to autonomously invoke external tools such as calculators to improve reasoning reli-ability. These approaches primarily target the correctness of final answers rather than numerical stability or floating-point represen-tation issues. These approaches primarily target the correctness of symbolic or numeric computation, while this work evaluates LLMs on numerical stability .
+
+LLMs for Scientific Computing. LLMs have also been applied to broader scientific and quantitative reasoning tasks. PAL and accompanied tool-augmented reasoning approaches [ 15 ] improve accuracy by executing generated programs during inference. Re-cent benchmarks such as LiveBench [ 36 ] emphasize dynamic, au-tomatically graded evaluation across diverse tasks, while Numer-icBench [ 24 ] focuses specifically on numerical capabilities such as arithmetic, comparison, and multi-step reasoning. LLM-SRBench [ 33 ] evaluates scientific equation discovery tasks across multiple domains. These benchmarks mainly assess general numeric rea-soning—whether models can correctly perform computations or manipulate symbolic expressions—without explicitly evaluating floating-point stability, rounding effects, or error propagation un-der finite-precision arithmetic. 
+
+## 3 Motivation 
+
+This section presents two case studies illustrating scenarios in which LLMs both outperform and underperform baseline [ 29 ] in rewriting expressions into numerically stable forms. 
+
+## 3.1 Case 1: Successful Numerical Stabilization by LLMs 
+
+The expression 𝑥 (𝑥 −1)𝑒 2𝑦  
+
+> 
+> fmod
+> 
+> 𝑒 𝑦 ,
+
+√cos (𝑦 ) 
+
+>  2
+
+is a two-variable, non-conditional expression generated using the full composition strategy (explained in Section 4.2.1), with both 𝑥 and 𝑦 defined over the full-range do-main 1. Under the baseline error metric [ 29 , 30 ], the expression exhibits an average error of 12.8 bits—roughly the same amount of precision lost due to floating-point rounding when comparing 256-bit and 64-bit evaluations across 256 sampling points—resulting in an average accuracy of 75.8% and indicating numerical instability. Formal definitions of these metrics are provided in Section 4. This instability arises from multiple sources. The exponential term 𝑒 𝑦 grows rapidly for large |𝑦 |, leading to overflow or underflow, while the fmod operation introduces discontinuities and the high sensitivity to small input perturbations. In addition, the expression is only valid when cos (𝑦 ) ≥ 0, since otherwise √︁ cos (𝑦 ) becomes undefined in the real domain, further restricting valid inputs. The baseline rewrites the expression as (𝑥 −1) 𝑥 
+
+ 1+𝑦 
+
+> fmod
+
+(1+𝑦, 1−0.25 𝑦 2)
+
+2
+
+,resulting in 26.2 bits of error and 50.5% accuracy, which is worse than the original formulation. In contrast, LLM-generated rewrites demonstrate significant improvements. For example, Qwen3 (zero-shot) produces 𝑥 (𝑥 −1)𝑒 2𝑦  
+
+> cos (𝑦 )
+
+, which removes the unstable fmod term and simplifies the expression structure. This rewrite also infers a practical tightened domain for the variable 𝑦 to avoid overflow and underflow scenarios. Under our evaluation setting, it achieves 0 measured bits of error under our evaluation setup and 100% ac-curacy, indicating a substantial reduction in numerical error (ap-proximately 24% improvement in accuracy) for this instance. LLMs can outperform the baseline by simplifying or removing unstable operators such as fmod , leading to substantial accuracy gains. 
+
+## 3.2 Case 2: Failure in Numerical Stabilization by LLMs 
+
+When the expression structure becomes more complex, baseline [ 29 ]seems to dominate the performance. For example, a two-variable conditional expression is defined as follows.                     
+
+> 𝐸 =
+> 
+> 𝑥 10 −𝑦 3
+> 2𝑥 10 if 𝑥 10 <−1.5097698010473000 ×10 29 √︁
+> 𝑥 20 +𝑦 3if 𝑥 10 <5.582399551122500 ×10 29
+> 𝑥 10 +𝑦 3
+> 2𝑥 10 otherwise
+
+This expression contains multiple conditional branches and ex-treme exponents involving high-precision literals, which can lead to numerical instability. Terms like 𝑥 10 ± 𝑦 3 
+
+> 2𝑥 10
+
+risk loss of signifi-cance when 𝑥 10 ≫ 𝑦 3 
+
+> 2𝑥 10
+
+, while √︁ 𝑥 20 + 𝑦 3 can overflow. Branching on 𝑥 10 further amplifies sensitivity to rounding errors near thresh-olds. Herbie rewrites the expression by introducing additional case splits and algebraic transformations to reduce rounding error. For example, the term 
+
+𝑥 10 + 𝑦 3 
+
+> 2𝑥 10
+
+−→ fma 
+
+ 12𝑦 2𝑥 −10 , 𝑦, 𝑥 10 
+
+
+
+replaces a division and an addition with a fused multiply-add, pre-serving precision when adding a small term to a large one, im-proving the expression accuracy by 21%. In contrast, LLM-based rewrites are largely pattern-driven by rephrasing or rearranging expressions to look simpler and not analyzing numerical behavior. They lack the ability to fully reason on the role of high-precision literals and rarely avoid large-number division or split cases to           
+
+> 1Full-range domain is defined as [− 1.79 ×10 308 ,1.79 ×10 308 ], and will be discussed later in Section 4. ASE ’26, October 12–16, 2026, Munich, Germany Tien Nguyen, Kirshanthan Sundararajah, and Muhammad Ali Gulzar Variable Partition Benchmark
+> Programs Symbolization &
+> Concretization
+> Variable
+> Extraction LLM Concrete Input
+> Generation
+> Error Measurement
+> Best Error
+> Best Input
+> time < BUDGET TIME
+> Warm Up
+> reference
+> result
+
+Figure 1: Instability detection workflow 
+
+prevent overflow or underflow in extreme ranges. As a result, LLMs tend to preserve the original structure, leaving the expression prone to cancellation and loss of significance. These cases highlight a gap between structural algebraic rewrit-ing and numerical stability optimization, motivating a systematic evaluation of when LLMs can match or fail against the baseline. 
+
+## 4 Methodology 
+
+To systematically evaluate the numerical stability capabilities of LLMs, we formulate the following research questions. 
+
+• RQ1: To what extent can LLMs generate inputs that expose numerical errors in programs? 
+
+• RQ2: How effectively can LLMs rewrite numerically unsta-ble expressions to improve numerical accuracy? 
+
+• RQ3: How does expression structural complexity affect LLM performance? 
+
+• RQ4: Do conditional branches impact LLM reasoning on numerical expressions? 
+
+• RQ5: How robust are LLMs to high-precision numerical inputs? We first assess whether models can identify instability by gen-erating inputs that expose floating-point precision errors in math-ematical functions. Building on these insights, we then evaluate their ability to improve stability by producing transformed versions of unstable expressions. 
+
+## 4.1 Floating-Point Instability Detection 
+
+We first instruct LLMs to generate inputs that maximize floating-point errors—such as cancellation, overflow, and underflow—by increasing the relative error between high-precision and standard 64-bit executions. This setup directly measures whether LLMs can exploit common sources of instability. Figure 1 illustrates the overall workflow. 
+
+4.1.1 Benchmark Acquisition. We use FPGen [ 18 ] as the baseline, a state-of-the-art tool that systematically discovers numerical in-stability in popular mathematical libraries. The accompanying benchmark provides 21 programs from mathematical libraries (GSL, Meschach, and summation routines). As LLMs may have seen the baseline benchmarks with the best error-inducing inputs found by baseline during the training process, we convert them from C to Python for evaluation. The benchmark results are also reproducible from the functional FPGen software artifact. Additionally, it enables seamless integration with LLM-based evaluation while preserving program semantics. 
+
+4.1.2 Experiment Design. For each program, we first extract all input variables (Step ➊), treating each input as a symbolic variable. Following [ 18 ], we perform a warm-up phase to establish a refer-ence starting point (Step ➋). This value provides initial candidate inputs and corresponding error values, which guide subsequent exploration and stabilize early search behavior. The main search loop (Steps ➌–➏) replaces symbolic execution with LLM-guided input generation. To balance exploration and tractability, we ran-domly partition the input variables into symbolic and concrete sets (Step ➌), which is a default behavior of the baseline. The concrete variables are fixed using values from the current best result (Step 
+
+➍), reducing the search space and enabling LLMs to focus on a subset of variables at a time. In Step ➎, we prompt LLMs to generate candidate inputs for the symbolic variables. Importantly, we employ an iterative optimiza-tion loop, where each LLM query is conditioned on the current best inputs and corresponding error. This feedback-guided prompting strategy enables LLMs to refine previously generated candidates and explore beyond known high-error regions, effectively approxi-mating a guided search process. The initial query uses the warm-up result as the starting point. To ensure valid and comparable evaluations, we enforce task-specific constraints on LLM outputs, including input domains and output formats. Generated inputs are validated to ensure they sat-isfy domain constraints (following FPGen, each variable’s value is restricted to [− 100 , 100 ]), match expected types, and provide complete assignments. Valid inputs are then evaluated on both high-precision and standard floating-point executions to compute relative error (Step ➏). We use 256-bit precision for high-precision evaluation to obtain more accurate reference values and reduce numerical noise compared to FPGen’s 128-bit setting. The best observed error and corresponding inputs are retained to guide sub-sequent iterations. 
+
+Prompt Construction. To support these constraints and guide LLM generation, we employ a structured template prompt com-prising: (1) task statement (i.e., generating floating-point values for symbolic variables to maximize floating-point errors), (2) source function definition, (3) list of symbolic and concrete variables with concrete values applied, (4) current best result, including inputs and measured relative error, and (5) numerical constraints and sample output. If no improvement is observed after a fixed number of trials (i.e., 10), we further reduce the symbolic search space by splitting the symbolic variable set and concretizing a subset, similar to FPGen’s strategy. This offers a fair comparison with the baseline, and such a progressive reduction helps avoid stagnation in high-dimensional spaces. Once the symbolic set cannot be partitioned, we revert to the full variable set and restart the process with the updated refer-ence point. This iterative refinement continues within a fixed time budget. Finally, to balance evaluation coverage and computational cost across six models, we limit the runtime per benchmark to one hour per model. This allows consistent comparison while keeping the overall experiment tractable. Assessing Large Language Models for Stabilizing Numerical Expressions in Scientific Software ASE ’26, October 12–16, 2026, Munich, Germany 
+
+## 4.2 Numerical Stabilization 
+
+4.2.1 Numerical Expression Acquisition. We observe that stability issues arise not from the software itself but from the underlying expression computations [ 38 ]. Thus, we design a task to stabilize ex-pression accuracy. To address challenges with existing benchmarks (discussed in Section 1), we construct a new dataset using three composition strategies that mitigate data contamination, enable control over complexity, and improve generalizability. These strategies are designed to systematically vary structural complexity and variable interactions. Unary composition isolates nested transformations in a single-variable setting, full composi-tion maximizes cross-variable interactions, and mixed composition provides an intermediate case that reflects partial transformations. Consequently, we span a spectrum from simple to complex expres-sions, enabling evaluation under diverse structural and numerical challenges. The resulting compositions introduce novel expressions that are not present in the baseline benchmark suite [ 29 ], reducing the likelihood of overlap with existing training data of LLMs. Each composed expression is associated with a valid input do-main derived from the original Herbie preconditions. These con-straints are propagated through the expression structure to deter-mine the final input domain, ensuring validity under operations such as logarithms and square roots. Due to the combinatorial growth in possible compositions, we sample a fixed number of expressions for each group, where a group is defined by variable count and conditionality (conditional vs. non-conditional). For each group and composition strategy, we randomly select an even subset of unique expressions to ensure balanced coverage. After a prelimi-nary accuracy check, we exclude expressions that already achieve 100% accuracy, as they cannot be further improved, resulting in a final dataset of 2,470 expressions. For variables without specified domains, we assign the full float64 
+
+range (i.e., approximate [− 1.79 × 10 308 , 1.79 × 10 308 ]). The resulting domains are then finalized by enforcing standard mathematical constraints (e.g., 𝑥 > 0 for log 𝑥 ). We consider the following compo-sition strategies. 𝑓 is a base expression and 𝑔 𝑖 are inner expressions, both drawn from the baseline dataset, while 𝑚 denotes the resulting composed expression. 
+
+• Unary: All inputs of 𝑓 are replaced with single-variable expressions over the same variable, yielding a single-variable composition 𝑓 (𝑔 1 (𝑥 ), 𝑔 2 (𝑥 ), . . . ).
+
+𝑓 (𝑥, 𝑦 ) = 𝑥 + 𝑦 − 2
+
+𝑔 1 (𝑥 ) = 𝑥 2 and 𝑔 2 (𝑥 ) = 𝑥 + 1
+
+𝑚 (𝑥 ) = 𝑓 (𝑔 1 (𝑥 ), 𝑔 2 (𝑥 )) = 𝑥 2 + 𝑥 − 1
+
+• Full: Each variable in 𝑓 is replaced with a corresponding single-variable expression over that variable, e.g., 𝑓 (𝑥, 𝑦, . . . ) → 
+
+𝑓 (𝑔 1 (𝑥 ), 𝑔 2 (𝑦 ), . . . ).
+
+𝑓 (𝑥, 𝑦, 𝑧 ) = 𝑥 + 𝑦 − 𝑧 𝑔 1 (𝑥 ) = 𝑥 2, 𝑔 2 (𝑦 ) = 𝑙𝑜𝑔 (𝑦 ), and 𝑔 3 (𝑧 ) = √𝑧 𝑚 (𝑥, 𝑦, 𝑧 ) = 𝑓 (𝑔 1 (𝑥 ), 𝑔 2 (𝑦 ), 𝑔 3 (𝑧 )) = 𝑥 2 + 𝑙𝑜𝑔 (𝑦 ) − √𝑧 
+
+• Mixed: A random subset of variables in 𝑓 is replaced, while others remain unchanged, e.g., 𝑓 (𝑥, 𝑦, . . . ) → 𝑓 (𝑔 1 (𝑥 ), 𝑦, . . . ).
+
+𝑓 (𝑥, 𝑦 ) = 𝑥 + 𝑦 − 2
+
+𝑔 1 (𝑥 ) = 𝑥 2 and 𝑦 unchanged 
+
+𝑚 (𝑥, 𝑦 ) = 𝑓 (𝑔 1 (𝑥 ), 𝑦 ) = 𝑥 2 + 𝑦 − 2Composed     
+
+> Expressions
+> Accuracy
+> Measurement
+> Original E
+> Domain D
+> Improved
+> Unchanged
+> Worse
+> Rewritten E’
+> Domain D’
+> Rewriting
+
+Figure 2: Numerical stabilization workflow 
+
+For single-variable expressions, all strategies yield identical or equivalent compositions; therefore, only the unary strategy is ap-plied in this case. 
+
+4.2.2 Experiment Design. The second task evaluates the effective-ness of LLM-guided numerical stabilizing. Herbie [ 29 ] is used as the baseline, a tool that systematically explores numerically stable rewrite variants. In this task, we assess whether LLMs can gener-ate more stable alternatives of a given expression, as well as their robustness under increasing structural complexity, control flows, and high-precision inputs. Figure 2 illustrates the workflow. For each expression 𝐸 with domain 𝐷 , we first compute its bits of error and accuracy (Step ➊). Similar to the baseline, we adopt the error metric based on STOKE [ 30 ], which measures error in bits as the log 2 distance between floating-point and high-precision evaluations, with a maximum of 53 bits, corresponding to the significand precision of float64 
+
+numbers. Formally, for a floating-point approximation x and its high-precision counterpart, the error is defined as: 
+
+𝐸 (𝑥, 𝑦 ) = log 2 |{ 𝑧 ∈ FP | min (𝑥, 𝑦 ) ≤ 𝑧 ≤ max (𝑥, 𝑦 )}| 
+
+corresponding to the significand precision of float64 numbers. We evaluate expressions over 256 sampled inputs. Unlike our baseline, which samples over the full floating-point space, we restrict sam-pling to each variable’s domain. For unbounded domains, we apply log-uniform sampling to ensure that both very small and very large values are proportionally represented, reflecting the wide dynamic range where floating-point errors can manifest. For ground-truth evaluation, we use fixed 256-bit precision via mpmath [20 ], rather than the baseline’s adaptive precision strategy, to ensure consistent and comparable results across all evaluations. In addition to average bits of error, we report an accuracy score defined as 100 × ( 1 −𝑒 /53 ),where 𝑒 is the bits of error, to provide an intuitive and interpretable comparison across expressions [ 3 ]. For instance, an expression 𝐸 1
+
+with 10.6 bits of error corresponds to 80% accuracy, while 𝐸 2 with 53 bits of error yields 0%, reflecting no matching bits. In Step ➋, we instruct each model to rewrite the original ex-pression to improve numerical accuracy. The baseline relies on randomized sampling controlled by an internal seed; without fix-ing the seed, results are not reproducible. To reduce variance and ensure fair comparison with LLM-based methods, we apply a best-of-𝑘 strategy by running the baseline five times with different fixed seeds and selecting the best rewrite among the resulting candidates. All candidates are evaluated using the same sampling and error computation (Step ➌), where error is measured as the average bits of error over all sampled inputs. ASE ’26, October 12–16, 2026, Munich, Germany Tien Nguyen, Kirshanthan Sundararajah, and Muhammad Ali Gulzar 
+
+Table 1: Summary of dataset and LLM usage per task Task Dataset # Prompts # Tokens Used 
+
+1 21 source programs 331,620 ∼ 225.7 million 2 2,470 expressions ∼ 88.9k ∼ 2.1 billion 
+
+LLM Prompting Technique. For LLMs, we evaluate two prompting strategies: zero-shot and iterative few-shot loop. In both settings, models are provided with the original expression and its variable domain, and are instructed to produce a numerically stable rewrite 
+
+𝐸 ′ along with updated variable domains 𝐷 ′ if the rewrite introduces new mathematical constraints (e.g., non-negative for square root). We follow a structured prompting format consistent with Task 1, including task-specific numerical constraints and explicit output requirements. 
+
+Prompt Construction. The prompt comprise the following key components: (1) task statement (i.e., rewriting an expression to improve numerical stability and infer appropriate variable domains), (2) explicit stability goals such as mitigating cancellation, overflow, and underflow, (3) the original expression and its domain, (4) for few-shot iterative loop, a list of past results in chronological order, including rewritten expressions, variable domains, error bits, and accuracy, updated after each iteration, and (5) numerical constraints and an example output. We allow up to five iterations. Since iterative performance may not monotonically increase across rounds [ 28 ], we retain the best-performing result across all few-shot iterations rather than the final output, alongside the single zero-shot output, for evaluation. Finally, all rewritten expressions are assigned a verdict (Step ➍). A rewrite is classified as improved if it reduces error and increases accuracy, and worse if the opposite holds. If evaluation fails for all sampled inputs, the result is labeled failed . Otherwise, if no change in accuracy is observed, it is classified as unchanged . Note that unchanged results may occur when the original expression is already numerically stable. 
+
+## 5 RESULTS 
+
+We evaluate six LLMs, including open-source, proprietary, and industrial-grade models. The local models are deployed via Ollama 
+
+[ 26 ] and include the latest versions of Phi4, Gemma3, GPT-OSS, and Qwen3. The API-based models include GPT4o-mini (OpenAI) [ 27 ] and Claude Haiku 4.5 (Anthropic) [ 4 ]. All experiments are conducted with a fixed random seed for reproducibility. Table 1 summarizes the statistics of our dataset and LLM usage. Using six LLMs and 21 benchmarks, we generate over 331,000 prompts for Task 1, totaling approximately 225 million tokens. For Task 2, with 2,470 expressions, we generate approximately 88.9 thousand prompts, consuming about 2.1 billion tokens. 
+
+## 5.1 RQ1: Floating-Point Instability Detection 
+
+Our first task evaluates how effectively LLMs generate inputs that expose floating-point vulnerabilities. Across benchmarks, LLMs and the baseline each achieve the largest relative errors on nine benchmarks and perform comparably on three others, as shown in Table 2. LLMs also outperform other baseline tools such as random generators, S3FP, and KLEE-FLOAT, but remain inconsistent when compared directly to baseline. This contrast is illustrated by indi-vidual cases. In compensated sum, GPT-OSS matches the baseline with a relative error of 1.0. In contrast, for weighted variance (m), baseline produces a much larger error (7.63e-02) than all LLMs (4.17e-13), showing clear sensitivity to benchmark structure. Overall, baseline systematically explores floating-point error space using symbolic execution and therefore produces errors that are typically 4 to 10 orders of magnitude larger than those pro-duced by LLMs and other tools. In comparison, LLMs are more stochastic: they are effective at generating adversarial inputs and occasionally uncover catastrophic numerical failures that search-based tools miss (Table 2). Figure 3 shows the temporal evolution of the best-achieved relative error across models for each bench-mark, illustrating how different models explore the error space over time and the variability in performance between LLMs and base-line approaches. These results indicate that performance is highly dependent on intermediate error propagation within the underly-ing function benchmark, where baseline systematically amplifies floating-point errors while LLMs provide complementary but less consistent coverage of failure cases. LLMs perform well when benchmarks involve multi-stage statis-tical formulas or long arithmetic expressions. For example, weighted statistical functions show multiple LLMs’ best performance, with Phi4 dominating the benchmarks such as weighted kurtosis, weighted variance (w), and weighted standard deviation (w). Best LLM error magnitudes range from 10 −1 to 10 0, compared to 10 −12 in the base-line. These formulas contain multiple reductions, mean subtraction, exponentiation, and accumulation, which introduce cancellation, overflow, and scaling imbalance. Thus, LLMs can generate extreme weight and value distributions that trigger instability. Surprisingly, LLMs consistently underperform on simple linear algebra kernels and reduction operations, such as vector dot prod-uct, matrix-vector product, and vector convolution. These bench-marks require high numerical precision, where small cancellation effects can accumulate and significantly affect the final result. The baseline systematically constructs such high-precision-sensitive cases, while LLMs typically remain in the standard precision regime and fail to expose these subtle error amplification behaviors. For example, the best LLM result for vector dot product shows 8.93e-07 in relative error (produced by GPT-OSS), whereas the baseline produces 1.92e-04. Typical forms include Í(𝑎 𝑖 𝑏 𝑖 ) or Í(𝑎 𝑖 ).LLMs can explore rare structural degeneracies that traditional search tools miss. Phi4 generates inputs triggering an extremely large relative error (1.15e+18) for weighted absolute deviation (m), arising from a near-zero denominator in the relative error computa-tion. In QR decomposition, Phi4 and GPT-OSS both discover inputs producing errors around 10 22 . These extreme cases are not found by the baseline, indicating that LLMs can identify inputs leading to ill-conditioned matrices and catastrophic numerical failures. Among all LLMs, Phi4, Claude Haiku, and GPT-OSS outper-form other models across multiple benchmarks. Phi4, in particular, identifies multiple extreme cases in benchmarks such as QR de-composition, weighted absolute deviation, weighted kurtosis, and weighted variance (w), demonstrating strength in generating ex-treme distributions. Claude Haiku achieves one notable best case Assessing Large Language Models for Stabilizing Numerical Expressions in Scientific Software ASE ’26, October 12–16, 2026, Munich, Germany 
+
+Table 2: Comparison of relative error for model-generated inputs across benchmarks (included results from FPGen [18]) 
+
+Benchmark Phi4 Gemma3 GPT4o-mini Claude Haiku GPT-OSS Qwen3 FPGen Random S3FP KLEE-FLOAT 
+
+Compensated Sum 5.4513e-13 5.5473e-14 1.6179e-14 5.1585e-14 1.0000e+00 1.6316e-15 1.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 LU Decomposition 4.9963e-04 1.2142e-08 5.6105e-06 2.5394e-01 1.2142e-08 1.2142e-08 2.7327e+00 0.0000e+00 0.0000e+00 0.0000e+00 Matrix Multiplication 3.0126e-04 1.0996e-09 1.0996e-09 1.8900e+00 1.0996e-09 1.0996e-09 2.5783e-14 1.1102e-16 1.1102e-16 0.0000e+00 Matrix-Vector Product 2.3148e-10 2.0759e-10 2.0759e-10 2.0759e-10 2.0759e-10 2.0759e-10 8.9366e-04 0.0000e+00 0.0000e+00 0.0000e+00 Pairwise Sum 1.5637e-13 3.9369e-14 3.2310e-14 4.3284e-14 4.3357e-10 1.7553e-16 1.3174e-16 0.0000e+00 0.0000e+00 0.0000e+00 QR Decomposition 4.7899e+22 1.0941e+00 5.3605e-05 1.0000e+00 5.9866e+22 5.2536e-10 2.5912e-14 0.0000e+00 0.0000e+00 0.0000e+00 Recursive Sum 1.4822e-13 1.7648e-14 2.6344e-15 2.3919e-14 1.9461e-06 6.6489e-16 1.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 Vector 1-Norm 1.1102e-16 1.1102e-16 1.1102e-16 1.1102e-16 1.1102e-16 1.1102e-16 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 Vector 2-Norm 1.9877e-16 1.9877e-16 1.9877e-16 1.9877e-16 1.9877e-16 1.9877e-16 2.2117e-16 3.1216e-16 3.1170e-16 0.0000e+00 Vector Convolution 1.4961e-09 1.4961e-09 1.4961e-09 1.4961e-09 1.4961e-09 1.4961e-09 2.0446e-04 9.2803e-13 1.9864e-10 0.0000e+00 Vector Dot Product 1.2588e-10 2.1380e-11 2.1380e-11 2.1380e-11 8.9347e-07 1.9853e-08 1.9190e-04 1.7010e-12 5.5831e-10 0.0000e+00 Vector Sum 1.1102e-16 1.1102e-16 1.1102e-16 1.1102e-16 1.1102e-16 1.1102e-16 1.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 Weighted Abs Dev (m) 1.1529e+18 1.2507e+01 4.1688e+00 4.1688e+00 4.1688e+00 4.1688e+00 1.0000e+00 2.6840e-11 2.2077e-05 0.0000e+00 Weighted Kurtosis (m) 6.6667e-01 1.8467e-03 6.1418e-03 1.2858e-09 1.2858e-09 1.2858e-09 1.7733e-12 4.5107e-11 4.3139e-08 0.0000e+00 Weighted Mean 1.3268e-10 1.3268e-10 1.3268e-10 1.3268e-10 1.3268e-10 1.3268e-10 1.0000e+00 9.4290e-12 1.6620e-07 0.0000e+00 Weighted Skewness (m) 3.2426e+00 8.0531e-10 8.0531e-10 8.0531e-10 1.1271e+00 8.0531e-10 2.5675e+01 2.5025e-11 3.1646e-02 0.0000e+00 Weighted Std Dev (m) 5.3631e-03 9.1254e-14 9.1254e-14 5.0710e-01 9.1254e-14 9.1254e-14 3.7439e-02 7.5193e-12 1.2977e-05 0.0000e+00 Weighted Std Dev (w) 1.0662e+00 3.3764e-10 3.3764e-10 3.3764e-10 6.1206e-02 3.3764e-10 1.1429e-12 3.9797e-12 1.0459e-05 0.0000e+00 Weighted Total Sum Sq (m) 4.1685e-16 4.1685e-16 4.1685e-16 4.1685e-16 4.1685e-16 4.1685e-16 4.4513e-16 5.5294e-16 4.7739e-16 0.0000e+00 Weighted Variance (m) 4.2027e-13 4.2027e-13 4.2027e-13 4.2027e-13 4.2027e-13 4.2027e-13 7.6280e-02 1.5039e-11 2.5955e-05 0.0000e+00 Weighted Variance (w) 2.0708e+00 3.5793e-09 3.5793e-09 3.5793e-09 3.5793e-09 3.5793e-09 2.2858e-12 7.9593e-12 2.0918e-05 0.0000e+00         
+
+> Phi4 Gemma3 GPT4o-mini Claude-Haiku GPT-OSS Qwen3 FPGen
+> 02,000 4,000
+> 0
+> 0.5
+> 1
+
+compensated sum   
+
+> 02,000 4,000
+> 0
+> 0.5
+> 1
+
+recursive sum   
+
+> 02,000 4,000
+> 0
+> 2
+> 4
+> ·10 −10
+
+pairwise sum   
+
+> 02,000 4,000
+> 0
+> 1
+> 2
+> 3
+
+lu   
+
+> 02,000 4,000
+> 0
+> 1
+> 2
+
+MM    
+
+> 02,000 4,000
+> 0
+> 2
+> 4
+> 6
+> ·10 −4
+
+MV     
+
+> 02,000 4,000
+> 0
+> 2
+> 4
+> 6·10 22
+
+qr   
+
+> 02,000 4,000
+> 0
+> 0.5
+> 1
+> ·10 −16
+
+1norm   
+
+> 02,000 4,000 6,000
+> 0
+> 1
+> 2·10 −16
+
+2norm     
+
+> 02,000 4,000
+> 0
+> 1
+> 2·10 −4
+
+conv    
+
+> 02,000 4,000 6,000
+> 0
+> 1
+> 2·10 −4
+
+dot   
+
+> 02,000 4,000
+> 0
+> 0.5
+> 1
+
+sum   
+
+> 02,000 4,000
+> 0
+> 0.5
+> 1
+> ·10 18
+
+wabsdev-m   
+
+> 02,000 4,000
+> 0
+> 0.2
+> 0.4
+> 0.6
+
+wkurtosis-m   
+
+> 02,000 4,000
+> 0
+> 0.5
+> 1
+
+wmean  
+
+> 02,000 4,000 6,000
+> 0
+> 10
+> 20
+
+wskew-m   
+
+> 02,000 4,000
+> 0
+> 0.2
+> 0.4
+
+wsd-m   
+
+> 02,000 4,000
+> 0
+> 0.5
+> 1
+
+wsd-w    
+
+> 02,000 4,000
+> 0
+> 2
+> 4·10 −16
+
+wtss-m    
+
+> 02,000 4,000
+> 0
+> 2
+> 4
+> 6
+> 8·10 −2
+
+wvariance-m   
+
+> 02,000 4,000
+> 0
+> 1
+> 2
+
+wvariance-w 
+
+> Best Relative Error (magnitude order)
+
+Execution Time (s) 
+
+Figure 3: Temporal evolution of best-achieved relative error across models 
+
+in matrix multiplication, but otherwise performs similarly to other models. For instance, Phi4 is a 14-billion-parameter open model specialized for complex reasoning. The remaining models produce significantly smaller relative errors, indicating that they typically generate inputs within narrower ranges. Overall, traditional tools like FPGen are systematic search tools that reliably explore precision-level instabilities, particularly in re-duction kernels. In contrast, LLMs act as stochastic exploration tools capable of uncovering rare structural degeneracies and catastrophic failures that systematic tools often miss. 
+
+RQ1 Finding. LLMs are less consistent than FPGen at finding floating-point error-inducing inputs, but can occasionally gen-erate extreme, structurally degenerate cases that classical tools miss, particularly in multi-stage arithmetic and weighted statisti-cal benchmarks. 
+
+> Claude Haiku 0S
+> Claude Haiku FS
+> Gemma3 0S
+> Gemma3 FS
+> GPT4o-mini 0S
+> GPT4o-mini FS
+> GPT-OSS 0S
+> GPT-OSS FS
+> Herbie
+> Phi4 0S
+> Phi4 FS
+> Qwen3 0S
+> Qwen3 FS
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+> 12 .5
+> 12 .9
+> 5.9
+> 5.2 10 .5
+> 9.8 11 .613 .2
+> 12 .7
+> 10 .3 12 .6
+> 8.3 9.8
+> Accuracy Increase (%)
+
+Figure 4: Average accuracy increase per model vs. baseline on expressions where rewrites improved, shown for zero-shot (OS) and few-shot (FS). Original expressions’ average accuracy is 84% ASE ’26, October 12–16, 2026, Munich, Germany Tien Nguyen, Kirshanthan Sundararajah, and Muhammad Ali Gulzar 
+
+Table 3: Summary of LLMs vs. baseline performance in sta-bility rewriting in terms of # of expressions and percentages    
+
+> LLMs outperform baseline Baseline failure LLMs improve baseline failure cases Baseline outperforms LLMs
+> 1,615 (65.4%) 431 (17.4%) 422 (17.1%) 12 (0.5%)
+
+## 5.2 RQ2: Overall Rewriting Performance 
+
+We evaluate LLMs against a traditional search-based tool, Herbie [29 ], on stabilizing numerically unstable expressions. We assess the original and rewritten expressions on numerical stability across 256 sampled inputs drawn from the defined variable domains, rather than assuming strict semantic equivalence, as in prior work [ 29 ]. Figure 4 reports the overall average accuracy improvement across models. LLMs achieve substantial accuracy gains over the original ex-pressions (84%), with improvements ranging from approximately 
+
+∼ 5 − 13% . Compared to baseline, which attains an average im-provement of 12.7%, models such as GPT-OSS, Claude Haiku, and Phi4 demonstrate comparable and often the strongest performance. Across 2,470 expressions, Claude Haiku improves 66.7% to 72.5% of cases under zero-shot and few-shot prompting, achieving accuracy gains of 12.5% to 12.9%, respectively. Phi4 also achieves competitive performance, improving 54.3% and 69.5% of expressions under zero-shot and few-shot prompting, respectively; its strong mathematical reasoning ability, as evidenced by prior results on benchmarks such as MATH [ 2], likely contributes to its effectiveness in generating numerically stable rewrites. Gemma3 shows the lowest performance in stabilizing expres-sions across models, with average accuracy improvement of less than 6% for both prompting techniques. Qwen3’s performance on the standard MATH benchmark shows that it is better than Gemma3 [37 ], reasoning the difference in their performance. We observe that the few-shot iterative loop generally enhances numerical reasoning robustness compared to zero-shot prompting, as conditioning on multiple past input-output iterations provides additional context for improved reasoning and more accurate rewrites. For example, GPT-OSS reduces its failure rate from 5.6% to 0.3% and its degradation rate from 26.4% to 18.4%. 
+
+LLMs Outperforming Baselines. Out of 2,470 expressions, 1,615 (65.4%) are improved by at least one LLM, achieving higher accuracy than the baseline (Table 3). Baseline fails to improve accuracy on 431 expressions (17.4%). Notably, among these baseline-failed cases, 422 expressions (97.9% of baseline failure, 17.1% overall) are nevertheless improved by at least one LLM. These results highlight that LLMs can complement classical tools, offering additional improvements and demonstrating their potential to stabilize or enhance numerical accuracy in cases where traditional methods fall short. 
+
+RQ2 Finding. Overall, LLMs’ performance matches the baseline in stabilizing numerical expressions. However, they outperform the baseline in 97.9% of cases in which the latter fails, offering additional advantages where traditional methods struggle. 
+
+Table 4: Operation count statistics in original expressions by variable count                                            
+
+> Variable Count
+> 12345678910 16
+> Min 3232738715 13 86
+> Max 136 99 128 116 181 210 523 102 495 80 2474
+> Avg 26.5 20.7 31.3 28.2 40.2 53.4 128.8 33.1 131.1 39.5 669.2
+
+## 5.3 RQ3: Structure Complexity 
+
+5.3.1 Variable Count. Our initial hypothesis is that LLM perfor-mance degrades as the number of variables increases. However, the results do not exhibit a consistent monotonic trend. Instead, the av-erage accuracy improvement after rewriting varies across different variable counts, ranging from 8.9% (3-variable expressions) to 16% (16-variable expressions). On average, single-variable expressions achieve an accuracy increase of 9.8%. Note that expression com-plexity can also be affected by other factors, such as the number of operations and conditional branches, which will be discussed later. Figure 5 presents the distribution of accuracy improvement across variable counts for each model. Overall, GPT-OSS (in both prompting settings) and the baseline demonstrate the greatest im-provements, with several cases exceeding 20%. The most significant improvements occur in expressions of smaller size, namely those with 1 to 5 variables. For instance, GPT-OSS (few-shot) achieves its peak improvement on 2-variable expressions (25.2%), while the baseline consistently attains strong gains on 3-to-4-variable and 16-variable expressions (21.9%). This indicates that variable count alone is not the primary determinant of difficulty. 
+
+5.3.2 Arithmetic Operations. LLM rewriting performance is also affected by the number of arithmetic operations in an expression. In some cases, expressions with fewer variables can be more com-plex due to a greater number of operations, which may reduce the effectiveness of rewriting. Across our dataset, expressions contain an average of 105.6 operations, with a maximum of 2,474. This observation helps explain the non-monotonic trends re-ported in the previous subsection. Table 4 shows the arithmetic operation count statistics in original expressions by variable count. For example, 3-variable expressions contain an average of 31.3 operations, and go up to 128, compared to 28.2 for 4-variable ex-pressions with a maximum of 116. This difference is reflected in performance, where LLM performance with 4-variable expressions achieves higher accuracy improvement (10.5%) than that with 3-variable expressions (8.9%). For example, expression 𝐸 1 involves three variables 𝑑 1, 𝑑 2, 𝑎𝑛𝑑 𝑑 3, but contains 20 arithmetic opera-tions, whereas expression 𝐸 2 involves four variables and a lower operation count (12). Despite this, expression 𝐸 1 has lower accuracy than expression 𝐸 2 (88% compared to 99%).                             
+
+> 𝐸 1=𝑑 2 1
+> 𝑑 1+1−1
+> 𝑑 1−1
+> + ( 𝑑 3+5) 1
+> 𝑑 1+1−1
+> 𝑑 1−1
+> +32
+> 𝑑 1+1−32
+> 𝑑 1−1
+> 𝐸 2=(2𝑥 2𝑦 −𝑦𝑧 )arccos
+> 1−5𝑡 2
+> 𝑡 2−1
+> 
+
+5.3.3 Composition Strategy. LLMs achieve accuracy improvements of 12.1%, 12.6%, and 6.9% for unary, full, and mixed composition strategies, respectively, compared to the baseline improvements of 16%, 13.9%, and 8.4%. Assessing Large Language Models for Stabilizing Numerical Expressions in Scientific Software ASE ’26, October 12–16, 2026, Munich, Germany           
+
+> Claude Haiku 0S
+> Claude Haiku FS
+> Gemma3 0S
+> Gemma3 FS
+> GPT4o-mini 0S
+> GPT4o-mini FS
+> GPT-OSS 0S
+> GPT-OSS FS
+> Herbie
+> Phi4 0S
+> Phi4 FS
+> Qwen3 0S
+> Qwen3 FS
+> 0
+> 10
+> 20
+> 30
+> Accuracy Increase (%)
+> 1 var 2 vars 3 vars 4 vars 5 vars 6 vars 7 vars 8 vars 9 vars 10 vars 16 vars
+
+Figure 5: Average accuracy improvement per model grouped by number of variables. Each cluster of bars represents one model; bar color indicates the number of variables in the expression. Zero-shot (0S) and few-shot (FS) variants are shown side by side for each base model. Accuracy computation is explained in Section 4.2.2  
+
+> Claude Haiku 0S
+> Claude Haiku FS
+> Gemma3 0S
+> Gemma3 FS
+> GPT4o-mini 0S
+> GPT4o-mini FS
+> GPT-OSS 0S
+> GPT-OSS FS
+> Herbie
+> Phi4 0S
+> Phi4 FS
+> Qwen3 0S
+> Qwen3 FS
+> 0
+> 5
+> 10
+> 15
+> Accuracy Increase (%)  Conditional Unconditional
+
+Figure 6: Average accuracy increase per model vs. baseline for conditional vs. non-conditional expressions. Zero-shot (OS) and Few-shot (FS). Average accuracy of the original con-ditional expressions is 83.8%, and non-conditional is 84.2% 
+
+Interestingly, full composition yields the highest overall improve-ment. Although full-composed expressions contain more opera-tions, all variables are transformed, and their domains are jointly constrained through composition. This often results in tighter ef-fective domains and enables more stable rewrites. Furthermore, the composition process frequently introduces algebraic simplifications such as term cancellation, producing more structured expressions than expected from raw operation counts. 
+
+RQ3 Finding. LLMs generally perform better on simpler expres-sions with fewer symbolic variables and arithmetic operations, and on tighter domains derived via composition strategies, which mitigate numerical instability. 
+
+## 5.4 RQ4: Conditional vs. Non-Conditional 
+
+In Section 3, Case 2 demonstrates that nested conditional expres-sions degrade LLM performance due to multiple layers of branch-ing and extreme exponents, which challenge the models’ pattern-matching capabilities. To further investigate this, we design an experiment set to assess LLM’s ability to interpret and understand conditional structures in expressions. Our results show that con-ditional structure can impact LLM rewriting patterns and perfor-mance. Our dataset presents expressions with up to 6 levels of nesting. 
+
+Table 5: Model-wise percentage of expressions with improved accuracy after rewriting for high-precision literal cases Model Prompting Technique 
+
+Zero-shot Few-shot Claude Haiku 63.2% 72.4% Gemma3 36% 52.1% GPT4o-mini 48.1% 61.7% GPT-OSS 63.6% 78.7% Phi4 42.9% 65.7% Qwen3 54.4% 66.1% Herbie – 74.9% LLMs achieve higher accuracy on non-conditional expressions, as nested or multi-level conditionals increase the difficulty of pat-tern recognition and numerical reasoning. LLMs improve the accu-racy of conditional expressions by 10.4% (from 83.8%), compared to non-conditional cases with accuracy gained by 10.5% (from 84.2%). Compared to baseline, with accuracy improvement of 12.7% and 12.7%, LLM performance is lower in both cases. Figure 6 compares model-wise improvements across expression types and prompting strategies. Claude Haiku achieves higher performance on conditional ex-pressions (68% improved cases with 13.6% average accuracy increase under few-shot prompting) than on non-conditional ones (71.7% improved cases with 12.2% average accuracy increase), slightly exceeding baseline in conditional cases. Analysis of rewrites by the best performing model (i.e., Claude Haiku), under both few-shot and zero-shot prompting, shows that it frequently eliminates control flows in approximately 27.7% and 31.9% of conditional ex-pressions, reducing structural complexity and thereby producing greater accuracy improvements. 
+
+RQ4 Finding. Control flows often impede LLM performance. In cases where models outperform in conditional expressions, improvements are often tied to structural simplification when conditions are removed. ASE ’26, October 12–16, 2026, Munich, Germany Tien Nguyen, Kirshanthan Sundararajah, and Muhammad Ali Gulzar 
+
+## 5.5 RQ5: High-Precision Literals 
+
+Scientific software frequently involves high-precision numerical constants. We examine how such constants affect LLM-based rewrit-ing. We define high-precision literals as numeric constants exceed-ing the effective precision of IEEE 754 double-precision floating-point representation, that is, more than 15 decimal digits. This threshold follows from the 53-bit significand of double precision, which provides roughly 15–16 digits of reliable accuracy. Beyond this limit, values cannot be represented exactly and are subject to rounding, making them more vulnerable to numerical instability during transformations. Across the dataset, 522 expressions (21.1%) contain high-precision literals. Table 5 summarizes the proportion of cases where rewriting improves accuracy. All models achieve improvement rates above 35%, with most ranging from about 50% to over 70%, compared to 74.9% for the baseline. Few-shot prompting consistently out-performs zero-shot, typically yielding around 10% more improved cases. A closer inspection of the rewrites reveals a pattern similar to expressions involving control flow. While overall performance appears comparable to the baseline, LLMs frequently improve accu-racy by removing high-precision literals altogether. In contrast, the baseline generally preserves these literals while attempting to stabi-lize the computation, eliminating them in only 1.1% of cases. LLMs, however, remove them in over 33% and up to 77% of cases. This sug-gests that a substantial portion of the observed gains comes from simplifying the expressions rather than addressing the underlying numerical issues. Consider the following two-variable conditional expression:                                     
+
+> 𝐸 =
+> 
+> 𝑥 2(3−2𝑥 )log  𝑥 2(3−2𝑥 )
+> log (𝑦 +1),if log (𝑦 +1)<1.2973149052617803 ×10 −303 ,𝑥 2(3−2𝑥 )
+> 
+> log  𝑥 2(3−2𝑥 )−log (log (𝑦 +1) )
+> 
+> ,otherwise.
+
+This expression is numerically unstable due to nested logarithms and division by extremely small values of log (𝑦 + 1), which can lead to underflow, cancellation, and amplification of rounding er-rors. The original form achieves only 25.9% accuracy. The baseline improves stability using techniques such as fused multiply-add (FMA) and absolute value transformations, reaching 63.1% accuracy. However, it often duplicates computations across branches and does not fully resolve precision loss. In contrast, the GPT-OSS few-shot rewrite produces 𝐸 GPT-OSS = 𝑥 2 (3 − 2𝑥 ) log  𝑥 2 (3 − 2𝑥 )  
+
+> log 1 𝑝 (𝑦 )
+
+. This version removes the conditional structure and replaces log (𝑦 + 1)
+
+with log 1𝑝 (𝑦 ) to avoid extremely small values. While it achieves 99.9% accuracy, it no longer preserves the original semantics, includ-ing control flow and high-precision thresholds. The improvement primarily comes from simplification rather than numerically prin-cipled restructuring. As a result, although catastrophic failures are avoided in many cases, the rewrite may still accumulate errors in edge conditions, particularly when intermediate quantities become very small, making it less robust than the baseline’s mathematically grounded approach. 
+
+RQ5 Finding. Accuracy improvements from LLM rewrites pri-marily arise from eliminating high-precision literals rather than stabilizing them, often at the cost of numerical fidelity. 
+
+## 6 Discussion 
+
+Impact of Quantized Models on Numerical Precision. Models in the Ollama family are quantized, typically operating with 4–8 bit precision, whereas API-based models such as GPT-4o-mini and Claude do not disclose their internal precision. Quantized models represent weights and activations with reduced bit width (e.g., 16-bit or 8-bit) to improve training and inference efficiency. This reduction in numerical precision, however, can constrain the model’s ability to perform computations that require high accuracy, potentially decreasing reliability when evaluating or transforming floating-point expressions, and it is an interesting direction for future work. The effect is particularly pronounced in tasks where small variations in intermediate values can accumulate, significantly influencing the final results. 
+
+Hybrid Approach. Our results suggest that LLMs and existing floating-point tools offer complementary strengths. LLMs outper-form baselines in numerous expression types, while baselines may perform better in others. This complementarity motivates a hy-brid approach, where LLMs are used to propose candidate inputs or rewrites, and tools such as Herbie or FPGen are used to val-idate, refine, or further optimize these candidates. For example, LLM-generated rewrites can be passed to Herbie for accuracy im-provement, while FPGen can be used to identify adversarial inputs that stress-test LLM outputs. Such a pipeline combines the struc-tural exploration capability of LLMs with the numerical rigor of existing tools. Overall, this suggests that LLMs are better suited as heuristic generators within a larger analysis framework, rather than as standalone solutions for floating-point optimization. 
+
+Discrepancy Between Intermediate and Final Errors. Floating-point errors may arise in intermediate computations and propagate through subsequent operations, as also observed in FPGen [ 18 ]. However, final relative error alone does not fully capture this be-havior, since errors introduced earlier can be partially or completely canceled (e.g., when adding two values of similar magnitude but opposite signs). To account for this, in Task 1, we measure not only the final relative error but also the maximum relative error observed at any intermediate step. Our results show that, for many benchmarks, intermediate errors can be significantly larger than the final reported error. For instance, in the recursive summation example discussed earlier, although the final relative error for the Phi4-generated input is 1.4822 × 10 −13 , the maximum intermediate relative error reaches as high as 1.0 during execution. This discrep-ancy indicates that relying solely on final outputs can underestimate the severity of numerical instability, and complements our earlier results by revealing error behaviors that are otherwise hidden. 
+
+Threats to Validity. While our study provides insights into LLM performance on numerical tasks, several limitations could affect generalizability. First, we evaluated only a subset of the complete dataset since the full composition dataset can become extremely large as more variables are involved. This subset was selected to cover diverse and challenging cases, providing representative in-sights while keeping the evaluation tractable. Second, we focused on six widely used LLMs, leaving many other models unexplored. Given the rapid evolution and continuous deployment of new mod-els, future studies could extend evaluation to additional LLMs to provide a more comprehensive assessment. Finally, our analysis Assessing Large Language Models for Stabilizing Numerical Expressions in Scientific Software ASE ’26, October 12–16, 2026, Munich, Germany 
+
+relied on two baseline methods for comparison; other numerical baselines could influence observed performance differences, and exploring them could further validate our conclusions. 
+
+## 7 CONCLUSION 
+
+Large language models are rapidly advancing and are increasingly embedded in real-world systems across domains. While they have been extensively evaluated on mathematical and numerical reason-ing benchmarks, their ability to detect numerical instability and pro-duce stable reformulations remains largely unexplored. We study whether LLMs can approximate systematic numerical analysis and stabilize numerical expressions. We find that LLMs outperform baseline methods precisely where the latter fail and offer greater stability than the baseline across 65.4% (1,615) of all expressions. Still, LLMs struggle with control flow and high-precision literals, consistently removing such structures rather than reasoning about their numerical implications. Overall, these findings suggest that LLMs offer a meaningful complementary advantage when combined with classical numerical stabilization methods. In particular, LLMs can reduce the reliance on manually derived rules and heuristics that classical tools require, while classical methods can compensate for LLMs’ limitations in high-precision and control flow reasoning. 
+
+Data Availability. We have made our code and dataset publicly available at https://anonymous.4open.science/r/LLMNumASE26/. 
+
+## References 
+
+[1] 2019. IEEE Standard for Floating-Point Arithmetic. IEEE Std 754-2019 (Revision of IEEE 754-2008) (2019), 1–84. doi:10.1109/IEEESTD.2019.8766229 [2] Marah Abdin, Jyoti Aneja, Harkirat Behl, Sébastien Bubeck, Ronen Eldan, Suriya Gunasekar, Michael Harrison, Russell J. Hewett, Mojan Javaheripi, Piero Kauff-mann, James R. Lee, Yin Tat Lee, Yuanzhi Li, Weishung Liu, Caio C. T. Mendes, Anh Nguyen, Eric Price, Gustavo de Rosa, Olli Saarikivi, Adil Salim, Shital Shah, Xin Wang, Rachel Ward, Yue Wu, Dingli Yu, Cyril Zhang, and Yi Zhang. 2024. Phi-4 Technical Report. arXiv:2412.08905 [cs.CL] https://arxiv.org/abs/2412.08905 [3] NFC Academy. [n. d.]. How To Calculate Percent Error: Formula And Exam-ples. https://nfcacademy.com/blog/how-to-calculate-percent-error-formula-and-examples/ [4] Anthropic. 2025. Introducing Claude Haiku 4.5. https://www.anthropic.com/ news/claude-haiku-4-5 Accessed: 2026-03-19. [5] Heiko Becker, Pavel Pancheckha, Eva Darulova, and Zachary Tatlock. 2018. Combining Tools for Optimization and Analysis of Floating-Point Computations. arXiv:1805.02436 [cs.PL] https://arxiv.org/abs/1805.02436 [6] Wenhu Chen, Xueguang Ma, Xinyi Wang, and William W. Cohen. 2023. Program of Thoughts Prompting: Disentangling Computation from Reasoning for Numer-ical Reasoning Tasks. arXiv:2211.12588 [cs.CL] https://arxiv.org/abs/2211.12588 [7] MITRE Corporation. 2021. CVE-2021-23210: SoX Divide-by-Zero Vulnerabil-ity. https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-23210 Accessed: 2025-12-11. [8] MITRE Corporation. 2021. CVE-2021-3177: Python ctypes Buffer Overflow. https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-3177 Accessed: 2025-12-11. [9] MITRE Corporation. 2025. CVE-2025-32364: Poppler PSStack::roll Floating-Point Exception. https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2025-32364 Accessed: 2025-12-11. [10] Nasrine Damouche, Matthieu Martel, Pavel Panchekha, Chen Qiu, Alexander Sanchez-Stern, and Zachary Tatlock. 2017. Toward a Standard Benchmark For-mat and Suite for Floating-Point Analysis. In Numerical Software Verification ,Sergiy Bogomolov, Matthieu Martel, and Pavithra Prabhakar (Eds.). Springer International Publishing, Cham, 63–77. [11] Neisarg Dave, Daniel Kifer, C. Lee Giles, and Ankur Mali. 2024. Investigating Symbolic Capabilities of Large Language Models. arXiv:2405.13209 [cs.CL] https://arxiv.org/abs/2405.13209 [12] Matthew Davis, Aakash Kulkarni, Ziyan Chen, Yunhan Qiao, Christopher Ter-razas, and Manish Motwani. 2025. Automatically Detecting Heterogeneous Bugs in High-Performance Computing Scientific Software. arXiv:2501.09872 [cs.SE] https://arxiv.org/abs/2501.09872 [13] Anthony Di Franco, Hui Guo, and Cindy Rubio-González. 2017. A comprehen-sive study of real-world numerical bug characteristics. In 2017 32nd IEEE/ACM International Conference on Automated Software Engineering (ASE) . 509–519. doi:10.1109/ASE.2017.8115662 [14] Patrick Diehl, Noujoud Nader, Maxim Moraru, and Steven R. Brandt. 2025. LLM Benchmarking with LLama2: Evaluating Code Development Performance Across Multiple Programming Languages. Journal of Machine Learning for Modeling and Computing 6, 3 (2025), 95–129. doi:10.1615/jmachlearnmodelcomput.2025058957 [15] Luyu Gao, Aman Madaan, Shuyan Zhou, Uri Alon, Pengfei Liu, Yiming Yang, Jamie Callan, and Graham Neubig. 2023. PAL: Program-aided Language Models. arXiv:2211.10435 [cs.CL] https://arxiv.org/abs/2211.10435 [16] GeeksforGeeks. 2025. Floating point error in Python. https://www.geeksforgeeks. org/python/floating-point-error-in-python/ [17] David Goldberg. 1991. What every computer scientist should know about floating-point arithmetic. ACM Comput. Surv. 23, 1 (March 1991), 5–48. doi:10.1145/103162. 103163 [18] Hui Guo and Cindy Rubio-González. 2020. Efficient generation of error-inducing floating-point inputs via symbolic execution. In Proceedings of the ACM/IEEE 42nd International Conference on Software Engineering (Seoul, South Korea) (ICSE ’20) . Association for Computing Machinery, New York, NY, USA, 1261–1272. doi:10.1145/3377811.3380359 [19] Samuel Haney, Damien Desfontaines, Luke Hartman, Ruchit Shrestha, and Michael Hay. 2022. Precision-based attacks and interval refining: how to break, then fix, differential privacy on finite computers. arXiv:2207.13793 [cs.CR] https://arxiv.org/abs/2207.13793 [20] Fredrik Johansson. 2007. mpmath. https://mpmath.org Accessed: 2026-03-20. [21] Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. 2023. Large Language Models are Zero-Shot Reasoners. arXiv:2205.11916 [cs.CL] https://arxiv.org/abs/2205.11916 [22] Ignacio Laguna, Tanmay Tirpankar, Xinyi Li, and Ganesh Gopalakrishnan. 2022. FPChecker: Floating-Point Exception Detection Tool and Benchmark for Par-allel and Distributed HPC. In 2022 IEEE International Symposium on Workload Characterization (IISWC) . 39–50. doi:10.1109/IISWC55918.2022.00014 [23] Aitor Lewkowycz, Anders Andreassen, David Dohan, Ethan Dyer, Henryk Michalewski, Vinay Ramasesh, Ambrose Slone, Cem Anil, Imanol Schlag, Theo Gutman-Solo, Yuhuai Wu, Behnam Neyshabur, Guy Gur-Ari, and Vedant Misra. 2022. Solving Quantitative Reasoning Problems with Language Models. arXiv:2206.14858 [cs.CL] https://arxiv.org/abs/2206.14858 [24] Haoyang Li, Xuejia Chen, Zhanchao Xu, Darian Li, Nicole Hu, Fei Teng, Yim-ing Li, Luyu Qiu, Chen Jason Zhang, Li Qing, and Lei Chen. 2025. Exposing Numeracy Gaps: A Benchmark to Evaluate Fundamental Numerical Abilities in Large Language Models. In Findings of the Association for Computational Linguistics: ACL 2025 , Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar (Eds.). Association for Computational Linguistics, Vienna, Austria, 20004–20026. doi:10.18653/v1/2025.findings-acl.1026 [25] Wolfram MathWorld. [n. d.]. https://mathworld.wolfram.com/NumericalStability. html [26] Ollama. 2024. Ollama. https://ollama.com Accessed: 2026-03-19. [27] OpenAI. 2024. GPT -4o mini: advancing cost-efficient intelligence. https:// openai.com/index/gpt-4o-mini-advancing-cost-efficient-intelligence/ Accessed: 2026-03-19. [28] Liangming Pan, Alon Albalak, Xinyi Wang, and William Wang. 2023. Logic-LM: Empowering Large Language Models with Symbolic Solvers for Faithful Logical Reasoning. In Findings of the Association for Computational Linguistics: EMNLP 2023 , Houda Bouamor, Juan Pino, and Kalika Bali (Eds.). Association for Computational Linguistics, Singapore, 3806–3824. doi:10.18653/v1/2023.findings-emnlp.248 [29] Pavel Panchekha, Alex Sanchez-Stern, James R. Wilcox, and Zachary Tatlock. 2015. Automatically improving accuracy for floating point expressions. SIGPLAN Not. 50, 6 (June 2015), 1–11. doi:10.1145/2813885.2737959 [30] Cindy Rubio-González, Cuong Nguyen, Hong Diep Nguyen, James Demmel, William Kahan, Koushik Sen, David H. Bailey, Costin Iancu, and David Hough. 2013. Precimonious: tuning assistant for floating-point precision. In Proceedings of the International Conference on High Performance Computing, Networking, Storage and Analysis (Denver, Colorado) (SC ’13) . Association for Computing Machinery, New York, NY, USA, Article 27, 12 pages. doi:10.1145/2503210.2503296 [31] Alex Sanchez-Stern, Pavel Panchekha, Sorin Lerner, and Zachary Tatlock. 2018. Finding root causes of floating point error. In Proceedings of the 39th ACM SIG-PLAN Conference on Programming Language Design and Implementation (Philadel-phia, PA, USA) (PLDI 2018) . Association for Computing Machinery, New York, NY, USA, 256–269. doi:10.1145/3192366.3192411 [32] Timo Schick, Jane Dwivedi-Yu, Roberto Dessì, Roberta Raileanu, Maria Lomeli, Luke Zettlemoyer, Nicola Cancedda, and Thomas Scialom. 2023. Toolformer: Language Models Can Teach Themselves to Use Tools. arXiv:2302.04761 [cs.CL] https://arxiv.org/abs/2302.04761 [33] Parshin Shojaee, Ngoc-Hieu Nguyen, Kazem Meidani, Amir Barati Fari-mani, Khoa D Doan, and Chandan K Reddy. 2025. LLM-SRBench: A New Benchmark for Scientific Equation Discovery with Large Language Models. arXiv:2504.10415 [cs.CL] https://arxiv.org/abs/2504.10415 ASE ’26, October 12–16, 2026, Munich, Germany Tien Nguyen, Kirshanthan Sundararajah, and Muhammad Ali Gulzar 
+
+[34] Alexey Solovyev, Marek S. Baranowski, Ian Briggs, Charles Jacobsen, Zvonimir Rakamarić, and Ganesh Gopalakrishnan. 2018. Rigorous Estimation of Floating-Point Round-Off Errors with Symbolic Taylor Expansions. ACM Trans. Program. Lang. Syst. 41, 1, Article 2 (Dec. 2018), 39 pages. doi:10.1145/3230733 [35] Liang-Kai Wang, Charles Tsen, Michael J. Schulte, and Divya Jhalani. 2007. Bench-marks and performance analysis of decimal floating-point applications. In 2007 25th International Conference on Computer Design . 164–170. doi:10.1109/ICCD. 2007.4601896 [36] Colin White, Samuel Dooley, Manley Roberts, Arka Pal, Ben Feuer, Siddhartha Jain, Ravid Shwartz-Ziv, Neel Jain, Khalid Saifullah, Siddartha Naidu, et al . 2024. Livebench: A challenging, contamination-free llm benchmark. arXiv preprint arXiv:2406.19314 4 (2024), 2. [37] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, Chujie Zheng, Dayiheng Liu, Fan Zhou, Fei Huang, Feng Hu, Hao Ge, Haoran Wei, Huan Lin, Jialong Tang, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jing Zhou, Jingren Zhou, Junyang Lin, Kai Dang, Keqin Bao, Kexin Yang, Le Yu, Lianghao Deng, Mei Li, Mingfeng Xue, Mingze Li, Pei Zhang, Peng Wang, Qin Zhu, Rui Men, Ruize Gao, Shixuan Liu, Shuang Luo, Tianhao Li, Tianyi Tang, Wenbiao Yin, Xingzhang Ren, Xinyu Wang, Xinyu Zhang, Xuancheng Ren, Yang Fan, Yang Su, Yichang Zhang, Yinger Zhang, Yu Wan, Yuqiong Liu, Zekun Wang, Zeyu Cui, Zhenru Zhang, Zhipeng Zhou, and Zihan Qiu. 2025. Qwen3 Technical Report. arXiv:2505.09388 [cs.CL] https://arxiv.org/abs/2505.09388 [38] Xiaolin Zhong, Mübeccel Demirekler, and Halit O ˇguztüzün. [n. d.]. https://www. sciencedirect.com/topics/engineering/numerical-stability
