@@ -1,0 +1,2124 @@
+Title: Curvature-Aware Optimization for High-Accuracy Physics-Informed Neural Networks
+
+URL Source: https://arxiv.org/pdf/2604.05230v1
+
+Published Time: Wed, 08 Apr 2026 00:21:20 GMT
+
+Number of Pages: 54
+
+Markdown Content:
+# Curvature-Aware Optimization for High-Accuracy Physics-Informed Neural Networks 
+
+## Anas Jnini a,1 , Elham Kiyani b,1 , Khemraj Shukla b,1 , Jorge F. Urbán c,1 , Nazanin Ahmadi Daryakenari d, Johannes Müller e, Marius Zeinhofer f,∗ and George Em Karniadakis b,∗
+
+> a
+
+Department of Information Engineering and Computer Science, University of Trento, Trento, Italy 
+
+> b
+
+Division of Applied Mathematics, Brown University, Providence, RI, USA 
+
+> c
+
+Departament de Física, Universitat d’Alacant, Spain 
+
+> d
+
+Center for Biomedical Engineering, Brown University, Providence, RI, USA 
+
+> e
+
+Institute of Mathematics, TU Berlin, Germany 
+
+> f
+
+ETH Zurich, Switzerland 
+
+A R T I C L E I N F O 
+
+Keywords :Physics-informed neural networks Curvature-aware optimization Quasi-Newton methods Self-Scaling BFGS and Broyden Natural Gradient Scientific machine learning Partial differential equations HLLC Flux 
+
+A B S T R A C T 
+
+Efficient and robust optimization is essential for neural networks, enabling scientific machine learning models to converge rapidly to very high accuracy—faithfully capturing complex physi-cal behavior governed by differential equations. In this work, we present advanced optimization strategies to accelerate the convergence of physics-informed neural networks (PINNs) for challenging partial (PDEs) and ordinary differential equations (ODEs). Specifically, we provide efficient implementations of the Natural Gradient (NG) optimizer, Self-Scaling BFGS and Broyden optimizers, and demonstrate their performance on problems including the Helmholtz equation, Stokes flow, inviscid Burgers equation, Euler equations for high-speed flows, and stiff ODEs arising in pharmacokinetics and pharmacodynamics. Beyond optimizer development, we also propose new PINN-based methods for solving the inviscid Burgers and Euler equations, and compare the resulting solutions against high-order numerical methods to provide a rigorous and fair assessment. Finally, we address the challenge of scaling these quasi-Newton optimizers for batched training, enabling efficient and scalable solutions for large data-driven problems. 
+
+## 1. Introduction 
+
+Optimizing neural networks is a central challenge in modern machine learning and an active area of theoretical research [46, 9, 40, 44]. Despite their highly non-convex structure, neural network optimization problems are often more tractable in practice than worst-case non-convex problems, suggesting the presence of exploitable structure in their landscapes. Most training algorithms are variants of gradient-based methods, where gradients are efficiently computed via backpropagation, and parameters are updated iteratively using carefully tuned step sizes. The associated optimization difficulties can be broadly decomposed into three aspects: ensuring convergence to stationary points, achieving fast convergence, and attaining solutions of high global quality. These challenges manifest through local issues such as vanishing or exploding gradients and slow convergence, as well as global issues including poor local minima, flat plateaus, and complex loss landscapes. Understanding these phenomena and developing principled algorithmic and theoretical tools to address them is key to making neural networks reliable and powerful optimization models. Because training ultimately comes down to choosing parameters that minimize a loss, optimization acts as the mechanism that turns data and model structure into learned behavior. A useful analogy is navigating rugged terrain in dense fog: the loss surface may have valleys, cliffs, and flat basins, and the algorithm must decide how to move using only limited local information. Gradients provide a direction of steepest descent, but without any sense of curvature, progress can be slow in flat regions or unstable in sharply curved ones. This limitation motivates a natural hierarchy of methods. Formally, first-order methods such as gradient descent, update parameters using only gradient evaluations. They are simple and scalable, but they can zigzag in narrow valleys 
+
+> ∗
+
+Corresponding author 
+
+marius.zeinhofer@math.ethz.ch (M. Zeinhofer); george\_karniadakis@brown.edu (G. Em Karniadakis) 
+
+> ORCID
+
+(s): 
+
+> 1
+
+These authors contributed equally to this work and are listed in alphabetical order by last name. 
+
+Jnini et al.: Preprint submitted to Elsevier Page 1 of 53 
+
+> arXiv:2604.05230v1 [cs.LG] 6 Apr 2026 Curvature-Aware Optimization for High-Accuracy PINNs
+
+and require careful step-size tuning to avoid divergence. Second-order methods, in contrast, incorporate curvature through matrices like the Hessian, Gauss–Newton, or Fisher information matrices [6, 7]. By capturing local geometry, these methods aim to produce better-scaled search directions and step sizes, often enabling faster and more reliable convergence. The physical intuition mirrors the terrain analogy. At first, you may only know which direction leads uphill or downhill—this corresponds to gradient descent, which follows the local slope (the gradient) but ignores how the landscape bends. As a result, the optimizer may creep across plateaus or oscillate across steep ravines. Now imagine discovering a detailed map that reveals not only the slope but also how the ground curves beneath your feet. That curvature information is encoded in second-order objects such as the Hessian, Gauss–Newton, and Fisher information. Leveraging this structure enables updates to adapt to the local shape of the loss surface, which is the central idea behind second-order optimization. Together, these lines of work suggest that the key bottleneck is not whether curvature helps, but how to exploit it under tight computational and memory constraints. This motivates methods that approximate second-order information in ways that are both scalable and robust, aiming to bridge the gap between the efficiency of first-order training and the geometric awareness of curvature-based updates. To better understand the role of curvature information in PINN training, the following functional interpretation of second-order methods is useful. Specifically, the training of PINNs can be interpreted as the minimization of a nonlinear least-squares objective of the form 
+
+(𝜽 ) = 12 ‖𝑟 (𝜽 )‖2,
+
+where 𝑟 (𝜽 ) denotes the collection of residuals associated with the governing equations, boundary conditions, and data constraints. Linearizing the residual around the current iterate 𝜽 𝑘 yields 
+
+𝑟 (𝜽 ) ≈ 𝑟 (𝜽 𝑘 ) + 𝐽 𝑘 (𝜽 − 𝜽 𝑘 ),
+
+where 𝐽 𝑘 is the Jacobian of the residual with respect to the parameters. In this setting, classical gradient descent updates take the form 
+
+𝜽 𝑘 +1 = 𝜽 𝑘 − 𝜂 𝑘 𝐽 ⊤𝑘 𝑟 (𝜽 𝑘 ),
+
+which can be interpreted as steepest descent in parameter space. In contrast, curvature-aware methods such as Gauss– Newton introduce the approximate Hessian 𝐻 𝑘 ≈ 𝐽 ⊤𝑘 𝐽 𝑘 , leading to updates of the form 
+
+𝜽 𝑘 +1 = 𝜽 𝑘 − 𝜂 𝑘 (𝐽 ⊤𝑘 𝐽 𝑘 )−1 𝐽 ⊤𝑘 𝑟 (𝜽 𝑘 ).
+
+This interpretation provides a unifying explanation for the improved performance of second-order methods in PINNs. In particular, the poor training behavior commonly observed in PINNs can be attributed to ill-conditioning of the NTK, which leads to slow convergence and biased learning toward low-frequency components (spectral bias). By incorporating curvature information, Gauss–Newton-type methods effectively regularize and rescale the NTK spectrum, improving conditioning and enabling more uniform error reduction across modes. The proposed Gram– Gauss–Newton approximation can thus be viewed as a tractable surrogate for this ideal preconditioning, balancing computational cost and conditioning improvement in overparameterized regimes. In the present work, we conduct a broad empirical study of optimizer performance, including SSBFGS, SSBroyden, NG, SOAP [72], and AdamW [76]. Our primary focus is on challenging training regimes arising in PINNs, a framework originally introduced to solve forward and inverse problems for differential equations by embedding the governing physics directly into the training objective [59]. Since their introduction, PINNs have attracted substantial attention in scientific machine learning because they provide a mesh-free and flexible approach for incorporating physical constraints into neural-network training. At the same time, a growing body of work has shown that PINN training is often significantly more delicate than standard supervised learning, owing to gradient-flow pathologies, imbalanced loss terms, spectral bias, and optimization failure modes that become especially severe for stiff, multiscale, highly oscillatory, or shock-dominated problems [73, 45, 42, 69, 1]. Recent studies have also emphasized that, beyond architecture and sampling choices, the optimizer itself can be a decisive factor in determining whether PINNs converge to low-error solutions and whether they can reach very high accuracy in practice [43, 70, 38, 37, 30, 62, 63]. Motivated by these observations, we benchmark curvature-aware optimizers on a suite of demanding problems spanning a stiff   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 2 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+
+ODE system (PK–PD) and three classes of PDEs: elliptic problems (2D and 3D Helmholtz), parabolic problems (2D viscous Burgers), and hyperbolic problems (inviscid Burgers and the 1D Euler equations). These test cases represent distinct sources of training difficulty, including stiff dynamics, high-frequency oscillatory solutions, nonlinear diffusive behavior, and shock-induced discontinuities. Since our earlier comprehensive study [43] has already established that double precision yields superior performance compared to single precision on such problems, we restrict attention here to double precision computations unless noted otherwise. A detailed comparison of single- and double-precision performance can be found in [43]. Beyond benchmarking, this work also introduces novel PINN-based methodologies for solving hyperbolic PDEs with discontinuous solutions. In particular, convergence is demonstrated for both the inviscid Burgers equation and the compressible Euler equations. Furthermore, new batch-training variants of the SSBFGS and SSBroyden algorithms are proposed to improve efficiency and scalability in large-scale training settings. The aforementioned functional perspective motivates the design and evaluation of curvature-aware optimization strategies for PINNs. The main contributions of this work are summarized as follows: 
+
+• We introduce novel methods in PINNs for solving hyperbolic conservation laws governing high-speed flows, with applications to Burgers’ and Euler equations. 
+
+• We provide a systematic analysis of optimizer performance across different classes of PDEs, including elliptic, parabolic, and hyperbolic regimes. 
+
+• We develop a new framework for analyzing PDE learning dynamics through loss landscapes in both function and parameter spaces. 
+
+• We present a detailed roofline analysis to characterize the computational scaling and efficiency of quasi-Newton optimizers in PINNs. 
+
+• We propose a new batch training strategy tailored for quasi-Newton optimization in PINNs. 
+
+• We perform a comprehensive comparison of multiple optimization methods, including SSBFGS, SSBroyden, NG, SPRING, and SOAP, across a range of PDEs solved using PINNs. The benchmark problems include the Helmholtz equation, Stokes flow, inviscid Burgers’ equation, Euler equations, as well as stiff ODEs arising in pharmacokinetics and pharmacodynamics modeling. 
+
+• We propose a new methodology to mitigate the spectral bias in Helmholtz equation for higher higher wavenum-bers. 
+
+• We demonstrate the applicability of PINNs to stiff ODE systems arising in pharmacokinetics and pharmacody-namics. 
+
+• We propose a novel incorporation of Jacobi scaling within NG methods to improve optimization performance in terms of stability. 
+
+• While the present study focuses on forward problems, we outline how the proposed methods naturally extend to inverse problems, including parameter estimation and data assimilation. 
+
+Outline: The paper begins with a comprehensive review of the second-order and quasi-second-order optimization methods in Section 2, including the formulation of each optimizer and the line-search strategies used in this study. Evaluation metrics and landscape-visualization tools are introduced in Sections 4 and 3. A broad set of challenging PINN benchmarks is then presented in Section 4, including the 2D and 3D Helmholtz problems (Section 4.1), the inviscid Burgers equation (Section 4.4), the Euler equations (Section 4.5), Stokes flow (Section 4.2), and a stiff PK–PD ODE system (Section 4.6). 
+
+## 2. Review of Considered Optimizers 
+
+In this section, we briefly describe the underlying principles as well as implementations of each optimizer considered in our study. We focus on the core update rules, curvature approximations, and computational requirements, highlighting the practical differences most relevant to large-scale training and PINN applications. Figure 1 provides an   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 3 of 53
+
+Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Family Preconditioner Properties Variants 
+
+AdaGrad 
+
+(∑𝑘 𝑖 =1 𝐠 𝑖 𝐠 ⊤𝑖 
+
+)1∕2 Scale invariant Rotation invariant Adam Shampoo SOAP Newton’s method ∇2(𝜽 𝑘 ) Affinely invariant SSBFGS SSBroyden Gauss-Newton Natural Gradient 𝐽 ⊤𝑘 𝐽 𝑘 
+
+Reparameterization invariant Function-space interpretation NG / GN 
+
+Table 1 
+
+Overview of the optimizers considered in this work. The listed properties refer to the idealized exact methods, rather than to the practical variants, which typically rely on additional approximations. 
+
+overview of the PINN training workflow and where optimization enters the pipeline. Let us consider the PDE problem 
+
+𝑢 = 𝑓 in Ω,𝑢 = 𝑔 on Γ. (1) where  is a PDE operator in strong form and Γ ⊆ 𝜕 Ω denotes the boundary. For simplicity, we assumed Dirichlet boundary conditions in the formulation above. We understand this formulation to include both stationary and transient problems for appropriate choices of Ω, Γ, and . For collocation points 𝑥 𝑖 ∈ Ω in the interior of the domain and 𝑦 𝑗 ∈ Γ 
+
+on the boundary, PINNs employ the training loss 
+
+(𝜽 ) = 12𝑁 Ω
+
+> 𝑁 Ω
+
+∑
+
+> 𝑖 =1
+
+(𝑢 𝜽 (𝑥 𝑖 ) − 𝑓 (𝑥 𝑖 ))2 + 12𝑁 Γ
+
+> 𝑁 Γ
+
+∑
+
+> 𝑗 =1
+
+(𝑢 𝜽 (𝑦 𝑗 ) − 𝑔 (𝑦 𝑗 ))2. (2) This is a nonlinear least-squares objective. Here, 𝜽 ∈ ℝ𝑝 denotes the vector of trainable parameters of the neural network 𝑢 𝜽 . We consider iterative optimization methods, starting with the most widely known example, namely (stochastic) gradient descent: 
+
+𝜽 𝑘 +1 = 𝜽 𝑘 − 𝜂 𝑘 𝐠 𝑘 , 𝐠 𝑘 ∶= ∇ 𝜽 (𝜽 𝑘 ). (3) where 𝜂 𝑘 > 0 denotes the stepsize, which is also referred to as the learning rate. It is well documented that such simple gradient-based optimizers perform inadequately for PINNs. This is the reason why we consider optimizers that incorporate curvature information, which we review in this section. All of these methods incorporate this curvature information via preconditioning and yield update rules of the form 
+
+𝜽 𝑘 +1 = 𝜽 𝑘 − 𝜂 𝑘 𝑃 −1  
+
+> 𝑘
+
+𝐠 𝑘 , 𝐠 𝑘 ∶= ∇ 𝜽 (𝜽 𝑘 ), (4) where 𝑃 𝑘 is the preconditioner. We consider optimizers that can be interpreted as fast and scalable approximations of one of the three preconditioners shown in Table 1. 
+
+2.1. AdaGrad methods 
+
+Adaptive gradient methods (AdaGrad) were introduced in [20]. In their full-matrix form, they use the iteration 
+
+𝜽 𝑘 +1 = 𝜽 𝑘 − 𝜂 𝑘 𝑆 −1∕2  
+
+> 𝑘
+
+𝐠 𝑘 , 𝑆 𝑘 ∶= 
+
+> 𝑘
+
+∑
+
+> 𝑖 =1
+
+𝐠 𝑖 𝐠 ⊤𝑖 , 𝐠 𝑖 ∶= ∇ 𝜽 (𝜽 𝑖 ). (5) Here, 𝑆 𝑘 is the accumulated gradient outer-product matrix. To stabilize and normalize the preconditioner, it is common to replace this sum by an exponentially weighted moving average, which gives 
+
+𝜽 𝑘 +1 = 𝜽 𝑘 − 𝜂 𝑘 𝑆 −1∕2  
+
+> 𝑘
+
+𝐠 𝑘 , 𝑆 𝑘 ∶= 1 − 𝛽 
+
+1 − 𝛽 𝑘 𝑘 ∑
+
+> 𝑖 =1
+
+𝛽 𝑘 −𝑖 𝐠 𝑖 𝐠 ⊤𝑖 , 𝐠 𝑖 ∶= ∇ 𝜽 (𝜽 𝑖 ), (6) 
+
+Jnini et al.: Preprint submitted to Elsevier Page 4 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+for some parameter 𝛽 ∈ [0 , 1) . This corresponds to a full-matrix RMSProp-style preconditioner [28, 67]. The square root in the preconditioner has recently been controversially discussed in the literature [48], as it weakens the connections to curvature matrices of the method. As applying the full preconditioner is computationally prohibitive, a number of fast and scalable approximations have been proposed in the literature. Here, we review three of the most prominent ones. The first is Adam, the workhorse of deep learning, which effectively uses a diagonal approximation of the AdaGrad preconditioner. More recent methods, such as Shampoo and SOAP, exploit the Kronecker structure induced by linear layers in neural-network parameterizations. These methods can therefore be viewed as extensions of Adam that move closer to preconditioning with the full square root of the gradient outer-product matrix. 
+
+Adam: Adam [41] and its more recent variant AdamW [51] are among the most important optimizers in deep learning. They can be viewed as AdaGrad-type methods that use exponential moving averages, a diagonal approximation of the preconditioner, and momentum at the gradient level. This leads to the moment estimates 
+
+𝐦 𝑘 = 1 − 𝛽 1
+
+1 − 𝛽 𝑘 
+
+> 1
+> 𝑘
+
+∑
+
+> 𝑖 =1
+
+𝛽 𝑘 −𝑖  
+
+> 1
+
+𝐠 𝑖 , 𝐯 𝑘 = 1 − 𝛽 2
+
+1 − 𝛽 𝑘 
+
+> 2
+> 𝑘
+
+∑
+
+> 𝑖 =1
+
+𝛽 𝑘 −𝑖  
+
+> 2
+
+(𝐠 𝑖 ⊙ 𝐠 𝑖 ),
+
+where 𝐠 𝑘 = ∇ 𝜽 (𝜽 𝑘 ), and ⊙ denotes the Hadamard (entrywise) product. The AdamW update with learning rate 𝛼 𝑘 and weight decay coefficient 𝜆 is 
+
+𝜽 𝑘 +1 = 𝜽 𝑘 − 𝛼 𝑘 
+
+𝐦 𝑘 
+
+√𝐯 𝑘 + 𝜀 − 𝛼 𝑘 𝜆 𝜽 𝑘 , (7) where the square root and division are understood componentwise. The original Adam update is recovered when 𝜆 = 0 .This update can be written in the generic preconditioned form 
+
+𝜽 𝑘 +1 = 𝜽 𝑘 − 𝛼 𝑘 𝑃 −1  
+
+> 𝑘
+
+𝐦 𝑘 − 𝛼 𝑘 𝜆 𝜽 𝑘 , with 𝑃 𝑘 = diag ((𝐯 𝑘 + 𝜀 )1∕2 ) . (8) This formulation highlights Adam-type methods as diagonally preconditioned gradient descent schemes, where each parameter is rescaled independently using running gradient statistics. Since 𝐠 𝑘 ⊙ 𝐠 𝑘 = diag( 𝐠 𝑘 𝐠 ⊤𝑘 ), it follows that 
+
+𝐯 𝑘 = 1 − 𝛽 2
+
+1 − 𝛽 𝑘 
+
+> 2
+
+diag 
+
+( 𝑘 ∑
+
+> 𝑖 =1
+
+𝛽 𝑘 −𝑖  
+
+> 2
+
+𝐠 𝑖 𝐠 ⊤𝑖 
+
+)
+
+.
+
+Hence, we can interpret Adam’s diagonal preconditioner as the diagonal of the exponential moving average of the gradient outer-product matrix 𝐠 𝑘 𝐠 ⊤𝑘 , where 𝐠 𝑘 = ∇ 𝜽 (𝜽 𝑘 ). While the diagonal adaptivity of Adam provides robustness and scalability, it neglects cross-parameter correlations and offers limited correction for intra-layer ill-conditioning. 
+
+Shampoo: Shampoo [29] generalizes diagonal preconditioning by exploiting the tensor structure of neural network parameters. It relies on two levels of approximation. First, the full preconditioner is approximated by a block-diagonal matrix, where each block corresponds to the parameters of a single layer of the network. Second, each block is approximated using a Kronecker-product structure. In this way, Shampoo captures richer within-layer correlations than diagonal methods such as Adam, while remaining substantially more scalable than a dense preconditioner. For the 𝑙 -th layer, let 𝑆 𝑙 𝑘 denote the diagonal block of 𝑆 𝑘 associated with the parameters of that layer. We denote the layer parameters by 𝑊 𝑙 , and let 𝐠 𝑙 𝑘 = ∇ 𝑊 𝑙 (𝜽 𝑘 ) be the corresponding gradient. Let 𝐺 𝑙 𝑘 denote the reshaped form of 𝐠 𝑙 𝑘 as a matrix, and define 
+
+𝐿 𝑙 𝑘 = 𝐺 𝑙 𝑘 (𝐺 𝑙 𝑘 )⊤, 𝑅 𝑙 𝑘 = ( 𝐺 𝑙 𝑘 )⊤𝐺 𝑙 𝑘 .
+
+Shampoo then approximates the layerwise preconditioner using a Kronecker-factored structure built from these two matrices. In particular, the square root of the block 𝑆 𝑙 𝑘 is approximated by 
+
+(𝑆 𝑙 𝑘 )1∕2 ≈ ( 𝑅 𝑙 𝑘 )1∕4 ⊗ (𝐿 𝑙 𝑘 )1∕4   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 5 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+
+and efficiently applied via 
+
+(𝑆 𝑙 𝑘 )−1∕2 𝐠 𝑙 𝑘 ≈ ( 𝑅 𝑙 𝑘 )−1∕4 ⊗ (𝐿 𝑙 𝑘 )−1∕4 𝐠 𝑙 𝑘 = ( 𝐿 𝑙 𝑘 )−1∕4 𝐺 𝑙 𝑘 (𝑅 𝑙 𝑘 )−1∕4 .
+
+Additionally, an exponential moving average, as in the Adam algorithm is also used. This yields a scalable approx-imation of second-order information while capturing within-layer correlations much more effectively than diagonal methods. The quality of this approximation in Shampoo remains an active topic of discussion [49]. 
+
+SOAP: SOAP, which stands for Shampoo with Adam in the Preconditioner Eigenbasis , was introduced in [72] and addresses some of the numerical and practical limitations of Shampoo. Like Shampoo, it is based on the Kronecker-factored second-moment matrices 𝐿 𝑙 𝑘 and 𝑅 𝑙 𝑘 for each layer 𝑙 , but it modifies how these matrices are used in the update. Rather than directly applying the inverse square roots (𝐿 𝑙 𝑘 )−1∕2 and (𝑅 𝑙 𝑘 )−1∕2 to the gradient, as in Shampoo, SOAP computes eigendecompositions of 𝐿 𝑙 𝑘 and 𝑅 𝑙 𝑘 and performs Adam-style adaptive updates in the corresponding rotated coordinate system. In this basis, the curvature approximation becomes approximately diagonal, which enables elementwise adaptive scaling similar to Adam. The resulting update is then mapped back to the original parameter space; for details, we refer to [72, Algorithm 3]. Thus, whereas Shampoo applies explicit Kronecker inverse-square-root preconditioning, SOAP can be interpreted as running an Adam-like update in a slowly varying eigenbasis determined by the same curvature model. Consequently, SOAP combines structured layerwise curvature information with the robustness of diagonal adaptivity, providing a practical compromise between first-order stability and structured geometric awareness. 
+
+2.2. Self-Scaled quasi-Newton methods 
+
+Quasi-Newton methods are scalable approximations of Newton’s method that use gradient information to construct approximations of second-order curvature. At iteration 𝑘 , the parameters are updated according to 
+
+𝜽 𝑘 +1 = 𝜽 𝑘 − 𝛼 𝑘 𝐻 𝑘 𝐠 𝑘 , (9) where 
+
+𝐠 𝑘 ∶= ∇ 𝜽 (𝜽 𝑘 )
+
+denotes the gradient of the loss, and 𝐻 𝑘 ≈ ∇ 2
+
+> 𝜽
+
+(𝜽 𝑘 )−1 is an approximation of the inverse Hessian. To achieve this, the updates of 𝐻 𝑘 are designed to preserve symmetry and positive definiteness while satisfying the secant condition 
+
+𝐻 𝑘 +1 𝐲 𝑘 = 𝐬 𝑘 , (10) where 
+
+𝐬 𝑘 ∶= 𝜽 𝑘 +1 − 𝜽 𝑘 , 𝐲 𝑘 ∶= 𝐠 𝑘 +1 − 𝐠 𝑘 .
+
+Given the matrix 𝐻 𝑘 at iteration 𝑘 , there are many possible update formulas that produce 𝐻 𝑘 +1 while enforcing the secant condition. A broad class of such updates is given by the self-scaled Broyden family [70, 43, 2]. 
+
+𝐻 𝑘 +1 = 1
+
+𝜏 𝑘 
+
+[
+
+𝐻 𝑘 − 𝐻 𝑘 𝐲 𝑘 𝐲 ⊤𝑘 𝐻 𝑘 
+
+𝐲 ⊤𝑘 𝐻 𝑘 𝐲 𝑘 
+
++ 𝜙 𝑘 𝐯 𝑘 𝐯 ⊤𝑘 
+
+]
+
++ 𝐬 𝑘 𝐬 ⊤𝑘 
+
+𝐲 ⊤𝑘 𝐬 𝑘 
+
+, (11) 
+
+𝐯 𝑘 = (𝐲 ⊤𝑘 𝐻 𝑘 𝐲 𝑘 
+
+)1∕2 
+
+[ 𝐬 𝑘 
+
+𝐲 ⊤𝑘 𝐬 𝑘 
+
+− 𝐻 𝑘 𝐲 𝑘 
+
+𝐲 ⊤𝑘 𝐻 𝑘 𝐲 𝑘 
+
+]
+
+. (12) where (𝜏 𝑘 , 𝜙 𝑘 ) are scalar parameters that may vary with the iteration index 𝑘 . By inverting (11), one obtains the corresponding update formula for the matrices 𝐵 𝑘 ≡ 𝐻 −1  
+
+> 𝑘
+
+, for example by repeated application of the Sherman– Morrison formula: 
+
+𝐁 𝑘 +1 = 𝜏 𝑘 
+
+[
+
+𝐁 𝑘 − 𝐁 𝑘 𝐬 𝑘 𝐬 ⊤𝑘 𝐁 𝑘 
+
+𝐬 ⊤𝑘 𝐁 𝑘 𝐬 𝑘 
+
++ 𝜂 𝑘 𝐰 𝑘 𝐰 ⊤𝑘 
+
+]
+
++ 𝐲 𝑘 𝐲 ⊤𝑘 
+
+𝐲 ⊤𝑘 𝐬 𝑘 
+
+, (13)   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 6 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+
+𝐰 𝑘 = (𝐬 ⊤𝑘 𝐁 𝑘 𝐬 𝑘 
+
+)1∕2 
+
+[ 𝐲 𝑘 
+
+𝐲 ⊤𝑘 𝐬 𝑘 
+
+− 𝐁 𝑘 𝐬 𝑘 
+
+𝐬 ⊤𝑘 𝐁 𝑘 𝐬 𝑘 
+
+]
+
+, (14) 
+
+𝜂 𝑘 = 1 − 𝜙 𝑘 
+
+1 + 𝑎 𝑘 𝜙 𝑘 
+
+, (15) 
+
+𝑎 𝑘 =
+
+(𝐲 ⊤𝑘 𝐇 𝑘 𝐲 𝑘 
+
+) ( 𝐬 ⊤𝑘 𝐁 𝑘 𝐬 𝑘 
+
+)(𝐲 ⊤𝑘 𝐬 𝑘 
+
+)2 − 1 . (16) If 𝜏 𝑘 = 1 , then the choice of 𝜙 𝑘 recovers some of the most well-known quasi-Newton methods. In particular, if 
+
+(𝜏 𝑘 , 𝜙 𝑘 ) = (1 , 1) , then the update reduces to the BFGS algorithm [11, 23, 25, 64], whereas if (𝜏 𝑘 , 𝜙 𝑘 ) = (1 , 0) , it reduces to the DFP algorithm [18, 24]. By contrast, the term self-scaled refers to the case 𝜏 𝑘 ≠ 1. In this setting, the method can be interpreted as first scaling the matrix 𝐇 𝑘 by the factor 1∕ 𝜏 𝑘 and then applying the corresponding standard quasi-Newton update, such as BFGS or DFP. For further motivation on the use of self-scaling in optimization, particularly in the context of PINNs, we refer the reader to [43, 5, 70] and the references therein. A more detailed discussion is provided in Appendix A. 
+
+Extensions to batched versions 
+
+One limitation of quasi-Newton optimizers especially (SSBFGS and SSBroyden) is that they are typically designed for full-batch training and do not naturally support stochastic gradient descent. This makes them less attractive for very large-scale, data-driven training. To address this, we propose a lazy stochastic quasi-Newton approach for problems that do not fit on a single GPU. Our stochastic variants of SSBFGS and SSBroyden are presented in Algorithm 2. Earlier studies have investigated batch training using the L-BFGS optimizer [10]. However, these methods are not stable in the PINN setting, because incorporating the PDE residual into the loss increases the nonlinearity of the objective. This can destabilize the Hessian approximation due to large gradient variance. To implement any SSBFGS or SSBroyden algorithm in a batch training setting, the secant condition is often violated due to noise in the gradient. Therefore, we update the Hessian approximation only when the following condition is satisfied: 
+
+𝑦 ⊤𝑘 −1 𝑠 𝑘 −1 ≥ 𝜏 ‖𝑠 𝑘 −1 ‖2, (17) where 𝜏 > 0 is a small threshold. The curvature condition in Equation 17 ensures that: 1. the curvature along the step direction 𝑠 𝑘 −1 is positive, i.e., 
+
+𝑦 ⊤𝑘 −1 𝑠 𝑘 −1 > 0; 
+
+2. the quasi-Newton Hessian (or inverse Hessian) approximation remains positive definite; 3. the resulting update is numerically stable. The condition in Equation 17 is a modification of the classical curvature condition introduced by [55], who showed that updating the Hessian requires the curvature condition 
+
+𝑦 ⊤𝑘 𝑠 𝑘 > 0.
+
+In practice, if this condition is violated, the update is either skipped or damped to ensure numerical stability. In the following, we state this condition formally as a theorem, referring to the condition in Equation 17. 
+
+Theorem 2.1. Let 𝑓 ∶ ℝ𝑛 → ℝ be twice continuously differentiable and assume that its Hessian is uniformly positive definite, i.e., there exists a constant 𝜏 > 0 such that 
+
+∇2𝑓 (𝑥 ) ⪰ 𝜏𝐼 for all 𝑥 ∈ ℝ𝑛 . (18) 
+
+For two successive iterates 𝑥 𝑘 −1 , 𝑥 𝑘 ∈ ℝ𝑛 , define 
+
+𝑠 𝑘 −1 ∶= 𝑥 𝑘 − 𝑥 𝑘 −1 , 𝑦 𝑘 −1 ∶= ∇ 𝑓 (𝑥 𝑘 ) − ∇ 𝑓 (𝑥 𝑘 −1 ). (19)   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 7 of 53
+
+Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Then there exists a point 
+
+𝜉 = 𝑥 𝑘 −1 + 𝜽 𝑠 𝑘 −1 , for some 𝜽 ∈ (0 , 1) ,
+
+such that 
+
+𝑦 𝑘 −1 = ∇ 2𝑓 (𝜉 ) 𝑠 𝑘 −1 . (20) 
+
+Moreover, the curvature condition 
+
+𝑦 ⊤𝑘 −1 𝑠 𝑘 −1 ≥ 𝜏 ‖𝑠 𝑘 −1 ‖2 (21) 
+
+holds. 
+
+The proof of the theorem is provided in Appendix D. Detailed pseudocode for the stochastic SSBFGS (sSSBFGS) and SSBroyden (sSSBroyden) implementations is given in Appendix C. A computational experiment demonstrating the correctness of Algorithm C is presented in Appendix E. 
+
+2.3. Natural Gradient Methods 
+
+NG methods were introduced in the context of online learning in [7]. In the setting of PINNs, they coincide with a Gauss-Newton method applied to the nonlinear least-squares objective, and were shown to improve PINN accuracy by several orders of magnitude in [53]. In their naive form, they require solving a linear system whose size matches the number of trainable parameters. However, efficient implementations have been developed using Kronecker-factored approximations [16], randomized numerical linear algebra, or direct exploitation of the low-rank structure of the preconditioner [30]. We cast the PINN loss function into the standard non-linear least squares form 
+
+(𝜽 ) = 12𝑁 Ω
+
+> 𝑁 Ω
+
+∑
+
+> 𝑘 =1
+
+(𝑢 𝜽 (𝑥 𝑘 ) − 𝑓 (𝑥 𝑘 ))2 + 12𝑁 Γ
+
+> 𝑁 Γ
+
+∑
+
+> 𝑙 =1
+
+(𝑢 𝜽 (𝑦 𝑙 ) − 𝑔 (𝑦 𝑙 ))2
+
+= 12 ‖𝑟 (𝜽 )‖2,
+
+(22) where the residual 𝑟 ∶ ℝ𝑝 → ℝ𝑁 Ω+𝑁 Γ is defined by 
+
+𝑟 (𝜽 ) = (𝑟 Ω(𝜽 )⊤, 𝑟 Γ(𝜽 )⊤)⊤ ∈ ℝ𝑁 Ω+𝑁 Γ ,
+
+(𝑟 Ω(𝜽 )) 
+
+> 𝑘
+
+= 1
+
+√𝑁 Ω
+
+(𝑢 𝜽 (𝑥 𝑘 ) − 𝑓 (𝑥 𝑘 )), 𝑘 = 1 , … , 𝑁 Ω,
+
+(𝑟 Γ(𝜽 )) 
+
+> 𝑙
+
+= 1
+
+√𝑁 Γ
+
+(𝑢 𝜽 (𝑦 𝑙 ) − 𝑔 (𝑦 𝑙 )), 𝑙 = 1 , … , 𝑁 Γ.
+
+We denote the Jacobian of the residual at 𝜽 by 𝐽 = 𝐽 (𝜽 ) or at iteration 𝑘 by 𝐽 𝑘 = 𝐽 (𝜽 𝑘 ). It is composed of the Jacobians 
+
+𝐽 𝑟 Ω(𝜽 ) = 𝐽 Ω and 𝐽 𝑟 Γ(𝜽 ) = 𝐽 Γ. The corresponding Gauss-Newton matrix is denoted by 𝐺 = 𝐺 (𝜽 ) = 𝐽 ⊤𝐽 and is given by 
+
+𝐺 (𝜽 )𝑖𝑗 = 𝐽 ⊤ 
+
+> Ω
+
+𝐽 Ω + 𝐽 ⊤ 
+
+> Γ
+
+𝐽 Γ
+
+= 1
+
+𝑁 Ω
+
+> 𝑁 Ω
+
+∑
+
+> 𝑘 =1
+
+𝐷 (𝑢 𝜽 )[ 𝜕 𝜽 𝑗 𝑢 𝜽 (𝑥 𝑘 )] 𝐷 (𝑢 𝜽 )[ 𝜕 𝜽 𝑖 𝑢 𝜽 (𝑥 𝑘 )] + 1
+
+𝑁 Γ
+
+> 𝑁 Γ
+
+∑
+
+> 𝑙 =1
+
+𝜕 𝜽 𝑖 𝑢 𝜽 (𝑦 𝑙 )𝜕 𝜽 𝑗 𝑢 𝜽 (𝑦 𝑙 ),
+
+(23) where 𝐷  denotes the linearization of the differential operator . In practice, we use a Levenberg-Marquardt regularization, meaning we add a scaled identity onto 𝐺 . The regularization strength 𝜆 is either hand-tuned or adapted using a trust-region strategy. The resulting iteration is 
+
+𝜽 𝑘 +1 = 𝜽 𝑘 − 𝛼 𝑘 [𝐺 (𝜽 𝑘 ) + 𝜆 𝑘 𝐼 ]−1 ∇(𝜽 𝑘 ) (24) 
+
+Jnini et al.: Preprint submitted to Elsevier Page 8 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Jacobi Scaling: Numerical stability in Gauss-Newton updates is frequently compromised by the ill-conditioning of the Gramian 𝐾 = 𝐽 ⊤𝐽 + 𝜆𝐼 , which arises from the spectral heterogeneity of the Jacobian 𝐽 and the disparate scales of PINN residuals [65]. To equilibrate the system, we define 𝐷 = diag (𝐾 ) and compute the normalized operator ̃𝐾 = 𝐷 −1∕2 𝐾𝐷 −1∕2 , which is known as Jacobi scaling . This ensures diag (̃ 𝐾 ) = 𝟏 , a transformation shown by van der Sluis to be nearly optimal for minimizing the condition number of symmetric positive definite matrices [65]. 
+
+Kernel trick: The dense matrix 𝐺 in (23) is of shape (𝑃 , 𝑃 ), where 𝑃 is the number of trainable weights in the neural network ansatz. The cubic cost (𝑃 3) solving a system involving 𝐺 at every iteration is prohibitive, even for moderate values of 𝑃 . However, the structure 𝐺 = 𝐽 ⊤𝐽 with 𝐽 being of shape (𝑁, 𝑃 ) reveals that 𝐺 is of low rank, whenever the batch size 𝑁 = 𝑁 Ω + 𝑁 Γ is small. This can be explicitly exploited using the push-through identity 
+
+(𝐽 ⊤𝐽 + 𝜆𝐼 )−1 𝐽 ⊤ = 𝐽 ⊤(𝐽 𝐽 𝑇 + 𝜆𝐼 )−1 ,
+
+where the matrix to be inverted on the right-hand side above is of shape (𝑁, 𝑁 ). This means that the overall complexity is dominated by the matrix-matrix product and in the case 𝑁 ≤ 𝑃 is given by (𝑁 2𝑃 ), hence linear in 𝑃 . Note that the regime 𝑁 < 𝑃 is typical for PINNs. The resulting iteration is 
+
+𝜽 𝑘 +1 = 𝜽 𝑘 − 𝛼 𝑘 𝐽 ⊤𝑘 [𝐽 𝑘 𝐽 ⊤𝑘 + 𝜆 𝑘 𝐼 ]−1 𝑟 𝑘 . (25) Additionally, randomized numerical linear algebra and matrix-free implementations can be used [30]. However, we find that the kernel trick, which is exact rather than an approximation, is powerful enough to enable efficient computations for our computational experiments. Alternatively, the kernel trick admits an equivalent primal-dual interpretation that reformulates the linearized least-squares problem within the residual feature space [37]. 
+
+Adding momentum via SPRING: The recently proposed SPRING [26] algorithm accelerates the linear solve at every iteration of the Gauss-Newton method in the sense of Nesterov [27]. We can rewrite (25) as a minimization problem 
+
+𝐽 ⊤𝑘 [𝐽 𝑘 𝐽 ⊤𝑘 + 𝜆 𝑘 𝐼 ]−1 𝑟 𝑘 = argmin 𝜙 
+
+[‖𝐽 𝑘 𝜙 − 𝑟 𝑘 ‖2 + 𝜆 ‖𝜙 ‖2]
+
+and introduce momentum via modifying the above to 
+
+𝜙 𝑘 = argmin 𝜙 
+
+[‖𝐽 𝑘 𝜙 − 𝑟 𝑘 ‖2 + 𝜆 ‖𝜙 − 𝜇𝜙 𝑘 −1 ‖2]
+
+for a momentum parameter 𝜇 ∈ [0 , 1] . Writing out the optimality conditions yields the iteration 
+
+𝜙 𝑘 = 𝜇𝜙 𝑘 −1 + 𝐽 ⊤𝑘 [𝐽 𝑘 𝐽 ⊤𝑘 + 𝜆 𝑘 𝐼 ]−1 (𝑟 𝑘 − 𝜇𝐽 𝑘 𝜙 𝑘 −1 )
+
+𝜽 𝑘 +1 = 𝜽 𝑘 − 𝛼 𝑘 𝜙 𝑘 . (26) Just like in the case without momentum, we use the push-through identity in the regime 𝑁 < 𝑃 .
+
+Functional optimization: The use of the Gauss-Newton method was popularized under the name energy natural gradient in [53] for PINNs and variational problems. The reason for this is that it the Gauss-Newton method is indeed a special case of a much larger family of optimizers, which are obtained as finite-dimensional discretizations of infinite-dimensional optimization algorithms [54]. From this general infite-dimensional viewpoint efficient algorithms have been developed for computational fluid dynamics [38], quantum many-body problems [8]. Although in the context of PINNs, NGs agree with the Gauss-Newton method, deriving from a function space perspective, has the benefit that it allows us to understand the function space dynamics of the optimizer. Indeed, it can be shown that NG offers a locally optimal approximation of the infinite-dimensional algorithm and hence mimic the Gauss-Newton method in function space [53, 37]. Further, NG methods are up to discretization errors invariant under general reparametrizations [56], where Newton’s method is affinely invariant and AdaGrad type methods are merely scale and rotation invariant. 
+
+## 3. Landscape Visualization 
+
+We visualize the qualititative differences of the different families of optimizers in two ways. Firstly, we visualize the loss landscape in parameter space and how the optimizers traverse this landscape. Secondly, we visualize the updates of the optimizers in function space and contrast them to the error of the current predictions.   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 9 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+
+3.1. Loss landscape in parameter space 
+
+To analyze the geomtery of the optimization problem, we visualize a two-dimensional slice of the loss landscape around a reference parameter vector 𝜽 0 for which we follow the methods proposed in [47]. Let (𝜽 ) denote the total loss of the model. Since the parameter is space is high dimensional, we project the loss function onto a two-dimensional subspace spanned by two direction 𝑣 1 and 𝑣 2. Specifically, we evaluate the loss at the point of form (𝜽 0 + 𝛼𝑣 1 + 𝛽𝑣 2)
+
+where (𝛼, 𝛽 ) are scalar cordinates defining the grid over the plane. To obtain the informative direction, we compue the top right-singular vector of the matrix per-sample gradients. let 𝑙 𝑖 (𝜽 ) denote the loss contribution from the 𝑖 −th training sample. We define the gradient matrix as follows 
+
+𝑮 =
+
+⎡⎢⎢⎢⎢⎢⎢⎣
+
+∇𝜽 𝓁 1(𝜽 0)⊤
+
+∇𝜽 𝓁 2(𝜽 0)⊤
+
+⋮
+
+∇𝜽 𝓁 𝑁 (𝜽 0)⊤
+
+⎤⎥⎥⎥⎥⎥⎥⎦
+
+∈ ℝ𝑁 ×𝑃 ,
+
+where 𝑃 is the number of parameters and 𝑁 is the number of samples. The singular value decomposition of 𝐺 is computed as 
+
+𝑮 = 𝑼 𝚺 𝑽 ⊤
+
+The first two columns of 𝑉 , denoted 𝑣 1 and 𝑣 2, correspond to the principal directions capturing the largest variation in the gradient space [47]. These directions define the plane used to visualize the loss landscape. We evaluate the loss on a grid of (𝛼, 𝛽 ) values and generate contour plots to study the curvature and anisotropy of the optimization landscape around 𝜽 0. In Figure 2, loss landscapes for two representative PDE problems are visualized along random directions and along projections onto selected pairs of singular vectors. The top row illustrates the loss landscape for the 1D Euler equation 59 corresponding to the Sod shock tube problem. The panels show projections along: (i) two orthogonal random directions sampled from a multivariate normal distribution, (ii) the leading pair of dominant singular vectors, and (iii) the next pair of dominant singular vectors, progressing from left to right. The bottom row presents analogous plots for the elliptic Stokes equation 42, following the same projection scheme as used for the Euler equation in the top row. In all figures, the horizontal and vertical axes correspond to the coordinates (𝛼, 𝛽 ), representing the projection coefficients along the chosen directions.The Euler problem exhibits a relatively rough loss landscape due to the presence of shocks. In contrast, the Stokes problem, which is elliptic in nature, results in a much smoother loss landscape. 
+
+3.2. Loss landscape in function space 
+
+All optimizers that we consider iteratively produce steps in parameter space Θ = ℝ𝑝 given some initial parameters 
+
+𝜽 0 and a rule to produce the direction 𝛿 𝑘 ∈ ℝ𝑝 
+
+𝜽 𝑘 +1 = 𝜽 𝑘 + 𝛿 𝑘 .
+
+For instance, for the NG/Gauss-Newton optimizer this step is 𝛿 𝑘 = ( 𝐽 ⊤𝑘 𝐽 𝑘 + 𝜆𝐼 )−1 𝐽 ⊤𝑘 𝑟 𝑘 = 𝐽 ⊤𝑘 (𝐽 𝑘 𝐽 ⊤𝑘 + 𝜆𝐼 )−1 𝑟 𝑘 , with appropriate adaptions for more advanced schemes like SPRING. Given a neural network architecture, which means we fixate a parametrization map 
+
+𝑃 ∶ Θ → , 𝜽 ↦ 𝑢 𝜽 (27) that takes parameters 𝜽 and maps them to a neural network function 𝑢 𝜽 in an appropriate function space , we can visualize the pushforward of 𝑃 . The pushforward of a direction 𝛿 visualizes the update direction in function space , an object that is often much more easy to interpret than 𝛿 . It is given by 
+
+𝐷𝑃 (𝜽 )[ 𝛿 ]( 𝑥 ) = 
+
+> 𝑝
+
+∑
+
+> 𝑖 =1
+
+𝛿 𝑖 𝜕 𝜽 𝑖 𝑢 𝜽 (𝑥 ). (28) We compare the update directions for the various considered optimizers in Figure 3. It is clearly visible that the updates of the NG correct the error much better compared to the other methods; this aligns with its derivation from an infinite-dimensional algorithm, see 2.3 and [53, 54].   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 10 of 53
+
+Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Figure 1: Schematic illustration of PINN training and optimization methods considered in this work. Our benchmarks include PDEs of elliptic (Helmholtz and Stokes), parabolic (2D viscous Burgers), hyperbolic (inviscid Burgers and 1D Euler) type, and a stiff PK–PD ODE system, characterized by oscillatory solutions, nonlinear diffusion, shock-induced discontinuities, and stiffness. The methods studied here are BFGS, SSBFGS, SSBroyden, NG, SPRING, and SOAP. SOAP ∗ is included for comparison as a curvature-aware preconditioned method, although it is not a classical Newton or quasi-Newton method. Jnini et al.: Preprint submitted to Elsevier Page 11 of 53 Curvature-Aware Optimization for High-Accuracy PINNs Random projection First pair of singular vectors Second pair of singular vectors 1D Euler 2D Stokes 
+
+Figure 2: Loss landscapes for two representative PDEs are shown along random directions and projections onto pairs of singular vectors. (a) Top row: 1D Euler equation 59 (Sod problem), projected along orthogonal random directions, leading singular vectors, and next dominant pair (left to right). Bottom row: Stokes equation 42, following the same projection scheme. Axes correspond to (𝛼, 𝛽 ).Jnini et al.: Preprint submitted to Elsevier Page 12 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+> NG SSBroyden SOAP
+
+Figure 3: Visualization of the NG (top), SSBroyden (middle), and SOAP (bottom) training dynamics for the 2D Helmholtz problem with 𝑎 1 = 1 , 𝑎 2 = 4 , and 𝑘 = 1 ; shown are side-by-side snapshot comparisons of the updates of the optimizers (left) and the current error of the prediction (right). Jnini et al.: Preprint submitted to Elsevier Page 13 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+## 4. Computational Experiments 
+
+This section presents a set of challenging benchmark problems for PINNs, chosen to assess optimizer robust-ness under stiff, oscillatory, multiscale, and shock-dominated loss landscapes. The benchmark suite includes the Helmholtz equation in two and three dimensions with varying wave numbers, the inviscid Burgers equation, the two-dimensional viscous Burgers equation, the compressible Euler equations, the two-dimensional Stokes equations, and a pharmacokinetic-pharmacodynamic (PK–PD) system, as summarized in Table 2. These problems span regimes in which PINN training is known to be difficult due to strong nonlinearities, high-frequency oscillations, steep gradients, shocks, multiscale structure, and sensitivity to sampling and hyperparameter choices. As shown in our previous work [43], double precision consistently outperforms single precision for these problems. Therefore, unless otherwise stated, all results reported in this section are obtained using double precision. Readers interested in a detailed comparison between single- and double-precision performance are referred to [43]. It is worth noting that, in comparing the performance of the different optimizers across these benchmarks, we use several error metrics, including the relative 𝐿 1, relative 𝐿 2, and relative 𝐿 ∞ errors, depending on the problem and the available reference solution. For completeness, we define these metrics below. 
+
+Metrics for Assessing Accuracy: Let {𝑢 pred  
+
+> 𝑖
+
+}𝑁 𝑖 =1 denote the predicted solution and {𝑢 ref  
+
+> 𝑖
+
+}𝑁 𝑖 =1 denote a reference solution evaluated at the same set of 𝑁 discrete points, where the reference may be an exact solution when available, or a high-resolution numerical solution otherwise. The 𝐿 1 error is defined as 
+
+‖𝑢 pred − 𝑢 ref ‖1 =
+
+> 𝑁
+
+∑
+
+> 𝑖 =1
+
+|||𝑢 pred  
+
+> 𝑖
+
+− 𝑢 ref 
+
+> 𝑖
+
+|||, (29) and the relative 𝐿 1 error is given by 
+
+rel 𝐿 1 = ‖𝑢 pred − 𝑢 ref ‖1
+
+‖𝑢 ref ‖1
+
+. (30) The 𝐿 2 error is defined as 
+
+‖𝑢 pred − 𝑢 ref ‖2 =
+
+( 𝑁 ∑
+
+> 𝑖 =1
+
+(𝑢 pred  
+
+> 𝑖
+
+− 𝑢 ref 
+
+> 𝑖
+
+)2
+
+)1∕2 
+
+, (31) and the relative 𝐿 2 error is given by 
+
+rel 𝐿 2 = ‖𝑢 pred − 𝑢 ref ‖2
+
+‖𝑢 ref ‖2
+
+. (32) The 𝐿 ∞ error is defined as 
+
+‖𝑢 pred − 𝑢 ref ‖∞ = max 
+
+> 1≤𝑖 ≤𝑁
+
+|||𝑢 pred  
+
+> 𝑖
+
+− 𝑢 ref 
+
+> 𝑖
+
+|||, (33) and the relative 𝐿 ∞ error is given by 
+
+rel 𝐿 ∞ = ‖𝑢 pred − 𝑢 ref ‖∞
+
+‖𝑢 ref ‖∞
+
+. (34) The 𝐿 ∞ error is defined as 
+
+‖𝑢 pred − 𝑢 ref ‖∞ = max 
+
+> 1≤𝑖 ≤𝑁
+
+|||𝑢 pred  
+
+> 𝑖
+
+− 𝑢 ref 
+
+> 𝑖
+
+|||, (35) and the relative 𝐿 ∞ error is given by 
+
+rel ∞ = ‖𝑢 pred − 𝑢 ref ‖∞
+
+‖𝑢 ref ‖∞
+
+=max 1≤𝑖 ≤𝑁 
+
+|||𝑢 pred  
+
+> 𝑖
+
+− 𝑢 ref 
+
+> 𝑖
+
+|||
+
+max 1≤𝑖 ≤𝑁 
+
+|||𝑢 ref 
+
+> 𝑖
+
+|||
+
+. (36) 
+
+Jnini et al.: Preprint submitted to Elsevier Page 14 of 53 Curvature-Aware Optimization for High-Accuracy PINNs         
+
+> Problem Challenges
+> 4.1 2D Helmholtz Oscillatory solution 4.4 (1+1)D Inviscid Burgers Shock waves 4.3 (2+1)D viscous Burgers Steep gradients / parabolic 4.5 (1+1)D Euler with Roe Flux shock and contact waves but dissipative 4.5.2 (1+1)D Euler with HLLC Flux Entropy solution, stability, and non-dissipative 4.2 2D Stokes Multiscale solution 4.6 Pharmacokinetics and -dynamics Stiffness and discontinuity
+> Table 2
+> Overview over the computational experiments used in this study and the main sources of training difficulty for PINNs in each case.
+
+4.1. 2D and 3D Helmholtz equation 
+
+Consider the 2D Helmholtz equation on the square domain Ω = [ 𝑥 0 = −1 , 𝑥 𝑓 = 1] 2 ⊂ ℝ2
+
+𝜕 2𝑢 𝜕𝑥 2 + 𝜕 2𝑢 𝜕𝑦 2 + 𝑘 2𝑢 − 𝑞 (𝑥, 𝑦 ) = 0 , (37) where 𝑞 (𝑥, 𝑦 ) is a forcing term 
+
+𝑞 (𝑥, 𝑦 ) = 
+
+(
+
+𝑘 2 − ( 𝑎 1𝜋 )2 − ( 𝑎 2𝜋 )2)
+
+sin( 𝑎 1𝜋𝑥 ) sin( 𝑎 2𝜋𝑦 ). (38) By construction, the exact solution is 
+
+𝑢 (𝑥, 𝑦 ) = sin( 𝑎 1𝜋𝑥 ) sin( 𝑎 2𝜋𝑦 ), (39) which we use to validate model accuracy. Periodic boundary conditions are imposed in both spatial directions. Simulations are performed for parameter pairs (𝑎 1, 𝑎 2) = (1 , 4) , (6 , 6) , (10 , 10) and wavenumbers 𝑘 = 1 , 10 , and 100 . To enhance the representation of oscillatory solutions, Fourier feature extensions are employed for all cases in Helmholtz problem. The input to the neural network, denoted by 𝐗 input, is defined as 
+
+𝐗 input =
+
+(
+
+cos 
+
+( 2𝜋𝑚𝑥 𝐿 𝑥 
+
+)
+
+, sin 
+
+( 2𝜋𝑚𝑥 𝐿 𝑥 
+
+)) 
+
+, (40) where 
+
+𝐿 𝑥 = 𝑥 𝑓 − 𝑥 0 (41) represents the spatial domain length and 𝑚 is the number of Fourier modes. Figure 4 compares the SSBroyden prediction with the reference solution (39) for the 2D Helmholtz problem with 
+
+𝑎 1 = 1 , 𝑎 2 = 4 , and 𝑘 = 1 . It also reports the corresponding pointwise absolute error, |𝑢 pred − 𝑢 ref |. Figure 5 further compares the training loss histories of BFGS, SOAP, SSBFGS, and SSBroyden, together with NG and SPRING, in the left panels, while the corresponding relative 𝐿 2 errors are shown in the right panels. Table 3 summarizes the 𝐿 ∞
+
+and relative 𝐿 2 errors, as well as the training times. In all reported cases, the Fourier feature mapping in 40 uses mode 
+
+𝑚 = 1 , resulting in four input features, namely two sine/cosine components for each spatial coordinate. The table summarizes the performance of BFGS, SSBFGS, and SSBroyden in both the PyTorch and JAX implementations, as well as NG and SPRING. It shows that the SciPy-based implementations of SSBroyden and SSBFGS are as accurate as their Optax-based counterparts. The longer training times of the SciPy implementations are mainly due to the fact that they are executed on the CPU, whereas Optax, NG, and SPRING are run on the GPU. The SSBroyden, BFGS, and SSBFGS (PyTorch) optimizers use 15 ,000 interior collocation points, which are resampled every 500 epochs   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 15 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+
+Case Optimizer # collocation points Relative 𝐿 ∞ Training time (s) # parameters 
+
+1 SSBFGS with TrustRegion 10000 1.5 × 10 −8 287 2971 2 SSBFGS with TrustRegion 20000 7.1 × 10 −8 489 2971 3 SSBFGS with TrustRegion 25000 7.4 × 10 −9 564 2971          
+
+> Table 4 2D Helmholtz problem with 𝑎 1= 1 ,𝑎 2= 4 , and 𝑘 = 1 .Relative 𝑙 ∞error and training time for SSBFGS with different numbers of collocation points. All cases use the same PINN architecture with four hidden layers and 30 neurons per layer.
+
+using the RAD adaptive sampling strategy. Cases 1–4 correspond to BFGS, SSBroyden, SSBFGS, and the PyTorch implementation of SSBFGS, respectively. All cases employ the same PINN architecture, consisting of four hidden layers with 30 neurons per layer. Overall, the results demonstrate accuracy comparable to the JAX implementations. However, the PyTorch runs rely on SciPy routines executed on the CPU, which leads to substantially longer training times than the other methods. This comparison is included for readers interested in SciPy-based implementations. The SOAP optimizer is run with Adam-like momentum parameters (𝛽 1 = 𝛽 2 = 0 .95) , a learning rate of lr = 3 × 10 −3 , a weight decay of 10 −4 , and a preconditioner update every 10 iterations. Training time and solution accuracy strongly depend on the number of collocation points. Table 4 illustrates this effect by reporting the relative 𝐿 ∞ metrics and training time for different choices of interior collocation points. In particular, three collocation-point settings are considered for the SSBFGS with TrustRegion method to highlight how the number of collocation points impacts optimizer performance. Figure 6 shows the training loss for the 2D Helmholtz problem with 𝑎 1 = 6 and 𝑎 2 = 6 for 𝑘 = 1 and 𝑘 = 100 .For SSBFGS and SSBroyden at 𝑘 = 100 , interior collocation points are introduced progressively using an expanding sampling region: [−0 .2, 0.2] 2 for 10 ,000 iterations, [−0 .4, 0.4] 2 for 15 ,000 iterations, [−0 .7, 0.7] 2 for 20 ,000 iterations, and finally the full domain [−1 , 1] 2 for 40 ,000 iterations. Table 5 summarizes the performance of SSBFGS, SSBroyden, and NG for these cases. For 𝑘 = 1 , the Fourier feature mapping in 40 uses mode 𝑚 = 1 , resulting in four input features, while for 𝑘 = 10 and 𝑘 = 100 , mode 𝑚 = 10 is used. Across all cases, the same fully connected network architecture is employed, consisting of six hidden layers with 30 neurons per layer. Results are presented for the three-dimensional Helmholtz problem with wave numbers 𝑎 1 = 4 , 𝑎 2 = 4 , and 
+
+𝑎 3 = 3 [34]. Figure 9 provides a direct comparison between vanilla PINNs and SPINNs under the same evaluation protocol. SPINNs provide improved accuracy compared to vanilla PINNs for this higher-frequency 3D setting. In particular, SPINNs achieve lower solution error across the reported metrics in Table 7, indicating a better ability to represent oscillatory structure induced by the Helmholtz operator at (𝑎 1, 𝑎 2, 𝑎 3) = (4 , 4, 3) .The neural network consists of a periodic feature layer followed by a fully connected multilayer perceptron. The periodic layer maps the three-dimensional input (𝑥, 𝑦, 𝑧 ) to 6𝑘 max Fourier features using sine and cosine functions, with 𝑘 max = 2 . These features are passed to a five-layer fully connected network with architecture 12 → 30 → 30 →
+
+30 → 30 → 1, using tanh activations in all hidden layers and a linear output layer. The model is trained using 20 ,000 
+
+randomly sampled interior collocation points in [−1 , 1] 3, without a structured training grid. 
+
+Key observations from the Helmholtz equation: For the 2D Helmholtz equation, a broad range of test cases was examined. The results indicate that, for both SSBFGS and SSBroyden, the trust-region strategy consistently outperforms the line-search variants in terms of efficiency. For the cases (𝑎 1, 𝑎 2) = (6 , 6) and (𝑎 1, 𝑎 2) = (10 , 10) ,NG converged successfully without any warm-up stage. Nevertheless, for SSBFGS and SSBroyden, a progressive warm-up schedule obtained by gradually increasing the frequency parameters, e.g., (𝑎 1, 𝑎 2) = (2 , 2) , (4 , 4) , . . . , (6 , 6) ,significantly improved convergence speed and robustness. For the high-wavenumber regimes ( 𝑘 = 10 and 𝑘 = 100 ), NG converged in a single training run on the full domain. In contrast, for the quasi-Newton methods, convergence was improved by progressively extending the computational domain from [−0 .2, 0.2] 2 to [−0 .4, 0.4] 2, then to [−0 .7, 0.7] 2, and finally to the full domain [−1 , 1] 2.For the 3D Helmholtz equation, SPINN consistently outperformed standard PINNs. Although the case (𝑎 1, 𝑎 2, 𝑎 3) = (4 , 4, 3) with 𝑘 = 1 is particularly challenging, the proposed approach achieved high accuracy, reaching errors on the order of 10 −9 .  
+
+> Jnini et al.: Preprint submitted to Elsevier Page 16 of 53
+
+Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Figure 4: 2D Helmholtz problem with 𝑎 1 = 1 , 𝑎 2 = 4 , and 𝑘 = 1 . SSBroyden prediction, reference solution given by Equation (39) , and the pointwise absolute error |𝑢 pred − 𝑢 ref |.
+
+Figure 5: 2D Helmholtz problem with 𝑎 1 = 1 , 𝑎 2 = 4 , and 𝑘 = 1 . Training loss and relative 𝐿 2 error, comparing BFGS, SSBFGS, SSBroyden, NG, and SPRING. The SSBroyden (PyTorch) and SSBFGS (PyTorch) results are obtained using SciPy-based implementations executed on the CPU, while SSBFGS (JAX) is implemented using Optax in JAX.                                                                     
+
+> Case 𝑘 Optimizer Relative 𝐿 ∞Relative 𝐿 2Training time (s) # parameters
+> 11BFGS (PyTorch)* 4.2 × 10 −7 3.7 × 10 −7 7066 2971 21SSBroyden (PyTorch)* 6.9 × 10 −9 7.7 × 10 −9 8215 2971 31SSBFGS (PyTorch)* 2.0 × 10 −8 2.6 × 10 −8 8322 2971 41SSBFGS (optx.TrustRegion) 7.4 × 10 −9 7.2 × 10 −9 564 2971 51SSBFGS (optx.Wolfe) 5.1 × 10 −8 5.8 × 10 −8 449 2971 61SSBroyden (optx.TrustRegion) 4.8 × 10 −9 3.6 × 10 −9 319 2971 71SSBroyden (optx.Wolfe) 5.9 × 10 −9 5.3 × 10 −9 426 2971 91NG 5.6 × 10 −9 4.2 × 10 −9 251 2971 10 1SPRING 2.4 × 10 −9 2.0 × 10 −9 540 2971 11 1SOAP 5.5 × 10 −4 4.2 × 10 −4 1038 2971
+
+Table 3: 2D Helmholtz problem with 𝑎 1 = 1 , 𝑎 2 = 4 , and 𝑘 = 1 . All optimizers use the same fully connected network architecture with four hidden layers and 30 neurons per layer. The SSBroyden (PyTorch), BFGS, and SSBFGS (PyTorch) optimizers use 15 ,000 interior collocation points, resampled every 500 epochs using the RAD adaptive sampling strategy, whereas optx.TrustRegion uses 25 ,000 interior collocation points. The Fourier feature mapping in 40 uses mode 𝑚 = 1 ,resulting in four input features. Jnini et al.: Preprint submitted to Elsevier Page 17 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+(a) Training loss for 𝐾 = 1 .
+
+(b) Loss history with curriculum domain expansion for 𝐾 = 100 .
+
+Figure 6: 2D Helmholtz problem with 𝑎 1 = 6 and 𝑎 2 = 6 : (a) 𝑘 = 1 and (b) 𝑘 = 100 . During training for 𝑘 = 100 , collocation points are sampled progressively from [−0 .2, 0.2] 2 for 10,000 iterations, [−0 .4, 0.4] 2 for 15,000 iterations, [−0 .7, 0.7] 2 for 20,000 iterations, and finally the full domain [−1 , 1] 2 for 40,000 iterations. 
+
+Case 𝑘 Optimizer Relative 𝐿 ∞ Relative 𝐿 2 Training time (s) # parameters 
+
+1 1 SSBFGS with TrustRegion 8.2 × 10 −6 2.8 × 10 −5 1127 4831 2 1 SSBroyden with TrustRegion 2.4 × 10 −5 3.6 × 10 −5 203 4831 3 1 NG 6.1 × 10 −6 2.8 × 10 −5 944 4831 4 10 SSBFGS with TrustRegion 1.6 × 10 −4 2.8 × 10 −5 630 5911 5 10 SSBroyden with Wolfe 7.8 × 10 −5 2.8 × 10 −5 498 5911 6 10 NG 7.4 × 10 −8 2.8 × 10 −5 782 5911 7 100 SSBFGS with TrustRegion 1.1 × 10 −4 2.8 × 10 −5 337 5911 8 100 SSBroyden with TrustRegion 1.9 × 10 −5 2.8 × 10 −5 342 5911 9 100 SSBroyden with Wolfe 3.4 × 10 −7 2.8 × 10 −5 393 5911 10 100 NG 8.5 × 10 −6 2.8 × 10 −5 1561 5911 
+
+Table 5: 2D Helmholtz with 𝑎 1 = 6 and 𝑎 2 = 6 (𝑘 = 1 , 10 , and 100 ). All optimizers use the same fully connected network architecture with 6 hidden layers and 30 neurons per layer. Jnini et al.: Preprint submitted to Elsevier Page 18 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Figure 7: 2D Helmholtz with 𝑎 1 = 10 , 𝑎 2 = 10 , and 𝑘 = 1 : SSBroyden prediction, exact solution (39) , absolute error, and pointwise absolute error |𝑢 pred − 𝑢 exact |.
+
+Figure 8: 2D Helmholtz with 𝑎 1 = 10 , 𝑎 2 = 10 , and 𝑘 = 1 : Loss and relative 𝐿 2 error for the Helmholtz problem with 
+
+𝑎 1 = 10 and 𝑎 2 = 10 , comparing BFGS, SSBroyden, and NG descent. 
+
+Case Optimizer Relative 𝐿 ∞ Relative 𝐿 2 Training time (s) # parameters 
+
+1 SSBFGS with TrustRegion 2.2 × 10 −3 3.1 × 10 −3 1530 6,691 2 SSBroyden with TrustRegion 6.1 × 10 −3 6.7 × 10 −3 2194 6,691 3 NG 2.2 × 10 −5 1.9 × 10 −5 3000 6,691 4 SPRING 3.8 × 10 −5 3.8 × 10 −5 3000 6,691 
+
+Table 6: 2D Helmholtz with 𝑎 1 = 10 , 𝑎 2 = 10 , and 𝑘 = 1 : Results are shown for NG, SSBroyden, and BFGS. For SSBroyden and BFGS, the loss is normalized by scale( 𝑎 1, 𝑎 2, 𝑘 ) = ( 𝑎 1𝜋 )2 + ( 𝑎 2𝜋 )2 + 𝑘 2, which for (𝑎 1, 𝑎 2, 𝑘 ) = (10 , 10 , 1) yields 
+
+scale(10 , 10 , 1) = 200 𝜋 2 + 1 ≈ 1974 .92 .Jnini et al.: Preprint submitted to Elsevier Page 19 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Figure 9: 3D Helmholtz with 𝑎 1 = 4 , 𝑎 2 = 4 , 𝑎 3 = 3 , and 𝑘 = 1 . The network consists of a periodic Fourier feature embedding ( 𝑘 max = 2 ), followed by a fully connected network with four hidden layers, each containing 30 neurons with tanh 
+
+activations, and a linear output layer. 
+
+Case Optimizer Relative 𝐿 ∞ Relative 𝐿 2 Training time (s) # parameters 
+
+1 PINN–SSBFGS with TrustRegion 1.0 × 10 −4 3.5 × 10 −4 551 3211 2 PINN–NG 4.7 × 10 −5 4.1 × 10 −5 571 3211 3 SPINN–SSBFGS with TrustRegion 1.0 × 10 −9 4.9 × 10 −10 356 3211 4 SPINN–SSBroyden with TrustRegion 7.9 × 10 −9 3.2 × 10 −9 373 3211 5 SPINN–NG 4.0 × 10 −9 2.1 × 10 −9 730 3211 
+
+Table 7: 3D Helmholtz with 𝑎 1 = 4 , 𝑎 2 = 4 , 𝑎 3 = 3 , and 𝑘 = 1 : comparison between vanilla PINNs and SPINNs [14]. Jnini et al.: Preprint submitted to Elsevier Page 20 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+4.2. 2D Stokes flow over a triangular wedge 
+
+To show the efficacy of proposed optimizer, we finally solve the Stokes equation for a viscous flow in a lid-driven wedge. The Stokes equation is given by 
+
+𝜕𝑝 𝜕𝑥 −
+
+( 𝜕 2𝑢 𝜕𝑥 2 + 𝜕 2𝑢 𝜕𝑦 2
+
+)
+
+= 0 ,𝜕𝑝 𝜕𝑦 −
+
+( 𝜕 2𝑣 𝜕𝑥 2 + 𝜕 2𝑣 𝜕𝑦 2
+
+)
+
+= 0 ,𝜕𝑢 𝜕𝑥 + 𝜕𝑣 𝜕𝑦 = 0 ,
+
+(42) This problem was previously solved using the SSBFGS optimizer in [43]. The problem setup and description adopted here are identical to those presented in [43]. In this work, we examine the convergence behavior of PINNs using both the SSBFGS and SSBroyden optimizers under different line-search strategies. Their performance is compared against the NG method in terms of accuracy and computational runtime. This benchmark is chosen because it requires solving PDEs in a regime where the solution contains extremely small-amplitude flow structures. Moffatt [52] obtained an asymptotic solution to Equation (42) using a similarity approach, showing that the intensity of the eddies is governed by the wedge angle. For the case studied here, with a wedge angle of 25 .53 ◦, the strength of each successive eddy is expected to be asymptotically about 400 times smaller than that of the previous one. Resolving such rapidly decaying eddies therefore demands an optimizer that is both highly accurate and robust. To evaluate the accuracy of the PINN solution, we compute a reference solution of Equation (42) using the spectral element method, following the formulation presented in [39]. All reference simulations are carried out using the 
+
+Nektar++ framework [12]. For all experiments, the PINN architecture consists of eight fully connected hidden layers with 64 neurons per layer and tanh activation functions. A total of 120 ,000 residual points are sampled uniformly from the computational domain using the distribution  [0 , 1) when training with the SSBFGS and SSBroyden optimizers. Training is first performed using Adam and SOAP as standalone optimizers. Subsequently, we conduct computational experiments using different line-search strategies within the self-scaled quasi-Newton family, including trust-region, Armijo, Wolfe, and zoom line-search methods. For the NG method, 5,000 residual points are sampled at each iteration. The convergence histories for all combinations involving the self-scaled optimizers, as well as the standalone Adam and SOAP methods, are shown in the left subfigure of Figure 10. The convergence history of the NG method is presented in the right subfigure of Figure 10. The 𝓁 2 relative error, together with the optimizer type, number of parameters, and runtime, are summarized in Table 8. Among the tested configurations, the most accurate results are obtained using Adam combined with SSBFGS under a trust-region strategy, and SOAP combined with SSBroyden using Armijo and Wolfe line-search strategies. The accuracy achieved by the NG method is comparable to that of the self-scaled optimizers; however, its runtime is approximately 150 seconds, compared to roughly one hour for the self-scaled methods. Consequently, the NG approach is approximately 24 times faster than the self-scaled optimizers. To further assess the performance of each optimizer, we visualize the resulting streamlines in Figure 11 for all configurations listed in Table 8. The streamline patterns produced by the most accurate optimizers are shown in Figure 11(d), (f), and (i). These results demonstrate successful recovery of all four eddies, including the weakest eddy with a velocity magnitude of |𝑢 | = 10 −8 . Finally, Figure 11(j) shows the Moffatt eddy strength [52], comparing the transverse centerline velocity magnitude (|𝑢 |). The results indicate that the NG method reproduces the eddy hierarchy with high accuracy. 
+
+Key observations from the Stokes equation: We observe that both SSBFGS and SSBroyden achieve accuracy comparable to that of the NG method across all considered line search strategies. However, the NG method exhibits significantly superior computational efficiency, with a runtime approximately 24 times faster than that of the self-scaled optimizers. This disparity suggests that, for elliptic problems, the NG method is better aligned with the underlying error landscape, enabling more efficient convergence. In contrast, while self-scaled optimizers attain similar levels of accuracy, they do so at a substantially higher computational cost for elliptic PDEs.   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 21 of 53
+
+Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Figure 10: Stokes equation: The left subfigure presents the loss history for Stokes flow using various combinations of optimizers and line-search routines. Each experiment starts with a warm-up phase employing first-order optimizers (Adam and SOAP), followed by a switch to quasi-Newton optimizers combined with different line-search strategies. The point of transition between optimizers is marked by a vertical dashed line. The right subfigure shows the loss history for NG optimizer, which significantly outperforms all self-scaled and first-order optimizers, achieving convergence in just 1,500 iterations.                                                   
+
+> Optimizer [# Iters.] Relative 𝐿 2(u, v, p) Total Parameters Time (s) Adam (500,001) (2.70 × 10 −2 ,2.58 × 10 −2 ,1.10 × 10 −1 )33,667 3600 SOAP (500,001) (2.02 × 10 −2 ,1.87 × 10 −2 ,1.90 × 10 −1 )33,667 3600 SOAP (18401) + SSBFGS with trustregion (500,001) (3.25 × 10 −4 ,1.59 × 10 −4 ,1.07 × 10 −1 )33,667 3600 SOAP (18401) + SSBroyden with Armijo and Wolfe (500,001) (3.25 × 10 −4 ,1.57 × 10 −4 ,1.07 × 10 −1 )33,667 3600 SOAP (18401) + SSBroyden with zoom (500,001) (3.25 × 10 −4 ,1.57 × 10 −4 ,1.07 × 10 −1 )33,667 3600 Adam (18401) + SSBFGS with trustregion (500,001) (3.25 × 10 −4 ,1.57 × 10 −4 ,1.10 × 10 −1 )33,667 3600 SOAP (18401) + SSBFGS with Armijo abd Wolfe (112,316) (3.26 × 10 −4 ,1.58 × 10 −4 ,1.07 × 10 −1 )33,667 3600 SOAP (18401) + SSBFGS with Zoom (500,001) (3.26 × 10 −4 ,1.61 × 10 −4 ,1.07 × 10 −1 )33,667 3600 NG with Line-search, undersampled (5’000) (3.25 × 10 −4 ,1.57 × 10 −4 ,1.07 × 10 −1 )33,667 150
+
+Table 8: Stokes equation: Comparison of relative 𝐿 2 errors and total number of model parameters for different combinations of optimizers and line-search strategies. All models use the same network architecture with 33,667 parameters. The absolute and relative convergence tolerances for SSBFGS and SSBroyden are set to 10 −14 . All computations are performed on an NVIDIA H100 GPU, with 75% persistent memory usage (80 GB total) and 99% compute utilization, achieving 25.35 TFLOPs out of a theoretical peak of 25.61 TFLOPs. 
+
+4.3. (2+1)D viscous Burgers equation 
+
+Next, we investigate the performance of various optimizers on a parabolic PDE governed by the time-dependent viscous Burgers equation expressed as follows 
+
+𝑢 𝑡 + 𝑓 (𝑢 )𝑥 + 𝑔 (𝑢 )𝑦 = 𝜈 (𝑢 𝑥𝑥 + 𝑢 𝑦𝑦 
+
+) , (𝑥, 𝑦 ) ∈ [0 , 1] ⊗ [0 , 1] and 𝑡 > 0 (43) where the fluxes in 𝑥 and 𝑦 directions are 𝑓 (𝑢 ) = 𝑢 2∕2 , 𝑔 (𝑢 ) = 𝑢 2∕2 , respectively and viscosity coefficient 𝑣 =0.004 . The initial and boundary conditions are obtained from the exact solution 𝑢 (𝑥, 𝑦, 𝑡 ) = 1∕(1+exp[( 𝑥 +𝑦 −𝑡 )∕(2 𝜈 )]) .In this experiment we analyze how low viscosity can be handled. As in the one-dimensional inviscid case presented in Section 4.4.2, we employ flux relaxation throughout. We conduct experiments across several optimizer combinations — SSBFGS, SSBroyden, and SOAP — paired with various line search strategies, and additionally evaluate a NG optimizer. All experiments use a fully connected network with 10 hidden layers and tanh activation functions. The training details are summarized in Table 9. The results indicate that the Adam–SSBFGS combination with a Wolfe line search achieves a comparable level of accuracy to the NG optimizer; however, the NG optimizer requires significantly less wall time, converging approximately 10 –12 times faster than the self-scaled class of optimizers. We present the solution of the two-dimensional viscous Burgers equation obtained using SOAP, SSBFGS with a Wolfe line search, and the NG method in Figure 12. Each row of Figure 12 displays the predicted solution, the absolute pointwise error, and a comparison of solution profiles between the reference and 
+
+Jnini et al.: Preprint submitted to Elsevier Page 22 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+(a) (b) (c) (d) 
+
+(e) (f) (g) (h) 
+
+(i) (j) 
+
+Figure 11: Stokes equation: Streamlines obtained using various optimization strategies: (a) Adam, (b) SOAP, (c) SOAP + SSBFGS (trust-region), (d) SOAP + SSBroyden (Armijo–Wolfe), (e) SOAP + SSBroyden (zoom), (f) Adam + SSBFGS (trust-region), (g) SOAP + SSBFGS (Wolfe), (h) SOAP + SSBFGS (zoom), and (i) NG. The NG achieves comparable accuracy to self-scaled optimizers while significantly reducing runtime. Panel (j) shows the Moffatt strength comparison. The reference solution is computed using a high-order spectral element method. 
+
+predicted solutions along 𝑥 = 0 .2 at 𝑡 = 0 .5. The error is concentrated in the vicinity of the discontinuity, where SOAP exhibits difficulty in reducing the residual. The state-of-the-art accuracy for this equation has been reported at (10 −3 ) using a large number of parameters and a domain decomposition algorithm [35], whereas the proposed approach achieves a significantly lower error of (10 −7 ).
+
+Jnini et al.: Preprint submitted to Elsevier Page 23 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+(a) SSBroyden with zoom line search (best quasi-Newton + line search). 
+
+(b) NG. 
+
+(c) SOAP. 
+
+Figure 12: 2D viscous Burgers equation: Solution obtained using different optimization methods. (a) Best results from a quasi-Newton and line search method (SSBroyden with zoom line search), (b) NG and (c) SOAP optimization. In each panel, the left subfigure shows the PINN solution at 𝑡 = 0 .5, the middle subfigure shows the spatial distribution of the absolute error (concentrated at the shock location), and the right subfigure shows the solution profile at 𝑥 = 0 .2. The SOAP optimizer fails to converge at the shock location and exhibits slight overshoots in the shock region. Errors for all optimizer/line-search combinations (including SOAP) are reported in Table 9. Jnini et al.: Preprint submitted to Elsevier Page 24 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Optimizer [# Iters.] Relative 𝐿 2 # parameters Runtime (s) SOAP (21001) 1.7 × 10 −2 3881 414 Adam (1001) + SSBroyden with Zoom (20000) 1.3 × 10 −5 3881 927 Adam (1001) + SSBroyden with Wolfe (20000) 5.3 × 10 −7 3881 612 Adam (1001) + SSBFGS with Zoom (20000) 9.0 × 10 −7 3881 899 Adam (1001) + SSBFGS with Wolfe (20000) 5.7 × 10 −7 3881 624 NG (20000) 5.8 × 10 −7 3881 75 
+
+Table 9 Unsteady 2D viscous Burgers equation: Performance comparison of the considered optimizers. Columns report the relative 
+
+𝐿 2 error, total number of parameters, and computational runtime in seconds. Jnini et al.: Preprint submitted to Elsevier Page 25 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+4.4. (1+1)D inviscid Burgers equation 
+
+The inviscid Burgers equation is given by 
+
+𝜕𝑢 𝜕𝑡 + 12
+
+𝜕𝑢 2
+
+𝜕𝑥 = 0 , (44) where 𝑥 ∈ [−1 , 1] and 𝑡 ∈ [0 , 1] , with initial condition 
+
+𝑢 (𝑥, 0) = sin(− 𝜋𝑥 ).
+
+The inviscid Burgers equation develops discontinuities due to the intersection of characteristics, leading to the formation of shock waves. These discontinuities pose significant challenges for standard PINN training, as directly enforcing the classical PDE residual often results in instability of the optimization process. In such cases, the loss function may become degenerate, and the choice of optimizer alone is insufficient to ensure convergence to the physically correct solution. To address this issue, it is essential to incorporate conservation and entropy conditions across shocks into the PINN training framework. Enforcing these additional constraints enables the network to recover the physically admissible weak solution and improves both stability and accuracy [36, 50, 71]. Therefore, we propose two strategies for solving the inviscid Burgers equation by introducing two new approaches aimed at improving the convergence and stability of PINN training. 
+
+4.4.1. Inviscid Burgers equation with Roe linearization 
+
+We follow the methodology proposed in [50, 71] and apply it to the Burgers equation. First, the equation is expressed in its quasilinear form 
+
+𝜕𝑢 𝜕𝑡 + 𝑢 𝜕𝑢 𝜕𝑥 = 0 . (45) To impose jump conditions, we linearize the second term by changing 𝑢 for the shock speed in regions of potential shock formation. For Burgers equation, the velocity in terms of left and right states is very easy to obtain and is given by 
+
+𝑠 = 𝑢 𝐿 + 𝑢 𝑅 
+
+2 . (46) The regions of potential shock formation are computed in each step of the optimization process, and are defined by the following set 
+
+Ω𝑠 =
+
+{
+
+(𝑥, 𝑡 ) ∈ [−1 , 1] × [0 , 1] , 𝜕𝑢 𝜕𝑥 ≤ −𝑀 
+
+}
+
+, (47) where 𝑀 is a given positive constant. The values of 𝑢 𝐿 and 𝑢 𝑅 at any point (𝑥, 𝑡 ) ∈ Ω 𝑠 are calculated by evaluating the network at (𝑥 − ℎ, 𝑡 ) and (𝑥 + ℎ, 𝑡 ), respectively, where ℎ is a predefined constant value. Hence, the PDE residual for each point (𝑥, 𝑡 ) ∈ Ω is given by 
+
+𝜽 (𝑥, 𝑡 ) = 𝜕𝑢 𝜽 (𝑥, 𝑡 )
+
+𝜕𝑡 +̃𝑢 𝜽 (𝑥, 𝑡 ) 𝜕𝑢 𝜽 (𝑥, 𝑡 )
+
+𝜕𝑥 , (48) where 𝑢 𝜽 represents the neural network output, and ̃𝑢 𝜽 (𝑥, 𝑡 ) = 
+
+{ 𝑢 𝜽 (𝑥 +ℎ,𝑡 )+ 𝑢 𝜽 (𝑥 −ℎ,𝑡 )2 , (𝑥, 𝑡 ) ∈ Ω 𝑠 ,𝑢 𝜽 (𝑥, 𝑡 ), Otherwise (49) We impose boundary conditions with hard-enforcement by transforming the input coordinates (𝑡, 𝑥 ) into (𝑡, cos 𝜋𝑥, sin 𝜋𝑥 ).The loss function is given by 
+
+ = 1
+
+𝑁 Ω
+
+> 𝑁 Ω
+
+∑
+
+> 𝑖 =1
+
+[𝜽 (𝑥 𝑖 , 𝑡 𝑖 )]2 + 1
+
+𝑁 Γ
+
+> 𝑁 Γ
+
+∑
+
+> 𝑖 =1
+
+[𝑢 (𝑥 𝑖 , 0) − 𝑢 𝜽 (𝑥 𝑖 , 0) ]2 , (50)   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 26 of 53
+
+Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Figure 13: Inviscid Burgers with Roe linearization: Predicted solutions at 𝑡 = 1 with the LRPINN for both optimizers, together with a reference numerical solution obtained with a third-order WENO scheme. Left panel shows the solution for all 𝑥 ∈ [−1 , 1] , whereas the right panel shows a zoomed-in view of the shock region ( 𝑥 = 0 ).                                       
+
+> Optimizer Relative 𝐿 1Relative 𝐿 2# collocation points Training time (s)
+> SSBroyden (1 .2 ± 0 .2) × 10 −2 (7 .8 ± 1 .9) × 10 −2 625 20
+> (1 .2 ± 0 .2) × 10 −2 (9 .2 ± 2 .5) × 10 −2 1250 21
+> (9 .4 ± 1 .8) × 10 −3 (8 .2 ± 2 .0) × 10 −2 2500 22
+> (8 .9 ± 1 .9) × 10 −3 (7 .9 ± 1 .3) × 10 −2 5000 26
+> (7 .4 ± 1 .0) × 10 −3 (7 .8 ± 1 .4) × 10 −2 10000 31
+> NG (1 .5 ± 0 .6) × 10 −2 (2 .6 ± 1 .8) × 10 −1 625 54
+> (8 .5 ± 2 .3) × 10 −3 (9 .1 ± 3 .1) × 10 −2 1250 73
+> (1 .7 ± 0 .9) × 10 −2 (1 .8 ± 0 .8) × 10 −1 2500 113
+> (6 .8 ± 1 .0) × 10 −3 (6 .8 ± 0 .4) × 10 −2 5000 121
+> (6 .4 ± 0 .4) × 10 −3 (7 .1 ± 0 .5) × 10 −2 10000 193
+
+Table 10 Inviscid Burgers with Roe linearization: Performance comparison of the SSBroyden and NG optimizers as a function of the number of collocation points. The columns report the relative 𝐿 1 and 𝐿 2 errors, the number of collocation points 𝑁 Ω,and the computational runtime in seconds. In all cases, the neural network has 6 hidden layers with 30 neurons each ( 4801 
+
+trainable parameters). The training process consists of 5000 iterations for all cases. The collocation points are resampled every 10 iterations for SSBroyden and every iteration for NG. SSBroyden is combined with backtracking line search, as implemented in [19]. For each setting, the training procedure was repeated five times, and the reported errors correspond to the mean values across these runs, together with their associated standard deviations. 
+
+where 𝑁 Ω and 𝑁 Γ are the number of points in the training set that belong to Ω and Γ = [−1 , 1] × {0} .We compare the performance of NG and SSBroyden optimizers. Since the inviscid Burgers equation develops discontinuities due to the formation of shock waves, one typically requires a sufficiently large number of training points to adequately sample regions near the shocks and resolve them accurately. Hence, we start by analyzing both optimizers by comparing the precision and the training time achieved in both cases as a function of the number of interior points 𝑁 Ω. Table 10 shows the relative 𝐿 1 and 𝐿 2 errors of the PINN solution compared against a reference solution (obtained with a third-order WENO scheme [32] with 1000 spatial points) and the training time for both optimizers. To compare the LRPINN results obtained with both optimizers to the numerical reference solution, Figure 13 shows the LRPINN predictions at 𝑡 = 1 together with the corresponding WENO solution. In addition, we provide a zoomed-in view of the shock region ( 𝑥 = 0 ) to better assess the amount of numerical diffusion introduced by the LRPINN. As observed, the location of the shock wave and the jump across the shock are captured correctly. However, 
+
+Jnini et al.: Preprint submitted to Elsevier Page 27 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+the shock predicted by the LRPINN approach appears more smeared compared to the sharper profile produced by the WENO scheme. 
+
+4.4.2. Inviscid Burgers equation using flux relaxation with entropy inequality 
+
+We introduce a novel approach for solving the inviscid Burgers equation using PINNs. To cast the equation in conservative form, we incorporate an algebraic constraint directly into the loss function. Specifically, we employ two neural networks, one to approximate the solution 𝑢 (𝑥, 𝑡 ) and another to approximate the flux 𝐹 = 𝑢 2. However, enforcing the algebraic constraint alone does not ensure entropy-compliant solutions. To impose the entropy condition, we utilize the Tadmor entropy inequality [66], defined by the entropy pair 
+
+𝜂 (𝑢 ) = 𝑢 2
+
+2 , 𝜓 (𝑢 ) = 𝑢 3
+
+3 .
+
+The inequality requires that 
+
+𝜕𝜂 𝜕𝑡 + 𝜕𝜓 𝜕𝑥 ≤ 0,
+
+with equality in smooth regions and dissipation across shocks. A loss term is added to penalize any violations of this inequality. We express the entropy inequality as 
+
+ ∶= 𝜕𝜂 𝜕𝑡 + 𝜕𝜓 𝜕𝑥 ≤ 0. (51) The total loss function for the entropy-preserving PINN with flux-conserving constraint is formulated as 
+
+(𝜂, 𝜓, 𝑢 ; 𝜃 𝟏 , 𝜃 𝟐 ) = 𝜆 𝑖 𝑖𝑐 + 𝜆 𝑏 𝑏𝑐 + 𝜆 𝑓 𝑓 + 𝜆   + 𝜆 𝐹 𝐹 , (52) where 𝑖𝑐 and 𝑏𝑐 denote the initial and boundary condition losses. The flux residual loss 𝐹 enforces 
+
+𝜕𝑢 (𝑥, 𝑡 ; 𝜃 1)
+
+𝜕𝑡 + 𝜕𝐹 (𝑥, 𝑡 ; 𝜃 2)
+
+𝜕𝑥 = 0 ,
+
+while the entropy loss  penalizes positive entropy residuals: 
+
+ = max(0 ,  ).
+
+The algebraic flux constraint is enforced via 
+
+𝐹 (𝑥, 𝑡 ; 𝜃 2) = 𝑢 2(𝑥, 𝑡 ; 𝜃 1),
+
+where 𝜃 1 and 𝜃 2 are the parameters of the two neural networks. The coefficients 𝜆 𝑖 , 𝜆 𝑏 , 𝜆 𝑓 , 𝜆  , and 𝜆 𝐹 weight the contributions of the respective loss terms. Next, we conduct computational experiments to demonstrate the convergence of the proposed method. The initial and boundary conditions are the same as those specified in Equation (44). Both neural networks consist of four fully connected hidden layers, each with 50 neurons. To satisfy the residual and entropy inequality conditions, we sample 50,000 points using Latin hypercube sampling, and 300 points are used for the initial and boundary conditions. We explore different combinations of optimizers and line-search strategies for quasi-Newton methods, with the resulting convergence plots shown in Figure 14. The training procedure starts with a warm-up phase using the first-order Adam optimizer, followed by a transition to quasi-Newton optimizers with various line-search routines. This transition is indicated by the vertical dashed line in the convergence plots. For comparison, we also evaluate the SOAP optimizer, which incorporates some second-order features but converges more slowly than the quasi-Newton methods. Among the quasi-Newton approaches, the SSBroyden optimizer combined with a zoom line-search exhibits the best overall performance. To validate the PINN solution, we compare it against numerical solutions obtained from the DGSEM scheme [13, 60], the third-order WENO scheme, and the analytical solution. Since the inviscid Burgers’ equation develops shocks in finite time, its physically relevant solution must be interpreted in the entropy sense. In this work, we compute the   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 28 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+
+Algorithm 1: Analytical Entropy Solution of Burgers’ Equation                                                                  
+
+> Input: 𝑥 ∈ [−1 ,1] ,𝑡 > 0
+> Output: 𝑢 (𝑥, 𝑡 )
+> 1𝑢 0(𝑥 )←− sin( 𝜋𝑥 )
+> 2CharMap (𝜉, 𝑡 ) = 𝜉 −𝑡 sin( 𝜋𝜉 )
+> 3𝑡 shock = 1∕ 𝜋
+> 4Compute (𝑥 min , 𝑥 max )from CharMap
+> 5if 𝑥 ∉ [ 𝑥 min , 𝑥 max ]then
+> 6return NaN
+> 7if 𝑡 ≤𝑡 shock then
+> 8Find 𝜉 such that CharMap (𝜉, 𝑡 ) = 𝑥
+> 9return 𝑢 0(𝜉 )
+> 10 Find 𝜉 𝑠 such that CharMap (𝜉 𝑠 , 𝑡 ) = 0
+> 11 𝑥 𝑠 =CharMap (𝜉 𝑠 , 𝑡 )
+> 12 if 𝑥 𝑠 < 𝑥 < −𝑥 𝑠 then
+> 13 return NaN
+> 14 if 𝑥 ≤𝑥 𝑠 then
+> 15 Find 𝜉 ∈ [−1 ,−𝜉 𝑠 ]
+> 16 else
+> 17 Find 𝜉 ∈ [ 𝜉 𝑠 ,1]
+> 18 return 𝑢 0(𝜉 )
+
+analytical entropy solution using Algorithm 1, which is based on the method of characteristics combined with shock detection and entropy enforcement. The characteristic map is given by 
+
+𝑥 = 𝜉 − 𝑡 sin( 𝜋𝜉 ),
+
+and is derived from the initial condition 
+
+𝑢 0(𝑥 ) = − sin( 𝜋𝑥 ).
+
+For 𝑡 ≤ 𝑡 shock = 1∕ 𝜋 , the solution remains single-valued and is obtained by inverting the characteristic map to recover the footpoint 𝜉 , followed by evaluating 
+
+𝑢 (𝑥, 𝑡 ) = 𝑢 0(𝜉 ).
+
+For 𝑡 > 𝑡 shock , characteristics intersect and the classical solution becomes multivalued. The shock location is determined by solving for the critical characteristic point 𝜉 𝑠 (𝑡 ), after which the spatial domain is partitioned into left, right, and shock regions. The entropy solution is then constructed by restricting the characteristic inversion to admissible intervals on either side of the shock while excluding the multivalued region. Numerical stability is ensured by detecting sign changes in the characteristic mapping and applying a bisection root-finding method to compute the inverse mapping. The comparisons include relative 𝐿 2 errors, total model parameters, and runtime for different optimizer and line-search combinations. All models use the same network architecture with 10,401 parameters. The absolute and relative convergence tolerances for both SSBFGS and SSBroyden are set to 10 −14 . Figure 15 shows the solution at 𝑡 = 1 
+
+obtained using a PINN trained with the SSBroyden optimizer and zoom line-search, incorporating flux relaxation and the entropy inequality. Panel (a) compares the PINN solution with a DGSEM solution of order 𝑁 = 3 , where 
+
+𝑁 denotes the polynomial degree within each element. To accurately resolve shocks, the DGSEM employs a shock indicator following [31]. For further comparison, the inviscid Burgers equation is also solved using a third-order WENO scheme [32]. The relative 𝐿 2 error between the PINN and DGSEM solutions is 0.70% . Panel (b) shows the PINN solution compared with the WENO solution, yielding a relative 𝐿 2 error of 0.7056% , while panel (c) compares it with the analytical solution, resulting in a relative 𝐿 2 error of 0.7172% . Panel (d) provides a zoomed-in view near the shock, indicated by the dashed box in panel (a) , demonstrating that DGSEM captures the shock more accurately than both PINN and WENO, closely matching the analytical solution. These discrepancies near the shock dominate   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 29 of 53
+
+Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Figure 14: Inviscid Burgers equation using relaxation and entropy inequality: Loss history for the inviscid Burgers flow obtained using different combinations of optimizers and line-search strategies, incorporating flux relaxation and an entropy inequality. The training procedure begins with a warm-up phase using the first-order Adam optimizer, followed by a transition to quasi-Newton optimizers combined with various line-search routines. The optimizer transition is indicated by the vertical dashed line. For comparison, we also report the performance of the SOAP optimizer, which exhibits slower convergence compared to the quasi-Newton methods. Among the quasi-Newton approaches, the SSBroyden optimizer coupled with a zoom line-search strategy exhibits the best overall performance.                                
+
+> Optimizer [# Iters.] Relative 𝐿 2:𝑢 [DGSEM , WENO, Ana.] # parameters Training time (s)
+> SOAP (11001) [1.3 × 10 1,1.28 × 10 1,3.7 × 10 0]10401 142 Adam (1001) + SSBroyden with Zoom (10000) [7.1 × 10 −3 ,7.1 × 10 −3 ,7.3 × 10 −3 ]10401 364 Adam (1001) + SSBroyden with Wolfe (10000) [7.1 × 10 −3 ,6.6 × 10 −3 ,6.8 × 10 −3 ]10401 311 Adam (1001) + SSBFGS with Zoom (10000) [6.9 × 10 −3 ,6.8 × 10 −3 ,7 × 10 −3 ]10401 436 Adam (1001) + SSBFGS with Wolfe (7190) [7.1 × 10 −3 ,6.7 × 10 −3 ,6.9 × 10 −3 ]10401 259
+
+Table 11: Inviscid Burgers equation using relaxation and entropy inequality: Comparison of relative 𝐿 2 errors, total model parameters, and runtime for different combinations of optimizers and line-search strategies. All models employ the same network architecture with 10 ,401 parameters. The absolute and relative convergence tolerances for both SSBFGS and SSBroyden are set to 10 −14 . All runs are performed for 11 ,001 training iterations.All computations are carried out on an NVIDIA H100 GPU with 76% persistent memory usage (80 GB total) and approximately 1% compute utilization, achieving 256 GFLOPs out of a theoretical peak of 25.61 TFLOPs. The use of the H100 GPU is intended to maintain a uniform computing platform across all benchmarks. Consequently, the H100 GPU is overprovisioned for this problem, as the overall runtime is dominated by latency rather than compute throughput. 
+
+the errors observed in panels (a)–(c) . Finally, panels (d), (e), and (f) present the pointwise 𝐿 1 errors corresponding to the comparisons in panels (a), (b), and (c) , respectively, with the maximum error occurring at the shock location. Overall the error obtained by using this method is much lower than Roe Linearization approach. 
+
+Jnini et al.: Preprint submitted to Elsevier Page 30 of 53 Curvature-Aware Optimization for High-Accuracy PINNs                                       
+
+> Figure 15: Inviscid Burgers equation using relaxation and entropy inequality: The solution of Burgers’ equation, incorporating an entropy inequality and flux relaxation, is obtained using a physics-informed neural network (PINN) trained with the SSBroyden optimizer and a zoom line-search strategy. Panel (a) compares the PINN solution with a DGSEM solution of order 𝑁 = 3 , where 𝑁 represents the polynomial degree used to approximate the solution within each element. To accurately resolve the shock, the DGSEM employs a shock indicator following [31]. For further comparison, the inviscid Burgers’ equation is also solved using a third-order WENO scheme [32]. The relative 𝐿 2error between the PINN and DGSEM solutions shown in panel (a) is 0.70% .Panel (b) shows the comparison between the PINN solution and the third-order WENO solution, yielding a relative 𝐿 2error of 0.7056% , while panel (c) presents the comparison with the analytical solution, resulting in a relative 𝐿 2error of 0.7172% .Panel (d) provides a zoomed-in view near the shock, indicated by the dashed box in panel (a) . This close-up demonstrates that the DGSEM method captures the shock more accurately than both the PINN and WENO schemes and closely matches the analytical solution. Consequently, the discrepancies near the shock dominate the errors observed in panels (a), (b), and (c) . Finally, panels (d), (e), and (f)
+> present the pointwise 𝐿 1errors corresponding to the comparisons shown in panels (a), (b), and (c) , respectively, with the maximum error occurring at the shock location.
+
+Key observations from the Inviscid Burgers equation: Two different approaches were investigated for solving the inviscid Burgers equation with PINNs. LRPINN strategy and the relaxation–entropy inequality formulation. The Roe-based approach improves stability by incorporating shock-speed information into the residual, allowing the network to capture discontinuities more robustly than the classical strong-form PINN. However, some numerical diffusion remains near the shock. The relaxation–entropy inequality formulation further enhances physical consistency by enforcing conservation and entropy admissibility directly in the loss function. This approach yields significantly improved accuracy, particularly in the shock region, and produces solutions that are closer to high-resolution DGSEM and WENO reference solutions. If these modifications are not incorporated into the fundamental PINN algorithm, the training process degenerates, and convergence to the true solution is not achieved regardless of the optimizer used. This behavior is consistent with classical numerical methods for hyperbolic conservation laws, where enforcing conservation properties—such as energy or entropy—is essential [32]. Without these constraints, the solution may become non-physical or exhibit instability, potentially leading to blow-up. For the LRPINN algorithm, SSBroyden exhibits a stable behavior across all configurations, achieving a relative 𝐿 2
+
+error of approximately 0.08 with a comparatively low computational cost. In contrast, the NG optimizer shows larger variability for smaller number of interior points, as reflected by the higher standard deviations. Although NG reaches slightly lower errors for larger numbers of interior points (e.g. 𝑁 Ω = 5000 ), this improvement comes at the expense of a significantly higher runtime. These results indicate that SSBroyden provides a more robust and computationally   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 31 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+
+efficient optimization strategy, while NG achieves competitive accuracy only when a sufficiently large number of training points is used. 
+
+Key observations from the (2+1)D Viscous Burgers equation: The two-dimensional unsteady viscous Burgers equation is parabolic in nature; as a consequence, even a small amount of viscosity introduces sufficient regularization into the system. This inherent regularization leads to a smoother and more well-conditioned loss landscape during optimization. As a result, self-scaled optimizers are able to achieve a very high level of accuracy. Furthermore, a comparable level of accuracy is also observed when using NG methods. However, an important distinction lies in computational efficiency: while NG methods recover essentially the same level of accuracy as self-scaled optimizers, they do so at nearly an order of magnitude (approximately 10× ) lower computational cost. In contrast, the SOAP optimizer fails to attain a similar level of performance. Specifically, it does not reach accuracy comparable to either the self-scaled optimizers or the NG methods, indicating limitations in its effectiveness for this class of problems. 
+
+4.5. (1+1)D Euler equations 
+
+Next, we consider a general system of one-dimensional conservation laws of the form 
+
+𝜕 𝐔 
+
+𝜕𝑡 + 𝜕 𝐅 
+
+𝜕𝑥 = 0 , (53) where 𝐔 denotes the vector of conserved variables and 𝐅 (𝐔 ) represents the corresponding flux vector. As a representative example, we focus on the compressible Euler equations, which govern the dynamics of an inviscid, adiabatic flow. In this setting, the conserved variables and their associated fluxes are given by 
+
+𝐔 =
+
+⎛⎜⎜⎜⎜⎝
+
+𝜌 𝜌𝑢 𝐸 
+
+⎞⎟⎟⎟⎟⎠
+
+, 𝐅 (𝐔 ) = 
+
+⎛⎜⎜⎜⎜⎝
+
+𝜌𝑢 𝜌𝑢 2 + 𝑝 𝑢 (𝐸 + 𝑝 )
+
+⎞⎟⎟⎟⎟⎠
+
+, (54) where 𝜌 denotes the density, 𝑢 the velocity, 𝐸 the total energy density, and 𝑝 the pressure. To close the system, an equation of state relating 𝐸 , 𝑝 , and 𝜌 is required. For simplicity, we assume an ideal adiabatic gas, for which 
+
+𝐸 = 12 𝜌𝑢 2 + 𝑝 𝛾 − 1 , (55) with 𝛾 = 1 .4 representing the ratio of specific heats. Similar to the inviscid Burgers equation, this system also generates shocks and contact waves. Simply employing advanced optimizers is not sufficient for the PINN to converge, as these discontinuities cause rapid degeneration of the loss function. To address this challenge, we propose two novel approaches specifically designed to handle such discontinuous solutions, representing a fundamental contribution to the development of PINN architectures. Two distinct approaches were investigated to handle discontinuities within the PINN framework, The Roe linearization strategy and the HLLC flux-based formulation. Both methods aim to incorporate physically consistent shock-capturing mechanisms into the residual construction, thereby improving stability and convergence in the presence of shocks and contact discontinuities. 
+
+4.5.1. Roe linearization approach 
+
+In particular, if we consider that 𝐅 = 𝐅 (𝐔 ), then Equation (53) can also be written in the following quasilinear form 
+
+𝜕 𝐔 
+
+𝜕𝑡 + 𝐀 (𝐔 ) 𝜕 𝐔 
+
+𝜕𝑥 = 0 , (56) where 𝐀 = 𝐀 (𝐔 ) is the Jacobian of 𝐅 . Here we describe briefly a way to generalize the methodology described before to handle systems of equations like this. We refer the reader to [71] for more details, as well as to see its adaptation for problems with more than one dimension.   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 32 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+
+The Jacobian matrix 𝐀 for this equation of state is given by 
+
+𝐀 (𝐔 ) = 
+
+⎡⎢⎢⎢⎢⎣
+
+0 1 0 
+
+> 𝛾 −3 2
+
+𝑢 2 − ( 𝛾 − 3) 𝑢 𝛾 − 1 
+
+𝑢 
+
+(
+
+−𝐻 + 𝛾 −1 2 𝑢 2
+
+)
+
+𝐻 − ( 𝛾 − 1) 𝑢 2 𝛾𝑢 
+
+⎤⎥⎥⎥⎥⎦
+
+, (57) where 𝐻 is the total specific enthalpy 
+
+𝐻 = 𝐸 + 𝑝 𝜌 = 𝑎 2
+
+𝛾 − 1 + 𝑢 2
+
+2 , (58) and 𝑎 is the sound speed 
+
+𝑎 =
+
+√ 𝛾𝑝 𝜌 . (59) Shock formation is physically characterized by a strong compression of fluid particles, so the material derivative of the density 𝐷𝜌 ∕𝐷𝑡 should be large and positive there. Using the definition of the material derivative 𝐷 ∕𝐷𝑡 =
+
+𝜕 ∕𝜕𝑡 + 𝑢𝜕 ∕𝜕𝑥 together with the Euler equation for the density, we get 
+
+𝐷𝜌 𝐷𝑡 + 𝜌 𝜕𝑢 𝜕𝑥 = 0 .
+
+Then, we can characterize shock regions by noting where the spatial derivative of the velocity field is large and negative. So, we define them with the following set 
+
+Ω𝑠 =
+
+{
+
+(𝑥, 𝑡 ) ∈ Ω , 𝜕𝑢 𝜕𝑥 ≤ −𝑀 
+
+}
+
+, (60) where 𝑀 is a positive constant. Now, for all (𝑥, 𝑡 ) ∈ Ω 𝑠 , we modify the PDE by substituting the original Jacobian 𝐀 in (56) with a suitable modification of it. Denoting this modification by ̃ 𝐀 , it should follow (see [61]) 
+
+•̃ 𝐀 should be diagonalizable with real eigenvalues, in the same way as 𝐀 .
+
+• Consistency: If the jump of the solution goes to zero, then ̃ 𝐀 → 𝐀 .
+
+• Conservation: For left and right states 𝐔 𝐿 and 𝐔 𝑅 , then 𝐅 (𝐔 𝑅 ) − 𝐅 (𝐔 𝑅 ) = ̃ 𝐀 (𝐔 𝑅 − 𝐔 𝐿 ).A well-known choice in classical numerical methods is the Roe Jacobian matrix [61], which is defined as 
+
+𝐀 Roe = 𝐀 (̃𝐔 ). (61) That is, we evaluate the Jacobian matrix defined in (57) at the vector ̃ 𝐔 , which results from substituting the velocity, the enthalpy and the sound speed by the following averages ̃𝑢 =
+
+√𝜌 𝐿 𝑢 𝐿 + √𝜌 𝑅 𝑢 𝑅 
+
+√𝜌 𝐿 + √𝜌 𝑅 
+
+, (62) ̃𝐻 =
+
+√𝜌 𝐿 𝐻 𝐿 + √𝜌 𝑅 𝐻 𝑅 
+
+√𝜌 𝐿 + √𝜌 𝑅 
+
+, (63) ̃𝑎 =
+
+√
+
+(𝛾 − 1) 
+
+(̃𝐻 −̃ 𝑢 2
+
+2
+
+)
+
+(64) Now, the PDE residuals for each point (𝑥, 𝑡 ) ∈ Ω is given by 
+
+𝜃 (𝑥, 𝑡 ) = 𝜕 𝐔 𝜃 (𝑥, 𝑡 )
+
+𝜕𝑡 +̃ 𝐀 𝜃 
+
+𝜕 𝐔 𝜃 (𝑥, 𝑡 )
+
+𝜕𝑥 , (65)   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 33 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+
+where 𝐔 𝜃 represents the neural network parametrized with trainable variables Θ, and ̃𝐀 𝜃 =
+
+{
+
+𝐀 Roe , (𝑥, 𝑡 ) ∈ Ω 𝑠 ,
+
+𝐀 (𝐔 𝜃 ), Otherwise . (66) The left and right states calculated by evaluating the neural network at 𝑥 ± ℎ. The resulting algorithm is summarized in Algorithm 2 of [71]. We consider the classical Sod shock tube, with initial condition 
+
+(𝜌, 𝑢, 𝑝 ) = 
+
+{
+
+(1 , 0, 1) 𝑥 < 0,
+
+(0 .125 , 0, 0.1) 𝑥 > 0 (67) defined in the domain Ω = [−2 .5, 2.5] × [0 , 1] . Following the same strategy as in [71], we train for 1000 iterations using the following viscous regularization 
+
+𝜕 𝐔 
+
+𝜕𝑡 + 𝜕 𝐅 
+
+𝜕𝑥 = 𝜈 𝜕 2𝐔 
+
+𝜕𝑥 2 , (68) with 𝜈 = 0 .003 , and then we eliminate the viscosity by using the Roe linearization method described before. To homogenize the PDE residuals in the entire domain, we multiply point by point (65) by gradient-annihilated factor introduced in [21] 
+
+𝛼 (𝑥, 𝑡 ) = 1
+
+𝑎 |||
+
+> 𝜕𝑢 𝜃
+> 𝜕𝑥
+
+||| + 1 
+
+, (69) where 𝑎 is an hyperparameter. We choose (𝑀, ℎ, 𝑎 ) = (0 .001 , 0.0175 , 0.01) for this problem. Finally, points are resampled every 100 iterations, where every batch consists on 15000 points in the domain. Figure 16 shows the predicted density, velocity, and pressure at 𝑡 = 1 , together with the corresponding exact solutions. The results are very accurate, with very few or even no transition points in the shock and contact waves, as well as very abrupt changes in the beginning and in the end of the rarefaction wave. To see the impact of the inviscid part of the training process in the neural network prediction, Figure 17 the density obtained before and after the inviscid phase of the training process. As shown, the introduction of the Roe linearization in shock regions let us eliminate the viscosity present in all the features of the solution without any spurious oscillations near the discontinuities, allowing us to correctly predict the jumps in all variables by imposing local conservation. The results, including the errors, total number of parameters, and runtime, are summarized in Table 12.   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 34 of 53
+
+Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Figure 16: 1D Euler equations with Roe linearization: Neural network predictions for the density, velocity and pressure at 
+
+𝑡 = 1 . The exact solution is also plotted for reference. 
+
+Figure 17: 1D Euler equations with Roe linearization: Neural network prediction for the density, before and after the 
+
+inviscid part of the training process.                   
+
+> Case Optimizer Relative 𝐿 1(𝜌, 𝑢, 𝑝 )Training time (s) # parameters
+> 1SSBroyden (9 .2,8.0,5.0) × 10 −4 160 4833 2NG (6 .5,9.1,3.3) × 10 −3 452 4833
+
+Table 12: 1D Euler equations with Roe linearization: Training times for the Sod shock tube problem. Jnini et al.: Preprint submitted to Elsevier Page 35 of 53 Curvature-Aware Optimization for High-Accuracy PINNs = +
+
+> STOP No Adam, SSBroyden
+> Yes
+> Physics (PDE)
+
+Neural Network   
+
+> := +,
+> =
+
+Figure 18: 1D Euler Equations with HLLC Flux: PINN architecture for 1D Euler equation using adaptive viscosity and HLLC flux. Jnini et al.: Preprint submitted to Elsevier Page 36 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+4.5.2. Harten–Lax–van Leer–Contact (HLLC) Flux approach 
+
+Here, we propose a new method based on the Harten–Lax–van Leer–Contact (HLLC) approximate Riemann solver [68]. In computational fluid dynamics, HLLC is often preferred over Roe’s linearization for the Euler equations due to its improved robustness and stronger physical consistency in the presence of strong discontinuities. Although Roe’s method can provide sharp wave resolution through a local Jacobian linearization, it may violate the entropy condition in transonic rarefaction regions and can yield nonphysical states, such as negative density or pressure, in strong rarefactions or near-vacuum regimes unless additional entropy fixes and positivity-preserving corrections are employed. In contrast, the HLLC flux is derived from a three-wave approximate Riemann structure that explicitly restores the contact discontinuity and, with appropriate wave-speed estimates, naturally maintains physically admissible states. Consequently, HLLC provides a stable and reliable shock-capturing framework for high-Mach-number flows and problems involving strong shocks, while retaining accurate resolution of contact and shear waves. To incorporate the HLLC flux within the PINN framework, we first solve a viscous approximation of the Euler equations. The corresponding residuals are defined as 
+
+𝑅 0 = 𝜌 𝑡 + 𝑢𝜌 𝑥 + 𝜌𝑢 𝑥 − 𝜈𝜌 𝑥𝑥 , (70) 
+
+𝑅 1 = 𝜌𝑢 𝑡 + 𝜌𝑢𝑢 𝑥 + 𝑝 𝑥 − 𝜈 (𝜌𝑢 𝑥𝑥 + 2 𝜌 𝑥 𝑢 𝑥 
+
+) , (71) 
+
+𝑅 2 = 𝑝 𝑡 + 𝑢𝑝 𝑥 + 𝛾𝑝𝑢 𝑥 − 𝜈 (𝑝 𝑥𝑥 + 𝜌 (𝛾 − 1) 𝑢 2
+
+> 𝑥
+
+) . (72) In Equation (70), the viscosity 𝜈 is not prescribed or tuned; instead, within the PINN architecture it is treated as an additional network output together with 𝜌 , 𝑢 , and 𝑝 , as illustrated in Figure 18. Since the target problem is inviscid, we enforce 𝜈 → 0 by introducing it as a soft constraint in the loss function. The loss used in this warm-up stage is therefore given by 
+
+ = 𝜆 𝑖𝑐 𝑖𝑐 + 𝜆 𝑏𝑐 𝑏𝑐 + 𝜆 𝑓 𝑓 + 𝜆 𝜈 𝜈. (73) After this initial training stage, the residual loss is computed using the inviscid conservative form with the HLLC numerical flux, 
+
+𝜕 𝐔 
+
+𝜕𝑡 + 𝜕 𝐅 HLLC 
+
+𝜕𝑥 = 0 . (74) For the one-dimensional Euler equations, the HLLC numerical flux is defined by [68] 
+
+𝐅 HLLC (𝐔 𝐿 , 𝐔 𝑅 ) = 
+
+⎧⎪⎪⎪⎨⎪⎪⎪⎩
+
+𝐅 (𝐔 𝐿 ), 𝑆 𝐿 ≥ 0,
+
+𝐅 (𝐔 𝐿 ) + 𝑆 𝐿 
+
+(𝐔 ∗ 
+
+> 𝐿
+
+− 𝐔 𝐿 
+
+) , 𝑆 𝐿 ≤ 0 ≤ 𝑆 ∗,
+
+𝐅 (𝐔 𝑅 ) + 𝑆 𝑅 
+
+(𝐔 ∗ 
+
+> 𝑅
+
+− 𝐔 𝑅 
+
+) , 𝑆 ∗ ≤ 0 ≤ 𝑆 𝑅 ,
+
+𝐅 (𝐔 𝑅 ), 𝑆 𝑅 ≤ 0.
+
+(75) The intermediate (star) states are given by 
+
+𝐔 ∗ 
+
+> 𝐾
+
+= 𝜌 𝐾 
+
+𝑆 𝐾 − 𝑢 𝐾 
+
+𝑆 𝐾 − 𝑆 ∗
+
+⎛⎜⎜⎜⎜⎜⎝
+
+1
+
+𝑆 ∗
+
+𝐸 𝐾 
+
+𝜌 𝐾 
+
++ ( 𝑆 ∗ − 𝑢 𝐾 )
+
+(
+
+𝑆 ∗ + 𝑝 𝐾 
+
+𝜌 𝐾 (𝑆 𝐾 − 𝑢 𝐾 )
+
+)⎞⎟⎟⎟⎟⎟⎠
+
+, 𝐾 ∈ { 𝐿, 𝑅 }, (76) and the contact wave speed is 
+
+𝑆 ∗ = 𝑝 𝑅 − 𝑝 𝐿 + 𝜌 𝐿 𝑢 𝐿 (𝑆 𝐿 − 𝑢 𝐿 ) − 𝜌 𝑅 𝑢 𝑅 (𝑆 𝑅 − 𝑢 𝑅 )
+
+𝜌 𝐿 (𝑆 𝐿 − 𝑢 𝐿 ) − 𝜌 𝑅 (𝑆 𝑅 − 𝑢 𝑅 ) . (77)   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 37 of 53
+
+Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Figure 19: Euler equations with HLLC flux vs analytical solution: Comparison of the 1D Euler solution for the Sod shock tube problem obtained using the PINN framework augmented with the HLLC flux against the analytical solution. The top row displays the density 𝜌 , velocity 𝑢 , pressure 𝑝 , and local Mach number 𝑀𝑎 (from left to right) at 𝑡 = 0 .15 . The bottom row presents the corresponding pointwise absolute error distributions in space. The results demonstrate excellent agreement between the analytical and PINN-predicted solutions, with accurate resolution of both the shock and the contact discontinuity.                             
+
+> Optimizer [# Iters.] Relative 𝐿 1(𝑢, 𝑣, 𝑝 )Relative 𝐿 2(𝑢, 𝑣, 𝑝 )# parameters Training time (s)
+> Adam (5001) +SSBroyden with Zoom (10000) + Analytical
+> [1 .3 2 .2,0.8] × 10 −3 [6 .1,8.9,2.1] × 10 −3 2601 460 Adam (5001) +SSBroyden with Zoom (10000) + WENO
+> [0 .8 1 .6,0.6] × 10 −3 [3 .4,6.8,1.7] × 10 −3 2601 460
+
+Table 13 1D Euler Equations with HLLC Flux: Relative 𝐿 1 and 𝐿 2 error comparison with analytical and WENO reference solutions for the 1D Euler equations using PINN with HLLC flux. 
+
+Next, we conduct a computational experiment to assess the effectiveness of the proposed method. The PINN architecture consists of six hidden layers, each containing 20 neurons, forming a fully connected network capable of representing the nonlinear dynamics of the flow. A hyperbolic tangent (Tanh) activation function is employed in all hidden layers of the network. To enforce the governing equations, 30,000 collocation points are sampled in the computational domain to impose the residual constraints. The training is performed in two stages. In the first (viscous warm-up) stage, the network is trained using the Adam optimizer for 5000 iterations in order to obtain a stable approximation of the viscous regularized system. In the second (inviscid) stage with HLLC flux, the optimization is switched to the SSBroyden quasi-Newton method with a zoom line search algorithm, which improves convergence and allows the network to satisfy the inviscid Euler residual formulated using the HLLC flux more accurately. Figure 19 illustrates the performance of the proposed PINN–HLLC framework for the Sod shock tube problem at 𝑡 = 0.15 . The predicted profiles of density, velocity, pressure, and local Mach number are overlaid with the exact solution to evaluate the approximation. In addition, the spatial distribution of the absolute error is presented to quantify the local discrepancies. The comparison confirms that the proposed approach successfully reproduces the main flow features, including the shock front and contact discontinuity, while maintaining a low error level throughout the computational domain. In Figure 20, we repeat the comparison presented in Figure 19, but replace 
+
+Jnini et al.: Preprint submitted to Elsevier Page 38 of 53 Curvature-Aware Optimization for High-Accuracy PINNs        
+
+> Figure 20: Euler Equations with HLLC flux vs WENO solution: Comparison of the 1D Euler solution for the Sod shock tube problem obtained using the PINN framework augmented with the HLLC flux against a numerical reference solution computed using a WENO scheme [32]. The top row shows the density 𝜌 , velocity 𝑢 , pressure 𝑝 , and local Mach number
+> 𝑀𝑎 (from left to right) at 𝑡 = 0 .15 . The bottom row presents the corresponding pointwise absolute error in space. The results indicate very good agreement between the WENO reference solution and the PINN predictions, with the shock and contact discontinuity captured accurately. Overall, the discrepancy between the PINN solution and the WENO reference solution is smaller than that observed with respect to the analytical solution, primarily due to the inherent dissipative nature of the WENO scheme.
+
+the exact solution with a numerical reference computed using a third-order WENO scheme. The PINN predictions remain in close agreement with the WENO solution across all variables. Moreover, the observed errors are slightly reduced compared to the analytical case, which can be attributed to the additional numerical diffusion introduced by the WENO discretization. The results, including the relative 𝐿 2 and 𝐿 1 errors, total number of parameters, and runtime, are summarized in Tablel 13. All runtimes were measured on an NVIDIA H100 80 GB GPU. Since the compute utilization remained below 60% during training, the GPU was not fully saturated by floating-point operations, which led to increased runtime. 
+
+Key observations from the 1D Euler equations: Two different methodologies were explored for solving the 1D Euler equations within the PINN framework: a Roe linearization-based approach and an HLLC flux-based formulation. The Roe-based approach improves local conservation through Jacobian linearization, while the HLLC formulation provides enhanced robustness and physical admissibility, particularly in the presence of strong shocks. We observe that both SSBroyden and NG converges if the Roe-linearization approach is considered, being again SSBroyden the winner in terms of computational cost and precission. 
+
+4.6. Stiff PK–PD System with Discontinuous Drug Administration 
+
+We consider a coupled PK–PD model describing the effect of a cytotoxic chemotherapy agent (paclitaxel) on tumor growth, studied in detail to gain new insights into resistance mechanisms and to predict tumor growth dynamics across different patients [17, 33]. The system is solved over a treatment window of 𝑡 ∈ [0 , 17] days and is intentionally constructed to exhibit strong stiffness arising from multi-timescale dynamics, nonlinear growth saturation, and injection-driven forcing. 
+
+Pharmacokinetics (PK): The pharmacokinetic component is described by a two-compartment model with central and peripheral compartments. Let 𝐴 1(𝑡 ) and 𝐴 2(𝑡 ) denote the drug amounts in the central and peripheral compartments,   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 39 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+
+respectively. Their dynamics are governed by 
+
+𝑑𝐴 1
+
+𝑑𝑡 = −( 𝑘 10 + 𝑘 12 )𝐴 1(𝑡 ) + 𝑘 21 𝐴 2(𝑡 ) + 𝐼 (𝑡 ), (78) 
+
+𝑑𝐴 2
+
+𝑑𝑡 = 𝑘 12 𝐴 1(𝑡 ) − 𝑘 21 𝐴 2(𝑡 ), (79) where the plasma drug concentration driving the pharmacodynamic response is defined as 
+
+𝑐 (𝑡 ) = 𝐴 1(𝑡 )
+
+𝑉 1
+
+. (80) The input term 𝐼 (𝑡 ) represents chemotherapy drug injection according to the treatment schedule. In this benchmark, an injection is administered at day 𝑡 = 2 . In addition, a prior injection is assumed to have occurred before 𝑡 = 0 , resulting in residual drug present at the start of the simulation. Rather than modeling the injection as an idealized impulse, the PK system is solved analytically, yielding a continuous concentration profile composed of fast and slow exponential decay modes. The analytical solution takes the form 
+
+𝑐 (𝑡 ) = ∑ 
+
+> 𝑡 𝑑 ∈dose
+
+(𝐴𝑒 −𝛼 (𝑡 −𝑡 𝑑 ) + 𝐵𝑒 −𝛽 (𝑡 −𝑡 𝑑 )) 𝕀 𝑡 ≥𝑡 𝑑 , (81) where 𝛼 ≫ 𝛽 correspond to the eigenvalues of the compartmental system. This formulation captures the rapid rise in drug concentration following injection, followed by slower elimination dynamics. 
+
+Pharmacodynamics (PD): Tumor dynamics are modeled using a four-state transit compartment system, where 
+
+𝑥 1(𝑡 ) represents proliferating tumor cells and 𝑥 2(𝑡 )–𝑥 4(𝑡 ) denote successive damaged or dying cell compartments. The governing equations are 
+
+𝑑𝑥 1
+
+𝑑𝑡 = 𝜆 1𝑥 1(𝑡 )
+
+[
+
+1 + 
+
+( 𝜆 1
+
+> 𝜆 2
+
+𝜔 (𝑡 )
+
+)Ψ]1∕Ψ − 𝑘 2 𝑐 (𝑡 ) 𝑥 1(𝑡 ), (82) 
+
+𝑑𝑥 2
+
+𝑑𝑡 = 𝑘 2 𝑐 (𝑡 ) 𝑥 1(𝑡 ) − 𝑘 1𝑥 2(𝑡 ), (83) 
+
+𝑑𝑥 3
+
+𝑑𝑡 = 𝑘 1
+
+(𝑥 2(𝑡 ) − 𝑥 3(𝑡 )), (84) 
+
+𝑑𝑥 4
+
+𝑑𝑡 = 𝑘 1
+
+(𝑥 3(𝑡 ) − 𝑥 4(𝑡 )), (85) with the total tumor burden defined as 
+
+𝜔 (𝑡 ) = 𝑥 1(𝑡 ) + 𝑥 2(𝑡 ) + 𝑥 3(𝑡 ) + 𝑥 4(𝑡 ). (86) Tumor weight observations are available at 𝑡 = 0 , corresponding to 𝜔 (0) .The tumor growth term follows a generalized logistic formulation with shape parameter Ψ, while the drug-induced cell kill enters multiplicatively through the PK concentration 𝑐 (𝑡 ). The cytotoxic effect is first applied to the proliferating compartment and subsequently propagates through the downstream transit compartments with a delay governed by 𝑘 1. Following intravenous administration of paclitaxel, the pharmacokinetic parameters are 𝑉 1 = 0 .81 L∕kg ,
+
+𝑘 10 = 0 .868 h −1 , 𝑘 12 = 0 .0060 h −1 , and 𝑘 21 = 0 .0838 h −1 , while the pharmacodynamic parameters are Ψ = 20 ,
+
+𝜆 1 = 0 .273 day −1 , and 𝜆 2 = 0 .814 g ⋅ day −1 . The time evolution of 𝑥 1, 𝑥 2, 𝑥 3, 𝑥 4, together with 𝑊 , is illustrated in Figure 21. The coupled PK–PD system exhibits stiffness arising from intrinsic multi-timescale dynamics in the governing equations. First, the two-compartment PK model has eigenvalues 𝛼 ≫ 𝛽 that differ by several orders of magnitude, creating coexisting fast distribution and slow elimination phases in the drug concentration profile 𝑐 (𝑡 ). This disparity in decay rates is a primary source of mathematical stiffness, requiring small integration timesteps for numerical stability even during smooth evolution between injections. Second, the sequential transit compartments ( 𝑥 2 → 𝑥 3 → 𝑥 4)   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 40 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+> Figure 21: Stiff PK–PD ODE System: Reference vs. PINN (NG).Comparison of the exact solution and the PINN prediction obtained with the NG optimizer, showing accurate reconstruction of the multiscale stiff dynamics.
+
+introduce delayed pharmacodynamic responses with characteristic timescales governed by 𝑘 1, which interact with the much faster cytotoxic effects (controlled by 𝑘 2𝑐 (𝑡 )) acting on the proliferating compartment. Third, the Hill-type growth inhibition term with Ψ = 20 introduces extreme nonlinearity near the carrying capacity, creating steep gradients and strong curvature in the solution manifold that further exacerbate stiffness. Beyond the inherent stiffness, the system also features discontinuous forcing due to drug administration. Chemotherapy injections at discrete timepoints introduce sharp, localized increases in 𝑐 (𝑡 ) that act as non-smooth forcing terms, generating rapid transients in the PD equations immediately following administration. While these injection-driven transients create numerical challenges distinct from stiffness—primarily requiring adaptive timestep refinement and careful collocation placement—they interact with the underlying stiff dynamics to produce a particularly challenging coupled system. The combination of multi-timescale eigenvalue separation, nonlinear saturation effects, and discontinuous forcing makes this benchmark representative of real-world pharmacological modeling scenarios. The solution of the full system is shown in Figure 21, alongside the corresponding PINN predictions. To accurately resolve the stiff dynamics induced by drug injection, we employed a non-uniform temporal collocation strategy. The final distribution was selected after an ablation study comparing different point allocations. A total of 1000 collocation points were deterministically distributed using piecewise uniform grids: 300 points over [0 , 1.9] days, 300 points over [1 .9, 4.0] days, and 400 points over [4 .0, 17 .0] days. This allocation increases sampling density around the injection time ( 𝑡 ≈ 2 hr), while maintaining sufficient coverage of the slower long-time pharmacodynamic relaxation regime. The resulting structured grid balances resolution of fast–slow multiscale behavior without excessively increasing computational cost. Table 14 summarizes the quantitative performance of the different optimizers on the stiff PK–PD system. Adam exhibits the largest errors across all state variables, particularly in the intermediate transit compartments, indicating difficulty in resolving the coupled fast–slow dynamics. SOAP substantially improves accuracy, reducing errors by more than one order of magnitude compared to Adam, though some degradation remains in deeper compartments. Classical BFGS shows uneven performance: while achieving low error for 𝑋 1, it struggles to consistently control errors in 𝑋 2–
+
+𝑋 4, which reflects sensitivity to stiffness and curvature anisotropy. The structured second-order variants (SSBFGS and SSBroyden) provide more balanced accuracy across all compartments, with SSBroyden achieving uniformly low errors while maintaining competitive computational cost. The NG method achieves the lowest errors in the deeper transit states and tumor burden 𝑊 , which demonstrates strong robustness to multiscale stiffness. Figure 22 shows the time-resolved absolute error (log scale) for each state variable 𝑋 1–𝑋 4 under different optimization strategies. The stiff transient immediately following drug injection (around 𝑡 ≈ 2 hr) induces a sharp rise in error for all methods. Adam exhibits the largest and most persistent errors across all compartments as expected, particularly in 𝑋 1 and 𝑋 2, indicating difficulty in resolving the fast PK-driven transient and its propagation through the PD chain. SOAP significantly reduces the overall magnitude of the error compared to Adam but still shows localized   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 41 of 53
+
+Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Figure 22: Stiff PK–PD ODE System: Time-resolved absolute error for each state variable, shown on a logarithmic scale, comparing PINN solutions trained with different optimization methods. The results illustrate optimizer-dependent performance in resolving stiff multiscale dynamics.                                                    
+
+> Optimizer Relative 𝐿 2(𝑋 1, 𝑋 2, 𝑋 3, 𝑋 4)Relative 𝐿 2(W) Relative 𝐿 ∞(W) Training time (s)
+> Adam 1.25 × 10 −1 ,7.93 × 10 −1 ,5.79 × 10 −1 ,4.50 × 10 −1 1.31 × 10 −1 1.07 × 10 −1 323 SOAP 6.80 × 10 −3 ,3.67 × 10 −2 ,2.97 × 10 −2 ,2.46 × 10 −2 5.79 × 10 −3 5.10 × 10 −3 461 BFGS 8.95 × 10 −4 ,3.44 × 10 −1 ,3.28 × 10 −1 ,2.74 × 10 −1 3.26 × 10 −2 4.87 × 10 −2 118 SSBFGS 1.38 × 10 −2 ,9.72 × 10 −2 ,7.23 × 10 −2 ,5.91 × 10 −2 1.92 × 10 −2 2.46 × 10 −2 83 SSBroyden 1.89 × 10 −3 ,1.44 × 10 −2 ,1.23 × 10 −2 ,1.03 × 10 −2 2.79 × 10 −3 2.76 × 10 −3 98 NG 1.29 × 10 −2 ,1.08 × 10 −3 ,7.61 × 10 −4 ,6.45 × 10 −4 2.55 × 10 −3 1.57 × 10 −3 302
+
+Table 14: Stiff PK–PD ODE System: Relative 𝐿 2− errors for the transit compartments (𝑋 1, 𝑋 2, 𝑋 3, 𝑋 4) and tumor burden 
+
+𝑊 , together with relative 𝐿 ∞ error for 𝑊 and total training time (seconds), obtained using different optimization strategies for PINN training. The results highlight differences in accuracy, robustness across state variables, and computational efficiency in the stiff multiscale regime. 
+
+spikes near the injection time and mild long-time drift. Classical BFGS improves late-time accuracy but demonstrates instability across intermediate compartments, with slower decay of error in 𝑋 2 and 𝑋 3. In contrast, the structured quasi-Newton methods (SSBFGS and SSBroyden) achieve more uniform error reduction across all compartments, with smoother temporal decay and improved stability after the transient phase. The NG method exhibits the most consistent long-time error decay, reaching the lowest error levels in 𝑋 2–𝑋 4 and maintaining strong robustness to stiffness. Results show that curvature-aware and geometry-informed optimizers significantly outperform first-order methods in both accuracy and stability for this stiff PK–PD problem. 
+
+Key observations from the Stiff PK–PD ODE System: We evaluated Wolfe, trust-region, and zoom line-search strategies, and report results for quasi-Newton methods using trust-region line search due to its superior robustness across optimizers. The NG method was particularly sensitive to increased collocation density near drug administration, which led to ill-conditioning of the Hessian/Fisher matrix and numerical instability. For other second-order methods, redistributing collocation points significantly affected convergence speed and stability, occasionally causing stagnation in sharp local minima due to stiffness-induced curvature in the loss landscape. 
+
+Jnini et al.: Preprint submitted to Elsevier Page 42 of 53 Curvature-Aware Optimization for High-Accuracy PINNs            
+
+> Table 15
+> NVIDIA H100 SXM hardware specifications used to construct the theoretical roofline model.
+> Parameter Symbol Value
+> Peak FP64 throughput 𝜋 67 TFLOP/s Peak memory bandwidth 𝛽 3.35 TB/s Ridge point 𝐼 ∗10 .15 FLOP/byte
+
+## 5. Performance Analysis of Optimizers using Roofline Models 
+
+The roofline model [74, 22] is a performance bound that characterizes the achievable floating-point throughput of a kernel as a function of its arithmetic intensity. It provides an intuitive visual framework for identifying whether a kernel is limited by compute throughput or memory bandwidth, and quantifies the gap between measured and peak hardware performance. 
+
+Arithmetic Intensity The arithmetic intensity 𝐼 of a kernel is defined as the ratio of the total number of floating-point operations performed to the total number of bytes transferred between main memory (DRAM) and the processor: 
+
+𝐼 = 𝑊 𝑄 
+
+[ FLOP byte 
+
+]
+
+, (87) where 𝑊 denotes the total floating-point operation count (FLOP) and 𝑄 denotes the total memory traffic (bytes). A kernel with high arithmetic intensity reuses data heavily from cache and is compute-bound , while a kernel with low arithmetic intensity is memory-bound .
+
+Roofline Analysis The theoretical roofline bound 𝑃 roof (𝐼 ) is constructed from two hardware-specific constants taken directly from the device specification sheet: 
+
+• 𝜋 : peak floating-point throughput (FLOP/s), and 
+
+• 𝛽 : peak memory bandwidth (bytes/s). The roofline performance bound at a given arithmetic intensity 𝐼 is then defined as: 
+
+𝑃 roof (𝐼 ) = min( 𝜋, 𝛽 ⋅ 𝐼 )
+
+[ FLOP s
+
+]
+
+, (88) which enforces that no kernel can exceed either the peak compute ceiling 𝜋 or the memory-bandwidth ceiling 𝛽 ⋅ 𝐼 .The intersection of these two bounds defines the ridge point :
+
+𝐼 ∗ = 𝜋 𝛽 
+
+[ FLOP byte 
+
+]
+
+, (89) which separates the memory-bound regime ( 𝐼 < 𝐼 ∗) from the compute-bound regime ( 𝐼 > 𝐼 ∗). For the NVIDIA H100 SXM GPU used in this work, the hardware parameters and the resulting ridge point are summarized in Table 15. The resulting roofline plot is shown in Figure 23. The horizontal ceiling corresponds to the peak FP64 compute performance of 67 TFLOP/s, while the diagonal line represents the peak memory bandwidth of 3.35 TB/s. Their intersection, at approximately 10 .15 FLOP/byte, defines the ridge point, which indicates the arithmetic intensity threshold beyond which a kernel transitions from being memory-bound to compute-bound. Three kernels—Euler SSBFGS, Stokes SSBFGS, and Stokes NG—appear to the right of the roofline ridge point, indicating that they operate in the compute-bound regime. In this regime, performance is governed primarily by the GPU’s peak floating-point throughput rather than by memory bandwidth. This behavior is desirable, as it suggests that    
+
+> Jnini et al.: Preprint submitted to Elsevier Page 43 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+> Figure 23: Roofline analysis for the SSBFGS and NG optimizers applied to the inviscid Burgers, Euler, and Stokes equations. The solid black line denotes the theoretical roofline, and the vertical dashed line marks the ridge point, which delineates the transition from the memory-bound to the compute-bound regime.
+
+memory traffic is not the principal bottleneck and that the available bandwidth is being utilized efficiently relative to the computational workload. By contrast, the 1D inviscid Burgers kernel lies to the left of the ridge point, placing it in the memory-bound 
+
+regime. In this case, performance is limited primary by data movement rather than arithmetic throughput. A plausible explanation is the relatively small neural network required to represent the 1D inviscid Burgers solution: because the model is compact, the amount of computation performed per byte of data moved is reduced, leading to a lower arithmetic intensity. As a result, execution time becomes dominated by memory access and data transfer rather than by floating-point operations. Despite sharing the same regime, the solvers exhibit distinct arithmetic intensities. The Euler SSBFGS solver achieves a higher arithmetic intensity, which can be attributed to its relatively small network architecture (approximately 
+
+3,000 parameters) and a correspondingly modest dense SSBFGS Hessian. The small parameter size allows both the Hessian and network weights to reside largely within the GPU L2 cache, leading to about 75% memory bandwidth utilization. This indicates substantial data reuse at the cache level rather than frequent access to DRAM. In contrast, the Stokes SSBFGS solver employs a significantly larger network (approximately 33 ,667 parameters) and a much larger dense Hessian matrix (around 9 GB). As a result, it saturates both compute and memory bandwidth at nearly 100% , achieving slightly higher performance than the Euler case. However, the large dense Hessian induces substantial DRAM traffic at each iteration, which lowers its arithmetic intensity relative to Euler despite the increased problem size. For the Gauss-Newton solver, the arithmetic intensity is computed as AI = 391 .4 FLOP/byte. The achieved performance measured as reliable FLOPs divided by wall-clock step time is 29 .640 TFLOP/s, further confirming operation in the compute-bound regime. Overall, these results highlight an important scalability challenge for second-order optimization of PINNs. As the network size increases, the (𝑛 2) memory footprint associated with dense SSBFGS becomes a dominant factor.   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 44 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+
+This growth drives the solver closer to the memory bandwidth ceiling, ultimately constraining achievable arithmetic intensity and limiting compute efficiency on modern GPU architectures.                                                     
+
+> from typing import Callable import optimistix as optx class SSBroydenZoom ( optx . AbstractSSBroyden ) : " " " SSBroyden +zoom line search search . " " " rtol : float atol : float norm : Callable =optx . max_norm use_inverse : bool =True search : optx . AbstractSearch =optx . Zoom () descent : optx . AbstractDescent =optx . NewtonDescent () verbose : frozenset [ str ] =frozenset () class SSBFGSBacktrackingWolfe ( optx . AbstractSSBFGS ) : " " " SSBFGS +backtracking line search . " " " rtol : float atol : float norm : Callable =optx . max_norm use_inverse : bool =True search : optx . AbstractSearch =optx . BacktrackingStrongWolfe () descent : optx . AbstractDescent =optx . NewtonDescent () verbose : frozenset [ str ] =frozenset ()
+
+Listing 1: Instantiation of SSBroyden and SSBFGS optimizers with zoom and Wolfe line search with backtracking line search, respectively 
+
+## 6. Reproducibility 
+
+To promote reproducibility and facilitate wider adoption, we outline the design principles underlying our imple-mentation and provide a publicly available codebase. All implementations are developed using the JAX framework, ensuring both efficiency and flexibility in constructing optimizer variants. Each optimizer instance is defined by several key components: 1. Relative tolerance ( rtol )2. Absolute tolerance ( atol )3. Choice of norm for convergence criteria (e.g., 𝐿 1, 𝐿 2, or 𝐿 ∞ norm of the gradient) 4. Line search strategy (e.g., backtracking or trust-region) 5. Newton-type descent update (cf. Equation (11)) The selection of these components allows the optimizer—whether SSBFGS or SSBroyden—to be tailored to the specific problem under consideration. To support this flexibility, we utilize the state-based Optimistix library [58]. Different optimizer variants are implemented by extending the AbstractQuasiNewton class, enabling modular customization of line search strategies, tolerance settings, convergence criteria, and descent formulations. As an illustrative example, we present an implementation of the SSBFGS optimizer using a trust-region line search combined with an 𝐿 ∞-norm convergence criterion in the code listing shown in Codelisting 1.We plan to release the complete library after the acceptance of the paper. 
+
+Code Availability: The GitHub repository associated with this work is publicly accessible at https://github. com/CrunchOptimizer and will be updated upon acceptance of the manuscript for publication. 
+
+## 7. Summary 
+
+This work studied curvature-aware optimization for PINNs across a broad set of challenging scientific machine learning problems. The computational experiments were organized around three main classes of PDEs—elliptic,   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 45 of 53 Curvature-Aware Optimization for High-Accuracy PINNs
+
+parabolic, and hyperbolic—as well as a stiff PK–PD ODE system. Across all cases, we compared self-scaled quasi-Newton methods, NG / Gauss–Newton methods, and structured adaptive optimizers, with emphasis on convergence speed, robustness, accuracy, and scalability. The results show that curvature-aware optimizers significantly improve PINN training over standard first-order approaches. SSBFGS, SSBroyden, and NG methods performed strongly across several experiments and were particularly effective in ill-conditioned settings and when very high solution accuracy was required. At the same time, the experiments highlight that optimization alone is not sufficient for discontinuous problems: for inviscid Burgers and Euler equations, accurate solutions required shock-aware and conservation-consistent PINN formulations. For elliptic problems, including the Helmholtz and Stokes equations, the results showed that all curvature-aware optimizers were capable of reaching high-accuracy solutions when properly configured. Among them, the NG method was often the fastest. The SSBFGS and SSBroyden methods also performed well, achieving comparable final accuracy, though sometimes at a higher computational cost. For the 2D Helmholtz problem with 𝑎 1 = 1 , 𝑎 2 = 4 , and 𝑘 = 1 ,SSBFGS, SSBroyden, and NG all achieved errors of order 10 −9 . Among these methods, NG was the most efficient, requiring only 251 s of training time, compared with 319 s for SSBroyden and 564 s for SSBFGS. In contrast, SOAP stagnated at an error of order 10 −4 for the same case while also requiring substantially longer training time. In the Stokes problem, both methods matched the accuracy of the NG approach across all line search strategies. However, the NG method was approximately 24× more computationally efficient than these self-scaled optimizers. In contrast, the SOAP optimizer failed to outperform any of the curvature-aware methods, both in terms of runtime and accuracy, and remained significantly inferior. For parabolic problems, represented here by the 2D viscous Burgers equation, a similar trend was observed. Curvature-aware optimization again significantly outperformed standard first-order training, and all of the main optimizers considered were able to produce high-accuracy solutions. Within this class of problems, the natural-gradient method was particularly attractive because it combined strong accuracy with lower computational cost, while the quasi-Newton methods also delivered competitive accuracy and robust convergence. For hyperbolic problems, including the inviscid Burgers equation and the 1D Euler equations, the picture was more subtle. In these cases, optimization alone was not sufficient to recover accurate physical solutions, because shocks and discontinuities make PINN training fundamentally more difficult. We found that the natural-gradient and Broyden-family methods behaved similarly in overall performance once the formulation was made shock-aware and conservation-consistent. This motivated the introduction of new PINN methodologies tailored to hyperbolic PDEs, including Roe linearization, entropy-constrained relaxation formulations, and the Harten–Lax–van Leer–Contact (HLLC) flux approach. These additions were essential for obtaining stable and accurate solutions in the presence of shocks and contact discontinuities. Beyond the PDE benchmarks, the stiff PK–PD ODE system—characterized by multi-timescale dynamics (eigenvalues 𝛼 ≫ 𝛽 ), extreme nonlinear saturation ( Ψ = 20 ), and discontinuous forcing—confirmed that curvature-aware optimizers significantly outperform first-order methods. NG achieved the lowest errors in deeper transit states (relative 𝐿 2 < 10 −3 ), while structured quasi-Newton methods (SSBroyden, SSBFGS) provided balanced accuracy across all compartments. In contrast, classical BFGS showed uneven performance and Adam struggled throughout, particularly in intermediate transit compartments. Based on these results, we recommend natural-gradient methods as a first choice for elliptic and parabolic PDEs, especially when fast convergence is the primary objective. When robustness and very high final accuracy are desired, SSBFGS and SSBroyden methods provide strong alternatives. For hyperbolic PDEs with discontinuities, we recommend combining curvature-aware optimizers with shock-aware and conservation-consistent PINN formulations, such as Roe-based linearization or HLLC-flux constructions, since optimization alone is generally not sufficient in this regime. We further analyzed optimizer performance using roofline models, focusing on arithmetic intensity, memory bandwidth, and compute throughput. The results show that the main second-order kernels operate near the roofline ceiling and are mostly compute-bound, while smaller problems such as 1D inviscid Burgers remain memory-bound. This analysis highlights both the strong hardware efficiency of the proposed methods and the memory-scaling limitations of dense second-order optimization. Last but not least, we developed a novel batch training algorithm for the SSBFGS and SSBroyden methods. We validated its correctness through testing on the Helmholtz and Poisson equations, demonstrating improved stability and convergence rates. These properties make the approach readily applicable to large-scale data-driven problems.   
+
+> Jnini et al.: Preprint submitted to Elsevier Page 46 of 53
+
+Curvature-Aware Optimization for High-Accuracy PINNs 
+
+## Acknowledgments 
+
+This research was primarily supported as part of the AIM for Composites, an Energy Frontier Research Center funded by the U.S. Department of Energy (DOE), Office of Science, Basic Energy Sciences (BES), under Award DE-SC0023389 (computational studies, data analysis). The work of KS and GEK was partially supported by the U.S. Department of Energy (DOE), Office of Science, Advanced Scientific Computing Research (ASCR) program under the Scientific Discovery through Advanced Computing (SciDAC) Institute “LEADS: LEarning-Accelerated Domain Science,” Subcontract 831126 under DE-AC05-76RL01830. We would like to acknowledge Prabhjyot Singh Saluja (CCV, Brown) for providing the hardware expertise and support for the AI testbed used to benchmark the applications presented in the paper. NA is supported by the National Institutes of Health (NIH) grant R01HL154150. JFU is supported by the predoctoral fellowship ACIF 2023, cofunded by Generalitat Valenciana and the European Union through the European Social Fund. JFU also acknowledges the support through the grant PID2021-127495NB-I00 funded by MCIN/AEI/10.13039/501100011033 and by the European Union, the Astrophysics and High Energy Physics programme of the Generalitat Valenciana ASFAE/2022/026 funded by MCIN and the European Union NextGenerationEU (PRTR-C17.I1), and the Prometeo excellence programme grant CIPROM/2022/13. Finally, JFU gratefully acknowledges the support provided by grant CIBEFP/2024/108, cofunded by Generalitat Valenciana and the European Union through the European Social Fund, which enabled a research stay at Brown University, where part of this work was carried out, as well as the kind hospitality of the Division of Applied Mathematics. JM acknowledges support by the European Union (ERC, FluCo, grant agreement No. 101088488). Views and opinions expressed are however those of the author(s) only and do not necessarily reflect those of the European Union or of the European Research Council. Neither the European Union nor the granting authority can be held responsible for them. A.J. acknowledges financial support from the European Union via the European Defence Fund project Archytas under grant agreement nr. 101167870. Views and opinions expressed are however those of the author(s) only and do not necessarily reflect those of the European Union or the European Commission. Neither the European Union nor the granting authority can be held responsible for them. Furthermore, A.J. acknowledges Flavio Vella for his diligent support and supervision. 
+
+## References 
+
+[1] Ahmadi, N., Cao, Q., Humphrey, J.D., Karniadakis, G.E., 2025. Physics-informed machine learning in biomedical science and engineering. arXiv preprint arXiv:2510.05433 . [2] Ahmadi Daryakenari, N., Shukla, K., Karniadakis, G.E., 2026. Representation meets optimization: Training PINNs and PIKANs for gray-box discovery in systems pharmacology. Computers in Biology and Medicine 201, 111393. URL: https://www.sciencedirect.com/ science/article/pii/S0010482525017470 , doi: https://doi.org/10.1016/j.compbiomed.2025.111393 .[3] Al-Baali, M., 1998. Global and superlinear convergence of a class of self-scaling methods with inexact line searches. Computational Optimization and Applications 9, 191–203. doi: 10.1023/A:1018315205474 .[4] Al-Baali, M., Khalfan, H., 2005. Wide interval for efficient self-scaling quasi-newton algorithms. Optimization Methods and Software 20, 679–691. doi: 10.1080/10556780410001709448 .[5] Al-Baali, M., Spedicato, E., Maggioni, F., 2014. Broyden’s quasi-newton methods for a nonlinear system of equations and unconstrained optimization: A review and open problems. Optimization Methods and Software 29, 937–954. doi: 10.1080/10556788.2013.856909 .[6] Amari, S., 1997. Information geometry. Contemporary Mathematics 203, 4. [7] ichi Amari, S., 1998. Natural gradient works efficiently in learning. Neural Computation 10, 251–276. doi: 10.1162/089976698300017746 .[8] Armegioiu, V., Carrasquilla, J., Mishra, S., Müller, J., Nys, J., Zeinhofer, M., Zhang, H., 2025. Functional neural wavefunction optimization. arXiv preprint arXiv:2507.10835 . [9] Arora, S., Cohen, N., Hazan, E., 2018. On the optimization of deep networks: Implicit acceleration by overparameterization, in: International conference on machine learning, PMLR. pp. 244–253. [10] Bollapragada, R., Nocedal, J., Mudigere, D., Shi, H.J., Tang, P.T.P., 2018. A progressive batching l-bfgs method for machine learning, in: International Conference on Machine Learning, PMLR. pp. 620–629. [11] Broyden, C.G., 1970. The convergence of a class of double-rank minimization algorithms 1. general considerations. IMA Journal of Applied Mathematics 6, 76–90. doi: 10.1093/imamat/6.1.76 .[12] Cantwell, C.D., Moxey, D., Comerford, A., Bolis, A., Rocco, G., Mengaldo, G., De Grazia, D., Yakovlev, S., Lombard, J.E., Ekelschot, D., et al., 2015. Nektar++: An open-source spectral/hp element framework. Computer physics communications 192, 205–219. [13] Chan, J., 2018. On discretely entropy conservative and entropy stable discontinuous galerkin methods. Journal of Computational Physics 362, 346–374. [14] Cho, J., Nam, S., Yang, H., Yun, S.B., Hong, Y., Park, E., 2023. Separable physics-informed neural networks. Advances in Neural Information Processing Systems 36, 23761–23788. [15] Conn, A.R., Gould, N.I., Toint, P.L., 2000. Trust region methods. SIAM. [16] Dangel, F., Müller, J., Zeinhofer, M., 2024. Kronecker-factored approximate curvature for physics-informed neural networks. Advances in Neural Information Processing Systems 37, 34582–34636. 
+
+Jnini et al.: Preprint submitted to Elsevier Page 47 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+[17] Daryakenari, N.A., Wang, S., Karniadakis, G., 2025. CMINNs: Compartment model informed neural networks—unlocking drug dynamics. Computers in Biology and Medicine 184, 109392. [18] Davidon, W.C., 1959. Variable Metric Method for Minimization. Technical Report ANL-5990. Argonne National Laboratory. [19] Dennis Jr, J., Schnabel, R.B., 1996. Numerical Methods for Unconstrained Optimization and Nonlinear Equations. SIAM. [20] Duchi, J., Hazan, E., Singer, Y., 2011. Adaptive Subgradient Methods for Online Learning and Stochastic Optimization. Journal of Machine Learning Research 12, 2121–2159. URL: http://jmlr.org/papers/v12/duchi11a.html .[21] Ferrer-Sánchez, A., Martín-Guerrero, J.D., de Austri-Bazan, R.R., Torres-Forné, A., Font, J.A., 2024. Gradient-annihilated pinns for solving riemann problems: Application to relativistic hydrodynamics. Computer Methods in Applied Mechanics and Engineering 424, 116906. URL: 
+
+https://www.sciencedirect.com/science/article/pii/S0045782524001622 , doi: https://doi.org/10.1016/j.cma.2024. 116906 .[22] Fischer, P., Kerkemeier, S., Min, M., Lan, Y.H., Phillips, M., Rathnayake, T., Merzari, E., Tomboulides, A., Karakus, A., Chalmers, N., et al., 2022. Nekrs, a gpu-accelerated spectral element navier–stokes solver. Parallel Computing 114, 102982. [23] Fletcher, R., 1970. A new approach to variable metric algorithms. The Computer Journal 13, 317–322. doi: 10.1093/comjnl/13.3.317 .[24] Fletcher, R., Powell, M.J.D., 1963. A rapidly convergent descent method for minimization. The Computer Journal 6, 163–168. doi: 10.1093/ comjnl/6.2.163 .[25] Goldfarb, D., 1970. A family of variable-metric methods derived by variational means. Mathematics of Computation 24, 23–26. doi: 10.1090/S0025-5718-1970-0258249-6 .[26] Goldshlager, G., Abrahamsen, N., Lin, L., 2024. A kaczmarz-inspired approach to accelerate the optimization of neural network wavefunctions. Journal of Computational Physics 516, 113351. [27] Goldshlager, G., Hu, J., Lin, L., 2025. A sketch-and-project analysis of subsampled natural gradient algorithms. arXiv preprint arXiv:2508.21022 . [28] Goodfellow, I., Bengio, Y., Courville, A., Bengio, Y., 2016. Deep learning. volume 1. MIT press Cambridge. [29] Gupta, V., Koren, T., Singer, Y., 2018. Shampoo: Preconditioned stochastic tensor optimization, in: Proceedings of the 35th International Conference on Machine Learning (ICML). [30] Guzman-Cordero, A., Dangel, F., Goldshlager, G., Zeinhofer, M., 2025. Improving energy natural gradient descent through woodbury, momentum, and randomization, in: The Thirty-ninth Annual Conference on Neural Information Processing Systems. URL: https: //openreview.net/forum?id=5YMZfufpfY .[31] Hennemann, S., Rueda-Ramírez, A.M., Hindenlang, F.J., Gassner, G.J., 2021. A provably entropy stable subcell shock capturing approach for high order split form dg for the compressible euler equations. Journal of Computational Physics 426, 109935. [32] Hesthaven, J.S., 2017. Numerical methods for conservation laws: From analysis to algorithms. SIAM. [33] Hu, Z., Daryakenari, N.A., Shen, Q., Kawaguchi, K., Karniadakis, G.E., 2024. State-space models are accurate and efficient neural operators for dynamical systems. arXiv preprint arXiv:2409.03231 . [34] Hwang, Y., Lim, D.Y., 2024. Dual cone gradient descent for training physics-informed neural networks. Advances in Neural Information Processing Systems 37, 98563–98595. [35] Jagtap, A.D., Kharazmi, E., Karniadakis, G.E., 2020. Conservative physics-informed neural networks on discrete domains for conservation laws: Applications to forward and inverse problems. Computer Methods in Applied Mechanics and Engineering 365, 113028. [36] Jagtap, A.D., Mao, Z., Adams, N., Karniadakis, G.E., 2022. Physics-informed neural networks for inverse problems in supersonic flows. Journal of Computational Physics 466, 111402. [37] Jnini, A., Vella, F., 2025. Dual natural gradient descent for scalable training of physics-informed neural networks. Transactions on Machine Learning Research URL: https://openreview.net/forum?id=GDHVRy6SDd .[38] Jnini, A., Vella, F., Zeinhofer, M., 2025. Gauss-Newton Natural Gradient Descent for Physics-informed Computational Fluid Dynamics. Computers & Fluids , 106955. [39] Karniadakis, G., Sherwin, S., 2013. Spectral/hp element methods for computational fluid dynamics. American Chemical Society. [40] Kawaguchi, K., 2016. Deep learning without poor local minima. Advances in neural information processing systems 29. [41] Kingma, D.P., 2014. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 . [42] Kiyani, E., Shukla, K., Karniadakis, G.E., Karttunen, M., 2023. A framework based on symbolic regression coupled with extended physics-informed neural networks for gray-box learning of equations of motion from data. Computer Methods in Applied Mechanics and Engineering 415, 116258. doi: https://doi.org/10.1016/j.cma.2023.116258 .[43] Kiyani, E., Shukla, K., Urbán, J.F., Darbon, J., Karniadakis, G.E., 2025. Optimizing the optimizer for physics-informed neural networks and kolmogorov-arnold networks. Computer Methods in Applied Mechanics and Engineering 446, 118308. [44] Kopaničáková, A., Riccietti, E., 2026. Introduction to optimization methods for training sciml models. arXiv preprint arXiv:2601.10222 . [45] Krishnapriyan, A., Gholami, A., Zhe, S., Kirby, R., Mahoney, M.W., 2021. Characterizing possible failure modes in physics-informed neural networks, in: Ranzato, M., Beygelzimer, A., Dauphin, Y., Liang, P., Vaughan, J.W. (Eds.), Advances in Neural Information Processing Systems, Curran Associates, Inc.. pp. 26548–26560. URL: https://proceedings.neurips.cc/paper_files/paper/2021/file/ df438e5206f31600e6ae4af72f2725f1-Paper.pdf .[46] LeCun, Y., Bengio, Y., Hinton, G., 2015. Deep learning. nature 521, 436–444. [47] Li, H., Xu, Z., Taylor, G., Studer, C., Goldstein, T., 2018. Visualizing the loss landscape of neural nets. Advances in neural information processing systems 31. [48] Lin, W., Dangel, F., Eschenhagen, R., Bae, J., Turner, R.E., Makhzani, A., 2024. Can we remove the square-root in adaptive gradient methods? a second-order perspective. International Conference on Machine Learning . [49] Lin, W., Lowe, S.C., Dangel, F., Eschenhagen, R., Xu, Z., Grosse, R.B., 2025. Understanding and improving shampoo and soap via kullback-leibler minimization. arXiv preprint arXiv:2509.03378 . 
+
+Jnini et al.: Preprint submitted to Elsevier Page 48 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+[50] Liu, J., Zheng, S., Song, X., Xu, D., 2024. Locally linearized physics informed neural networks for riemann problems of hyperbolic conservation laws. Physics of Fluids 36, 116135. doi: 10.1063/5.0238865 .[51] Loshchilov, I., Hutter, F., 2019. Decoupled weight decay regularization, in: International Conference on Learning Representations. URL: 
+
+https://openreview.net/forum?id=Bkg6RiCqY7 .[52] Moffatt, H.K., 1964. Viscous and resistive eddies near a sharp corner. Journal of Fluid Mechanics 18, 1–18. [53] Müller, J., Zeinhofer, M., 2023. Achieving High Accuracy with PINNs via Energy Natural Gradient Descent, in: International Conference on Machine Learning, PMLR. pp. 25471–25485. [54] Müller, J., Zeinhofer, M., 2024. Position: Optimization in SciML should employ the function space geometry, in: Salakhutdinov, R., Kolter, Z., Heller, K., Weller, A., Oliver, N., Scarlett, J., Berkenkamp, F. (Eds.), Proceedings of the 41st International Conference on Machine Learning, PMLR. pp. 36705–36722. URL: https://proceedings.mlr.press/v235/muller24d.html .[55] Nocedal, J., Wright, S.J., 2006. Numerical optimization. Springer. [56] van Oostrum, J., Müller, J., Ay, N., 2023. Invariance properties of the natural gradient in overparametrised systems: J. van oostrum et al. Information geometry 6, 51–67. [57] Oren, S.S., Luenberger, D.G., 1974. Self-scaling variable metric (ssvm) algorithms, part i: Criteria and sufficient conditions for scaling a class of algorithms. Management Science 20, 845–862. doi: 10.1287/mnsc.20.5.845 .[58] Rader, J., Lyons, T., Kidger, P., 2024. Optimistix: modular optimisation in jax and equinox. arXiv preprint arXiv:2402.09983 . [59] Raissi, M., Perdikaris, P., Karniadakis, G., 2019. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics 378, 686–707. URL: https://www. sciencedirect.com/science/article/pii/S0021999118307125 , doi: https://doi.org/10.1016/j.jcp.2018.10.045 .[60] Ranocha, H., Schlottke-Lakemper, M., Winters, A.R., Faulhaber, E., Chan, J., Gassner, G.J., 2021. Adaptive numerical simulations with trixi. jl: A case study of julia for scientific computing. arXiv preprint arXiv:2108.06476 . [61] Roe, P., 1981. Approximate riemann solvers, parameter vectors, and difference schemes. Journal of Computational Physics 43, 357–372. URL: https://www.sciencedirect.com/science/article/pii/0021999181901285 , doi: https://doi.org/10.1016/ 0021-9991(81)90128-5 .[62] Schwencke, N., Furtlehner, C., 2025. Anagram: A natural gradient relative to adapted model for efficient pinns learning. URL: https: //arxiv.org/abs/2412.10782 , arXiv:2412.10782 .[63] Schwencke, N., Rousselot, C., Shilova, A., Furtlehner, C., 2025. Amstramgram: Adaptive multi-cutoff strategy modification for anagram. URL: https://arxiv.org/abs/2510.15998 , arXiv:2510.15998 .[64] Shanno, D.F., 1970. Conditioning of quasi-newton methods for function minimization. Mathematics of Computation 24, 647–656. doi: 10.1090/S0025-5718-1970-0274029-X .[65] van der Sluis, A., 1969. Condition numbers and equilibration of matrices. Numerische Mathematik 14, 14–23. doi: 10.1007/BF02165968 .[66] Tadmor, E., 1987. The numerical viscosity of entropy stable schemes for systems of conservation laws. i. Mathematics of Computation 49, 91–103. [67] Tieleman, T., Hinton, G., 2017. Divide the gradient by a running average of its recent magnitude. coursera: Neural networks for machine learning, in: Technical report. University of Toronto. [68] Toro, E.F., Spruce, M., Speares, W., 1994. Restoration of the contact surface in the hll-riemann solver. Shock waves 4, 25–34. [69] Toscano, J.D., Oommen, V., Varghese, A.J., Zou, Z., Ahmadi Daryakenari, N., Wu, C., Karniadakis, G.E., 2025. From pinns to pikans: Recent advances in physics-informed machine learning. Machine Learning for Computational Science and Engineering 1, 15. [70] Urbán, J.F., Stefanou, P., Pons, J.A., 2025. Unveiling the optimization process of physics informed neural networks: How accurate and competitive can pinns be? Journal of Computational Physics 523, 113656. [71] Urbán, J.F., Pons, J.A., 2025. An approximate riemann solver approach in physics-informed neural networks for hyperbolic conservation laws. Physics of Fluids 37, 096114. doi: 10.1063/5.0285282 .[72] Vyas, N., Morwani, D., Zhao, R., Kwun, M., Shapira, I., Brandfonbrener, D., Janson, L., Kakade, S., 2024. SOAP: Improving and stabilizing Shampoo using Adam. arXiv preprint arXiv:2409.11321 . [73] Wang, S., Teng, Y., Perdikaris, P., 2021. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing 43, A3055–A3081. [74] Williams, S., Waterman, A., Patterson, D., 2009. Roofline: an insightful visual performance model for multicore architectures. Communica-tions of the ACM 52, 65–76. [75] Wolfe, P., 1969. Convergence conditions for ascent methods. SIAM review 11, 226–235. [76] Zhou, P., Xie, X., Lin, Z., Yan, S., 2024. Towards understanding convergence and generalization of adamw. IEEE transactions on pattern analysis and machine intelligence 46, 6486–6493. 
+
+Jnini et al.: Preprint submitted to Elsevier Page 49 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+## A. Details on Self-Scaled Quasi-Newton Methods 
+
+The parameters (𝜏 𝑘 , 𝜙 𝑘 ) cannot be chosen arbitrarily; they must satisfy certain conditions to guarantee convergence. One of the most fundamental requirements is that the update formulas for the matrices 𝐻 𝑘 (or 𝐵 𝑘 ) preserve positive definiteness, thereby ensuring that the resulting search directions remain descent directions. This requirement imposes the following restriction on 𝜂 𝑘 :
+
+𝜂 𝑘 > 𝜂 ∗ 
+
+> 𝑘
+
+≡ − 1
+
+ℎ𝑘 𝑏 𝑘 − 1 = − 1
+
+𝑎 𝑘 
+
+, (90) where 
+
+𝑏 𝑘 = 𝐬 ⊤𝑘 𝐵 𝑘 𝐬 𝑘 
+
+𝐲 ⊤𝑘 𝐬 𝑘 
+
+, (91) 
+
+ℎ𝑘 = 𝐲 ⊤𝑘 𝐻 𝑘 𝐲 𝑘 
+
+𝐲 ⊤𝑘 𝐬 𝑘 
+
+. (92) Note that if 𝐻 𝑘 is positive definite, then 𝜂 ∗ 
+
+> 𝑘
+
+is negative. Indeed, 
+
+𝑎 𝑘 ≡ ℎ𝑘 𝑏 𝑘 − 1 = 
+
+(𝐲 ⊤𝑘 𝐻 𝑘 𝐲 𝑘 
+
+) ( 𝐬 ⊤𝑘 𝐵 𝑘 𝐬 𝑘 
+
+)(𝐲 ⊤𝑘 𝐬 𝑘 
+
+)2 − 1 = 
+
+‖‖‖𝐻 1∕2  
+
+> 𝑘
+
+𝐲 𝑘 
+
+‖‖‖ 
+
+> 2
+
+‖‖‖𝐵 1∕2  
+
+> 𝑘
+
+𝐬 𝑘 
+
+‖‖‖
+
+> 2
+
+[(
+
+𝐻 1∕2  
+
+> 𝑘
+
+𝐲 𝑘 
+
+)⊤ (
+
+𝐵 1∕2  
+
+> 𝑘
+
+𝐬 𝑘 
+
+)]2 − 1 ≥ 0, (93) where the last inequality follows from the Cauchy-Schwarz inequality. Another restriction on these parameters can be obtained from the convergence theory of quasi-Newton methods. As shown by Al-Baali [3], the sequence {𝑥 𝑘 }𝑘 ∈ℕ generated by (9), with {𝐻 𝑘 }𝑘 ∈ℕ updated by the self-scaled Broyden formula and {𝛼 𝑘 }𝑘 ∈ℕ chosen to satisfy the Wolfe conditions, converges superlinearly for convex objective functions if 
+
+𝜂 𝑘 𝜏 𝑘 ∈ [0 , 1) , provided that 0 < 𝜏 𝑘 ≤ 1. In particular, the scaled version of BFGS, corresponding to 𝜙 𝑘 = 1 , with 
+
+𝜏 (1)  
+
+> 𝑘
+
+∶= min{1 , 𝜏 OL  
+
+> 𝑘
+
+}. (94) where 
+
+𝜏 OL  
+
+> 𝑘
+
+= 1
+
+𝑏 𝑘 
+
+≡ 𝐲 ⊤𝑘 𝐬 𝑘 
+
+𝐬 ⊤𝑘 𝐵 𝑘 𝐬 𝑘 
+
+= − 𝐲 ⊤𝑘 𝐬 𝑘 
+
+𝛼 𝑘 𝐬 ⊤𝑘 𝐠 𝑘 
+
+, (95) where 𝜏 OL  
+
+> 𝑘
+
+is the Oren–Luenberger scaling factor [57]. This choice has been shown to be competitive with the unscaled BFGS algorithm, corresponding to 𝜏 𝑘 = 1 , including in PINN applications; see, for example, [70, 43]. Moreover, if 𝜙 𝑘 
+
+is also allowed to vary with the iterations, then the following choice of 𝜏 𝑘 and 𝜙 𝑘 , originally introduced by Al-Baali and Khalfan [4], can be used: 
+
+𝜏 (2)  
+
+> 𝑘
+
+=
+
+⎧⎪⎨⎪⎩
+
+𝜏 (1)  
+
+> 𝑘
+
+min 
+
+(
+
+𝜎 −1∕( 𝑛 −1)  
+
+> 𝑘
+
+, 1
+
+> 𝜂 𝑘
+
+)
+
+if 𝜂 𝑘 > 0min 
+
+(
+
+𝜏 (1)  
+
+> 𝑘
+
+𝜎 −1∕( 𝑛 −1)  
+
+> 𝑘
+
+, 𝜎 𝑘 
+
+)
+
+if 𝜂 𝑘 ≤ 0, (96) 
+
+𝜂 (2)  
+
+> 𝑘
+
+= max 
+
+(
+
+𝜂 − 
+
+> 𝑘
+
+, min 
+
+(
+
+𝜂 + 
+
+> 𝑘
+
+, 1 − 𝑏 𝑘 
+
+𝑏 𝑘 
+
+)) 
+
+, (97) where 𝑛 = size( 𝜽 𝑘 ) denotes the total number of trainable parameters, and 
+
+𝜎 𝑘 = 1 + 𝑎 𝑘 𝜂 (2)  
+
+> 𝑘
+
+, (98) 
+
+𝜂 − 
+
+> 𝑘
+
+= 𝜌 − 
+
+> 𝑘
+
+− 1 
+
+𝑎 𝑘 
+
+, (99) 
+
+Jnini et al.: Preprint submitted to Elsevier Page 50 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+𝜂 + 
+
+> 𝑘
+
+= 1
+
+𝜌 −
+
+> 𝑘
+
+, (100) 
+
+𝜌 − 
+
+> 𝑘
+
+= min (1, ℎ 𝑘 (1 − 𝑐 𝑘 )) , (101) 
+
+𝑐 𝑘 =
+
+√ 𝑎 𝑘 
+
+𝑎 𝑘 + 1 . (102) This choice has also produced very accurate results for a range of physics problems in PINNs; see, for example, [70, 43]. To preserve the positive definiteness of the quasi-Newton update, the curvature condition 𝐲 ⊤𝑘 𝐬 𝑘 > 0 must hold at every iteration. To enforce this requirement, suitable line-search strategies are employed. In this work, the focus is on inexact line-search methods used in conjunction with quasi-Newton optimizers. In particular, backtracking line-search procedures based on the Armijo–Wolfe conditions [75] are considered, together with the zoom line-search algorithm described in [55]. Given a descent direction 𝑑 𝑘 , the step length 𝛼 𝑘 is chosen to satisfy the following conditions: 
+
+• Armijo (sufficient decrease) condition: 
+
+𝑓 (𝑥 𝑘 + 𝛼 𝑘 𝑑 𝑘 ) ≤ 𝑓 (𝑥 𝑘 ) + 𝑐 1𝛼 𝑘 ∇𝑓 (𝑥 𝑘 )⊤𝑑 𝑘 , 0 < 𝑐 1 < 1. (103) 
+
+• Wolfe curvature condition: 
+
+∇𝑓 (𝑥 𝑘 + 𝛼 𝑘 𝑑 𝑘 )⊤𝑑 𝑘 ≥ 𝑐 2∇𝑓 (𝑥 𝑘 )⊤𝑑 𝑘 , 𝑐 1 < 𝑐 2 < 1. (104) 
+
+• Strong Wolfe condition (enforced via the zoom procedure): 
+
+|||∇𝑓 (𝑥 𝑘 + 𝛼 𝑘 𝑑 𝑘 )⊤𝑑 𝑘 
+
+||| ≤ 𝑐 2
+
+|||∇𝑓 (𝑥 𝑘 )⊤𝑑 𝑘 
+
+||| . (105) In addition to line-search strategies, a linear trust-region approach is also considered as an alternative globalization mechanism [15]. In this setting, the step is computed by minimizing a first-order model of the objective subject to a trust-region constraint, 
+
+min 
+
+> 𝑝 𝑘
+
+𝑚 𝑘 (𝑝 𝑘 ) = 𝑓 (𝑥 𝑘 ) + ∇ 𝑓 (𝑥 𝑘 )⊤𝑝 𝑘 , subject to ‖𝑝 𝑘 ‖ ≤ Δ𝑘 , (106) where Δ𝑘 > 0 denotes the trust-region radius. The resulting step is given by the Cauchy, or steepest-descent, direction truncated to the trust-region boundary, 
+
+𝑝 𝑘 = −Δ 𝑘 
+
+∇𝑓 (𝑥 𝑘 )
+
+‖∇𝑓 (𝑥 𝑘 )‖ . (107) The step is then accepted, and the trust-region radius is updated using the ratio of actual to predicted reduction, 
+
+𝜌 𝑘 = 𝑓 (𝑥 𝑘 ) − 𝑓 (𝑥 𝑘 + 𝑝 𝑘 )
+
+𝑚 𝑘 (0) − 𝑚 𝑘 (𝑝 𝑘 ) . (108) with Δ𝑘 adjusted adaptively based on the value of 𝜌 𝑘 . For a more detailed and rigorous treatment of trust-region methods, we refer the reader to Chapter 4 of [55]. 
+
+## B. Details on 2D Helmholtz problem 
+
+In this section, we discuss the 2D Helmholtz problem in greater detail for the cases 𝑎 1 = 1 and 𝑎 2 = 4 , considering both 𝐾 = 10 and 𝐾 = 100 .  
+
+> Jnini et al.: Preprint submitted to Elsevier Page 51 of 53
+
+Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Case 𝐾 Optimizer Relative 𝐿 ∞ Relative 𝐿 2 Training time (s) # parameters 
+
+11 10 SSBFGS ( optx.TrustRegion ) 7.6 × 10 −6 6.3 × 10 −6 564 4051 12 10 SSBFGS ( optx.Wolfe ) 2.0 × 10 +00 2.4 × 10 +00 449 4051 13 10 SSBroyden ( optx.TrustRegion ) 8.5 × 10 −7 6.9 × 10 −7 617 4051 14 10 SSBroyden ( optx.Wolfe ) 4.7 × 10 −7 4.2 × 10 −7 475 4051 15 10 NG 5.5 × 10 −8 8.0 × 10 −8 587 4051 16 100 SSBFGS ( optx.TrustRegion ) 7.0 × 10 −6 3.6 × 10 −6 336 4051 17 100 SSBFGS ( optx.Wolfe ) 5.8 × 10 −7 2.8 × 10 −7 377 4051 18 100 SSBroyden ( optx.TrustRegion ) 1.0 × 10 −6 4.0 × 10 −7 341 4051 19 100 SSBroyden ( optx.Wolfe ) 3.9 × 10 −7 2.0 × 10 −7 384 4051 20 100 NG 1.0 × 10 −7 2.9 × 10 −8 296 4051 
+
+Table 16: 2D Helmholtz problem with 𝑎 1 = 1 , 𝑎 2 = 4 , and K = 1. All optimizers use the same fully connected network architecture with four hidden layers and 30 neurons per layer. The Fourier feature mapping in 40 uses mode 
+
+𝑚 = 1 , resulting in four input features. 
+
+## C. Stochastic SSBFGS and SSBroyden Methods 
+
+This appendix presents detailed pseudocode for the stochastic SSBFGS and SSBroyden optimizers in Algorithm 2. 
+
+## D. Proof of Theorem 2.1 
+
+Proof. Define the function 𝑔 ∶ [0 , 1] → ℝ𝑛 by 
+
+𝑔 (𝑡 ) ∶= ∇ 𝑓 (𝑥 𝑘 −1 + 𝑡𝑠 𝑘 −1 ).
+
+Since 𝑓 ∈ 𝐶 2(ℝ𝑛 ), the function 𝑔 is continuously differentiable and 
+
+𝑔 ′(𝑡 ) = ∇ 2𝑓 (𝑥 𝑘 −1 + 𝑡𝑠 𝑘 −1 ) 𝑠 𝑘 −1 .
+
+By the Fundamental Theorem of Calculus, 
+
+𝑦 𝑘 −1 = 𝑔 (1) − 𝑔 (0) = ∫
+
+> 10
+
+𝑔 ′(𝑡 ) 𝑑𝑡 
+
+= ∫
+
+> 10
+
+∇2𝑓 (𝑥 𝑘 −1 + 𝑡𝑠 𝑘 −1 ) 𝑠 𝑘 −1 𝑑𝑡. 
+
+Since the Hessian is continuous, the Mean Value Theorem for integrals implies that there exists 𝜃 ∈ (0 , 1) such that 
+
+𝑦 𝑘 −1 = ∇ 2𝑓 (𝑥 𝑘 −1 + 𝜽 𝑠 𝑘 −1 ) 𝑠 𝑘 −1 ,
+
+which proves (20). Taking the inner product with 𝑠 𝑘 −1 yields 
+
+𝑦 ⊤𝑘 −1 𝑠 𝑘 −1 = 𝑠 ⊤𝑘 −1 ∇2𝑓 (𝜉 ) 𝑠 𝑘 −1 .
+
+Using the uniform positive definiteness assumption (18), we obtain 
+
+𝑠 ⊤𝑘 −1 ∇2𝑓 (𝜉 ) 𝑠 𝑘 −1 ≥ 𝜏 ‖𝑠 𝑘 −1 ‖2,
+
+which establishes (21). 
+
+Jnini et al.: Preprint submitted to Elsevier Page 52 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Algorithm 2: Lazy Stochastic sSSBFGS and sSSBroyden for Mini-Batch Training 
+
+Input: Neural network model 𝑓 𝜃 with parameters 𝜃 ∈ ℝ𝑛 
+
+Input: Learning rate 𝜂 > 0, damping threshold 𝜏 > 0, mini-batch size 𝐵 , number of iterations 𝐾 
+
+Output: Trained model parameters 𝜃  
+
+> 1
+
+Initialize Hessian approximation 𝐻 0 ← 𝐼 𝑛  
+
+> 2
+
+Initialize previous gradient 𝑔 0 ← 0 
+
+> 3
+
+Initialize model parameters 𝜃 0 
+
+> 4
+
+for 𝑘 ← 0 to 𝐾 − 1 do  
+
+> 5
+
+Sample mini-batch 𝑘 of size 𝐵  
+
+> 6
+
+Compute mini-batch loss: 𝐿 𝑘 ← Loss (𝜃 𝑘 ; 𝑘 ) 
+
+> 7
+
+Compute gradient: 𝑔 𝑘 ← ∇𝜃 𝐿 𝑘  
+
+> 8
+
+if 𝑘 > 0 then  
+
+> 9
+
+Compute step and gradient difference:  
+
+> 10
+
+𝑠 𝑘 −1 ← −𝜂𝐻 𝑘 −1 𝑔 𝑘 −1  
+
+> 11
+
+𝑦 𝑘 −1 ← 𝑔 𝑘 − 𝑔 𝑘 −1  
+
+> 12
+
+if 𝑦 ⊤𝑘 −1 𝑠 𝑘 −1 ≥ 𝜏 ‖𝑠 𝑘 −1 ‖2 then  
+
+> 13
+
+Update Hessian:  
+
+> 14
+
+𝐻 𝑘 ← 1
+
+> 𝜏 𝑘 −1
+
+[
+
+𝐻 𝑘 −1 − 𝐻 𝑘 −1 𝑦 𝑘 −1 𝑦 𝑇 𝑘 −1 𝐻 𝑘 −1 
+
+> 𝑦 𝑇 𝑘 −1 𝐻 𝑘 −1 𝑦 𝑘 −1
+
++ 𝜙 𝑘 −1 𝑣 𝑘 −1 𝑣 𝑇 𝑘 −1 
+
+]
+
++ 𝑠 𝑘 −1 𝑠 𝑇 𝑘 −1 
+
+> 𝑦 𝑇 𝑘 −1 𝑠 𝑘 −1
+
+, 
+
+> 15
+
+end if  
+
+> 16
+
+else  
+
+> 17
+
+𝐻 𝑘 ← 𝐻 𝑘 −1  
+
+> 18
+
+end if  
+
+> 19
+
+end if  
+
+> 20
+
+else  
+
+> 21
+
+𝐻 𝑘 ← 𝐻 0 
+
+> 22
+
+end if  
+
+> 23
+
+Compute update direction: Δ𝜃 𝑘 ← −𝜂𝐻 𝑘 𝑔 𝑘  
+
+> 24
+
+Update parameters: 𝜃 𝑘 +1 ← 𝜃 𝑘 + Δ 𝜃 𝑘  
+
+> 25
+
+Store previous gradient: 𝑔 𝑘 → 𝑔 𝑘 −1  
+
+> 26
+
+end for 
+
+## E. Correctness of Algorithm 2 
+
+To demonstrate the correctness of Algorithm 2, we compare its convergence behavior with that of Adam using batch training, alongside the sSSBFGS update, for a one-dimensional Poisson equation given by 
+
+𝑑 2𝑢 𝑑𝑥 2 = 𝑓 (𝑥 ), 𝑥 ∈ [0 , 1] ,𝑓 (𝑥 ) = − sin( 𝜋𝑥 ),
+
+(109) subject to the Dirichlet boundary conditions 
+
+𝑢 (0) = 0 , 𝑢 (1) = 0 .
+
+The convergence histories of Adam and sSSBFGS for batch training are shown in Figure 24, with results reported in FP32 precision. Notably, sSSBFGS attains FP32-level accuracy, whereas Adam does not converge to the same level, indicating that sSSBFGS achieves machine precision in the batch training setting. 
+
+Jnini et al.: Preprint submitted to Elsevier Page 53 of 53 Curvature-Aware Optimization for High-Accuracy PINNs 
+
+Figure 24: Comparison of batch training using Adam and the sSSBFGS approach (Algorithm 2) for the 1D Poisson equation. Notably, in FP32 precision, the sSSBFGS algorithm reaches loss values on the order of 10 −7 , significantly outperforming Adam. Jnini et al.: Preprint submitted to Elsevier Page 54 of 53
