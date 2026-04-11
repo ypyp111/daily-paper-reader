@@ -6,73 +6,61 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-10
-- 运行时间：2026-04-10 19:24:10 UTC
+- 最新运行日期：2026-04-11
+- 运行时间：2026-04-11 19:19:19 UTC
 - 运行状态：成功
-- 本次总论文数：17
-- 精读区：6
+- 本次总论文数：13
+- 精读区：2
 - 速读区：11
 
 ### 今日简报（AI）
-今日精选 17 篇论文，深度探讨科学计算从“现象拟合”向“内生演绎”的物理 AI 范式跃迁。
-重点推荐两篇满分论文：Flow Learners 开启了物理到物理的计算新范式，而 $\phi$-DeepONet 成功攻克了神经算子捕捉间断点的难题。
-建议关注神经算子在复杂物理场景下的演进，以及形式化验证在自动化科研猜想中的应用潜力。
-- 详情：[/202604/10/README](/202604/10/README)
+今日深入探索 AI 赋能的科学发现，涵盖从端到端自动化科研框架到恒星结构方程的深度学习建模。
+重点关注 ResearchEVO 如何实现科研全流程自动化，以及自监督 PINNs 在天体物理研究中的突破性应用。
+建议读者从 AI 辅助科研（AI4S）视角出发，了解大模型如何从实验设计跨越到复杂物理逻辑推理。
+- 详情：[/202604/11/README](/202604/11/README)
 
 ### 精读区论文标签
-1. [Flow Learners for PDEs: Toward a Physics-to-Physics Paradigm for Scientific Computing](/202604/10/2604.07366v1-flow-learners-for-pdes-toward-a-physics-to-physics-paradigm-for-scientific-computing)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：讨论了用于科学计算和PDE求解的PINN、神经算子和生成式AI
-2. [$φ-$DeepONet: A Discontinuity Capturing Neural Operator](/202604/10/2604.08076v1--deeponet-a-discontinuity-capturing-neural-operator)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：用于处理不连续性的物理信息神经算子
-3. [From Perception to Autonomous Computational Modeling: A Multi-Agent Approach](/202604/10/2604.06788v1-from-perception-to-autonomous-computational-modeling-a-multi-agent-approach)  
+1. [ResearchEVO: An End-to-End Framework for Automated Scientific Discovery and Documentation](/202604/11/2604.05587v1-researchevo-an-end-to-end-framework-for-automated-scientific-discovery-and-documentation)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于自主计算力学和求解器执行的多智能体方法
-4. [Physics-Informed Functional Link Constrained Framework with Domain Mapping for Solving Bending Analysis of an Exponentially Loaded Perforated Beam](/202604/10/2604.07025v1-physics-informed-functional-link-constrained-framework-with-domain-mapping-for-solving-bending-analysis-of-an-exponentially-loaded-perforated-beam)  
+   evidence：大模型引导的协同进化用于自动算法逻辑和架构发现
+2. [Learning the Stellar Structure Equations via Self-supervised Physics-Informed Neural Networks](/202604/11/2604.06255v1-learning-the-stellar-structure-equations-via-self-supervised-physics-informed-neural-networks)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于求解梁控制微分方程的物理信息框架
-5. [RoboPhD: Evolving Diverse Complex Agents Under Tight Evaluation Budgets](/202604/10/2604.04347v1-robophd-evolving-diverse-complex-agents-under-tight-evaluation-budgets)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：LLM引导的智能体演化与自动化研究
-6. [Bias-Constrained Diffusion Schedules for PDE Emulations: Reconstruction Error Minimization and Efficient Unrolled Training](/202604/10/2604.08357v1-bias-constrained-diffusion-schedules-for-pde-emulations-reconstruction-error-minimization-and-efficient-unrolled-training)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：用于PDE仿真和时空动力学的扩散模型
+   evidence：用于恒星结构方程的自监督PINN框架
 
 ### 速读区论文标签
-1. [Learning interpretable and stable dynamical models via mixed-integer Lyapunov-constrained optimization](/202604/10/2604.07611v1-learning-interpretable-and-stable-dynamical-models-via-mixed-integer-lyapunov-constrained-optimization)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：数据驱动的稳定动力学模型与微分方程发现
-2. [From Phenomenological Fitting to Endogenous Deduction: A Paradigm Leap via Meta-Principle Physics Architecture](/202604/10/2604.08245v1-from-phenomenological-fitting-to-endogenous-deduction-a-paradigm-leap-via-meta-principle-physics-architecture)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：将物理元原理嵌入神经网络架构
-3. [Automated Conjecture Resolution with Formal Verification](/202604/10/2604.03789v1-automated-conjecture-resolution-with-formal-verification)  
+1. [Self-Optimizing Multi-Agent Systems for Deep Research](/202604/11/2604.02988v1-self-optimizing-multi-agent-systems-for-deep-research)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于研究级数学推理和形式化验证的大模型智能体
-4. [Assessing Large Language Models for Stabilizing Numerical Expressions in Scientific Software](/202604/10/2604.04854v3-assessing-large-language-models-for-stabilizing-numerical-expressions-in-scientific-software)  
+   evidence：用于复杂研究任务的自优化多智能体系统
+2. [Evolutionary Search for Automated Design of Uncertainty Quantification Methods](/202604/11/2604.03473v1-evolutionary-search-for-automated-design-of-uncertainty-quantification-methods)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：大模型用于科学软件中的数值表达式稳定化
-5. [StatsClaw: An AI-Collaborative Workflow for Statistical Software Development](/202604/10/2604.04871v1-statsclaw-an-ai-collaborative-workflow-for-statistical-software-development)  
+   evidence：利用LLM驱动的进化搜索自动发现算法
+3. [FeynmanBench: Benchmarking Multimodal LLMs on Diagrammatic Physics Reasoning](/202604/11/2604.03893v1-feynmanbench-benchmarking-multimodal-llms-on-diagrammatic-physics-reasoning)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于自动统计算法实现的多智能体架构
-6. [Can Large Language Models Reinvent Foundational Algorithms?](/202604/10/2604.05716v1-can-large-language-models-reinvent-foundational-algorithms)  
+   evidence：评估大语言模型在图表物理推理和代数表示方面的能力
+4. [Profile-Then-Reason: Bounded Semantic Complexity for Tool-Augmented Language Agents](/202604/11/2604.04131v1-profile-then-reason-bounded-semantic-complexity-for-tool-augmented-language-agents)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：大语言模型用于重新发明科学发现中的基础算法
-7. [Multi-Agent Orchestration for High-Throughput Materials Screening on a Leadership-Class System](/202604/10/2604.07681v1-multi-agent-orchestration-for-high-throughput-materials-screening-on-a-leadership-class-system)  
+   evidence：具有结构化推理工作流的工具增强型语言智能体
+5. [PaperOrchestra: A Multi-Agent Framework for Automated AI Research Paper Writing](/202604/11/2604.05018v1-paperorchestra-a-multi-agent-framework-for-automated-ai-research-paper-writing)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于自主科学工作流和筛选的多智能体编排
-8. [PyVRP$^+$: LLM-Driven Metacognitive Heuristic Evolution for Hybrid Genetic Search in Vehicle Routing Problems](/202604/10/2604.07872v1-pyvrp-llm-driven-metacognitive-heuristic-evolution-for-hybrid-genetic-search-in-vehicle-routing-problems)  
+   evidence：用于自动化科学发现写作的多智能体框架
+6. [On the Unique Recovery of Transport Maps and Vector Fields from Finite Measure-Valued Data](/202604/11/2604.07671v1-on-the-unique-recovery-of-transport-maps-and-vector-fields-from-finite-measure-valued-data)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：大模型驱动的元认知启发式演化用于优化算法
-9. [Domain-Contextualized Inference: A Computable Graph Architecture for Explicit-Domain Reasoning](/202604/10/2604.04344v1-domain-contextualized-inference-a-computable-graph-architecture-for-explicit-domain-reasoning)  
+   evidence：对数据驱动动力系统和偏微分方程反问题的见解
+7. [SEARL: Joint Optimization of Policy and Tool Graph Memory for Self-Evolving Agents](/202604/11/2604.07791v1-searl-joint-optimization-of-policy-and-tool-graph-memory-for-self-evolving-agents)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：用于工具合成和推理的自演化智能体框架
+8. [Generative AI for material design: A mechanics perspective from burgers to matter](/202604/11/2604.03409v1-generative-ai-for-material-design-a-mechanics-perspective-from-burgers-to-matter)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于显式推理的领域上下文推理架构
-10. [Qualixar OS: A Universal Operating System for AI Agent Orchestration](/202604/10/2604.06392v1-qualixar-os-a-universal-operating-system-for-ai-agent-orchestration)  
+   evidence：生成式AI、随机微分方程与力学之间的联系
+9. [Combee: Scaling Prompt Learning for Self-Improving Language Model Agents](/202604/11/2604.04247v1-combee-scaling-prompt-learning-for-self-improving-language-model-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于通用AI智能体编排和多智能体拓扑的操作系统
-11. [AI-Driven Research for Databases](/202604/10/2604.06566v1-ai-driven-research-for-databases)  
+   evidence：为自我改进智能体扩展提示学习
+10. [Artificial Intelligence and the Structure of Mathematics](/202604/11/2604.06107v1-artificial-intelligence-and-the-structure-of-mathematics)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：大语言模型用于研究中的自动化方案发现和代码生成
+   evidence：人工智能用于自主发现数学概念和形式化证明
+11. [Cognitive Loop of Thought: Reversible Hierarchical Markov Chain for Efficient Mathematical Reasoning](/202604/11/2604.06805v1-cognitive-loop-of-thought-reversible-hierarchical-markov-chain-for-efficient-mathematical-reasoning)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：用于大模型高效数学推理的思维链框架
 
 
 <div class="dpr-home-promo-card">
