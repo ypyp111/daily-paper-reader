@@ -1,0 +1,2442 @@
+Title: ANTIC: Adaptive Neural Temporal In-situ Compressor
+
+URL Source: https://arxiv.org/pdf/2604.09543v1
+
+Published Time: Mon, 13 Apr 2026 01:19:41 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# ANTIC : Adaptive Neural Temporal In-situ Compressor 
+
+Sandeep S. Cranganore * 1 Andrei Bodnar * 2 Gianluca Galleti 1 3 Fabian Paischer 1 3 Johannes Brandstetter 1 3 
+
+AndreiB137/ANTIC 
+
+Abstract 
+
+The persistent storage requirements for high-resolution, spatiotemporally evolving fields gov-erned by large-scale and high-dimensional par-tial differential equations (PDEs) have reached the petabyte-to-exabyte scale. Transient simula-tions modeling Navier-Stokes equations, magne-tohydrodynamics, plasma physics, or binary black hole mergers generate data volumes that are pro-hibitive for modern high-performance computing (HPC) infrastructures. To address this bottleneck, we introduce ANTIC (Adaptive Neural Temporal in situ Compressor ), an end-to-end in situ com-pression pipeline. ANTIC consists of an adaptive temporal selector tailored to high-dimensional physics that identifies and filters informative snap-shots at simulation time, combined with a spatial neural compression module based on continual fine-tuning that learns residual updates between adjacent snapshots using neural fields. By oper-ating in a single streaming pass , ANTIC enables a combined compression of temporal and spatial components and effectively alleviates the need for explicit on-disk storage of entire time-evolved tra-jectories. Experimental results demonstrate how storage reductions of several orders of magnitude relate to physics accuracy. 
+
+1. Introduction 
+
+As the spatiotemporal resolutions of large-scale high-dimensional scientific computing simulations such as com-putational fluid dynamics (Ashton et al., 2025, CFD), plasma physics (Siena et al., 2025; Paischer et al., 2025a), high energy physics (CERN, 2025), weather and climate 
+
+> 1
+
+Institute for Machine Learning, Ellis Unit, JKU Linz, Aus-tria 2University of Manchester, United Kingdom 3EMMI AI, Linz, Austria. Correspondence to: Sandeep S. Cranganore <cranganore@ml.jku.at >, Andrei Bodnar <an-drei.bodnar@student.manchester.ac.uk >.
+
+Preprint. April 13, 2026. 
+
+modeling (Govett et al., 2024; Bodnar et al., 2025b) con-tinue to increase, the generated data volume of transient data has grown from tens of petabytes to exabytes. His-torically, storage capacity followed a rapid exponential in-crease (Kryder & Kim, 2009). However, the pace of storage cost reduction has slowed in recent decades and is no longer advancing at the same rate as compute capability and cost, which continues to evolve under Moore-like scaling. As a result, explosive data growth poses a severe bottleneck for broader adoption and scalability of advanced scientific workflows. For instance, high-fidelity volumetric CFD sim-ulations might contain at least 10 , 000 evolution steps with simulation meshes of billions to trillions of volumetric mesh cells (Rossinelli et al., 2013), that result in petabytes of stor-age requirements (Ashton et al., 2025). Rapidly expanding storage demands are expected to soon exceed the capacity of existing HPC infrastructures (Reed & Dongarra, 2015; Luttgau et al., 2018; Thomas et al., 2021; HPCwire, 2025). Data reduction in large-scale scientific simulations can be viewed along two complementary axes, (i) the temporal axis, which determines which snapshots to retain, and (ii) the spa-tial axis, which governs how each snapshot is compressed. Offline (post-hoc) compression is infeasible for large-scale simulations that reach petascale or exascale due to the over-whelming storage demands. Therefore, compression must be performed online (in-situ) as the simulation evolves, avoiding the need to archive the original trajectory. However, most existing in-situ compression methods are not based on the temporal behavior of the underlying physics. Stiff or multi-rate PDE simulations exhibit pronounced multiscale dynamics (Hairer & Wanner, 1996; Gottlieb et al., 2009), where existing temporal subsampling techniques may miss fast transient dynamics or oversample slow and uneventful phases. Furthermore, the nonlinear and multiscale behavior of stiff PDEs exhibit non-stationarity along the spatial axis, which challenges traditional compression schemes based on fixed spatial representations. To address these critical bottlenecks, we introduce ANTIC 
+
+(Adaptive Neural Temporal In-situ Compressor ), an in-situ 
+
+framework that addresses both the temporal and spatial axes by incorporating (i) a Physics-aware Temporal Selector driven by physics of interest, and (ii) Spatial Neural Com-1
+
+> arXiv:2604.09543v1 [cs.LG] 10 Apr 2026
+
+Submission and Formatting Instructions for ICML 2026 Physics-aware Temporal Selector Weight Storage Spatial Neural Compression params = {'layer_1' : {'weights' : ..., 'biases' : ... }, 'layer_2' : {'weights' : ..., 'biases' : ... }, ... params = {'layer_1' : {'weights' : ..., 'biases' : ... }, 'layer_2' : {'weights' : ..., 'biases' : ... }, ... params = {'layer_1' : {'weights' : ..., 'biases' : ... }, 'layer_2' : {'weights' : ..., 'biases' : ... }, ... Gate-Regulator 
+
+Figure 1. Figure 1: Schematic Overview of ANTIC . ANTIC facilitates high-fidelity neural compression via a dual-stage asynchronous architecture. Physics-aware Temporal Selector serves as a physics-aware filter that identifies salient physical transients. Spatial Neural Compression encodes the selected snapshots into compact NN weights, stored in the persistent storage. ANTIC enables a combined in-situ compression resulting in multi-fold reduction in data volume while preserving the temporal coherence of the entire simulation. 
+
+pression based on continual fine-tuning (CFT) of neural fields (Takikawa et al., 2023, NFs) to learn residuals between adjacent snapshots. The temporal selector provides an ac-ceptance/rejection decision informed by physics-of-interest of a new snapshot and a context of preceding snapshots. For spatial compression, CFT learns the residuals of a new snapshot to the preceding one in the form of NF weights. Learning these residuals can be done via full fine-tuning or low-rank updates (Hu et al., 2021). By varying the rank of the residual updates, we expose an accuracy-memory Pareto front that can be traversed according to the user’s needs. We evaluate the efficacy of ANTIC across three fundamen-tal axes: (i) Storage Efficiency , quantified by the aggregate spatiotemporal compression ratio; (ii) Spatial Fidelity , as-sessing the physics reconstruction quality upon decompres-sion; (iii) Computational Throughput , measuring the train-ing-time per temporal snapshot. We consider two physical regimes characterized by multirate dynamics and temporal stiffness (Hairer et al., 2008; Hairer & Wanner, 1996): tur-bulent 2D Kolmogorov flows and a large-scale 3D Binary Black Hole (BBH) merger simulation comprising 4.2 TiB of data. On the 2D Kolmogorov turbulence, ANTIC reduces the number of compressed snapshots by 62 % alongside a 
+
+47 × spatial compression factor per snapshot, resulting in a net compression of up to 435 ×. The 3D BBH merger (Pretorius, 2005), serves as a memory-intensive simulation example for which ANTIC achieves ∼ 45 % temporal reduc-tion coupled with spatial compression ratios up to 3744 ×
+
+per snapshot, resulting in spatiotemporal compression of up to 6807 × for the whole trajectory. To summarize, we make the following contributions: • We propose ANTIC , an in-situ compression framework for multi-rate/stiff PDE simulations that combines adpative temporal sampling with spatial compression. • PDE-dependent physics-aware metrics for salient tempo-ral snapshot selection. • Neural spatial compression based on CFT of residuals between adjacent snapshots. 
+
+2. Background 
+
+In general, there are two different axes along which com-pression can occur in-situ for stiff PDEs, the spatial and the temporal dimension. Many existing works focus on either of them in isolation or combine them in an offline setup. We elaborate on the different existing techniques below. 
+
+2.1. Temporal Frame Selection Methods 
+
+In the regime of high-fidelity streaming simulations, in-situ keyframe selection is typically mediated by temporal sam-pling schemes and have emerged as a primary strategy for managing large-scale time-varying volumetric datasets. Ex-isting methodologies focus predominantly on identifying salient snapshots to minimize redundancy for post-hoc visu-alization and forensic analysis (Larsen et al., 2022; Wu et al., 2022; Tong et al., 2012; Yamaoka et al., 2019; Wang et al., 2008). However, a critical limitation of these heuristic-based selectors is their agnosticism toward the underlying physical invariants of the dynamical system. By decoupling the sam-pling strategy from the governing physics-based features, these methods can become inefficient when the simulated system changes. Conversely, ANTIC sidesteps this issue by identifying system-specific measures that are sensitive to the physics of interest for different stiff PDEs. 
+
+2.2. Spatial Compression Techniques 
+
+Traditional scientific data reduction techniques primarily rely on transform-based codecs such as JPEG2000 (ISO Central Secretary, 2024), the discrete wavelet transform (DWT) (Kolomenskiy et al., 2022), or leverage low-rank structures through tensor compression (Ballester-Ripoll et al., 2020). While these methods and early autoencoder-based architectures (Le & Tao, 2024) provide significant volume reduction, they often struggle to capture the com-plex, multiscale correlations inherent in high-dimensional PDE solvers and can become memory costly for lossless compression methods such as FPZIP (Lindstrom & Isen-2Submission and Formatting Instructions for ICML 2026 
+
+burg, 2006), or ACE (Fout & Ma, 2012). To address these limitations, recent work has increasingly turned toward Neural Fields (Takikawa et al., 2023; Milden-hall et al., 2021; M ¨uller et al., 2022; Mescheder et al., 2019; Dupont et al., 2021; Jia et al., 2025). This paradigm facilitates Neural Compression (NC) by embedding high-dimensional gridfunctions into the compact, differentiable weights of coordinate-based networks. Such representations offer continuous query access and differentiable modeling, yielding several orders of magnitude compression factors for large-scale, multidimensional scientific simulations, while maintaining high-fidelity physics reconstruction. NC has been demonstrated across diverse scientific domains: including multidimensional climate modeling (Huang & Hoefler, 2023), relativistic simulations (Cranganore et al., 2025), and plasma physics (Galletti et al., 2025). The lat-ter achieves memory reductions as high as 70 , 000 × using vector quantization (van den Oord et al., 2017) and physics-informed losses. 
+
+2.3. Parameter-efficient Fine-tuning (PEFTs) 
+
+Parameter-Efficient Fine-Tuning (PEFT) (Mangrulkar et al., 2022), specifically Low-Rank Adaptation (LoRA) (Hu et al., 2021), addresses the prohibitive costs of full-parameter updates by exploiting the low intrinsic dimensionality of high-dimensional models (Aghajanyan et al., 2021). This paradigm assumes that weight updates during adaptation re-side in a low-rank manifold. Consequently, for a frozen pre-trained weight matrix W0 ∈ Rn×m, the updated weights 
+
+W are expressed as an outer product BA where A ∈ Rr×m
+
+and B ∈ Rn×r are trainable low-rank factors with rank 
+
+r ≪ min( m, n ). LoRA introduces zero latency during in-ference, as the product BA can be merged directly into the pre-trained weights. This constrained optimization frame-work has demonstrated the ability to match or exceed the accuracy of full fine-tuning as shown in Xin et al. (2024). Recently, Truong et al. (2025) demonstrated a versatile instance-specific neural field editing via LoRA, which merely requires lightweight updates to pre-trained NF parametrizations for visual data processing and geometry processing tasks (see also Kang et al. (2024); Liu et al. (2021) for other usecases of PEFT in MLPs). Within the compression community, Galletti et al. (2025) stabi-lized physics-informed training of large autoencoders using EVA (Paischer et al., 2025b). We consider LoRA-style fine-tuning to establish a accuracy-complexity trade-off to provide a flexible in-situ framework based on user demands. 
+
+2.4. Codecs & (Neural) Video Compression 
+
+Codecs are generally considered as post-hoc or offline com-pression that combine both temporal and spatial axes. In an offline setup, many aforementioned traditional compression methods can be applied by collapsing the temporal axis into the spatial ones. However, this is infeasible for large-scale scientific simulations due to storage demands as a single trajectory may comprise hundreds of terabytes of data or beyond. Therefore, our setup necessitates online or in-situ compression. Nonetheless, we briefly elaborate on relevant work on offline compression and codecs. Video compression standards, such as H.264 (AVC) (Richardson, 2010), H.265 (HEVC) (Ohm et al., 2012), and VVC (H.266) (Bross et al., 2021), achieve state-of-the-art efficiency by exploiting spatiotemporal redundancies through motion-compensated prediction and residual trans-form coding. By partitioning frames into adaptive Coding Tree Units (CTUs) and leveraging inter-frame dependen-cies, these codecs reduce the bitrate of high-dimensional visual data by multiple orders of magnitude. The emer-gence of Neural Video Compression (NVC) frameworks (Lu et al., 2019) has further advanced this field, achieving rate-distortion performance competitive with, or exceeding, traditional codecs. Recent advances have gravitated toward the integration of NVC with adaptive keyframe (snapshot) selection to opti-mize scene motion dynamics. For instance, Jha et al. (2025) employ momentum-aware thresholding to dynamically cu-rate informative frames, while Zhang & Gao (2025) utilize learned rate-control mechanisms to prioritize frames charac-terized by high information entropy or significant viewpoint shifts. While these computer-vision-centric methods excel at reconstructing 3D scene dynamics for human perception, they fail for scientific computing applications, as they do not consider physics of interest. Prior spatiotemporal adaptive frameworks like MGARD (Gong et al., 2023a;b) modulate numerical precision through feature-aware error bounds while maintaining a uniform temporal output frequency and feature-driven compression. In contrast, ANTIC performs non-uniform temporal selec-tion, leveraging physical saliency (in-situ physics metrics/in-variants extraction) to bypass redundant snapshots entirely in-situ, retaining only high activity snapshots. Furthermore, our NF approach is flexible enabling continual fine-tuning using low-rank schemes and achieves compression ratios significantly exceeding those of classical lossy, error-bound compressors ( Compression NF ≫ Compression classical ) at equivalent fidelity for time-evolved simulations. 
+
+2.5. In-situ Compression 
+
+Other in-situ data compression frameworks of spatiotempo-ral simulation data include Glaws et al. (2020); Balin et al. (2023) for large-scale computational fluid dynamics (CFD), and gyrokinetic tokamak simulations (Lakshminarasimhan et al., 2011, ISABELA ). Although each of these methodolo-3Submission and Formatting Instructions for ICML 2026         
+
+> Figure 2. Workflow of ANTIC . A new snapshot at time t+ 1 is passed over by the simulator. The Metric extracts physics of inter-est for the new snapshot ϕt+1 , which is passed to the Regulator. Based on ϕt+1 , the regulator truncates the context queue and adds
+> ϕt+1 . Finally, the truncated context is passed to the gate along with
+> ϕt+1 to determine whether or not to compress the new snapshot.
+
+gies lack either an adaptive temporal selection criteria or NC. As a result, these methods offer modest compression rates ( ∼ 7%), or are based on autoencoders with fixed-sized latents that are not resolution invariant. ANTIC differs as it combines a temporal selector that is tailored toward physics-of-interest and by providing a accuracy-memory pareto front for spatial compression that can be tailored to the user’s needs. 
+
+3. Methodology 
+
+ANTIC consists of two core components, (i) Physics-aware Temporal Selector (PATS), and (ii) spatial neural compres-sion that is postulated as traversing a rate-distortion pareto front. We eleborate on the PATS and its core parts in Sec-tion 3.1. The spatial neural compression is explained in detail in Section 3.2. The corresponding pseudocode for 
+
+ANTIC is detailed in Algo. 3. 
+
+3.1. Physics-aware Temporal Selector 
+
+The PATS is realized as a non-parametric modular architec-ture, consisting of four vital parts (see Figure 2), namely (i) a Metric, (ii) a Regulator, (iii) a Queue, (iv) and the Gate. 
+
+Queue. The Queue stores the context that is necessary for the Gate to provide a decision on whether to compress the current snapshot or not. It is represented as a sliding window of size W . Importantly, the Queue only maintains the extracted physics metric ϕ(·) for each snapshot in the window {t1, t 2, . . . , t W }. This facilitates the detection of phase transitions captured by the Metric and hence provides vital information on whether or not to compress a snapshot. 
+
+Regulator. After a phase transition is detected, it is vital to rearrange the content of the Queue as the stored snapshot metrics may interfere with each other. The Regulator dy-namically modulates the window size W (variable stopping within W ) of the Queue, ensuring the selection procedure re-mains invariant to non-stationary shifts in the characteristic time-scales of a simulation. Thus, our framework is based on a dynamic regulator . Once a snapshot t∗ is selected and compressed, W is truncated such that t∗ becomes the new reference anchor, effectively resetting the temporal ori-gin (clears memory of previous steps) for the subsequent selection window. 
+
+Metric. The Metric is the core component that induces a notion of physics-awareness. Depending on the underlying PDE system, the Metric is instantiated with different mea-sures. For fluid dynamics, for example, phase transitions may be characterized via the enstrophy signal (Doering & Gibbon, 1995), whereas for gravitational wave model-ing it might be instantiated as the magnitude of the Weyl scalar (Teukolsky, 1973; Hinder et al., 2011; Iozzo et al., 2021). Based on the underlying PDE, this function is com-puted for each new snapshot that arrives from the simulation, where it is propagated to the Regulator. 
+
+Gate. This unit functions as a local decision engine de-signed to resolve transient physical phenomena that escape fixed-interval selection schemes. It receives the current truncated context from the Queue and the physics quantity from the Metric to form a dynamic threshold. This thresh-old has two use-cases. First, it facilitates the final decision on whether or not a new snapshot should be compressed. Secondly, it serves as a feedback signal to the Regulator, enabling it to adaptively modulate the window size for the next snapshot. 
+
+3.2. Spatial Neural Compression 
+
+To enable effective spatial compression, we adopt a CFT–based adaptation strategy using neural fields. For many PDEs, successive solution states evolved at different time intervals ∆t differ primarily by smooth, low-magnitude perturbations governed by the underlying dynamics. Rather than compressing each state independently, these perturba-tions can be naturally captured by fine-tuning a neural field initialized at time t to learn an implicit representation at 
+
+t + ∆ t. This procedure simplifies the learning task as only the residual between adjacent snapshots needs to be encoded in the neural field weights. Through this lens, fine-tuning can be re-interpreted as con-tinually learning a residual update to a pretrained neural field as the simulation evolves. Specifically, we define per-turbative temporal changes between successive snapshots as u(t + ∆ t) − u(t) ≈ ∆u(t). The perturbative update 
+
+∆u(t) is encoded in an incremental update to the weights of a neural field as Wt+∆ t = Wt + ∆ W∆t.Leveraging LoRA as a fine-tuning strategy, we can repa-rameterize the perturbative weight update as ∆W∆t =
+
+A(∆ t)B(∆ t), where A ∈ Rn×r and B ∈ Rr×k are train-able matrices of rank r ≪ min( n, k ). This reparameter-4Submission and Formatting Instructions for ICML 2026 
+
+ization induces a natural trade-off between compression rate and reconstruction accuracy. Restricting the update capacity, i.e., the rank of A(∆ t)B(∆ t), limits the number of parameters required to encode the residual, and hence reduces the memory footprint, but may increase distortion, whereas full fine-tuning reduces distortion at the cost of a larger memory footprint. By transitioning between LoRA and full fine-tuning, we obtain a family of models that span an accuracy–compression (rate–distortion) Pareto frontier. 
+
+4. Experiment Setup 
+
+Our two main experiments constitute the 2D Kolmogorov flow and 3D Binary Black Hole (BBH) merger. The 2D Kolmogorov flow serves as a stress-test for our PATS; its multi-rate eddy dynamics and localized Reynolds number fluctuations provide a rigorous validation for non-uniform sampling (Hairer et al., 2008). The 3D BBH simulation represents our primary stress test for extreme spatial NC. Given the high-resolution volumetric tensor fields and the 4D nature of the simulation, it provides an ideal testbed for investigating the accuracy-memory trade-off across our proposed training paradigms. 
+
+2D Kolmogorov flow simulations. This benchmark serves as a controlled environment to validate the PATS mod-ule’s capacity to resolve high-wavenumber components and transient spatiotemporal correlations. Starting from high-frequency initial conditions (Dresdner et al., 2022), the sys-tem evolves through a transition to decaying turbulence where small-scale vortices coalesce. The data generation pipeline is based on JAX − CFD (Dresdner et al., 2022). The memory-per-snapshot is 17 MiB , yielding 16.8 GiB for an entire trajectory of 1000 time-steps. The data preparation specifics is detailed in Appendix B.1. We select enstro-phy as the physics metric for the decaying turbulence fluid, which is defined as 
+
+E(t) = 12
+
+Z
+
+> Ω⊂R2
+
+|| ω(x, y, t )|| 2dA, (1) where ω is the scalar vorticity field over a 2D domain Ω.Enstrophy encodes the magnitude of turbulence, therefore it is an ideal proxy to determine fast/slow evolving regions to inform our PATS. 
+
+3D Binary Black Hole (BBH) Mergers. The 3D BBH merger describes a high-dimensional dynamical system in which two black holes evolve and merge within a learned geometry, while emitting gravitational waves that encode and transmit information about the system’s changing in-ternal state. The underlying system is governed by the Einstein Field Equations (EFEs), a system of highly non-linear, second-order hyperbolic-elliptic tensor-valued PDEs that describes the gravitational field as distortions of the 4D spacetime geometry induced by matter. As analytic solutions are restricted to idealized symmetries, Numer-ical Relativity (NR) is required to model complex astro-physical phenomena (Abbott et al., 2016a;b). We employ the Baumgarte-Shapiro-Shibata-Nakamura (BSSN) formal-ism, a stable 3 + 1 decomposition (Baumgarte & Shapiro, 2010; Shibata & Nakamura, 1995; Hayashi et al., 2025) that evolves volumetric scalar, vector, and tensor fields (the BSSN variables) over time. The simulation stream is gener-ated via JAX NR (Bodnar et al., 2025a), a GPU-accelerated NR solver. Each temporal snapshot comprises 18 evolved variables totaling 0.7 GiB , with a complete trajectory ( 5, 966 
+
+steps) yielding 4.2 TiB of raw data. Refer to Section B.2 for a formal derivation of the BSSN system and data prepro-cessing protocols. In gravitational wave detection, the Weyl scalar Ψ4(t, r) (Teukolsky, 1973; Iozzo et al., 2021; Hinder et al., 2011) extracted at a radius r is a crucial complex-valued scalar quantity that describes the outgoing transverse radiation field used in extracting waveforms from NR sim-ulations. Simply put, the Weyl scalar measures how the outgoing gravitational wave field develops and propagates over time, isolating the merging event of the two black holes. Therefore, we instantiate our metric with it to facilitate on-line salient snapshot selection. 
+
+4.1. NF Implementation Details 
+
+The NC module employs a coordinate-based MLP with SiLU activations (Elfwing et al., 2018) as a base model. The architecture of the base model is based on 256 × 6 (hidden size × number of layers), amounting to ∼ 0.4M parameters. To mitigate spectral bias and resolve high-vorticity tran-sients in the Kolmogorov flows, we employ Fourier Feature Mapping (FFM) (Tancik et al., 2020) with an embedding dimension of 256 . We use the SOAP optimizer (Vyas et al., 2025), a second-order preconditioner, with a cosine anneal-ing scheduler (Loshchilov & Hutter, 2017). We initially observed numerical instabilities of CFT arising from ex-ploding weight magnitudes. To mitigate this we employ LayerNorm (Ba et al., 2016), which stabilizes the distri-bution of intermediate activations across continual weight updates, and weight decay (Loshchilov & Hutter, 2019), which penalizes large weight magnitudes and prevents un-bounded growth of the parameter norm across successive snapshots. For training and CFT of the base model (Scratch) the learning rate is annealed from 10 −3 to 10 −5. If CFT is instantiated via LoRA, we use a higher initial rate of 10 −2
+
+following the recommendations of Hayou et al. (2024). Fur-thermore, we always sweep over LoRA ranks. By default, all our training runs are conducted in FLOAT32 precision. Detailed hyperparameter configurations for both 2D Kol-mogorov and 3D BSSN simulations are provided in Ap-pendix B.1.1 and B.2.1. 5Submission and Formatting Instructions for ICML 2026 
+
+Table 1. Performance of ANTIC compared to baselines on 2D Kolmogorov flows and 3D BSSN simulation trajectories . We compare (i) Uniform sparse sampling (every 5th step), (ii) Dense sampling (every timestep), combined with (i) traditional compression ( ZFP ), (ii) CFT, or (iii) CFT via LoRA fine-tuning. For comparison to ZFP we match reconstruction quality to ANTIC and compare for compression ratio. TR (Temporal Retention) denotes the percentage of the simulation duration preserved and Physics-awareness (PA) denotes whether or not the temporal selector uses a PDE specific metric. SC (Spatial Compression) and TC (Total Compression) represent the memory reduction factors. ANTIC consistently outperforms ZFP and different temporal sampling schemes. In Sec. F, we report the performance of neural compression (CFT, CFT +LoRA) against well-known scientific computing classical compressors like SZ3 , MGARD , Blosc-2 zstd , clearly indicating the extreme compression obtained via neural fields for 3D high-resolution tensor-valued BSSN evolution simulations. 
+
+METHOD 2D K OLMOGOROV FLOWS (16.8 G IB) 3D BSSN SIMULATIONS (4.2 T IB) TR( ↑)
+
+(%) 
+
+PA 
+
+(✓/✗)
+
+SC( ↑)
+
+(×) 
+
+TC( ↑)
+
+(×) 
+
+TR( ↑)
+
+(×) 
+
+PA 
+
+(✓/✗)
+
+SC( ↑)
+
+(×) 
+
+TC( ↑)
+
+(×)  
+
+> SPARSE SAMPLING
+
++ ZFP [TOL =1e-1] 20% ✗ 13 × 65 × 20% ✗ 27 × 141 ×
+
+DENSE SAMPLING + ZFP [TOL =1e-1] 100% ✓ 13 × 13 × 100% ✓ 27 × 28 ×
+
+PATS + ZFP [TOL =1e-1] 37% ✓ 13 × 120 × 55% ✓ 27 × 52 ×
+
+SPARSE SAMPLING + FT 20% ✗ 12 × 60 × 20% ✗ 471 × 2457 ×
+
+SPARSE SAMPLING + L ORA 20% ✗ 47 × [r : 32 ] 235 × 20% ✗ 3744 × [r : 16 ] 18720 ×
+
+DENSE SAMPLING + FT 100% ✓ 12 × 12 × 100% ✓ 471 × 471 ×
+
+DENSE SAMPLING + L ORA 100% ✓ 47 × [r : 32 ] 47 × 100% ✓ 3744 × [r : 16 ] 3744 ×
+
+ANT IC-FT ( OURS ) 37% ✓ 12 × 111 × 55% ✓ 471 × 860 ×
+
+ANT IC-L ORA ( OURS ) 37% ✓ 47 × [r : 32 ] 435 × 55% ✓ 3744 × [r : 16 ] 6807 ×
+
+5. Results 
+
+The performance of ANTIC is gauged by validating the com-bined performance of its two core modules across disparate physical regimes: (i) the PATS detailed in Sec. 3.1 for re-solving transient dynamics, and (ii) the NC for spatial com-pression as described in Sec. 3.2. We present the results in detail for each usecase. Moreover, we show for the 2D Kolmogorov flows that our methods’ high-fidelity global reconstruction capabilities persist even over long-horizons, detailed in Sec. G.1. 
+
+5.1. 2D Kolmogorov flow simulations Main results. We report results for two variants of ANTIC ,namely (i) ANTIC -FT, which always performs full fine-tun-ing for CFT, and (ii) ANTIC -LoRA, which uses low-rank adaptation instead. We compare our ANTIC variants to vari-ous temporal sampling approaches (Sparse or Dense) and to a classical compression method, namely ZFP (Lindstrom, 2014). All methods are tuned to reach a similar and accept-able level of reconstruction quality (relative ℓ2 ∼ 10 −3) and we compare the resulting compression ratios. To evaluate the different approaches, we report total compression (TC), which combines temporal retention (TR) with spatial com-pression (SC) in Table 1. Our proposed variants achieve the highest temporal coherence, consistently outperforming both Sparse (every 5th snapshot) and Dense (every snapshot) baselines. Specifically, compared to ZFP , ANTIC provides 
+
+4× greater spatial compression. Furthermore, due to the PATS module we successfully retain meaningful transients as shown in Fig. 3 (left) which amounts to 37% TR of the en-tire trajectory. In contrast, Dense sampling attains 100% TR, but results in significantly lower TC as it compresses every snapshot. Vice-versa, Sparse sampling results in low (20%) TR, but high TC, however, neglects plenty of informative transients. In terms of SC, FT and LoRA attain comparable or higher compression rates as ZFP . We also refer the reader to Sec. F for comparison against other scientific computing classical compression algorithms. High-fidelity global reconstruction of turbulence-laden fluid simulations, including the faithful capture of local phys-ical structures, is also a core requirement of ANTIC . To substantiate that ANTIC consistently achieves a relative 
+
+ℓ2 error in the 10 −3–10 −4 range, we evaluate reconstruc-tion quality against the ground truth through three comple-mentary diagnostics: the enstrophy flux signal E(t), the maximum absolute pointwise error, and the vorticity field 
+
+ω(x, t ) ∀x ∈ R2 at representative timesteps spanning the peak turbulent regime. Reconstruction plots and quantitative results are reported in Sec. G.1. 
+
+PATS module contribution. Fig. 3a illustrates the efficacy of PATS on the 2D Kolmogorov flow, which aggressively sparsifies snapshots during the decaying turbulence phase (T > 10 ). Furthermore, it isolates non-stationary transients, reducing temporal retention to 37% , without compromising physical fidelity. The necessity of the PATS submodule for physics-informed, in-situ salient snapshot selection is sub-stantiated in Section H, where we demonstrate that physics-6Submission and Formatting Instructions for ICML 2026 
+
+agnostic temporal selectors (for e.g. visual-computing/3D scene reconstruction) such as momentum-aware key-frame selector (Jha et al., 2025) or even information-theoretic (cf. (Yamaoka et al., 2019)) entropy based selectors: Jensen-Shannon divergence, residual differential entropy, spectral and normalized mutual information systematically fail to identify dynamically critical transients in multi-scale, high-dimensional PDE simulation trajectories, thus making them unsuitable for realistic large-scale simulations. 
+
+NC module contribution. We present results for different training strategies, namely (i) training a NF from scratch for each snapshot, (ii), continual fine-tuning (CFT), and (iii), continual fine-tuning via LoRA ( r ∈ { 8, 16 , 32 , 64 }). We sweep model sizes from 32 × 2 (40 KiB) up to 512 × 8 (7.5 MiB). The Pareto-frontier in Fig. 4a (left) plots the mean rel ℓ2 over five subsequent snapshots in the high-enstrophy regime for the best performing model size 512 × 8 (an ex-tended version is detailed in Section D). Interestingly, CFT is 30% more accurate than training from scratch. Moreover, LoRA ( r = 32 ) achieves accuracy on-par with CFT while reducing parameter storage by 4×. Furthermore, LoRA (r = 64 ) defines the state-of-the-art Pareto front, yielding a 30% improvement in Mean Rel. ℓ2 and MAE over CFT. This configuration achieves a 23 × compression factor rela-tive to the 17 MiB ground-truth per snapshot. We provide Rel. ℓ2 and MAE for all configurations in Table 2.                                                  
+
+> Table 2. Accuracy metrics vs memory footprints for 2D Kol-mogorov flows. Different spatial compression schemes evaluated across five sequential snapshots in a highly-turbulent regime. The last column reports the memory compression per snapshot relative to the 17 MiB ground truth. Continual fine-tuning using LoRA establishes an accuracy-memory pareto front.
+> Method Mean Rel. ℓ2
+> (5 snapshots) Mean MAE (5 snapshots) Mem. /snapshot
+> SCRATCH 1.7e-3 ±8.5e-5 0.20 ±0.026 1.50 MiB ( 12 ×)FULL FT 6.1e-4 ±8.0e-6 0.061 ±0.011 1.50 MiB ( 12 ×)LORA 8 6.9e-2 ±6.3e-3 0.63 ±0.09 98 KiB (188 ×)
+> LORA 16 2.1e-2 ±2.5e-3 0.13 ±0.02 196 KiB (94 ×)
+> LORA 32 6.8e-4 ±7.0e-5 0.063 ±0.011 392 KiB ( 47 ×)LORA 64 4.3e-4 ±2.4e-5 0.041 ±0.006 784 KiB ( 23 ×)
+
+5.2. 3D BBH merger simulations Main results. We report the results for the 3D BBH merger trajectory in Table 1. For this use-case, our proposed vari-ants, ANTIC -FT, LoRA achieve extreme compression ratios (3410 ×), and high temporal coherence on the complex 3D relativistic simulations. Importantly, this compression ra-tio is achieved while maintaining reconstruction quality of relative ℓ2 ∈ [10 −5, 10 −4]. Again, ANTIC consistently outperforms both Sparse and Dense baselines. Due to the Weyl-scalar metric used in PATS, we successfully retain                                                 
+
+> Table 3. Accuracy metrics vs memory footprints for 3D BBH merger simulations. Different spatial compression schemes eval-uated across five sequential snapshots within the black hole merger regime. For completenees, we report wallclock-time per snapshot in the last column for the different training schemes.
+> Method Mean Rel. ℓ2
+> (5 snapshots) Mem. / snapshot Time / snapshot
+> SCRATCH 6.2e-4 ±4.2e-5 1.52 MiB ( 471 ×)∼162 (s) FULL FT 4.6e-4 ±7.6e-5 1.52 MiB ( 471 ×)∼162 (s) LORA 8 6.0e-4 ±4.1e-5 98 KiB (7489 ×)∼131 (s) LORA 16 5.7e-4 ±3.9e-5 196 KiB ( 3744 ×)∼133 (s) LORA 32 5.3e-4 ±3.7e-5 392 KiB ( 1872 ×)∼137 (s) LORA 64 4.6e-4 ±3.2e-5 784 KiB ( 936 ×)∼149 (s)
+
+the activity near the merger phase ( T ∈ [150 M − 200 M ])shown in Fig. 3b, yielding a 55% TR, due to pre/post merger sparsification. In terms of spatial compression, our method offers a significant data volume reduction between ( 17 × -
+
+65 ×) compared to PATS +ZFP .The Weyl scalar serves as the primary observable for char-acterizing the amplitude, frequency, and phase evolution of gravitational waves emitted during compact binary merg-ers. High-fidelity “global reconstruction” of Ψ4 (we show the magnitude alone) at a fixed extraction radius is there-fore essential for post-hoc gravitational wave analysis. As demonstrated in Sec. G.2, ANTIC achieves a relative ℓ2 error of 10 −4–10 −5 and a maximum absolute error in |Ψ4(t/M )|
+
+of ∼ 10 −5 from in-situ neural-field-parametrized snapshots. The BSSN-evolved lapse function α (Sec. B.2) achieves a consistent relative ℓ2 error of 10 −4–10 −5 across the spatial domain, with the exception of the black hole interior region; this region requires numerical excision and is appropriately excluded from the error evaluation. 
+
+PATS module contribution. Fig. 3b shows that PATS using the Weyl-scalar guided metric attains temporal fil-tering of 55 % retention with dense sampling between 
+
+T ∈ [145 M, 185 M ] (merger phase), and reduced sam-pling during pre-merger (until T = 140 M ) and postmerger phases ( T > 210 M ).
+
+NC module contribution. We again sweep the same model sizes as for Kolmogorov flows and show the resulting pareto fronts in Fig. 4b for the best model of size 512 × 8 (an extended version is detailed in Section D). Notably, CFT and LoRAs ( r : 8 , · · · , 64 ) clearly outperform training from scratch. For an accuracy range of [10 −4, 10 −5] one can achieve an extreme compression factor relative to the raw simulation ground truth of size 0.7 GiB per BSSN-evolved snapshot, amounting up to 3744 ×. Detailed metrics for the base model, including rel. ℓ2 and training-time, are provided in Table 3. Moreover, the extreme data-volume reduction capabilities of neural fields compared to traditional scientific 7Submission and Formatting Instructions for ICML 2026 0.000           
+
+> 0.001
+> 0.002
+> 0.003
+> 0.004
+> 0.005
+> 0.006
+> 0.007
+> 0.008
+> Abs.  (x, y, t)
+> Temporal Retention: 37.60 %
+> 0510 15 20 25
+> Simulation Time (s)
+> 1 (Dense)
+> 5 (Sparse)
+> Jump Size  t0.0000
+> 0.0001
+> 0.0002
+> 0.0003
+> 0.0004
+> 0.0005
+> 0.0006
+> 0.0007
+> Weyl scalar magnitude ||  4(t, r)||
+> Temporal Retention: 55.18 %
+> 050 100 150 200 250
+> Simulation Time (s)
+> 1 (Dense)
+> 5 (Sparse)
+> Jump Size (  t)
+
+Figure 3. Qualitative results for Physics-aware Adaptive Temporal Selection. (Left) The enstrophy flux (top) identifies turbulent regions in 2D Kolomogorov flows, hence is well suited as metric for our PATS. As a consequence, PATS densely samples at the start of the trajectory that exhibits strong chaotic behavior, whereas sampling more sparsely in non-turbulent regions. (Right) The Weyl scalar (top) isolates the non-linear gravitational wave (GW), resulting in dense sampling around the merger region and sparse sampling otherwise. 200 500 1000 2000 5000 
+
+Memory [KiB] 
+
+10 3
+
+> Mean Rel.  2 Error
+
+Scratch 
+
+Full FT 
+
+LoRA 8 
+
+LoRA 16 
+
+LoRA 32 
+
+LoRA 64 
+
+(a) 2D Kolmogorov flow pareto-front for spatial compression. 
+
+Averaged relative ℓ2 error over 5 subsequent frames in highly-turbulent window as a function of parameter memory (KiB). We compare three training paradigms: (i) compressing each snapshot from scratch, (ii) continual fine-Tuning via full fine-tuning (FT), and (iii) via LoRA ( r ∈ [8 , 64] ). As the trendlines demonstrate, LoRA ( r > 32 ) attains a comparable error to FT while significantly improving compression rate. 200 500 1000 2000 5000 
+
+Memory [KiB] 
+
+4 × 10 4
+
+5 × 10 4
+
+> Mean Rel.  2 Error
+
+Scratch 
+
+Full FT 
+
+LoRA 8 
+
+LoRA 16 
+
+LoRA 32 
+
+LoRA 64 
+
+(b) 3D BBH merger pareto-front for spatial compression. Aver-aged relative ℓ2 error over 5 subsequent frames in the near merger regime as a function of parameter memory (KiB). We compare three training paradigms: (i) compressing each snapshot from scratch, (ii) continual fine-Tuning via full fine-tuning (FT), and (iii) via LoRA (r ∈ [8 , 64] ). LoRA-edited NFs (ranks r ≥ 8) attain a comparable error to FT while significantly improving compression rate. 
+
+computing compressors becomes pronounced for such multi-dimensional high-resolution mesh-intensive snapshots as detailed in Sec. F. 
+
+5.3. Neural Compression Scalability and In-Situ Feasibility 
+
+Traditional PDE solvers scale super-linearly with spatial res-olution, as advancing a single timestep ∆t requires applying numerical stencils and satisfying CFL stability constraints across all N d mesh points, with wall-clock costs growing 8Submission and Formatting Instructions for ICML 2026 
+
+as O(N d) or worse under adaptive mesh refinement. Neu-ral field training, by contrast, operates on a fixed-capacity implicit network whose parameter count is decoupled from grid resolution, yielding sub-linear growth in training over-head with increasing resolution. We analyze this scaling be-havior in detail for CFL-constrained 2D solvers and bench-mark this in Sec. I. Furthermore, neural fields admit patch-based training over disjoint spatial subdomains, offering an additional avenue for acceleration in mesh-intensive use cases. Importantly, Sec. E and Table 4 demonstrate that CFT-based neural compression significantly reduces per-snapshot train-ing time by learning only residual updates between suc-cessive snapshots. For our main use case, i.e. the 3D bi-nary black hole merger simulations — CFT converges to a per-snapshot MSE of ∼ 10 −8 in approximately 1/10 th the epochs required by cold-start parametrization, reducing per-snapshot training time from ∼ 45 s to ∼ 4.5 s (a speedup exceeding 10 ×). This demonstrates that CFT exploits inter-snapshot continuity to reduce the per-snapshot encoding cost from O(Tcold ) to O(TCFT ) ≪ Tcold .Together, the resolution-decoupled scaling of neural field training and the inter-snapshot efficiency of CFT establish that neural compression is a viable and practical paradigm for in-situ integration with large-scale, mesh-intensive PDE simulations, reducing the throughput gap between the solver and the training. 
+
+6. Limitations. 
+
+(i) Computational Latency. Despite the CFT scheme re-ducing per-snapshot neural compression wall-clock time by 
+
+> 10 × relative to cold-start parametrization, the solver usu-ally remains an order of magnitude faster than neural field training (Sec. E). While the sub-linear scaling of neural com-pression relative to CFL-constrained solvers progressively closes this gap at high resolutions (Sec. I), achieving real-time in-situ deployment will require further reductions in per-snapshot training latency. (ii) Derivative Fidelity. Stan-dard MLPs lack the inductive bias necessary to faithfully preserve high-order spatial derivatives, which are critical for downstream physics analysis and automatic differenti-ation pipelines. This limitation can be partially addressed through Sobolev-space supervision via higher-order deriva-tive losses (Czarnecki et al., 2017), though at the cost of additional training overhead. (iii) Domain-Specific Tem-poral Metrics. The physics-based signal powering PATS is necessarily tailored to the underlying PDE system; for instance, enstrophy flux for turbulent flows and the Weyl scalar for spacetime evolution. We demonstrated that this specificity confers clear advantages over physics-agnostic selectors (Sec. H), however the construction of generaliz-able, PDE-agnostic temporal selectors that retain sensitivity to dynamically critical transients remains an open prob-lem, which we defer to future investigation. (iv) Off-Grid Generalization. The present study trains and evaluates 
+
+ANTIC on the simulation grid, optimizing the relative ℓ2
+
+error over grid-coincident coordinates. Generalization to arbitrary off-grid query points, enabled by the continuous implicit representation of the neural field, remains to be systematically validated and constitutes a natural extension of this work. 
+
+7. Conclusion 
+
+We have introduced ANTIC , an end-to-end in-situ neural compression pipeline paving the way for extreme compres-sion for large-scale scientific simulations. ANTIC combines a physics-aware temporal selector, tailored to the dynam-ical structure of high-dimensional PDE trajectories, with a spatial neural compression module that is based on con-tinual fine-tuning (CFT) of neural fields on salient snap-shot. CFT reduces per-snapshot encoding cost by exploiting inter-snapshot continuity, requiring only perturbative weight updates between subsequent neural fields, yielding a 10 ×
+
+reduction in training wall-clock time relative to cold-start methodologies. ANTIC integrates seamlessly into complex simulation streams, achieving compression ratios exceeding 
+
+400 × for turbulent 2D Kolmogorov flows and 10 ,000 × for 3D BSSN evolved binary black hole merger simulations, while maintaining spatial fidelity across both use cases. It equips practitioners with a principled and computationally efficient tool for the in-situ storage of high-dimensional scientific simulation data as problem scales and physical complexity continue to grow. 
+
+Future Work. We believe that our work opens up fruitful and insightful future research topics. (i) Integration. As a first step, we aim for deployment of ANTIC into HPC-scale simulation pipelines in computational fluid dynam-ics (Nielsen et al.; Rossinelli et al., 2013; Jia et al.) or other compute and memory intensive simulations such as gyrokinetics or astrophysics. This includes data and pipeline parallelism for decreasing wall-clock training time related bottlenecks of neural spatial compression. (ii) Learning temporal selection. Our Physics-aware Temporal Selector ultimately constitutes a binary decision making process as the simulation evolves. In the future we aim to investigate whether we can learn a decision making policy via reinforce-ment learning to enhance universality. 9Submission and Formatting Instructions for ICML 2026 
+
+Impact Statement 
+
+This work addresses a growing bottleneck in large-scale scientific computing by reducing the storage and data-management burden of high-resolution PDE simulations. By enabling efficient in-situ compression of spatiotemporally evolving fields, the proposed method can make large-scale simulations more accessible to researchers with limited stor-age resources and reduce the energy and infrastructure costs associated with them. Potential downstream applications span climate modeling, fluid dynamics, plasma physics, and astrophysics, where long-running simulations are essential for scientific discovery. The method is designed for sci-entific data compression and does not introduce new risks beyond those already present in numerical simulation and data-driven modeling; however, care must be taken to en-sure that compression-induced errors remain acceptable for downstream analysis. 
+
+Acknowledgements 
+
+The ELLIS Unit Linz, the LIT AI Lab, the Institute for Machine Learning, are supported by the Federal State Upper Austria. We thank the projects FWF AIRI FG 9-N (10.55776/FG9), AI4GreenHeatingGrids (FFG-899943), Stars4Waters (HORIZON-CL6-2021-CLIMATE-01-01). We thank NXAI GmbH, Audi AG, Silicon Austria Labs (SAL), Merck Healthcare KGaA, GLS (Univ. Water-loo), T ¨UV Holding GmbH, Software Competence Center Hagenberg GmbH, dSPACE GmbH, TRUMPF SE + Co. KG. Sandeep S. Cranganore was supported by the FWF Bilat-eral Artificial Intelligence initiative under Grant Agreement number 10.55776/COE12. 
+
+References 
+
+Abbott, B. P. et al. Observation of gravitational waves from a binary black hole merger. Phys. Rev. Lett. , 116:061102, Feb 2016a. doi: 10.1103/PhysRevLett.116.061102. Abbott, B. P. et al. Gw150914: The advanced ligo detectors in the era of first discoveries. Phys. Rev. Lett. , 116:131103, Mar 2016b. doi: 10.1103/PhysRevLett.116.131103. Aghajanyan, A., Gupta, S., and Zettlemoyer, L. Intrin-sic dimensionality explains the effectiveness of language model fine-tuning. In Zong, C., Xia, F., Li, W., and Navigli, R. (eds.), Proceedings of the 59th Annual Meet-ing of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Lan-guage Processing, ACL/IJCNLP 2021, (Volume 1: Long Papers), Virtual Event, August 1-6, 2021 , pp. 7319–7328. Association for Computational Linguistics, 2021. doi: 10.18653/v1/2021.acl-long.568. Ashton, N., Brandstetter, J., and Mishra, S. Fluid intelli-gence: A forward look on ai foundation models in com-putational fluid dynamics, 2025. Ba, L. J., Kiros, J. R., and Hinton, G. E. Layer normalization. 
+
+CoRR , abs/1607.06450, 2016. URL http://arxiv. org/abs/1607.06450 .Balin, R., Simini, F., Simpson, C., Shao, A., Rigazzi, A., Ellis, M., Becker, S., Doostan, A., Evans, J. A., and Jansen, K. E. In situ framework for coupling simulation and machine learning with application to cfd, 2023. Ballester-Ripoll, R., Lindstrom, P., and Pajarola, R. Tthresh: Tensor compression for multidimensional visual data. 
+
+IEEE Transactions on Visualization and Computer Graph-ics , 26(9):2891–2903, 2020. doi: 10.1109/TVCG.2019. 2904063. Baumgarte, T. W. and Shapiro, S. L. Numerical Relativity: Solving Einstein’s Equations on the Computer . Cam-bridge University Press, 2010. Blosc Development Team. A fast, compressed and persistent data store library, 2009-2025. https://blosc.org. Bodnar, A., Cranganore, S. S., and Brandstetter, J. JAX NR, 2025a. GitHub repository. Bodnar, C., Bruinsma, W. P., Lucic, A., Stanley, M., Allen, A., Brandstetter, J., Garvan, P., Riechert, M., Weyn, J. A., Dong, H., et al. A foundation model for the earth system. 
+
+Nature , pp. 1–8, 2025b. Bradbury, J., Frostig, R., Hawkins, P., Johnson, M. J., Leary, C., Maclaurin, D., Necula, G., Paszke, A., VanderPlas, J., Wanderman-Milne, S., and Zhang, Q. JAX: composable transformations of Python+NumPy programs, 2018. Bross, B., Wang, Y.-K., Ye, Y., Liu, S., Chen, J., Sullivan, G. J., and Ohm, J.-R. Overview of the versatile video coding (vvc) standard and its applications. IEEE Trans-actions on Circuits and Systems for Video Technology ,31(10):3736–3764, 2021. doi: 10.1109/TCSVT.2021. 3101953. CERN. CERN hits one exabyte of stored experimental data from the LHC, dec 2025. Accessed: 2026-01-06. Cranganore, S. S., Bodnar, A., Berzins, A., and Brandstetter, J. Einstein fields: A neural perspective to computational general relativity, 2025. Czarnecki, W. M., Osindero, S., Jaderberg, M., Swirszcz, G., and Pascanu, R. Sobolev training for neural networks. In Guyon, I., von Luxburg, U., Bengio, S., Wallach, H. M., Fergus, R., Vishwanathan, S. V. N., and Garnett, R. (eds.), 
+
+Advances in Neural Information Processing Systems 30: 
+
+10 Submission and Formatting Instructions for ICML 2026 
+
+Annual Conference on Neural Information Processing Systems 2017, December 4-9, 2017, Long Beach, CA, USA , pp. 4278–4287, 2017. Doering, C. R. and Gibbon, J. D. Applied Analysis of the Navier-Stokes Equations . Cambridge Texts in Applied Mathematics. Cambridge University Press, 1995. Dresdner, G., Kochkov, D., Norgaard, P., Zepeda-N ´u ˜nez, L., Smith, J. A., Brenner, M. P., and Hoyer, S. Learning to correct spectral methods for simulating turbulent flows. 2022. doi: 10.48550/ARXIV.2207.00556. Dupont, E., Goli ´nski, A., Alizadeh, M., Teh, Y. W., and Doucet, A. Coin: Compression with implicit neural rep-resentations, 2021. Elfwing, S., Uchibe, E., and Doya, K. Sigmoid-weighted linear units for neural network function approximation in reinforcement learning. Neural Networks , 107:3–11, 2018. doi: 10.1016/J.NEUNET.2017.12.012. Fout, N. and Ma, K.-L. An adaptive prediction-based approach to lossless compression of floating-point vol-ume data. IEEE Transactions on Visualization and Computer Graphics , 18(12):2295–2304, 2012. doi: 10.1109/TVCG.2012.194. Galletti, G., Gutenbrunner, G., Paischer, F., Cranganore, S. S., Hornsby, W., Carey, N., Zanisi, L., Pamela, S., and Brandstetter, J. Learning to compress plasma turbulence. In NeurIPS 2025 AI for Science Workshop , 2025. Glaws, A., King, R., and Sprague, M. Deep learning for in situ data compression of large turbulent flow simulations. 
+
+Phys. Rev. Fluids , 5:114602, Nov 2020. doi: 10.1103/ PhysRevFluids.5.114602. Gong, Q., Chen, J., Whitney, B., Liang, X., Reshniak, V., Banerjee, T., Lee, J., Rangarajan, A., Wan, L., Vidal, N., Liu, Q., Gainaru, A., Podhorszki, N., Archibald, R., Ranka, S., and Klasky, S. Mgard: A multigrid frame-work for high-performance, error-controlled data com-pression and refactoring. SoftwareX , 24:101590, 2023a. ISSN 2352-7110. doi: https://doi.org/10.1016/j.softx. 2023.101590. Gong, Q., Zhang, C., Liang, X., Reshniak, V., Chen, J., Rangarajan, A., Ranka, S., Vidal, N., Wan, L., Ullrich, P., Podhorszki, N., Jacob, R., and Klasky, S. Spatiotem-porally adaptive compression for scientific dataset with feature preservation – a case study on simulation data with extreme climate events analysis. In 2023 IEEE 19th Inter-national Conference on e-Science (e-Science) , pp. 1–10, 2023b. doi: 10.1109/e-Science58273.2023.10254796. Gottlieb, S., Ketcheson, D. I., and Shu, C.-W. High order strong stability preserving time discretizations. Journal of Scientific Computing , 38(3):251–289, March 2009. Govett, M., Bah, B., Bauer, P., Berod, D., Bouchet, V., Corti, S., Davis, C., Duan, Y., Graham, T., Honda, Y., Hines, A., Jean, M., Ishida, J., Lawrence, B., Li, J., Luterbacher, J., Muroi, C., Rowe, K., Schultz, M., Vis-beck, M., and Williams, K. Exascale computing and data handling: Challenges and opportunities for weather and climate prediction. Bulletin of the American Mete-orological Society , 105(12):E2385 – E2404, 2024. doi: 10.1175/BAMS-D-23-0220.1. Hairer, E. and Wanner, G. Solving Ordinary Differential Equations II , volume 14 of Springer Series in Compu-tational Mathematics . Springer-Verlag, Berlin, Heidel-berg, 2 edition, 1996. ISBN 978-3-540-60452-5. doi: 10.1007/978-3-642-05221-7. Hairer, E., Nørsett, S., and Wanner, G. Solving Ordinary Differential Equations I: Nonstiff Problems . Springer Series in Computational Mathematics. Springer Berlin Heidelberg, 2008. ISBN 9783540566700. Hayashi, K., Kiuchi, K., Kyutoku, K., Sekiguchi, Y., and Shibata, M. Jet from binary neutron star merger with prompt black hole formation. Phys. Rev. Lett. , 134: 211407, May 2025. doi: 10.1103/PhysRevLett.134. 211407. Hayou, S., Ghosh, N., and Yu, B. Lora+: Efficient low rank adaptation of large models. arXiv preprint arXiv:2402.12354 , 2024. Hinder, I., Wardell, B., and Bentivegna, E. Falloff of the weyl scalars in binary black hole spacetimes. Phys. Rev. D, 84:024036, Jul 2011. doi: 10.1103/PhysRevD.84. 024036. HPCwire. Future of storage: Hpc and ai storage by the numbers. , October 2025. Accessed: YYYY-MM-DD. Hu, E. J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., and Chen, W. Lora: Low-rank adaptation of large language models, 2021. Huang, L. and Hoefler, T. Compressing multidimensional weather and climate data into neural networks, 2023. Iozzo, D. A. B., Boyle, M., Deppe, N., Moxon, J., Scheel, M. A., Kidder, L. E., Pfeiffer, H. P., and Teukolsky, S. A. Extending gravitational wave extraction using weyl char-acteristic fields. Phys. Rev. D , 103:024039, Jan 2021. doi: 10.1103/PhysRevD.103.024039. ISO Central Secretary. Information technology — jpeg 2000 image coding system part 1: Core coding system. Stan-dard ISO/IEC 15444-1:2024, International Organization for Standardization, Geneva, CH, 2024. 11 Submission and Formatting Instructions for ICML 2026 
+
+Jha, R., Zhou, Y., and Loianno, G. Adaptive keyframe selection for scalable 3d scene reconstruction in dynamic environments, 2025. Jia, R., Kamel, M. S., Wu, C., and Agrawal, B. Ansys Fluent HPC for Large-Scale CFD Simulations . doi: 10.2514/6. 2025-1950. URL https://arc.aiaa.org/doi/ abs/10.2514/6.2025-1950 .Jia, W., Hu, Z., Liu, Y., Zhang, B., Wang, J., Liu, J., Niu, W., Kalafatis, S., Huang, J., Jin, S., Wang, D., Tian, J., and Yin, M. Neurlz: An online neural learning-based method to enhance scientific lossy compression. In Pro-ceedings of the 39th ACM International Conference on Supercomputing , ICS ’25, pp. 26–42, New York, NY, USA, 2025. Association for Computing Machinery. ISBN 9798400715372. doi: 10.1145/3721145.3725763. Kang, G., Lee, Y., and Park, E. Codecnerf: Toward fast encoding and decoding, compact, and high-quality novel-view synthesis. CoRR , abs/2404.04913, 2024. doi: 10. 48550/ARXIV.2404.04913. Kolomenskiy, D., Onishi, R., and Uehara, H. Waverange: wavelet-based data compression for three-dimensional numerical simulations on regular grids. Journal of Visual-ization , 25(3):543–573, Jun 2022. ISSN 1875-8975. doi: 10.1007/s12650-021-00813-8. Krommes, J. A. The gyrokinetic description of micro-turbulence in magnetized plasmas. Annual Review of Fluid Mechanics , 44(Volume 44, 2012):175–201, 2012. ISSN 1545-4479. doi: https://doi.org/10.1146/ annurev-fluid-120710-101223. Kryder, M. H. and Kim, C. S. After hard drives—what comes next? IEEE Transactions on Magnetics , 45(10): 3406–3413, 2009. doi: 10.1109/TMAG.2009.2024163. Lakshminarasimhan, S., Shah, N., Ethier, S., Klasky, S., Latham, R., Ross, R., and Samatova, N. F. Compress-ing the incompressible with isabela: In-situ reduction of spatio-temporal data. In Jeannot, E., Namyst, R., and Roman, J. (eds.), Euro-Par 2011 Parallel Processing , pp. 366–379, Berlin, Heidelberg, 2011. Springer Berlin Hei-delberg. ISBN 978-3-642-23400-2. Larsen, M., Brugger, E., Childs, H., and Harrison, C. Ascent: A Flyweight In Situ Library for Exascale Simulations. In 
+
+In Situ Visualization For Computational Science , pp. 255 – 279. Mathematics and Visualization book series from Springer Publishing, Cham, Switzerland, May 2022. Le, H. and Tao, J. Hierarchical autoencoder-based lossy compression for large-scale high-resolution scientific data. Computing&AI Connect , 1(1):1, June 2024. ISSN 3104-4719. doi: 10.69709/caic.2024.193132. Liang, X., Zhao, K., Di, S., Li, S., Underwood, R., Gok, A. M., Tian, J., Deng, J., Calhoun, J. C., Tao, D., Chen, Z., and Cappello, F. Sz3: A modular framework for composing prediction-based error-bounded lossy com-pressors, 2021. URL https://arxiv.org/abs/ 2111.02925 .Lindstrom, P. Fixed-rate compressed floating-point arrays. 
+
+IEEE Transactions on Visualization and Computer Graph-ics , 20(12):2674–2683, 2014. doi: 10.1109/TVCG.2014. 2346458. Lindstrom, P. and Isenburg, M. Fast and efficient com-pression of floating-point data. IEEE Transactions on Visualization and Computer Graphics , 12(5):1245–1250, 2006. doi: 10.1109/TVCG.2006.143. Liu, S., Zhang, X., Zhang, Z., Zhang, R., Zhu, J.-Y., and Russell, B. Editing conditional radiance fields. In 2021 IEEE/CVF International Conference on Com-puter Vision (ICCV) , pp. 5773–5783, Los Alamitos, CA, USA, October 2021. IEEE Computer Society. doi: 10.1109/ICCV48922.2021.00572. Loshchilov, I. and Hutter, F. Sgdr: Stochastic gradient descent with warm restarts, 2017. Loshchilov, I. and Hutter, F. Decoupled weight decay regu-larization. In 7th International Conference on Learning Representations, ICLR 2019, New Orleans, LA, USA, May 6-9, 2019 . OpenReview.net, 2019. URL https: //openreview.net/forum?id=Bkg6RiCqY7 .Lu, G., Ouyang, W., Xu, D., Zhang, X., Cai, C., and Gao, Z. Dvc: An end-to-end deep video compression framework. In 2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 10998–11007, 2019. doi: 10.1109/CVPR.2019.01126. Luttgau, J., Kuhn, M., Duwe, K., Alforov, Y., Betke, E., Kunkel, J., and Ludwig, T. Survey of storage systems for high-performance computing. Supercomput. Front. Innov.: Int. J. , 5(1):31–58, March 2018. ISSN 2409-6008. doi: 10.14529/jsfi180103. Mangrulkar, S., Gugger, S., Debut, L., Belkada, Y., Paul, S., Bossan, B., and Tietz, M. PEFT: State-of-the-art parameter-efficient fine-tuning methods, 2022. Mescheder, L., Oechsle, M., Niemeyer, M., Nowozin, S., and Geiger, A. Occupancy networks: Learning 3d reconstruction in function space. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 4455–4465, June 2019. doi: 10.1109/CVPR.2019.00459. 12 Submission and Formatting Instructions for ICML 2026 
+
+Mildenhall, B., Srinivasan, P. P., Tancik, M., Barron, J. T., Ramamoorthi, R., and Ng, R. Nerf: Representing scenes as neural radiance fields for view synthesis. Communica-tions of the ACM , 65(1):99–106, 2021. M ¨uller, T., Evans, A., Schied, C., and Keller, A. Instant neural graphics primitives with a multiresolution hash encoding. ACM Transactions on Graphics , 41(4):1–15, July 2022. ISSN 1557-7368. doi: 10.1145/3528223. 3530127. Nielsen, E. J., Walden, A., Nastac, G., Wang, L., Jones, W., Lohry, M., Anderson, W. K., Diskin, B., Liu, Y., Rumsey, C. L., Iyer, P., Moran, P., and Zubair, M. Large-Scale Computational Fluid Dynamics Simulations of Aerospace Configurations on the Frontier Exascale System . doi: 10.2514/6.2024-3866. Ohm, J.-R., Sullivan, G. J., Schwarz, H., Tan, T. K., and Wiegand, T. Comparison of the coding efficiency of video coding standards—including high efficiency video coding (hevc). IEEE Transactions on circuits and systems for video technology , 22(12):1669–1684, 2012. Paischer, F., Galletti, G., Hornsby, W., Setinek, P., Zanisi, L., Carey, N., Pamela, S., and Brandstetter, J. Gyroswin: 5d surrogates for gyrokinetic plasma turbulence simula-tions. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025a. Paischer, F., Hauzenberger, L., Schmied, T., Alkin, B., Deisenroth, M. P., and Hochreiter, S. One initializa-tion to rule them all: Fine-tuning via explained variance adaptation, 2025b. Pretorius, F. Evolution of binary black-hole spacetimes. 
+
+Phys. Rev. Lett. , 95:121101, Sep 2005. doi: 10.1103/ PhysRevLett.95.121101. Reed, D. A. and Dongarra, J. Exascale computing and big data. Commun. ACM , 58(7):56–68, June 2015. ISSN 0001-0782. doi: 10.1145/2699414. Richardson, I. E. The H.264 Advanced Video Compression Standard . Wiley Publishing, 2nd edition, 2010. ISBN 0470516925. Rossinelli, D., Hejazialhosseini, B., Hadjidoukas, P., Bekas, C., Curioni, A., Bertsch, A., Futral, S., Schmidt, S. J., Adams, N. A., and Koumoutsakos, P. 11 pflop/s simu-lations of cloud cavitation collapse. In Proceedings of the International Conference on High Performance Com-puting, Networking, Storage and Analysis , SC ’13, New York, NY, USA, 2013. Association for Computing Ma-chinery. ISBN 9781450323789. doi: 10.1145/2503210. 2504565. Shibata, M. and Nakamura, T. Evolution of three-dimensional gravitational waves: Harmonic slicing case. 
+
+Phys. Rev. D , 52:5428–5444, Nov 1995. doi: 10.1103/ PhysRevD.52.5428. Siena, A. D., Bourdelle, C., Navarro, A. B., Merlo, G., G ¨orler, T., Fransson, E., Polevoi, A., Kim, S. H., Koechl, F., Loarte, A., Fable, E., Angioni, C., Mantica, P., and Jenko, F. First global gyrokinetic profile predictions of iter burning plasma, 2025. Takikawa, T., Saito, S., Tompkin, J., Sitzmann, V., Srid-har, S., Litany, O., and Yu, A. Neural fields for vi-sual computing: Siggraph 2023 course. In ACM SIG-GRAPH 2023 Courses , SIGGRAPH ’23, New York, NY, USA, 2023. Association for Computing Machinery. ISBN 9798400701450. doi: 10.1145/3587423.3595477. Tancik, M., Srinivasan, P. P., Mildenhall, B., Fridovich-Keil, S., Raghavan, N., Singhal, U., Ramamoorthi, R., Bar-ron, J. T., and Ng, R. Fourier features let networks learn high frequency functions in low dimensional domains. In Larochelle, H., Ranzato, M., Hadsell, R., Balcan, M., and Lin, H. (eds.), Advances in Neural Information Process-ing Systems 33: Annual Conference on Neural Informa-tion Processing Systems 2020, NeurIPS 2020, December 6-12, 2020, virtual , 2020. Teukolsky, S. A. Perturbations of a Rotating Black Hole. I. Fundamental Equations for Gravitational, Electromag-netic, and Neutrino-Field Perturbations. Astrophysical Journal , 185:635–648, October 1973. doi: 10.1086/ 152444. Thomas, L., Gougeaud, S., Rubini, S., Deniel, P., and Boukhobza, J. Predicting file lifetimes for data place-ment in multi-tiered storage systems for hpc. In Pro-ceedings of the Workshop on Challenges and Oppor-tunities of Efficient and Performant Storage Systems ,CHEOPS ’21, New York, NY, USA, 2021. Association for Computing Machinery. ISBN 9781450383028. doi: 10.1145/3439839.3458733. Tong, X., Lee, T.-Y., and Shen, H.-W. Salient time steps selection from large scale time-varying data sets with dynamic time warping. In IEEE Symposium on Large Data Analysis and Visualization (LDAV) , pp. 49–56, 2012. doi: 10.1109/LDAV.2012.6378975. Truong, A., Mahmoud, A. H., Lukovi ´c, M. K., and Solomon, J. Low-rank adaptation of neural fields, 2025. van den Oord, A., Vinyals, O., and Kavukcuoglu, K. Neural discrete representation learning. In Advances in Neural Information Processing Systems (NeurIPS) , volume 30, 2017. 13 Submission and Formatting Instructions for ICML 2026 
+
+Vyas, N., Morwani, D., Zhao, R., Kwun, M., Shapira, I., Brandfonbrener, D., Janson, L., and Kakade, S. Soap: Improving and stabilizing shampoo using adam, 2025. Wang, C., Yu, H., and Ma, K.-L. Importance-driven time-varying data visualization. IEEE Transactions on Visual-ization and Computer Graphics , 14(6):1547–1554, 2008. doi: 10.1109/TVCG.2008.140. Wu, M., Chiang, Y.-J., and Musco, C. Streaming approach to in situ selection of key time steps for time-varying volume data. Computer Graphics Forum , 41(3):309–320, 2022. doi: https://doi.org/10.1111/cgf.14542. Xin, C., Lu, Y., Lin, H., Zhou, S., Zhu, H., Wang, W., Liu, Z., Han, X., and Sun, L. Beyond full fine-tuning: Harnessing the power of LoRA for multi-task instruction tuning. In Calzolari, N., Kan, M.-Y., Hoste, V., Lenci, A., Sakti, S., and Xue, N. (eds.), Proceedings of the 2024 Joint International Conference on Computational Linguistics, Language Resources and Evaluation (LREC-COLING 2024) , pp. 2307–2317, Torino, Italia, May 2024. ELRA and ICCL. Yamaoka, Y., Hayashi, K., Sakamoto, N., and Nonaka, J. In situ adaptive timestep control and visualization based on the spatio-temporal variations of the simulation results. In 
+
+Proceedings of the Workshop on In Situ Infrastructures for Enabling Extreme-Scale Analysis and Visualization , ISAV ’19, pp. 12–16, New York, NY, USA, 2019. Association for Computing Machinery. ISBN 9781450377232. doi: 10.1145/3364228.3364230. Zhang, C. and Gao, W. Learned rate control for frame-level adaptive neural video compression via dynamic neural network, 2025. 14 Submission and Formatting Instructions for ICML 2026 
+
+A. Physics-aware Temporal Selector suite 
+
+Temporal selection criteria vary across domains, depending on the underlying PDE and the transient dynamics dictated by the system’s intrinsic physical phenomena. In our framework, specific physical quantities extracted from the simulation act as a decision engine for identifying salient snapshots. To build a robust, physics-aware selection policy, we extract scalar invariants that serve as time-series proxies for the system’s activity. We clarify that this involves no learnt (ML-based) module. These range from enstrophy flux in 2D or 3D Navier-Stokes equations (Doering & Gibbon, 1995) and the magnitude of outgoing gravitational radiation given by the Weyl scalar Ψ4 (Teukolsky, 1973) or Hamiltonian constraints (Shibata & Nakamura, 1995), to scalar flux fields for gyrokinetic plasma simulations (Krommes, 2012). We introduce a suite of adaptive temporal selectors designed as online snapshot selector s for two primary use cases: (i) 2D Kolmogorov flows and (ii) 3D BSSN BBH merger simulations. The architecture employs a regulator-decision maker configuration, where a dynamical regulator (regulator) and a physics-aware adaptive threshold (decision maker) operate in feedback to dynamically update the sliding window size W as the simulation streams. This architecture is highly flexible and generalizes across several large-scale scientific computing domains by customizing the decision maker component to monitor specific physical invariants and the subsequent extraction of salient snapshots. 
+
+A.1. 2D Kolmogorov flows Algorithm 1 2D Kolmogorov flows in-situ ATS  
+
+> 1:
+
+Input: Trajectory (snapshot) X = {xt}Tt=1 , Enstrophy weights {E t}Tt=1 , Queue size Q, Threshold τ 
+
+> 2:
+
+Output: Set of selected indices S 
+
+> 3:
+
+Initialize: S ← { 0}, s ← 0 {Start index } 
+
+> 4:
+
+Q ← empty deque with maxlen Q 
+
+> 5:
+
+L ← 1 {Last index pointer } 
+
+> 6:
+
+while s < T − 1 do  
+
+> 7:
+
+Compute enstrophy difference: δt = |E t − E t−1| for t ∈ Q  
+
+> 8:
+
+if |Q| = Q or L = T − 1 then  
+
+> 9:
+
+¯δ ← 1
+
+> |Q|
+
+P 
+
+> t∈Q
+
+δt {Mean local enstrophy } 
+
+> 10:
+
+δmax ← max t∈Q δt {Peak transient activity } 
+
+> 11:
+
+η ← pδmax /(¯δ + ϵ) {Stability-weighted gating factor } 
+
+> 12:
+
+i∗ ← s + 1  
+
+> 13:
+
+∆e0 ← |E s+1 − E s| 
+
+> 14:
+
+for i ∈ Q do  
+
+> 15:
+
+∆Ei ← |E i − E s| { Physics divergence } 
+
+> 16:
+
+ρ ← pearson (xi, x s) {Structural correlation } 
+
+> 17:
+
+if ∆Ei/(∆ E0 + ϵ) ≤ η and ρ ≥ τ then  
+
+> 18:
+
+i∗ ← i 
+
+> 19:
+
+else  
+
+> 20:
+
+break {Violation of stability or correlation } 
+
+> 21:
+
+end if  
+
+> 22:
+
+end for  
+
+> 23:
+
+s ← i∗ 
+
+> 24:
+
+S ← S ∪ { i∗} 
+
+> 25:
+
+while |Q| > 0 and Q[0] ≤ s do  
+
+> 26:
+
+Pop leftmost element from Q 
+
+> 27:
+
+end while  
+
+> 28:
+
+end if  
+
+> 29:
+
+if L + 1 < T then  
+
+> 30:
+
+L ← L + 1  
+
+> 31:
+
+Push L to Q 
+
+> 32:
+
+end if  
+
+> 33:
+
+end while  
+
+> 34:
+
+return S
+
+15 Submission and Formatting Instructions for ICML 2026 
+
+• Dynamic Adaptation: The regulator enforces invariance to non-stationary scale-drift resulting from turbulence variations and is structurally a dynamically adapting, look-forward sliding window buffer. The stability factor 
+
+η = pδmax /(¯δ + ϵ) functions as a non-linear physics-based regulator. In regimes where the enstrophy flux is highly volatile (high δmax relative to ¯δ), η increases. This allows the algorithm to extend the selection window during stable, quasi-equilibrium regions. During “physically violent” transitions it opts for an higher subsampling where the enstrophy flux exceeds local averages. • Spatiotemporal Cross-Correlation Metric: In the case of turbulent flows, vorticity fields often manifest as high-frequency spatial components at the pixel level. Thus, the temporal selector risks skipping these frames due to exhibiting marginal temporal variance between successive snapshots. To prevent the loss of these multiscale features, we introduce a spatiotemporal cross-correlation metric that couples the outer sampling loop with the inner neural field (NF) parametrization. By enforcing a structural correlation threshold, c > corr threshold , the feedback mechanism ensures that spatially complex snapshots are also prioritized for sampling even when temporal changes within the sliding window W are minimal. This coupling ensures that spatially dense features which are temporally persistent are accurately preserved in the latent representation. • Dual-Constraint Gating: By coupling the physical criterion ( ∆Ei/∆E0 ≤ η) with the Statistical Criterion ( ρ ≥ τ )which is the cross-correlation metric defined above, the selector ensures temporal sparsity without sacrificing physical fidelity. Snapshots are only bypassed if the state remains both physically bounded on the enstrophy submanifold and structurally correlated with the preceding reference frame. • In-Situ Efficiency: The implementation maintains an asymptotic time complexity of O(T ) and a constant memory overhead of O(Q). This does present some operational constraints of in-situ neural compression (NC) in large-scale volumetric simulations, if the mesh-cells are in billions or trillions. 
+
+A.2. 3D BSSN BBH Merger Simulations 
+
+• Robust Surge Detection via Median-Baseline Tracking : The regulator utilizes a rolling history buffer H to maintain a robust estimate of the quiescent field activity using a median filter. By defining the surge threshold as a multiple of the median ( γ · ˜a), the algorithm remains invariant to the low-amplitude numerical noise typical of the pre-merger inspiral phase. This robust baseline allows for the identification of the ”surge” regime, where there is a non-linear increase in || Ψ4|| amplitude as the black holes approach merger. • Look-ahead Clamping and Mode Switching : The selector operates in two distinct modes: a quiescent regime (pre and post merger phases) and a surge regime. In the quiescent regime, the algorithm attempts a maximal temporal jump of size W . However, it employs a look-ahead verification step that proactively scans the window. If a surge is detected within the look-ahead horizon, the algorithm ”clamps” the jump at the surge boundary, effectively downshifting to unit-stride sampling ( t + 1 ) before the transient occurs. This ensures that the high-frequency dynamics of the merger are captured with zero latency • Hysteresis-Aware History Updates : To prevent the baseline ˜a from being corrupted by the extreme transients of the merger event, the algorithm implements a gated history update. The history deque H is only updated when the system is stable ( Csurge = 0 ) or after a sustained ”new” steady state is established ( Csurge > P ). This patience-based gating ensures that the regulator does not ”normalize” the merger signal, and maintains a threshold from the premerger phase. This maintains a high sensitivity to salient physics throughout the entire trajectory. 16 Submission and Formatting Instructions for ICML 2026 
+
+Algorithm 2 3D BSSN BBH merger in-situ ATS 
+
+1: Input: Activity series A = {|| Ψ4|| 0, . . . , || Ψ4|| T −1}, window size W , threshold factor γ, patience P, history maxlen h,warmup steps w
+
+2: Output: Selected indices S
+
+3: Initialize: S ← { 0}, t ← 0, Csurge ← 0, H ← deque (maxlen = h)
+
+4: while t < T − 1 do 
+
+5: if |H| < w then 
+
+6: {Initial profiling of the quiescent field }
+
+7: tnext ← t + 1 
+
+8: Csurge ← 0
+
+9: else 
+
+10: ˜a ← median (H) {Robust baseline estimation }
+
+11: at+1 ← A [t + 1] 
+
+12: if at+1 > γ · ˜a then 
+
+13: {Transient || Ψ4|| surge detected }
+
+14: tnext ← t + 1 {Force dense (unit) sampling }
+
+15: Csurge ← Csurge + 1 
+
+16: else 
+
+17: {Baseline regime: attempt temporal jump }
+
+18: Csurge ← 0
+
+19: tcand ← min( t + W, T − 1) 
+
+20: tnext ← tcand 
+
+21: for k = t + 1 to tcand do 
+
+22: {Look-ahead for merger onset }
+
+23: if A[k] > γ · ˜a then 
+
+24: tnext ← k {Clamp jump at surge boundary }
+
+25: break 
+
+26: end if 
+
+27: end for 
+
+28: end if 
+
+29: end if 
+
+30: t ← tnext 
+
+31: S ← S ∪ { t}
+
+32: {Update H only if the system is stable or has entered a new steady state }
+
+33: if Csurge = 0 or Csurge > P then 
+
+34: H.append (A[t]) 
+
+35: if Csurge > P then 
+
+36: Csurge ← 0
+
+37: end if 
+
+38: end if 
+
+39: end while 
+
+40: return S
+
+17 Submission and Formatting Instructions for ICML 2026 
+
+Algorithm 3 Adaptive Neural Temporal In-situ Compressor ( ANTIC )Require: Base NF W0; Physics metrics {ϕt}; Window size W ; Simulation duration T , simulation snapshot ut
+
+Ensure: Compressed updates {∆W} 
+
+> 1:
+
+Initialize t ← 0, S ← { 0} 
+
+> 2:
+
+while t < T do  
+
+> 3:
+
+{I. Physics-Aware Temporal Selection (PATS) using Algos such as (1, 2) } 
+
+> 4:
+
+∆t ← PATS ({ϕk}t+Wk=t , W ) {Stride ∈ { 1, . . . , W } based on saliency } 
+
+> 5:
+
+t ← t + ∆ t 
+
+> 6:
+
+S ← S ∪ { t} 
+
+> 7:
+
+{II. Neural Compression (NC) Module } 
+
+> 8:
+
+Fetch snapshot ut from simulation  
+
+> 9:
+
+if Mode is F ULL FT then  
+
+> 10:
+
+Wt ← Optimize (Wt−∆t, u t) 
+
+> 11:
+
+else if Mode is L ORA then  
+
+> 12:
+
+B, A ← OptimizeAdapters (Wrt−∆t, u t) {Rank-r update } 
+
+> 13:
+
+∆Wt ← BA  
+
+> 14:
+
+Wt ← Wt−∆t + ∆ Wt {Merge update into base weights } 
+
+> 15:
+
+Reset adapters B, A ← 0 {Prepare for next selected snapshot } 
+
+> 16:
+
+end if  
+
+> 17:
+
+Store/Transmit compressed update ∆Wt on persistent storage  
+
+> 18:
+
+end while  
+
+> 19:
+
+return Selection set S and compressed updates 
+
+B. Miscellaneous Experimental Results 
+
+B.1. (2D) Kolmogorov flows 
+
+B.1.1. E XPERIMENTAL SETUP , D ATA PREPARATION AND NF TRAINING SPECIFICS 
+
+Incompressible fluid dynamics are governed by the Navier–Stokes equations, which represent the conservation of momentum and mass for a Newtonian fluid: 
+
+∂u
+
+∂t + ( u · ∇ )u = − 1
+
+ρ ∇p + ν∇2u + f , (2) 
+
+∇ · u = 0 , (3) where u(x, t ) is the velocity field, p is the scalar pressure field, and f denotes external body forces. The kinematic viscosity 
+
+ν is related to the dimensionless Reynolds number by Re = U L/ν , where U and L are characteristic velocity and length scales, respectively. In this formulation, pressure serves as a Lagrange multiplier that constrains the velocity field to the solenoidal (divergence-free) manifold.At high Reynolds numbers ( Re ≫ 1), the flow enters a turbulent regime characterized by a nonlinear energy cascade and high-frequency spatiotemporal fluctuations. From a neural compression perspective, these regimes are particularly demanding; the emergence of fine-scale turbulent eddies increases the spectral complexity of the data, requiring the neural field to resolve a wide range of spatial frequencies while capturing rapid temporal transients that limit the effective window size of standard temporal regulators. Specifically, we choose decaying turbulence, which refers to a canonical flow regime where an initial high-energy, turbulent velocity field evolves in the absence of external forcing (f = 0 ). Unlike forced turbulence, which reaches a statistical steady state, decaying turbulence is a transient phenomenon where kinetic energy is progressively dissipated into heat through viscous effects at the smallest scales. In order to generate the turbulent flow simulations, we use (Dresdner et al., 2022) which primarily uses a semi-implicit Crank-Nicholson Runge-Kutta order 4 solver to simulate decaying Kolmogorov turbulence. The system is evolved on a [0 , 2π]2 periodic domain with a spatial resolution of 2048 × 2048 . We perform 1, 000 time steps to a terminal time 
+
+T = 25 .0 s (η = 10 −3, vinit = 5 .0, Re = 1000 ). The resulting scalar vorticity dataset for the entire trajectory being 
+
+16 .8 GiB and providing a dense multiscale benchmark where high-frequency spatial features and fast dynamical motion are accompanied by low-frequency and slowly evolving regions. 
+
+Neural field training specifics. We set the FFM embedding frequency especially playing a pivotal role in parametrizing 2D 18 Submission and Formatting Instructions for ICML 2026 
+
+Kolmogorov flows snapshots containing high-frequency components due to high vorticity field magnitude reflecting at the pixel-level. Thus, we opt for a Fourier embedding of dim 256 with a embedding frequency of 7.0. 
+
+B.2. (3D) BSSN evolution 
+
+B.2.1. E XPERIMENTAL SETUP , D ATA PREPARATION AND NF T RAINING SPECIFICS 
+
+C. Numerical Relativity and the BSSN Formulation 
+
+The numerical solution of Einstein’s field equations is central to characterizing astrophysical scenarios where gravity is strong and highly dynamical. Within the numerical relativity 3+1 decomposition, the 4D spacetime metric gμν is partitioned via the ADM split: 
+
+ds 2 = −α2dt 2 + γij (dx i + βidt )( dx j + βj dt ), (4) where α represents the lapse function, βi is the shift vector, and γij denotes the induced spatial metric on Cauchy hypersurfaces. The corresponding four-metric is expressed as: 
+
+gαβ =
+
+−α2 + βiβi βi
+
+βi γij 
+
+
+
+. (5) The Baumgarte-Shapiro-Shibata-Nakamura (BSSN) formulation improves upon the standard ADM formalism by introducing conformal transformations that enhance numerical stability and constraint preservation. BSSN evolves a set of conformal variables, including the conformal metric ˜γij = W 2γij (where W is the conformal factor) and the trace-free extrinsic curvature ˜Aij . This framework is particularly robust for simulating binary black hole (BBH) mergers using the ”moving punctures” approach, where singularities are handled via a conformal factor that vanishes at the puncture locations. 
+
+C.1. Extraction of Gravitational Radiation: The Weyl Scalar Ψ4
+
+To quantify the gravitational radiation generated during the BBH merger, we compute the Newman-Penrose scalar Ψ4. This scalar represents the outgoing transverse-traceless component of the gravitational field at the extraction boundary. In the 3+1 formalism, Ψ4 is reconstructed from the electric ( Eij ) and magnetic ( Bij ) parts of the Weyl tensor: 
+
+Eij = Rij + KK ij − Kia Kaj , Bij = ϵiak DaKkj , (6) where Rij is the 3-Ricci tensor and Di is the spatial covariant derivative. Given a complex null tetrad {l, n, m, ¯m}, the Weyl scalar is projected as: 
+
+Ψ4 = −Cαβγδ nα ¯mβ nγ ¯mδ . (7) Using the decomposition into electric and magnetic components, this projection simplifies to: 
+
+Ψ4 = ( Eij − iB ij ) ¯ mi ¯mj . (8) In our PATS regulator for the 3D BBH merger simulation, the magnitude || Ψ4(t, r)|| extracted at a radii r, serves as the primary physics-aware metric. It provides a direct measure of the radiative activity in the spacetime, allowing the selector to identify the high-frequency transients associated with the merger and ringdown phases. 
+
+C.2. Experimental Configuration 
+
+The simulation utilizes a Cartesian grid of size 213 3 within a domain range of [−15 M, 15 M ]. We initialize a non-spinning BBH system with equal bare masses M1 = M2 = 0 .483 (total mass M ≈ 1). The punctures are positioned at y = ±3.257 
+
+with initial momenta Px = ∓0.133 . The evolution spans T = 250 M over 5,966 steps using an implicit backward Euler integrator. For neural compression, we exclude gauge-dependent shift vectors but retain the lapse function for visualization, resulting in a training set of 18 tensor components per selected snapshot. 19 Submission and Formatting Instructions for ICML 2026 
+
+D. Extended Pareto-Frontier over Model Size Sweeps 
+
+Here, we present a pareto-frontier over different model size sweeps ( 32 × 2 → 512 × 8) for the varied training schemes are shown. Here too we compare CFT (continual FT) and the LoRA {8, 16 , 32 , 64 }. This is an extended version of the pareto-frontier for the model utilized, i.e. 256 × 6 (see Figs. 4a, 4b) presented in the main paper, which primarily used full finetuning as the reference baseline as compared to other training schemes. As evident from the pareto in Figs. (5a, 5b) that continual fine-tuning (CFT) already reaches comparable accuracy compared to cold-start trainings, while offering extreme compression per snapshot for high-dimensional multi-scale BSSN simulations requiring high-resolution explicit grids. 10 1 10 2 10 3
+
+Memory [KiB]    
+
+> 10 3
+> 10 2
+> 10 1
+> Mean Rel.  2 Error
+> Scratch
+> Full FT
+> LoRA 8
+> LoRA 16
+> LoRA 32
+> LoRA 64
+
+(a) 2D Kolmogorov flow extended pareto-front for spatial com-pression. Averaged relative ℓ2 error over 5 subsequent frames in highly-turbulent window as a function of compression rate (KiB) for different model sizes. We compare three training paradigms: (i) compressing each snapshot from scratch, (ii) continual fine-Tuning (FT), and (iii) CFT via LoRA ( r ∈ [8 , 64] ). LoRA ( r > 32 ) attains a comparable error to FT while significantly improving compression rate. The LoRA trendlines are truncated to satisfy the efficiency constraint r ≤ d/ 2, where d is the hidden dimension. We omit con-figurations where the rank exceeds this threshold—such as r ≥ 32 
+
+for the 32 × L model suite 10 1 10 2 10 3 10 4
+
+Memory [KiB]    
+
+> 3 × 10 4
+> 10 3
+> 4 × 10 3
+> Mean Rel.  2 Error
+
+Scratch 
+
+Full FT 
+
+LoRA 8 
+
+LoRA 16 
+
+LoRA 32 
+
+LoRA 64 
+
+(b) 3D BBH merger pareto-front for spatial compression. Aver-aged relative ℓ2 error over 5 subsequent frames in the near merger regime as a function of parameter memory (KiB). We compare three training paradigms: (i) compressing each snapshot from scratch, (ii) continual fine-Tuning (FT), and (iii) CFT via LoRA ( r ∈ [8 , 64] ). LoRA-edited NFs (ranks r ≥ 8) attain a comparable error to FT while significantly improving compression rate. The LoRA trend-lines are truncated to satisfy the efficiency constraint r ≤ d/ 2,where d is the hidden dimension. We omit configurations where the rank exceeds this threshold—such as r ≥ 32 for the 32 × L model suite 
+
+E. Benchmarking Continual Learning Against Cold-Start Methodologies 
+
+Multi-scale physics simulations exhibit dynamical regimes that can be broadly categorized as fast-varying (high turbulence regions, phase transitions, merger regimes with non-trivial changes in spacetime geometry) and slow-varying (quasi-static evolution). Outside of sharp transition regions, the state of subsequent snapshots separated by ∆t does not vary drastically, i.e., ∆u := ∥u(x, t + ∆ t) − u(x, t )∥ remains small. This property enables the use of continual learning, since the light weight updates Wt+∆ t − Wt between subsequent neural field parametrizations need only encode these perturbative changes. This substantially reduces the training wall-clock time for the CFT-based methodology. Convergence to the same target accuracy of 3 × 10 −8 is achieved in only 3 epochs, compared to 35 epochs under the cold-start strategy, representing a speedup exceeding 7×. This improvement in training overhead makes CFT well-suited for in-situ scenarios, where training times must remain commensurate with solver runtimes in an asynchronous pipeline. Furthermore, CFT is directly compatible with LoRA-based neural field compression (Truong et al., 2025), enabling extreme spatial compression alongside significantly faster convergence (exceeding 10 ×) relative to cold-start methodologies. These are reported in Table 4. Additional, we report the benchmark for these experiments conducted on both: a single NVIDIA H200 (144 GiB, driver version – 590.48.01 ) and also on NVIDIA Blackwell B300 SXM6 AC GPU (275 GiB, driver version – 590.48.01 ), which is 4 − 5× faster than H200s for the multi-layer perceptron trainings, since they are optimized for AI workfloads utilizing the Tensor cores. 20 Submission and Formatting Instructions for ICML 2026                                                                      
+
+> Table 4. Hardware Benchmark: Continual Fine-Tuning (CFT) vs. Solver vs. Cold-Start. Comparison of wall-clock convergence times across NVIDIA H200 and B300 (Blackwell) architectures for the 3D BSSN system. CFT updates perturbative changes between snapshots, achieving an order-of-magnitude speedup over cold-Starts while maintaining a comparable MSE of 3×10 −8. The BSSN solver is a bit slower on B300s due to skinny batched GEMM — millions of tiny einsum-based contraction operations that are lowered to
+> dot general on cuBLAS for which below the Tensor Core tile threshold, rendering the solver memory-bandwidth-bound rather than compute-bound.
+> HARDWARE METHOD WALLCLOCK (S)EPOCHS MSE H200
+> BSSN S OLVER (GPU) ∼0.25 −0.27 ––COLD START ∼183 −187 35 ∼3×10 −8
+> CFT (O URS )∼21 −24 3∼3×10 −8
+> B300
+> BSSN S OLVER (GPU) ∼0.27 −0.44 ––COLD START ∼52 −54 35 ∼3×10 −8
+> CFT (O URS )∼4.5−4.73∼3×10 −8
+
+Thus, CFT-based continual learning scheme exploits inter-snapshot continuity to reduce per-snapshot encoding cost from 
+
+O(Tcold ) to O(TCFT ) ≪ Tcold .
+
+F. Comparison against Other Classical Compressors in Scientific Computing 
+
+We benchmark against four compressors representing the dominant paradigms in scientific lossy and lossless compression: SZ3 (Liang et al., 2021), ZFP (Lindstrom, 2014), MGARD (Gong et al., 2023a), and Blosc-2 (Blosc Development Team, 2009-2025). SZ3 . (Liang et al., 2021) is a modular prediction-based lossy compressor for floating-point data. It predicts field values via Lorenzo or regression predictors, quantizes the residuals, and applies Huffman and Lempel-Ziv entropy coding. Error bounds are enforced strictly in the absolute or relative ℓ∞ sense. SZ3 achieves high compression ratios on smooth fields, but prediction residuals grow large in turbulent or discontinuous regimes, limiting its effectiveness at tight accuracy tolerances. 
+
+ZFP . (Lindstrom, 2014) partitions d-dimensional arrays into 4d 4d blocks and applies a near-orthogonal integer transform within each block, followed by embedded bit-plane encoding. It supports fixed-rate, fixed-precision, and fixed-accuracy modes. Its block-local structure limits exploitation of long-range correlations, and compression quality degrades in fields with sharp multi-scale features, where energy leaks across bit planes within discontinuous blocks. 
+
+MGARD . (Gong et al., 2023a) is grounded in multigrid theory, decomposing fields onto a hierarchy of nested grids and encoding the multilevel coefficients with quantization and entropy coding. It provides guaranteed error bounds in the ℓ2 or 
+
+ℓ∞ norm, and supports error control on derived quantities of interest. It is most effective on globally smooth fields where coarse-scale grid levels capture the dominant energy content and is GPU supported. 
+
+Blosc-2 . (Blosc Development Team, 2009-2025) is a lossless meta-compressor that applies byte- or bit-shuffling filters to floating-point data prior to entropy coding via Zstd or LZ4. As a lossless method, it preserves the data exactly, achieving typical compression ratios of 2×-5× on scientific fields, and serves as an upper bound on compression achievable under zero information loss. 
+
+Positioning against Spatial Neural Compression. These four compressors share a common limitation from the perspective of in-situ scientific workflows: they operate on individual snapshots independently, without exploiting the temporal continuity of the simulation trajectory. SZ3, ZFP, and MGARD compress each snapshot in isolation, discarding the perturbative structure ∆u := ∥u(x, t + ∆ t) − u(x, t )∥. that characterizes neighboring snapshots that do not change drastically. Furthermore, their compressed representations are not queryable — reconstructing a physical quantity at an arbitrary spatial location requires full decompression of the relevant block or subgrid. ANTiC addresses both limitations simultaneously: the neural field parametrization provides a continuous, AD-based differentiable implicit representation of the field that supports point-wise queries without full decompression. The numbers for all these compressors against our CFT-enhanced neural compression is reported in Table 5 21 Submission and Formatting Instructions for ICML 2026 
+
+Table 5. Performance Benchmarks of Traditional vs. Neural Compression . Comparison of Compression Ratio (CR), Wall-clock Time, and Relative ℓ2 Error across 2D Kolmogorov flows vorticity field ( 2048 2) in the turbulent regime and large-scale 3D BSSN evolved variables ( ∼ 0.7 GiB/snapshot, (213 3, 18) shaped array) in the premerger phase. While traditional compressors (SZ3, ZFP, MGARD and Blosc-2) maintain low latency for small-scale 2D data, our NC with (CFT) particularly the LoRA variant achieves an unprecedented 
+
+3745 × compression ratio for tensor-valued BSSN variables. This represents a two-order-of-magnitude improvement over state-of-the-art error-bounded compressors (SZ3) while maintaining comparable reconstruction fidelity ( ∼ 10 −4), effectively enabling the storage of high-resolution multi-scal simulations with a minimal memory footprint on the persistent storages. The neural field compression numbers reported are conducted on the B300 GPU. 
+
+COMPRESSOR 2D K OLMOGOROV (16.8 M IB/S NAPSHOT ) 3D BSSN (0.7 G IB/S NAPSHOT )CR ( ↑) Time ( ↓) Rel ℓ2 (↓) CR ( ↑) Time ( ↓) Rel ℓ2 (↓)
+
+ZFP (T O L =1 E-03) 8× 0.06 (s) 1.02 e-4 4× 2.82 (s) 1.27 e-4 
+
+MGARD [CPU] (A B S =1 E-03) 19 × 0.37 (s) 4.02 e-4 5× 38 .67 (s) 7.97 e-4 
+
+SZ3 (A B S =1 E-03) 154 × 0.07 (s) 8.31 e-4 16 × 3.42 (s) 1.02 e-4 
+
+BLOSC-2 Z S T D (LOSSLESS ) 1.7× 1.38 (s) 0.0e+00 1.3× 54 .48 (s) 0.0e+00 
+
+BLOSC-2 Z S T D (LOSSY TRUNC =10) 5× 1.03 (s) 4.23 e-4 2.8× 37 .82 (s) 3.93 e-4 
+
+NEURAL COMPRESSION FT (CFT) 12 × ∼ 13 (s) 6.14 e-4 471 × ∼ 5 (s) 4.60 e-4 
+
+NEURAL COMPRESSION LORA (CFT) 47 × [r : 32 ] ∼ 18 (s) 6.82 e-4 3745 × [r : 16 ] ∼ 8 (s) 5.82 e-4 
+
+G. Global Reconstruction Quality and Physics Preservation 
+
+A critical requirement of ANTIC is the preservation of temporal coherence and high-fidelity reconstruction of physical observables from decompressed neural field parametrizations, including sharp transient features that are particularly sensitive to compression artifacts. Our CFT-based continual learning scheme, stabilized via LayerNorm and weight decay, demonstrates robustness over long-horizon trajectories spanning full simulation runs, maintaining a per-snapshot training MSE of 10 −7-10 −9 throughout. We evaluate the global reconstruction quality of physically meaningful derived quantities obtained from ANTIC across two distinct simulation regimes: (i) the normalized enstrophy flux for 2D Kolmogorov flows (Subsec. G.1), and (ii) constraint violation diagnostics and geometric quantities for 3D binary black hole merger simulations evolved under the BSSN framework (Subsec. G.2). 
+
+G.1. 2D Kolmogorov flows Enstrophy Flux Reconstruction 
+
+For the 2D Navier-Stokes use case, we assess reconstruction fidelity through the normalized enstrophy flux, a scalar diagnostic that directly characterizes the turbulent cascade structure of the flow. Enstrophy, defined as E(t) = 12
+
+R 
+
+> Ω⊂R2
+
+|| ω(x, y, t )|| 2dA ,where ω is the vorticity field, quantifying the rotational energy content of the flow and governs the forward cascade of energy to small scales in 2D turbulence. The enstrophy flux measures the rate at which enstrophy is transferred across spatial scales, and is thus a stringent probe of whether the compressed representation faithfully preserves the multi-scale vortical structure of the flow — including fine-scale vorticity filaments and the onset of turbulent intermittency. Crucially, errors in the vorticity field are amplified in the enstrophy flux relative to the velocity field, making it a more sensitive diagnostic of compression fidelity than pointwise field metrics alone. We evaluate this quantity over the most dynamically active phase of the simulation, τ ∈ [0 , 10] (timesteps [0 , 400] ), during which the flow transitions through its peak turbulent regime and enstrophy production is maximal. 
+
+Table 6. Reconstruction Fidelity Metrics. Error analysis for Enstrophy Flux (scalar) and the Vorticity Field (2D grid). The low maximum relative L2 error ( 0.37% ) demonstrates that PATS successfully captures the most physically informative transients in the Kolmogorov flow. 
+
+QUANTITY METRIC VALUE 
+
+ENSTROPHY FLUX MEAN ABSOLUTE ERROR 1.830 × 10 −4
+
+MAX ABSOLUTE ERROR 2.870 × 10 −4
+
+VORTICITY FIELD MEAN RELATIVE ℓ2 ERROR 1.587 × 10 −3
+
+MAX RELATIVE ℓ2 ERROR 3.669 × 10 −3
+
+22 Submission and Formatting Instructions for ICML 2026 0 50 100 150 200 250 300 350 400 
+
+Timestep t
+
+> 0.93
+> 0.94
+> 0.95
+> 0.96
+> 0.97
+> 0.98
+> 0.99
+> 1.00
+> Normalised enstrophy  (t)
+
+GT enstrophy 
+
+Model enstrophy         
+
+> 050 100 150 200 250 300 350 400
+
+Timestep t
+
+> 0.00005
+> 0.00010
+> 0.00015
+> 0.00020
+> 0.00025
+> Enstrophy flux abs error
+
+| GT model |
+
+Figure 6. Enstrophy flux reconstruction for 2D Kolmogorov flow. (Left ) Enstrophy flux extracted from ground truth snapshots (solid blue) and ANTIC reconstructions (dashed orange) over the peak turbulent phase τ ∈ [0 , 15] (timesteps [0 , 400] ). ANTIC faithfully reproduces the temporal evolution of the enstrophy flux, including sharp transient features associated with turbulent intermittency. ( Right )Pointwise absolute error over the same interval, remaining uniformly small with no systematic drift or error accumulation, confirming the temporal stability of the CFT-based continual learning scheme over long-horizon trajectories. 0 50 100 150 200 250 300 350 400 
+
+# Timestep t
+
+0.0005 
+
+0.0010 
+
+0.0015 
+
+0.0020 
+
+0.0025 
+
+0.0030 
+
+0.0035 
+
+> Relative L2 error
+
+Figure 7. CFT reconstruction fidelity over long-horizon 2D Kolmogorov flow trajectories. Relative ℓ2 error of ANTIC reconstructions plotted against timestep for the full 2D Kolmogorov flow simulation. The trajectory spans two dynamically distinct regimes: a peak turbulence phase over timesteps [0 , 100] , characterized by rapid vorticity production, strong enstrophy cascade, and sharp small-scale features that place maximal demand on the neural field parametrization, followed by a gradual decay phase over timesteps [100 , 400] as the flow relaxes towards a quasi-steady turbulent state. Despite the elevated reconstruction difficulty during the high-turbulence regime — where inter-snapshot variability ∆u := ∥u(x, t + ∆ t) − u(x, t )∥ is largest — the CFT-based continual learning scheme maintains a stable relative ℓ2 error < 4 × 10 −3 in the highest turbulence region and < 2 × 10 −3, with no systematic degradation across the trajectory. This confirms that perturbative weight editing between subsequent neural field parametrizations remains well-conditioned even under large dynamical variability, demonstrating the robustness of ANTIC for in-situ compression over long-horizon simulation runs. 
+
+23 Submission and Formatting Instructions for ICML 2026 0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+GT vorticity t = 10 
+
+0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+Model vorticity t = 10 
+
+0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+Relative L2 error 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+0.00 
+
+0.02 
+
+0.04 
+
+0.06 
+
+0.08 
+
+0.10 
+
+0.12 
+
+0.14 0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+GT vorticity t = 50 
+
+0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+Model vorticity t = 50 
+
+0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+Relative L2 error 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+0.04 
+
+0.05 
+
+0.06 
+
+0.07 
+
+0.08 0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+GT vorticity t = 100 
+
+0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+Model vorticity t = 100 
+
+0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+Relative L2 error 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+0.04 
+
+0.05 
+
+0.06 
+
+0.07 0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+GT vorticity t = 220 
+
+0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+Model vorticity t = 220 
+
+0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+Relative L2 error 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.0000 
+
+0.0025 
+
+0.0050 
+
+0.0075 
+
+0.0100 
+
+0.0125 
+
+0.0150 
+
+0.0175 0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+GT vorticity t = 370 
+
+0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+Model vorticity t = 370 
+
+0 500 1000 1500 2000 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000 
+
+Relative L2 error 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.000 
+
+0.002 
+
+0.004 
+
+0.006 
+
+0.008 
+
+0.010 
+
+0.012 
+
+Figure 8. Vorticity field reconstruction quality across dynamical regimes. Each row corresponds to a representative timestep 
+
+t ∈ { 10 , 50 , 100 , 220 , 370 }, spanning the peak turbulence phase and its subsequent decay, for the 2D Kolmogorov flow simulation at spatial resolution 2048 2. First column: Ground truth vorticity field ω(x, t ), exhibiting the characteristic fine-scale vorticity filaments, coherent structures, and inter-scale energy transfer that define the turbulent cascade. Second column: ANTIC neural field reconstructions at the corresponding timesteps, obtained by querying the continually fine-tuned implicit parametrization. Third column: Pointwise relative 
+
+ℓ2 error between the ground truth and reconstructed vorticity fields, confirming that reconstruction fidelity is maintained across both the high-turbulence regime - where vorticity gradients are steepest and small-scale structures are most pronounced — and the quasi-steady decay phase (after timestep t > 150 ), with no systematic spatial concentration of errors around coherent vortical structures. 
+
+24 Submission and Formatting Instructions for ICML 2026 
+
+G.2. 3D BBH Merger Weyl Scalar Magnitude Reconstruction 
+
+The Weyl scalar Ψ4 defined in Eqs. (7, 8) is a coordinate-invariant complex scalar quantity extracted from the Weyl curvature tensor that encodes the outgoing gravitational radiation content of the spacetime. In the wave zone, Ψ4 corresponds directly to the second time derivative of the gravitational wave strain, making it the primary observable for characterizing the amplitude, frequency, and phase evolution of gravitational waves emitted during compact binary mergers. 140 150 160 170 180 190 200 210 
+
+t/M
+
+> 0.0000
+> 0.0001
+> 0.0002
+> 0.0003
+> 0.0004
+> 0.0005
+> 0.0006
+> 0.0007
+> | 4| (s=-2, l=2, m=2)
+
+Model | 4| (r=14.3) 
+
+GT | 4|
+
+Figure 9. Weyl scalar magnitude reconstruction during the BBH merger phase. The gravitational wave signal |Ψ4(t/M )| extracted from ground truth snapshots (solid) and ANTIC neural field reconstructions (dashed) at extraction radius r = 14 .3 M , over the merger phase t/M ∈ [136 , 210] . This interval encompasses the peak gravitational wave emission, ringdown onset, and the most dynamically complex regime of the spacetime evolution, placing maximal demand on the fidelity of the neural field parametrization. ANTIC accurately reproduces the amplitude and phase evolution of the Weyl scalar throughout, including the characteristic amplitude peak at merger. 140 150 160 170 180 190 200 210 
+
+t/M 
+
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> Absolute error
+> 1e 5
+
+|| model 4 | | GT 4 || 
+
+Figure 10. Absolute reconstruction error in Weyl scalar magnitude. Pointwise absolute error |Ψmodel  
+
+> 4
+
+(t/M )| − | ΨGT  
+
+> 4
+
+(t/M )| at extraction radius r = 14 .3 M over t/M ∈ [136 , 210] . Errors remain uniformly small across the full merger phase, with no systematic growth near the amplitude peak, confirming that ANTIC preserves the gravitational wave content of the spacetime to high fidelity under the CFT-based continual learning scheme. 
+
+Table 7. BSSN Reconstruction Performance. Error analysis for the Weyl Scalar magnitude |Ψ4| during the Binary Black Hole (BBH) merger and initial post-merger regime ( t/M ∈ [136 .30 , 209 .22] ). The results compare 146 snapshots across the peak gravitational wave emission phase. 
+
+CATEGORY METRIC NEF (O URS ) GROUND TRUTH 
+
+|Ψ4| RANGE MINIMUM VALUE 2.825 × 10 −5 3.381 × 10 −5
+
+MAXIMUM VALUE 6.267 × 10 −4 6.741 × 10 −4
+
+METRIC QUANTITY VALUE 
+
+ERROR MEAN ABSOLUTE ERROR 1.835 × 10 −5
+
+MAX ABSOLUTE ERROR (AT t/M = 170 .49 ) 4.838 × 10 −5
+
+25 Submission and Formatting Instructions for ICML 2026 0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+> y
+
+Ground Truth Lapse 
+
+0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+Model Predicted Lapse 
+
+0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+Relative L2 Error | GT pred |/| GT |
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+0.00 
+
+0.02 
+
+0.04 
+
+0.06 
+
+0.08 
+
+0.10 
+
+0.12 
+
+0.14 
+
+0.16 0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+> y
+
+Ground Truth Lapse 
+
+0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+Model Predicted Lapse 
+
+0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+Relative L2 Error | GT pred |/| GT |
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+0.04 
+
+0.05 0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+> y
+
+Ground Truth Lapse 
+
+0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+Model Predicted Lapse 
+
+0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+Relative L2 Error | GT pred |/| GT |
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+0.04 
+
+0.05 
+
+0.06 0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+> y
+
+Ground Truth Lapse 
+
+0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+Model Predicted Lapse 
+
+0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+Relative L2 Error | GT pred |/| GT |
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+0.20 0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+> y
+
+Ground Truth Lapse 
+
+0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+Model Predicted Lapse 
+
+0 50 100 150 200 
+
+x
+
+0
+
+25 
+
+50 
+
+75 
+
+100 
+
+125 
+
+150 
+
+175 
+
+200 
+
+Relative L2 Error | GT pred |/| GT |
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+0.0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+Figure 11. Lapse function reconstruction quality across the BBH merger trajectory. Each row corresponds to a representative timestep t/M ∈ { 136 .30 , . . . , 209 .22 }, spanning the inspiral-to-merger transition and post-merger ringdown phase of the 3D BBH simulation at spatial resolution 213 3. First column: Ground truth lapse function α(x, t ) evolved under the BSSN framework (Sec. B.2), exhibiting the characteristic collapse toward zero in the black hole interior regions as the merger proceeds. Second column: ANTIC neural field reconstructions at the corresponding timesteps, obtained by querying the continually fine-tuned implicit parametrization. Third column: Pointwise relative ℓ2 error between the ground truth and reconstructed lapse fields, confirming that ANTIC faithfully captures both the smooth exterior spacetime geometry and the sharp gradients near the apparent horizons, with no systematic spatial concentration of errors in the dynamically critical merger region. 
+
+26 Submission and Formatting Instructions for ICML 2026 
+
+H. Comparing Temporal Retention of Physics-Agnostic selectors against PATS 
+
+The primary function of the PATS submodule is the extraction of salient snapshots from simulation trajectories via in-situ adaptive time-step control, applying fine temporal sampling during fast-evolving regimes and coarse sampling during quasi-static evolution, guided by physics-based scalar diagnostics computed directly from each snapshot. For completeness, we also consider physics-agnostic temporal selectors, including momentum-aware selectors (Jha et al., 2025; Zhang & Gao, 2025) developed for 3D scene reconstruction and visual computing, and Kullback-Leibler (KL) divergence based selectors (Yamaoka et al., 2019), which require no in-situ scalar signal extraction and operate independently of the underlying physical dynamics. We demonstrate that while such selectors are well-suited to vision-centric tasks, they fail to identify dynamically critical transients in PDE simulation trajectories. We evaluate the following temporal selectors: Momentum-aware (Jha et al., 2025), and four entropy-based variants: (i) Jensen-Shannon divergence (JSD) , (ii) residual differential entropy (Res) , (iii) spectral entropy (Spectral) , and (iv) normalized mutual information (MI) . All evaluations are performed on the 2D Kolmogorov flow use case at resolutions 1024 2 and 2048 2, which is sufficient to expose the failure modes of physics-agnostic selectors relative to PATS. Temporal retention plots are reported for the JSD selector: Figs. (12a, 12b), 
+
+Spectral selector: Figs. (13a, 13b), Residual selector: Figs. (14a, 14b), MI selector: Figs. (15a, 15b), and Momentum -aware selector: Figs. (16a, 16b). Each is compared against PATS, which uses the enstrophy flux as its decision signal, retaining snapshots containing high-turbulence transients at fine temporal resolution while coarsening the sampling rate during equilibration: Figs. (17a, 17b). Quantitative temporal retention statistics across additional spatial resolutions are reported in Table 8, further corroborating the necessity of physics-based adaptive sampling over physics-agnostic alternatives. 0.0      
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised Enstrophy  (t)
+> Temporal Retention: 0.30 %
+> 0510 15 20 25
+> Simulation Time
+> 1 (Dense)
+> 737 (Sparse)
+> Jump Size (  t)
+
+(a) JSD selector Temporal retention on 1024 2 resolution snapshot 0.0       
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised Enstrophy  (t)
+> Temporal Retention: 0.30 %
+> 0510 15 20 25
+> Simulation Time
+> 1 (Dense)
+> 467 (Sparse)
+> Jump Size (  t)
+
+(b) JSD selector Temporal retention on 2048 2 resolution snapshot 0.0      
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised Enstrophy  (t)
+> Temporal Retention: 2.00 %
+> 0510 15 20 25
+> Simulation Time
+> 1 (Dense)
+> 230 (Sparse)
+> Jump Size (  t)
+
+(a) Spectral selector Temporal retention on 1024 2 resolution snap-shot 0.0      
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised Enstrophy  (t)
+> Temporal Retention: 2.00 %
+> 0510 15 20 25
+> Simulation Time
+> 1 (Dense)
+> 230 (Sparse)
+> Jump Size (  t)
+
+(b) Spectral selector Temporal retention on 2048 2 resolution snap-shot 
+
+From a performance standpoint, the Residual entropy selector performs similar to our PATS and also retains the salient snapshots, i.e. denser selection in the high turbulence regime and modulates to coarser selection in the equilibriated regime and its temporal retention falls in a similar range of 31% − 40% for resolutions {256 , 512 , 1024 } as reported in Table 8. 27 Submission and Formatting Instructions for ICML 2026 0.0 
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised Enstrophy  (t)
+
+Temporal Retention: 31.40 %      
+
+> 0510 15 20 25
+
+Simulation Time 
+
+> 1 (Dense)
+> 12 (Sparse)
+> Jump Size (  t)
+
+(a) Residual selector Temporal retention on 1024 2 resolution snapshot 0.0 
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised Enstrophy  (t)
+
+Temporal Retention: 100.00 %      
+
+> 0510 15 20 25
+
+Simulation Time 
+
+> 1 (Dense)
+> Jump Size (  t)
+
+(b) Residual selector Temporal retention on 2048 2 resolution snapshot 0.0 
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised Enstrophy  (t)
+
+Temporal Retention: 100.00 %      
+
+> 0510 15 20 25
+
+Simulation Time 
+
+> 1 (Dense)
+> Jump Size (  t)
+
+(a) MI selector Temporal retention on 1024 2 resolution snapshot 0.0 
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised Enstrophy  (t)
+
+Temporal Retention: 100.00 %      
+
+> 0510 15 20 25
+
+Simulation Time  
+
+> 1 (Dense)
+> Jump Size (  t)
+
+(b) MI selector Temporal retention on 2048 2 resolution snapshot 0.0 
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised Enstrophy  (t)
+
+Temporal Retention: 3.80 %      
+
+> 0510 15 20 25
+
+Simulation Time 
+
+> 1 (Dense)
+> 100 (Sparse)
+> Jump Size (  t)
+
+(a) Momentum-aware selector Temporal retention on 1024 2 res-olution snapshot 0.0 
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised Enstrophy  (t)
+
+Temporal Retention: 4.00 %      
+
+> 0510 15 20 25
+
+Simulation Time 
+
+> 1 (Dense)
+> 359 (Sparse)
+> Jump Size (  t)
+
+(b) Momentum-aware selector Temporal retention on 2048 2 res-olution snapshot 
+
+28 Submission and Formatting Instructions for ICML 2026 0.0      
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised Enstrophy  (t)
+> Temporal Retention: 42.70 %
+> 0510 15 20 25
+> Simulation Time
+> 1 (Dense)
+> 5 (Sparse)
+> Jump Size (  t)
+
+(a) Enstrophy selector Temporal retention on 1024 2 resolution snapshot 0.0      
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Normalised Enstrophy  (t)
+> Temporal Retention: 37.50 %
+> 0510 15 20 25
+> Simulation Time
+> 1 (Dense)
+> 5 (Sparse)
+> Jump Size (  t)
+
+(b) Enstrophy selector Temporal retention on 2048 2 resolution snapshot 
+
+Table 8. Temporal selector retention analysis across resolutions for 2D Kolmogorov flows. Comparison of snapshot retention rates across temporal selectors and spatial resolutions {256 2, 512 2, 1024 2, 2048 2} for a trajectory of 1000 snapshots. Retention is computed as (selectedf rames/ 1000) × 100% . The enstrophy-based PATS selector retains 37.5%–42.9% of snapshots consistently across all resolutions, reflecting a physically meaningful and resolution-stable selection that concentrates retained frames in high-turbulence transient regimes while discarding redundant snapshots during quasi-static evolution. In contrast, the physics-agnostic selectors exhibit two distinct failure modes: under-retention , where JSD (0.30% across all resolutions), Spectral (2.0%–2.7%), and Momentum (2.8%–5.5%) selectors discard the vast majority of snapshots indiscriminately, failing to identify dynamically critical transients; and over-retention , where MI retains all 1000 snapshots at every resolution (100%), providing no compression of the temporal dimension whatsoever. The Residual selector exhibits resolution-dependent instability, retaining 31.4%–39.4% at coarser resolutions but collapsing to full retention (100%) at 
+
+2048 2, indicating sensitivity to the spectral content of high-resolution fields that renders it unreliable for in-situ deployment. Collectively, these results demonstrate that physics-agnostic selectors fail to generalize across resolutions and dynamical regimes, whereas PATS provides stable, physically grounded temporal compression that adapts to the underlying simulation dynamics. 
+
+TEMPORAL SELECTOR RESOLUTION RETAINED FRAMES RETENTION (%) 
+
+ENSTROPHY (PATS) 256 429 42.90 512 427 42.70 1024 427 42.70 2048 375 37.50 
+
+JSD 
+
+256 3 0.30 512 3 0.30 1024 3 0.30 2048 3 0.30 
+
+RESIDUAL 
+
+256 394 39.40 512 388 38.80 1024 314 31.40 2048 1000 100.00 
+
+SPECTRAL 
+
+256 27 2.70 512 27 2.70 1024 20 2.00 2048 25 2.50 
+
+MI 
+
+256 1000 100.00 512 1000 100.00 1024 1000 100.00 2048 1000 100.00 
+
+MOMENTUM 
+
+256 28 2.80 512 55 5.50 1024 38 3.80 2048 40 4.00 
+
+29 Submission and Formatting Instructions for ICML 2026 
+
+Although, it breaksdown due to the following reasons: (i) It is heavily-resolution dependent, i.e. pixel-level artifacts can hughly affect these selectors, as a consequence yields 100% Fig. 14b snapshot selection, thus sending redundant frames into the spatial neural compression module. This needs to be modulated using a tolerance, which is not known apriori in our in-situ scenarios, and (ii) These have jump size of 12 (see Fig. 14a), leading to loss in temporal coherence, required for global reconstruction, especially post-hoc analysis and relevant downstream tasks. 
+
+I. Solver vs Neural Compression Time Scaling Laws 
+
+Traditional PDE solvers scale super-linearly with spatial resolution: advancing a single timestep requires applying numerical stencils, enforcing boundary conditions, and satisfying CFL stability constraints across all N d mesh points, resulting in wall-clock costs that grow as O(N d) or worse for multi-scale or adaptive mesh refinement (AMR) schemes. Neural field training, by contrast, operates on a fixed-capacity implicit network whose parameter count is decoupled from the resolution of the underlying grid — increasing resolution enlarges the coordinate-value training set but does not alter the network architecture, yielding a substantially sub-linear growth in training overhead. As evidenced in Table 9 and Fig. 18, solver latency for 2D kolmogorov flows increases by approximately 380 × from 256 2 to 2800 2, whereas neural compression (NC) training time grows by only ∼ 3× over the same range, reducing the NC-to-solver ratio from 7323 × at 256 2 to 58 × at 
+
+2800 2. This convergent scaling behavior implies that the relative overhead of neural compression diminishes systematically as resolution increases, making in-situ neural compression increasingly competitive for high-dimensional, mesh-intensive HPC simulations and multi-scale physics PDEs where solver costs dominate the total simulation budget. 
+
+Figure 18. Solver latency vs. neural compression scaling for 2D Kolmogorov flows. Wall-clock time per snapshot plotted against spatial resolution N 2 for the traditional Navier-Stokes solver and ANTIC neural compression (NC) on a single NVIDIA H200 GPU. Solver latency scales super-linearly with resolution, consistent with O(N 2) mesh-point complexity under CFL constraints, while NC training time grows sub-linearly due to the resolution-invariant capacity of the underlying implicit neural field. The narrowing NC-to-solver ratio. 
+
+Table 9. Hardware Benchmarks: Solver Latency vs. Neural Compression (NC). Wall-clock training time per snapshot ( dt ) for 2D Navier-Stokes Kolmogorov flows. All benchmarks were performed on a single NVIDIA H200 CUDA GPU. The scaling ratio ( NC /Solver ) demonstrates that while NC has a higher absolute latency, its complexity scales sub-linearly relative to the exponential growth of the traditional solver. 
+
+RESOLUTION (N 2 ) TOTAL PIXELS SOLVER (dt ) NC ( PER SNAPSHOT ) NC/S OLVER RATIO 
+
+256 2 65,536 3.4 MS 24.90 S ± 1 MS ∼ 7323 ×
+
+512 2 262,144 7.3 MS 28.37 S ± 4 MS ∼ 3886 ×
+
+1024 2 1,048,576 28 MS 42.02 S ± 16 MS ∼ 1500 ×
+
+2048 2 4,194,304 0.2 S 62.19 S ± 22 MS ∼ 310 ×
+
+2800 2 7,840,000 1.3 S 75.67 S ± 41 MS ∼ 58 ×
+
+30 Submission and Formatting Instructions for ICML 2026 
+
+J. Dynamic Adaptive Regulator vs Binary Adaptive Regulator 
+
+The PATS component utilizes a dynamic regulator to determine the optimal stride ∆τ within the interval [1 , W ]. This approach enables fine-grained adaptive sampling by mapping the physics-derived saliency ϕW (physics metrics stored in the Queue with size W ) to a discrete temporal jump τn+1 − τn ∈ { 1, . . . , W }. For ablation and comparative analysis, we further implement a binary regulator, which is predominantly a “bang-bang” control variant that strictly switches between dense ( ∆τ = 1 ) and sparse ( ∆τ = W ) sampling. This binary mode-switching is governed by a thresholding function of the localized physics metrics f (ϕW ) over the window W :
+
+tn+1 =
+
+(
+
+tn + W if f (ϕW ) ≤ γtn + 1 otherwise 
+
+a) 0.000              
+
+> 0.001
+> 0.002
+> 0.003
+> 0.004
+> 0.005
+> 0.006
+> 0.007
+> 0.008
+> Abs.  (x, y, t)
+> Temporal Retention: 37.60 %
+> 0510 15 20 25
+> Simulation Time (s)
+> 1 (Dense)
+> 5 (Sparse)
+> Jump Size  t
+> 0510 15 20 25
+> 0.5
+> 1.0
+> Normalized (t)signal
+
+b) 0.000             
+
+> 0.001
+> 0.002
+> 0.003
+> 0.004
+> 0.005
+> 0.006
+> 0.007
+> 0.008
+> Abs.  (x, y, t)
+> Temporal Retention: 53.10 %
+> 0510 15 20 25
+> Simulation Time (s)
+> 1 (Dense)
+> 5 (Sparse)
+> Jump Size  t
+> 0510 15 20 25
+> 0.5
+> 1.0
+> Normalized (t)signal
+
+Figure 19. Temporal retention comparison between dynamic vs binary regulator. (Left) illustrates the comparative efficiency of our two regulation regimes. The Dynamic Regulator (Left) achieves a retention of 37% by mapping physical saliency to a multi-step stride set 
+
+{1, . . . , 5}. Intermediate jumps (sizes 2, 3, and 4) allow the selector to smoothly transition between stationary and transient regimes, isolating the high-enstrophy activity with minimal redundancy. (Right) Conversely, the Binary Regulator utilizes a ”Bang-Bang” strategy, restricted to either dense ( ∆τ = 1 ) or maximum-stride ( ∆τ = 5 ) sampling. While it successfully captures the high-enstrophy transients, the lack of intermediate quantization leads to over-sampling in moderate-activity regions, resulting in a higher temporal retention of 53% .
+
+K. Hardware and Licenses 
+
+Computing Infrastructure . Our primary computational experiments were conducted on two high-performance configu-rations. CPU-intensive tasks, including initial solver execution and physics-informed scalar extraction, were performed on either a dual-socket Intel Xeon Platinum 8452Y+ (64 total cores) clocked at 4.1 GHz with 2048 GiB of RAM, or a dual-socket Intel Xeon 6767P (128 total cores) at 2.4 GHz equipped with 3072 GiB of RAM. Simulation solvers, neural field training and high-fidelity snapshot processing were accelerated using either an NVIDIA H200 SXM GPU (144 GiB HBM3e) or a next-generation NVIDIA B300 SXM6 GPU (275 GiB). All GPU-accelerated workloads utilized CUDA 13.1 and NVIDIA Driver 590.48.01 , ensuring optimal support for the Blackwell architecture’s enhanced precision and throughput. 
+
+Licenses and Software . This work would not have been possible without the open-source software ecosystem. Our implementation is built upon multiple community-maintained libraries, and we gratefully acknowledge their licenses below. The core computations were performed using JAX[cuda12] (Bradbury et al., 2018) with CUDA support, licensed under the Apache 2.0 License. For model definition and training, we relied on Flax NNX , Orbax and Optax , both also under Apache 2.0. All libraries used are permissively licensed, enabling free academic and non-commercial research. 31

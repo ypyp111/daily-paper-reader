@@ -1,0 +1,688 @@
+Title: Feasibility-Aware Imitation Learning for Benders Decomposition
+
+URL Source: https://arxiv.org/pdf/2604.04801v1
+
+Published Time: Tue, 07 Apr 2026 01:54:57 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Feasibility-Aware Imitation Learning for Benders Decomposition* 
+
+Bernard T. Agyeman 1, Zhe Li 1, Ilias Mitrai 2, and Prodromos Daoutidis 1
+
+Abstract — Mixed-integer optimization problems arise in a wide range of control applications. Benders decomposition is a widely used algorithm for solving such problems by decomposing them into a mixed-integer master problem and a continuous subproblem. A key computational bottleneck is the repeated solution of increasingly complex master problems across iterations. In this paper, we propose a feasibility-aware imitation learning framework that predicts the values of the integer variables of the master problem at each iteration while accounting for feasibility with respect to constraints governing admissible integer assignments and the accumulated Benders feasibility cuts. The agent is trained using a two-stage procedure that combines behavioral cloning with a feasibility-based logit adjustment to bias predictions toward assignments that satisfy the evolving cut set. The agent is deployed within an agent-based Benders decomposition framework that combines explicit feasibility checks with a time-limited solver computation of a valid lower bound. The proposed approach retains finite convergence properties, as the lower bound is certified at each iteration. Application to a prototypical case study shows that the proposed method improves solution time relative to existing imitation learning approaches for accelerating Benders decomposition, while preserving solution accuracy. 
+
+I. INTRODUCTION Mixed-integer optimization problems arise in a wide range of applications in engineering and control. A typical example is mixed-integer model predictive control [1], [2], in which discrete and continuous decisions must be made simulta-neously to achieve a desired objective. Such problems are typically solved using branch-and-bound algorithms which iteratively explore and prune the search space. Despite sig-nificant progress in theory and algorithms, the online solution of mixed-integer optimization problems remains challenging, particularly in settings where such problems must be solved repeatedly under varying parameter realizations. Several approaches have been proposed to reduce the solu-tion time. For example, one can solve the problem using tai-lored heuristics [3], warm-start the solver with past solutions [4], and exploit the underlying structure with decomposition-based optimization algorithms [5], [6]. Recently, machine learning (ML) approaches have been developed to reduce the online computational effort. ML approaches are particularly attractive in settings where the same optimization problem  
+
+> *IM would like to acknowledge support from the McKetta Department of Chemical Engineering. PD would like to acknowledge support from NSF CBET (award number 2313289).
+> 1Bernard T. Agyeman, Zhe Li, and Prodromos Daoutidis are with the Department of Chemical Engineering and Materials Science, University of Minnesota, Minneapolis, MN, USA
+
+{agyem050, li003679, daout001 }@umn.edu                   
+
+> 2Ilias Mitrai is with the McKetta Department of Chemical En-gineering, The University of Texas at Austin, Austin, TX, USA
+
+imitrai@che.utexas.edu 
+
+is solved repeatedly under varying parameter realizations, as past solutions can be leveraged to accelerate future compu-tations. For example, ML models, such as neural networks and decision trees, can be used to approximate the solution to the optimization problem itself [7], [8], [9], i.e., learn the mapping from the problem parameters to the optimal solu-tion. Although such approaches can significantly reduce the solution time, the predicted solution is not always guaranteed to be optimal or feasible. While optimality is usually related to system performance, e.g., cost and/or control performance, feasibility is related to safety, i.e., constraint satisfaction. An alternative use of ML is to accelerate the solution algorithm itself [10], [11]. In this approach, ML is used to either speed up calculations within an algorithm or substitute heuristic decisions. For example, ML surrogate models can be used to select the best solution strategy [12], learn to select nodes in branch-and-bound solution methods [13], and approximate/select cutting planes [14], [15]. In this paper, we focus on Benders decomposition, which decomposes the problem into a mixed-integer master prob-lem and a continuous subproblem that are solved iteratively. The master problem and subproblem are coordinated via Benders cuts, which convey optimality and feasibility in-formation from the subproblem to the master problem. A key challenge in the online implementation of the algorithm is the repeated solution of the master problem. Solving the master problem to global optimality at early iterations can increase solution time without significantly improving the bounds [16]. To accelerate the solution of the master problem, one approach is to manage and identify valuable Benders cuts using ML techniques [17], [18]. More recently, reinforcement learning (RL) has been used to select the level of sub-optimality at each iteration [19]. However, these ap-proaches still require solving a mixed-integer programming (MIP) problem at every iteration, which remains computa-tionally demanding. To reduce solution time and reliance on the MIP solver, imitation learning and RL have been used to directly predict the solution of the master problem, where an agent selects the values of the integer variables at which Benders cuts are generated [20], [21]. However, feasibility with respect to the master problem constraints is not explicitly enforced during training or deployment, and the resulting predictions may be infeasible. Moreover, due to the absence of optimality guarantees in imitation learning and RL approaches, the lower bound derived from the agent’s predictions is not guaranteed to be valid, and therefore, con-vergence of the resulting Benders decomposition algorithm cannot be guaranteed. In this paper, we propose a feasibility-aware imitation 
+
+> arXiv:2604.04801v1 [math.OC] 6 Apr 2026
+
+learning approach to predict the values of the complicating variables in each iteration. First, the agent learns to imitate the behavior of an expert, i.e., a branch-and-bound solver, by predicting the optimal solution of the master problem at each iteration. In a second step, a feasibility-aware loss function is used to fine-tune parts of the neural network architecture to promote predictions that are feasible with respect to the accumulated Benders feasibility cuts. The agent is deployed within an agent-based Benders decomposition framework, in which explicit feasibility checks are combined with a time-limited solver computation of a valid lower bound. This ensures that the iterates of the integer variables are feasible with respect to the master problem and that lower-bound updates are valid, thereby ensuring finite convergence of the agent-based Benders decomposition framework. The proposed approach is applied to a prototypical case study, where it demonstrates a reduction in solution time without compromising solution accuracy. II. PRELIMINARIES 
+
+A. Problem Formulation 
+
+We consider mixed-integer nonlinear programming (MINLP) problems of the form: 
+
+min  
+
+> x,y
+
+f (x, y) (1) s.t. h(x, y) = 0, (2) 
+
+g(x, y) ≤ 0, (3) 
+
+Ky − b ≤ 0, (4) 
+
+x ∈ X , y ∈ { 0, 1}m (5) where x ∈ Rn are continuous variables and y ∈ { 0, 1}m are binary variables. The restriction to binary variables is without loss of generality; they arise in a wide range of applications whereas general integer variables can always be represented using binary encodings. The set X ⊆ Rn is defined as 
+
+X := {x ∈ Rn | Ex ≤ d} , where E ∈ Rl×n, d ∈ Rl,
+
+K ∈ Ro×m, and b ∈ Ro. The function f : Rn × Rm → R,and the vector-valued functions h : Rn × Rm → Rp
+
+and g : Rn × Rm → Rq , are assumed to be continuous, differentiable, and convex. The constraints involving only 
+
+y, given by constraint (4), are referred to as pure binary constraints throughout the paper. The number of continuous and binary variables is denoted by n and m, respectively, while p, q, l, and o denote the number of equality con-straints, inequality constraints, constraints defining X , and pure binary constraints. 
+
+B. Generalized Benders Decomposition (GBD) 
+
+In this work, we focus on generalized Benders decompo-sition (GBD) [22], which extends classical Benders decom-position to mixed-integer nonlinear problems. The proposed approach is equally applicable to classical Benders decompo-sition. In particular, we adopt the GBD algorithm presented in [23], which incorporates both equality and inequality constraints. GBD iteratively refines upper and lower bounds on the optimal solution of problem (1). The lower bound (LBD) is obtained from the master problem, while the upper bound (UBD) is obtained from the subproblem. In iteration 
+
+k, the subproblem S(yk) corresponds to problem (1) with fixed binary variables yk, and is given by: 
+
+Z(yk) = min  
+
+> x
+
+f (x, yk)
+
+s.t. h(x, yk) = 0,
+
+g(x, yk) ≤ 0,
+
+x ∈ X 
+
+(6) If S(yk) is feasible, its objective value provides an UBD; otherwise, a feasibility subproblem is solved to generate a feasibility cut that excludes the current assignment. The feasibility subproblem F(yk) is given by: 
+
+min  
+
+> x∈X ,α
+> q
+
+X
+
+> i=1
+
+αi
+
+s.t. h(x, yk) = 0 ,gi(x, yk) ≤ αi, i = 1 , . . . , q, αi ≥ 0, i = 1 , . . . , q. 
+
+Under this decomposition, problem (1) can be equivalently reformulated as: 
+
+min  
+
+> y∈{ 0,1}m
+
+Z(y)
+
+s.t. Ky − b ≤ 0.
+
+(7) Since Z(y) is not available in closed form, it is approxi-mated using hyperplanes, known as Benders optimality and feasibility cuts. The optimality cut C(k) 
+
+> o
+
+is given by: 
+
+μB ≥ f (xk, y) + λ⊤ 
+
+> k
+
+h(xk, y) + μ⊤ 
+
+> k
+
+g(xk, y), (8) where μB is an auxiliary variable that represents the objective of the master problem, xk is an optimal solution of S(yk),and λk, μk are the associated optimal dual multipliers. We define the function ϕ(k) 
+
+> o
+
+(y) as the right-hand side (RHS) of the optimality cut, i.e., 
+
+ϕ(k) 
+
+> o
+
+(y) := f (xk, y) + λ⊤ 
+
+> k
+
+h(xk, y) + μ⊤ 
+
+> k
+
+g(xk, y).
+
+The feasibility cuts C(k) 
+
+> f
+
+are given by: 
+
+0 ≥ λ⊤ 
+
+> k
+
+h(xk, y) + μ⊤ 
+
+> k
+
+g(xk, y), (9) where xk is an optimal solution of F(yk), and λk, μk are the associated dual multipliers. We define the function ϕ(k) 
+
+> f
+
+(y)
+
+as the RHS of the feasibility cut, i.e., 
+
+ϕ(k) 
+
+> f
+
+(y) := λ⊤ 
+
+> k
+
+h(xk, y) + μ⊤ 
+
+> k
+
+g(xk, y).
+
+The master problem M is given by: 
+
+min    
+
+> μB,y∈{ 0,1}m
+
+μB
+
+s.t. μB ≥ ϕ(k) 
+
+> o
+
+(y), ∀k ∈ KO ,ϕ(k) 
+
+> f
+
+(y) ≤ 0, ∀k ∈ KF ,
+
+Ky − b ≤ 0,
+
+(10) where KO and KF denote the index sets of optimality and feasibility cuts. Since the number of cuts can be large, ECC          
+
+> Layer Pooling Dense
+> Layer
+> Softmax
+> ℓBipartite
+> Graph
+> 110
+> 010
+> 001
+> 𝑐 1
+> 𝑐 2
+> 𝑐 3
+> 𝑝 1
+> 𝑝 2
+> 𝑝 3
+> Probabilities of
+> Admissible Sol.
+> Master Problem
+> Logits Fig. 1. The architecture of the graph-based master problem agent.
+
+they are added adaptively during the solution process. Un-der standard convexity assumptions on the subproblem, the sequences of lower and upper bounds are nondecreasing and nonincreasing, respectively, and converge in a finite number of iterations. III. FEASIBILITY-AWARE IMITATION LEARNING We propose a feasibility-aware imitation learning approach (see Figure 1) to solve the master problem in GBD. Specifi-cally, behavioral cloning [24] is used to train an agent from past master problem solutions generated by an MIP solver, which serve as expert demonstrations. The agent takes as input a bipartite graph representation of the current master problem and predicts the values of y.To motivate the proposed design, we examine the structure of the master problem. By eliminating the variable μB in M,problem (10) can be equivalently expressed as: 
+
+min  
+
+> y∈{ 0,1}m
+
+max 
+
+> k∈KO
+
+ϕ(k) 
+
+> o
+
+(y)
+
+s.t. ϕ(k) 
+
+> f
+
+(y) ≤ 0, ∀k ∈ KF ,
+
+Ky − b ≤ 0.
+
+(11) From problem (11), the constraints of the master problem can be divided into two categories: (i) pure binary constraints, which are common to all instances of M and determine the admissible values of y, and (ii) feasibility cuts, which are introduced adaptively during the GBD iterations. We leverage this structure in the design and training of the agent. Since the pure binary constraints are part of the original problem and are fixed and fully known, we enforce them by restricting the agent’s action space to binary combinations that satisfy constraint (4). In contrast, feasibility cuts are added adaptively, and the agent cannot anticipate the full set of cuts it will encounter. Therefore, their satisfaction is promoted during training through a feasibility-based logit ad-justment that penalizes actions in the agent’s action space that violate the current feasibility cut set. The overall framework combines a graph-based policy with a two-stage training procedure. 
+
+A. Action Space Design 
+
+The full binary action space of the master problem is given by Y := {0, 1}m, which contains 2m possible assignments. We use the pure binary constraints in constraint (4) to eliminate assignments that are infeasible a priori . This yields the reduced action space 
+
+Ypb := {y ∈ Y | Ky − b ≤ 0}.
+
+Let 
+
+Ypb = {c(1) , . . . , c(Nc)},
+
+where Nc = |Y pb |, c(i) ∈ { 0, 1}m denotes the i-th binary assignment satisfying the pure binary constraints, and typi-cally Nc ≪ 2m. The set Ypb defines the admissible action space of the agent, ensuring that all selected combinations 
+
+{c(i)}Nc 
+
+> i=1
+
+satisfy the pure binary constraints. 
+
+B. Agent Design 
+
+The policy of the agent is parameterized using a graph neural network (GNN), and the learning problem is formu-lated as a graph-level classification task. The key components of the agent’s policy are described below. 
+
+1) Input: The input to the agent is a bipartite graph rep-resentation of the current master problem instance, defined as G := ( V, E, A d, X f , X e), where V and E denote the sets of nodes and edges, respectively, Ad is the adjacency matrix, 
+
+Xf is the node feature matrix, and Xe is the edge feature matrix. The construction of G is described as follows: 1) Nodes : The node set V is partitioned into variable (binary variables) and constraint nodes (optimality and feasibility cuts). The pure binary constraints are not included as constraint nodes, as they are used to define the action space of the agent. 2) Node features : Variable node features correspond to the values of the binary variables from the previous master problem iteration. Constraint node features in-clude the RHS values of the constraints and a cut-type indicator, where feasibility cuts are assigned a value of 1 and optimality cuts a value of 0. 3) Edges : An edge connects a variable node and aconstraint node whenever the variable appears in that constraint. 4) Edge features : The edge feature matrix Xe contains the nonzero coefficients linking binary variables and constraints. 
+
+2) Graph Layers: We employ Edge-Conditioned Convo-lution (ECC) [25], which incorporates edge features into the message-passing process. 
+
+3) Readout Layer: A global sum pooling operation ag-gregates node embeddings into a graph-level representation. 
+
+4) Dense Layers: Fully connected layers are applied after pooling to increase the expressive capacity of the model. 
+
+5) Output Layer: The output layer is defined over the reduced action space Ypb . Given a graph G, the policy network πθ produces a vector of logits 
+
+ℓ = πθ (G) ∈ RNc ,
+
+where ℓj corresponds to the unnormalized score associated with the binary combination c(j). The output layer therefore consists of Nc units with no activation. C. Two-Stage Training Procedure 
+
+The policy network is trained using a two-stage supervised learning approach, summarized in Algorithm 1. The two-stage design allows the model to first learn to imitate expert decisions and subsequently incorporate feasibility-awareness without altering the learned graph representations. In the first stage, given a graph G, the policy network produces logits ℓ ∈ RNc , which are converted to probabilities via the softmax function, 
+
+pj = exp( ℓj )
+
+PNc 
+
+> k=1
+
+exp( ℓk) , ∀j = 1 , . . . , N c.
+
+The resulting vector p defines a probability distribution over the admissible binary assignments in Ypb . The policy network πθ is trained using the cross-entropy loss 
+
+L(1) CE = − log pj⋆ ,
+
+where j⋆ is the index corresponding to the expert solution 
+
+y⋆.The loss L(1) CE encourages the agent to reproduce expert solutions obtained from past master problem solves, which are feasible and optimal with respect to the current master problem. However, the learned policy is not guaranteed to match the expert exactly at every iteration and may select al-ternative assignments. In the context of GBD, such deviations are not problematic: suboptimal assignments that remain feasible with respect to the master problem can still be used to generate valid cuts or serve as valid candidates for the MIP solver. Therefore, beyond matching the expert solution, it is important to ensure that the agent’s actions remain feasible with respect to the feasibility cuts. This motivates the incorporation of a feasibility-based logit adjustment, which biases the policy toward selecting assignments that satisfy the current cut set. This forms the basis of the second stage. In the second stage, building on the model learned in the first stage, the graph layers are frozen, i.e., their parameters are kept fixed, and only the parameters of the dense layers are updated. From the GBD algorithm presented in Section II-B, the feasibility cuts in the current master problem can be written as 
+
+ϕ(k) 
+
+> f
+
+(y) ≤ 0, ∀k ∈ KF .
+
+For each c(j) ∈ Y pb , an infeasibility score is computed as 
+
+sj = X
+
+> k∈KF
+
+max  0, ϕ (k) 
+
+> f
+
+(c(j)), ∀j = 1 , . . . , N c.
+
+Since feasibility cuts are generally affine in y, the compu-tation of the infeasibility scores reduces to evaluating linear functions over the binary combinations in Ypb . Consequently, 
+
+{sj }Nc 
+
+> j=1
+
+can be computed efficiently using matrix–vector operations. These infeasibility scores are used to adjust the output of the neural network according to 
+
+˜ℓj = ℓj − ωs j , j = 1 , . . . , N c,
+
+Algorithm 1 Feasibility-Aware Imitation Learning for GBD.                                                          
+
+> 1: Input: Training set {(Gi, j ⋆i)}, admissible set Ypb
+> 2: Initialize policy network πθ
+> 3: Stage 1
+> 4: for each minibatch do
+> 5: ℓ←πθ(G)
+> 6: p←softmax( ℓ)
+> 7: L ← − log pj⋆
+> 8: Update πθ
+> 9: end for
+> 10: Freeze graph layers
+> 11: Stage 2
+> 12: for each minibatch do
+> 13: ℓ←πθ(G)
+> 14: for each c(j)∈ Y pb do
+> 15: sj←P
+> k∈KFmax
+> 
+> 0, ϕ (k)
+> f(c(j))
+> 
+> 16: ˜ℓj←ℓj−ωs j
+> 17: end for
+> 18: ˜p←softmax( ˜ℓ)
+> 19: L ← − log ˜ pj⋆
+> 20: Update πθ
+> 21: end for
+
+where ω > 0 is a penalty parameter. The adjusted logits are converted to probabilities via 
+
+˜pj = exp( ˜ℓj )
+
+PNc 
+
+> k=1
+
+exp( ˜ℓk) .
+
+This adjustment biases the probability distribution toward combinations that satisfy the feasibility cuts. The policy network is then fine-tuned using the cross-entropy loss computed from the adjusted probability distribution 
+
+L(2) CE = − log ˜ pj⋆ .
+
+Remark: The cross-entropy loss used in the first stage and the feasibility-aware loss in the second stage are complementary and could, in principle, be combined into a single training objective. However, in our experiments, the two-stage proce-dure was found to yield more stable training and improved performance. IV. AGENT-BASED GBD ALGORITHM While the agent incorporates feasibility awareness during training, there is no guarantee that its predictions will satisfy all accumulated feasibility cuts or will be optimal with respect to the current master problem. Using the agent to directly replace the solver would therefore compromise the convergence of GBD. Infeasible predictions may lead to infeasible subproblems and repeated generation of redundant feasibility cuts, which will prevent updates to the UBD and affect finite convergence. Moreover, since the agent provides no optimality guarantees, the objective value induced by its assignment cannot be guaranteed to represent a valid lower bound on the optimal value of problem (1), and thus cannot be used to reliably update the LBD. To address these issues, we design an approach (see Algorithm 2) that regulates the acceptance and validation of the agent’s assignment within GBD. At each iteration, the agent predicts a binary assignment 
+
+ˆy based on the graph representation of the current master problem. Since ˆy satisfies the pure binary constraints by construction, it is evaluated against the accumulated feasi-bility cuts by computing ϕ(k) 
+
+> f
+
+( ˆ y) for all k ∈ KF . If there exists k ∈ KF such that ϕ(k) 
+
+> f
+
+( ˆ y) > 0, the agent’s assignment is rejected, and the master problem is solved to optimality using the MIP solver. When ˆy satisfies all feasibility cuts, it is accepted as the candidate solution for the current iteration. As noted, the lack of optimality guarantees means that the objective value induced by ˆy cannot be used to update the LBD. To obtain a valid lower bound, the MIP solver is invoked to solve the current master problem under a prescribed time budget Tk,with ˆy provided as a warm start. The primary objective of this solve is to obtain the best bound LB , i.e., the tightest lower bound certified by the branch-and-bound search within the time budget, which is then used to update the LBD. The time-limited solve also yields an integer solution y with associated objective value μB , which is compared against the agent’s assignment. In this comparison, the objective value 
+
+ˆμB induced by ˆy under the accumulated optimality cuts is computed as 
+
+ˆμB := max 
+
+> k∈KO
+
+ϕ(k) 
+
+> o
+
+( ˆ y).
+
+If ˆμB ≤ μB + εtol , where εtol > 0 is a prescribed tolerance, then ˆy is accepted as the iterate; otherwise, y is used, as accepting suboptimal solutions may slow convergence. The time budget Tk is scheduled based on the normalized optimality gap. Let gap k := UBD − LBD and ˜gap k := gap k/gap 0. Given parameters Tmin and Tmax , which rep-resent the minimum and maximum allowable solve times, respectively, the time budget is selected as 
+
+Tk := Tmin + ( Tmax − Tmin ) (1 − ˜gap k) .
+
+In early iterations, when the relaxation is weak, a small time budget is sufficient to obtain a valid lower bound. As the optimality gap decreases and the algorithm approaches convergence, a larger time budget is allocated to ensure higher accuracy. Since the master problem is solved under a time limit, 
+
+LB may not improve monotonically across iterations, as in classical GBD. We therefore explicitly enforce monotonicity of the lower bound sequence as 
+
+LBD k := max(LBD k−1, LB) .
+
+Remark: Under the standard assumption that the subprob-lem is convex, the finite convergence of classical GBD relies on (i) the validity of the lower bound obtained from the master problem and (ii) the correct generation of feasibility and optimality cuts from the subproblem. In Algorithm 2, feasibility of the iterates is enforced through explicit fea-sibility checks, ensuring that only admissible assignments for the master problem are used in the subproblem. The lower bound is computed using an MIP solver and, therefore, remains valid at each iteration. Furthermore, the generation 
+
+Algorithm 2 Agent-based GBD algorithm.  
+
+> 1:
+
+Input: y0, πθ , Ypb , ϵ, Tmin , T max , εtol  
+
+> 2:
+
+Initialize: UBD ← +∞, LBD ← −∞ , k ← 0, KF ← ∅ ,
+
+KO ← ∅  
+
+> 3:
+
+while UBD − LBD > ϵ do  
+
+> 4:
+
+Solve subproblem S(yk ) 
+
+> 5:
+
+if S(yk ) is feasible then  
+
+> 6:
+
+UBD ← min(UBD , Z (yk ))  
+
+> 7:
+
+Add optimality cut C(k) 
+
+> o
+
+to M 
+
+> 8:
+
+KO ← KO ∪ { k} 
+
+> 9:
+
+else  
+
+> 10:
+
+Solve feasibility subproblem F(yk ) 
+
+> 11:
+
+Add feasibility cut C(k) 
+
+> f
+
+to M 
+
+> 12:
+
+KF ← KF ∪ { k} 
+
+> 13:
+
+end if  
+
+> 14:
+
+if UBD − LBD ≤ ϵ then  
+
+> 15:
+
+break  
+
+> 16:
+
+end if  
+
+> 17:
+
+Build graph Gk from the current master problem M 
+
+> 18:
+
+ℓ ← πθ (Gk ) 
+
+> 19:
+
+p ← softmax( ℓ) 
+
+> 20:
+
+j∗ ← arg max j pj 
+
+> 21:
+
+ˆy ← Y pb [j∗] 
+
+> 22:
+
+if ϕ(i) 
+
+> f
+
+( ˆ y) ≤ 0, ∀i ∈ KF then  
+
+> 23:
+
+gap k ← UBD − LBD  
+
+> 24:
+
+if k = 0 then  
+
+> 25:
+
+gap 0 ← gap k 
+
+> 26:
+
+Tk ← Tmin  
+
+> 27:
+
+else  
+
+> 28:
+
+Tk ← Tmin + ( Tmax − Tmin )
+
+
+
+1 − gap k
+
+gap 0
+
+ 
+
+> 29:
+
+end if  
+
+> 30:
+
+Solve M under time limit Tk with ˆy as warmstart  
+
+> 31:
+
+Obtain (y, μ B , LB)  
+
+> 32:
+
+Compute ˆμB ← max i∈KO ϕ(i) 
+
+> o
+
+( ˆ y) 
+
+> 33:
+
+if ˆμB ≤ μB + εtol then  
+
+> 34:
+
+yk+1 ← ˆy 
+
+> 35:
+
+else  
+
+> 36:
+
+yk+1 ← y 
+
+> 37:
+
+end if  
+
+> 38:
+
+LBD ← max(LBD , LB)  
+
+> 39:
+
+else  
+
+> 40:
+
+Solve M to obtain (y, μ B , LB)  
+
+> 41:
+
+yk+1 ← y 
+
+> 42:
+
+LBD ← max(LBD , LB)  
+
+> 43:
+
+end if  
+
+> 44:
+
+k ← k + 1  
+
+> 45:
+
+end while 
+
+of feasibility and optimality cuts follows the classical GBD procedure and is not modified by the agent. Consequently, 
+
+the proposed approach preserves the finite convergence prop-erties of classical GBD .V. CASE STUDY We consider a modified version of the problem from [23], denoted as E:
+
+min  
+
+> x,y
+
+γ1y1 + γ2y2 + γ3y3 + γ4y4 + γ5y5 − 10 x3 − 15 x5
+
+− 15 x9 + 15 x11 + 5 x13 − 20 x16 + exp( x3)+ exp 
+
+ x5
+
+1.2
+
+
+
+− 60 ln( x11 + x13 + 1) + 140 (E1) s.t. − ln( x11 + x13 + 1) ≤ 0 (E2) 
+
+− x3 − x5 − 2x9 + x11 + 2 x16 ≤ 0 (E3) − x3 − x5 − 0.75 x9 + x11 + 2 x16 ≤ 0 (E4)                                                                                                   
+
+> x9−x16 ≤0(E5)
+> 2x9−x11 −2x16 ≤0(E6)
+> −0.5x11 +x13 ≤0(E7)
+> 0.2x11 −x13 ≤0(E8)
+> exp( x3)−U y 1≤ρ1(E9)
+> exp
+> x5
+> 1.2
+> 
+> −U y 2≤ρ2(E10)
+> 1.25 x9−U y 3≤0(E11)
+> x11 +x13 −U y 4≤0(E12)
+> −2x9+ 2 x16 −U y 5≤0(E13)
+> y1+y2= 1 (E14)
+> y4+y5≤1(E15)
+> yT= ( y1, y 2, y 3, y 4, y 5)∈ { 0,1}5,
+> xT= ( x3, x 5, x 9, x 11 , x 13 , x 16 )∈R6,
+> aT= (0 ,0,0,0,0,0) ,bT= (2 ,2,2,–,–,3) ,
+> a≤x≤b,U∈[6 ,14] ,ρ1, ρ 2∈[0 ,2] ,γ1, γ 2, γ 3, γ 4∈[1 ,39] ,γ5∈[1 ,7] .
+
+A. Data Generation 
+
+Expert data was obtained by sampling 300 distinct com-binations of the parameters γ1, γ 2, γ 3, γ 4, γ 5, U, ρ 1, and ρ2
+
+within their respective ranges. For each parameter set, the resulting MINLP was solved using GBD, where Gurobi 12.0.1 [26] was used to solve the master problem and Ipopt 3.12.6 [27] was used to solve the subproblem. The final dataset consisted of 24,638 data points. 
+
+B. GNN Architecture and Training 
+
+The initial action space of the master problem of E consists of 25 = 32 binary combinations. By enforcing the pure binary constraints in (E14) and (E15), this set was reduced to 12 feasible combinations, which defined the agent’s action space. The policy network consisted of three ECC layers, each with 64 hidden units and ReLU activations, followed by two fully connected layers of sizes 64 and 32 with ReLU activations. The output layer consisted of 12 units corresponding to the feasible combinations. In the first stage, the model was trained using the Adam optimizer with a learning rate of 10 −3, a batch size of 8, and 20 epochs. In the second stage, the dense layers were fine-tuned using a learning rate of 10 −4, a batch size of 8, 20 epochs, and a penalty parameter of ω = 0 .1. The training set consisted of 23,409 data points. 
+
+C. Agent Evaluation 
+
+The agent was evaluated on 1,232 data points, of which 877 instances contained feasibility cuts. The evaluation as-sessed the agent’s ability to predict assignments that satisfied all feasibility cuts associated with each data instance in the test set, as well as its ability to match expert solutions. To assess the benefits of the two-stage training procedure, the proposed agent was compared with a baseline corresponding to the model obtained after the first training stage. The evaluation also includes the graph-based imitation learning            
+
+> TABLE I COMPARISON OF BASELINE ,INDEPENDENT IL AND PROPOSED AGENT .Method Exact Match Feasibility Baseline 847/1232 (68.75%) 781/877 (89.05%) Independent IL [20] 257/1232 (20.86%) 175/877 (19.95%) Proposed 917/1232 (74.43%) 822/877 (93.73%)
+
+approach developed in [20], where an agent is trained to predict the values of the binary variables based on a bipartite graph representation of the master problem. In that approach, training is based solely on behavioral cloning, and the bi-nary variables are predicted independently without explicitly accounting for feasibility with respect to the pure binary constraints or the accumulated Benders feasibility cuts. The agent resulting from that approach is termed independent IL in this paper. Its architecture is similar to that of the agent in the proposed approach, with the exception of the output layer, which consists of 5 units with sigmoid activation functions to reflect the 5 binary variables in problem E. The independent IL agent was trained using the same hyperparameters as the proposed approach. Following [20], the outputs of the independent IL agent were converted to binary values using thresholds of 0.75 and 0.25. Furthermore, 30 new distinct combinations of parameters 
+
+γ1, γ 2, γ 3, γ 4, γ 5, U, ρ 1, and ρ2 were generated. For each pa-rameter set, the resulting problem was solved using the agent-based GBD according to Algorithm 2. The same problem instances were also solved using the agent resulting from the independent IL approach under the same deployment scheme of Algorithm 2. Classical GBD was applied to the same prob-lem instances, and the approaches were compared in terms of the average time required to solve the master problem, the average number of iterations, the average subproblem solution time, and the agreement between the solutions returned by each approach and the true solution, obtained by solving the MINLP using the BONMIN 1.8.9 [28] solver. For the agent-based approaches (proposed and independent IL), we assessed the frequency with which the agent’s action was accepted as the iterate and the frequency with which the time-limited master problem solved produced a better solution. For this evaluation, Tmin , Tmax , ε, and εtol were set to 0.1 s, 0.5 s, 0.001, and 10 −6, respectively. All simulations were performed on a machine equipped with an Intel Core i7-14700 processor (20 cores), 32 GB RAM, running Ubuntu 24.04. 
+
+D. Results and Discussion 
+
+Table I presents a comparison between the proposed approach, the baseline, and the independent IL approach. The proposed approach improves the ability of the agent to propose assignments that satisfy feasibility cuts: out of the 877 instances with feasibility cuts, the proposed approach satisfies 822 instances (93.73%), compared to 781 instances (89.05%) for the baseline and 175 instances (19.95%) for the independent IL approach. In terms of matching the expert TABLE II COMPARISON BETWEEN CLASSICAL GBD AND LEARNING -AUGMENTED VARIANTS .Metric Classical GBD Independent IL [20] Proposed Avg. iterations 8.83 ± 1.21 8.83 ± 1.21 8.83 ± 1.21 Avg. MP ⋆ time (s) 0.400 ± 0.065 0.307 ± 0.075 0.139 ± 0.057                                  
+
+> Avg. SP ∗time (s) 1.240 ±0.131 1.218 ±0.276 1.238 ±0.318 Agent-selected iterate †–2.07 / 8.83 (23%) 6.27 / 8.83 (71%) Solver-selected iterate ‡–0.20 / 8.83 (2%) 2.47 / 8.83 (28%) MP ⋆time reduction –23.3% 65.3%
+> Solution match 30/30 (100%) 30/30 (100%) 30/30 (100%)
+> Note: ⋆MP: master problem; ∗SP: subproblem; †Agent’s assignment is used as the iterate; ‡Solver’s solution replaces the agent’s assignment. All time and iteration metrics are reported as mean ±standard deviation.
+
+solutions, the proposed policy also outperforms both alter-natives, achieving an exact match rate of 74.43%, compared to 68.75% for the baseline and 20.86% for the independent IL approach. The improvement in feasibility satisfaction of the proposed approach over the baseline highlights the effectiveness of the feasibility-aware loss introduced in the second stage of the training process. Furthermore, the improvement in exact match indicates that this loss, while encouraging fea-sibility with respect to the feasibility cuts, also enhances the ability of the agent to produce actions that match the expert solutions. The comparison between the proposed approach and the independent IL approach highlights the importance of incorporating the structure of the master problem into the learning process. In the independent IL approach, feasibility with respect to the constraints of the master problem is learned implicitly from data. In contrast, in the proposed approach, the learning problem is restricted to binary combinations that satisfy the admissible assignment constraints, and feasibility with respect to the accumulated cuts is incorporated during training via the feasibility-based logit adjustment. This reduces the complexity of the learn-ing problem and leads to significantly improved feasibility satisfaction and overall predictive performance. Table II presents a comparison between classical GBD and the agent-based approaches. All approaches require the same number of iterations on average and recover the true solution in all 30 instances. In terms of computational performance, the independent IL approach achieves a reduction in the average master problem solution time, from 0.400 s to 0.307 s (23.3%), while the proposed approach achieves a significantly larger reduction to 0.139 s (65.3%). On average, the proposed agent’s action is selected as the iterate in 71% of the iterations, compared to 23% for the independent IL approach. Furthermore, in 28% of the iterations, the time-limited master problem solve for valid lower-bound computation yields a solution that improves upon the agent’s assignment and is therefore used to update the iterate; this occurs in only 2% of the iterations for the independent IL approach. Overall, the proposed agent produces feasible as-signments in 99% of the iterations, compared to 25% for the independent IL approach. The average subproblem solution time remains unchanged across all approaches. Importantly, whenever the proposed agent’s assignment is accepted, it coincides with the solution obtained by solving the master problem to optimality with Gurobi. VI. CONCLUSIONS This paper proposes a feasibility-aware imitation learning framework for accelerating the master problem in Benders decomposition. We show that existing imitation learning approaches for master problem acceleration may produce assignments that violate the constraints of the master prob-lem. To address this, the proposed method leverages both the constraints that define admissible assignments and the accumulated feasibility cuts of the master problem. In par-ticular, the agent’s action space is restricted to admissible assignments, while a two-stage training procedure introduces a feasibility-aware adjustment that encourages satisfaction of the feasibility cuts. The trained agent is integrated within an agent-based GBD framework, where its predictions are screened through feasibility checks and used to guide the selection of candidate iterates. A time-limited solver is em-ployed to compute valid lower bounds, ensuring that the al-gorithm retains the finite convergence properties of classical GBD. Numerical experiments demonstrate that the proposed method improves both feasibility satisfaction and agreement with expert solutions compared to existing imitation learning approaches for GBD acceleration, while reducing the com-putational effort required to solve the master problem. REFERENCES [1] R. D. McAllister and J. B. Rawlings, “Advances in mixed-integer model predictive control,” in 2022 American control conference (ACC) . IEEE, 2022, pp. 364–369. [2] S. Sager, H. G. Bock, M. Diehl, G. Reinelt, and J. P. Schloder, “Numerical methods for optimal control with binary control functions applied to a Lotka-Volterra type fishing problem,” in Recent Advances in Optimization . Springer, 2006, pp. 269–289. [3] R. Takapoui, N. Moehle, S. Boyd, and A. Bemporad, “A simple ef-fective heuristic for embedded mixed-integer quadratic programming,”                 
+
+> International Journal of Control , vol. 93, no. 1, pp. 2–12, 2020. [4] T. Marcucci and R. Tedrake, “Warm start of mixed-integer programs for model predictive control of hybrid systems,” IEEE Transactions on Automatic Control , vol. 66, no. 6, pp. 2433–2448, 2020. [5] S. Menta, J. Warrington, J. Lygeros, and M. Morari, “Learning solutions to hybrid control problems using Benders cuts,” in Learning for Dynamics and Control .PMLR, 2020, pp. 118–126. [6] I. Mitrai and P. Daoutidis, “A multicut generalized Benders decompo-sition approach for the integration of process operations and dynamic optimization for continuous systems,” Computers & Chemical Engi-neering , vol. 164, p. 107859, 2022.
+
+[7] B. Karg and S. Lucia, “Efficient representation and approximation of model predictive control laws via deep learning,” IEEE Transactions on Cybernetics , vol. 50, no. 9, pp. 3866–3878, 2020. [8] P. Kumar, J. B. Rawlings, and S. J. Wright, “Industrial, large-scale model predictive control with structured neural networks,” Computers & Chemical Engineering , vol. 150, p. 107291, 2021. [9] I. Mitrai, “Discovering interpretable piecewise nonlinear model pre-dictive control laws via symbolic decision trees,” arXiv preprint arXiv:2510.10411 , 2025. [10] I. Mitrai and P. Daoutidis, “Accelerating process control and op-timization via machine learning: A review,” Reviews in Chemical Engineering , vol. 41, no. 4, pp. 401–418, 2025. [11] ´A. S. Xavier, F. Qiu, and S. Ahmed, “Learning to solve large-scale security-constrained unit commitment problems,” INFORMS Journal on Computing , vol. 33, no. 2, pp. 739–756, 2021. [12] I. Mitrai and P. Daoutidis, “Taking the human out of decomposition-based optimization via artificial intelligence, part ii: Learning to initialize,” Computers & Chemical Engineering , vol. 186, p. 108686, 2024. [13] V. Nair, S. Bartunov, F. Gimeno, I. Von Glehn, P. Lichocki, I. Lobov, B. O’Donoghue, N. Sonnerat, C. Tjandraatmadja, P. Wang et al. ,“Solving mixed integer programs using neural networks,” arXiv preprint arXiv:2012.13349 , 2020. [14] Y. Tang, S. Agrawal, and Y. Faenza, “Reinforcement learning for integer programming: Learning to cut,” in International Conference on Machine learning . PMLR, 2020, pp. 9367–9376. [15] I. Mitrai and P. Daoutidis, “Computationally efficient solution of mixed integer model predictive control problems via machine learning aided Benders decomposition,” Journal of Process Control , vol. 137, p. 103207, 2024. [16] A. M. Geoffrion and G. W. Graves, “Multicommodity distribution system design by Benders decomposition,” Management Science ,vol. 20, no. 5, pp. 822–844, 1974. [17] H. Jia and S. Shen, “Benders cut classification via support vector ma-chines for solving two-stage stochastic programs,” INFORMS Journal on Computing , vol. 3, no. 3, pp. 278–297, 2021. [18] M. Lee, N. Ma, G. Yu, and H. Dai, “Accelerating generalized Benders decomposition for wireless resource allocation,” IEEE Transactions on Wireless Communications , vol. 20, no. 2, pp. 1233–1247, 2020. [19] Z. Li, B. T. Agyeman, I. Mitrai, and P. Daoutidis, “Learning to control inexact Benders decomposition via reinforcement learning,” 
+
+Computers & Chemical Engineering , p. 109461, 2025. [20] B. T. Agyeman, Z. Li, I. Mitrai, and P. Daoutidis, “Graph-based imita-tion and reinforcement learning for efficient Benders decomposition,” 
+
+AIChE Journal , p. e70342. [21] S. Mak, K. Mana, P. Zehtabi, M. Cashmore, D. Magazzeni, and M. Veloso, “Towards accelerating Benders decomposition via reinforcement learning surrogate models,” arXiv preprint arXiv:2307.08816 , 2023. [22] A. M. Geoffrion, “Generalized Benders decomposition,” Journal of Optimization Theory and Applications , vol. 10, no. 4, pp. 237–260, 1972. [23] C. A. Floudas, Nonlinear and mixed-integer optimization: Fundamen-tals and applications . Oxford, UK: Oxford University Press, 1995. [24] M. Bain and C. Sammut, “A framework for behavioural cloning.” in 
+
+Machine Intelligence 15 , 1995, pp. 103–129. [25] M. Simonovsky and N. Komodakis, “Dynamic edge-conditioned filters in convolutional neural networks on graphs,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition , 2017, pp. 3693–3702. [26] Gurobi Optimization, LLC, “Gurobi Optimizer Reference Manual,” 2024. [Online]. Available: https://www.gurobi.com [27] A. W¨ achter and L. T. Biegler, “On the implementation of an interior-point filter line-search algorithm for large-scale nonlinear program-ming,” Mathematical Programming , vol. 106, no. 1, pp. 25–57, 2006. [28] P. Bonami, L. T. Biegler, A. R. Conn, G. Cornu´ ejols, I. E. Grossmann, C. D. Laird, J. Lee, A. Lodi, F. Margot, N. Sawaya, and A. W¨ achter, “An algorithmic framework for convex mixed integer nonlinear pro-grams,” Discrete Optimization , vol. 5, no. 2, pp. 186–204, 2008.
