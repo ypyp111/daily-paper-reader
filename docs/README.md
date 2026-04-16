@@ -6,65 +6,67 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-15
-- 运行时间：2026-04-15 20:25:31 UTC
+- 最新运行日期：2026-04-16
+- 运行时间：2026-04-16 19:50:22 UTC
 - 运行状态：成功
 - 本次总论文数：15
-- 精读区：4
-- 速读区：11
+- 精读区：5
+- 速读区：10
 
 ### 今日简报（AI）
-今日深度复盘 15 篇前沿论文，核心聚焦物理信息神经网络（PINN）在复杂流体系统
-- 详情：[/202604/15/README](/202604/15/README)
+今日聚焦物理信息神经网络（PINN）的深度应用，涵盖从珊瑚礁热场重构到复杂偏微分方程求解的满分突破。
+重点关注 PINN 如何通过物理约束解决稀疏数据下的环境建模难题，以及智能体在数学推理与工程优化中的自我演化。
+建议优先研读物理驱动模型在现实场景中的落地案例，掌握处理硬约束优化问题的最新范式。
+- 详情：[/202604/16/README](/202604/16/README)
 
 ### 精读区论文标签
-1. [Local Well-Posedness of a Modified NSCH-Oldroyd System: PINN-Based Numerical Illustrations](/202604/15/2604.10616v2-local-well-posedness-of-a-modified-nsch-oldroyd-system-pinn-based-numerical-illustrations)  
+1. [Depth-Resolved Coral Reef Thermal Fields from Satellite SST and Sparse In-Situ Loggers Using Physics-Informed Neural Networks](/202604/16/2604.13131v1-depth-resolved-coral-reef-thermal-fields-from-satellite-sst-and-sparse-in-situ-loggers-using-physics-informed-neural-networks)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：基于PINN的改进型NSCH-Oldroyd系统数值演示
-2. [Learning on the Temporal Tangent Bundle for Physics-Informed Neural Networks](/202604/15/2604.11829v1-learning-on-the-temporal-tangent-bundle-for-physics-informed-neural-networks)  
+   evidence：用于珊瑚礁垂直热方程的PINN
+2. [Physics-Informed Neural Networks for Solving Derivative-Constrained PDEs](/202604/16/2604.13723v1-physics-informed-neural-networks-for-solving-derivative-constrained-pdes)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：用于时变PINN的切丛学习框架
-3. [Variational Quantum Physics-Informed Neural Networks for Hydrological PDE-Constrained Learning with Inherent Uncertainty Quantification](/202604/15/2604.09374v2-variational-quantum-physics-informed-neural-networks-for-hydrological-pde-constrained-learning-with-inherent-uncertainty-quantification)  
+   evidence：用于求解导数约束偏微分方程的物理信息神经网络
+3. [Applying an Agentic Coding Tool for Improving Published Algorithm Implementations](/202604/16/2604.13109v1-applying-an-agentic-coding-tool-for-improving-published-algorithm-implementations)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于水文PDE的混合量子-经典物理信息神经网络
-4. [Interpretable Relational Inference with LLM-Guided Symbolic Dynamics Modeling](/202604/15/2604.12806v1-interpretable-relational-inference-with-llm-guided-symbolic-dynamics-modeling)  
+   evidence：AI辅助改进已发表的算法实现
+4. [AeTHERON: Autoregressive Topology-aware Heterogeneous Graph Operator Network for Fluid-Structure Interaction](/202604/16/2604.13369v1-aetheron-autoregressive-topology-aware-heterogeneous-graph-operator-network-for-fluid-structure-interaction)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：LLM引导的符号动力学建模，用于发现相互作用图和方程
+   evidence：用于流固耦合的异构图神经算子
+5. [Weakly-supervised Learning for Physics-informed Neural Motion Planning via Sparse Roadmap](/202604/16/2604.13204v1-weakly-supervised-learning-for-physics-informed-neural-motion-planning-via-sparse-roadmap)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：求解Eikonal方程的物理信息神经运动规划
 
 ### 速读区论文标签
-1. [Leveraging Mathematical Reasoning of LLMs for Efficient GPU Thread Mapping](/202604/15/2604.10387v2-leveraging-mathematical-reasoning-of-llms-for-efficient-gpu-thread-mapping)  
+1. [MathAgent: Adversarial Evolution of Constraint Graphs for Mathematical Reasoning Data Synthesis](/202604/16/2604.11188v1-mathagent-adversarial-evolution-of-constraint-graphs-for-mathematical-reasoning-data-synthesis)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：利用LLM符号推理自动推导映射方程
-2. [Sheaf Diffusion with Adaptive Local Structure for Spatio-Temporal Forecasting](/202604/15/2604.11275v1-sheaf-diffusion-with-adaptive-local-structure-for-spatio-temporal-forecasting)  
+   evidence：基于智能体对抗演化的数学推理数据合成
+2. [Frontier-Eng: Benchmarking Self-Evolving Agents on Real-World Engineering Tasks with Generative Optimization](/202604/16/2604.12290v1-frontier-eng-benchmarking-self-evolving-agents-on-real-world-engineering-tasks-with-generative-optimization)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：基于信息流的时空预测层扩散图神经网络
-3. [Towards Autonomous Mechanistic Reasoning in Virtual Cells](/202604/15/2604.11661v1-towards-autonomous-mechanistic-reasoning-in-virtual-cells)  
+   evidence：用于迭代优化和工程任务的自我进化智能体
+3. [HUANet: Hard-Constrained Unrolled ADMM for Constrained Convex Optimization](/202604/16/2604.13179v1-huanet-hard-constrained-unrolled-admm-for-constrained-convex-optimization)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于自主科学发现和机制推理的多智能体框架
-4. [Towards Autonomous Mechanistic Reasoning in Virtual Cells](/202604/15/2604.11661v2-towards-autonomous-mechanistic-reasoning-in-virtual-cells)  
+   evidence：将数值优化算法展开为可训练的神经网络
+4. [SciFi: A Safe, Lightweight, User-Friendly, and Fully Autonomous Agentic AI Workflow for Scientific Applications](/202604/16/2604.13180v1-scifi-a-safe-lightweight-user-friendly-and-fully-autonomous-agentic-ai-workflow-for-scientific-applications)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于自主科学推理的多智能体框架
-5. [M$^\star$: Every Task Deserves Its Own Memory Harness](/202604/15/2604.11811v1-mstar-every-task-deserves-its-own-memory-harness)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：通过进化自动发现任务优化的内存程序
-6. [Toward Autonomous Long-Horizon Engineering for ML Research](/202604/15/2604.13018v1-toward-autonomous-long-horizon-engineering-for-ml-research)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：用于机器学习研究工程的自主智能体
-7. [Reasoning Graphs: Deterministic Agent Accuracy through Evidence-Centric Chain-of-Thought Feedback](/202604/15/2604.07595v1-reasoning-graphs-deterministic-agent-accuracy-through-evidence-centric-chain-of-thought-feedback)  
+   evidence：用于科学应用的自主智能体框架
+5. [Agent Mentor: Framing Agent Knowledge through Semantic Trajectory Analysis](/202604/16/2604.10513v1-agent-mentor-framing-agent-knowledge-through-semantic-trajectory-analysis)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于持久化智能体记忆和反馈的推理图结构
-8. [Omakase: proactive assistance with actionable suggestions for evolving scientific research projects](/202604/15/2604.08898v1-omakase-proactive-assistance-with-actionable-suggestions-for-evolving-scientific-research-projects)  
+   evidence：用于监控和调整行为的智能体框架
+6. [Aethon: A Reference-Based Replication Primitive for Constant-Time Instantiation of Stateful AI Agents](/202604/16/2604.12129v1-aethon-a-reference-based-replication-primitive-for-constant-time-instantiation-of-stateful-ai-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：在科学项目中提供主动协助的 AI 研究助手
-9. [SEA-Eval: A Benchmark for Evaluating Self-Evolving Agents Beyond Episodic Assessment](/202604/15/2604.08988v2-sea-eval-a-benchmark-for-evaluating-self-evolving-agents-beyond-episodic-assessment)  
+   evidence：有状态AI智能体和智能体执行的基础设施
+7. [Numerical Instability and Chaos: Quantifying the Unpredictability of Large Language Models](/202604/16/2604.13206v1-numerical-instability-and-chaos-quantifying-the-unpredictability-of-large-language-models)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于持续任务执行的自我演化智能体
-10. [GeoPAS: Geometric Probing for Algorithm Selection in Continuous Black-Box Optimisation](/202604/15/2604.09095v2-geopas-geometric-probing-for-algorithm-selection-in-continuous-black-box-optimisation)  
+   evidence：智能体工作流中大模型的数值不稳定性
+8. [MIND: AI Co-Scientist for Material Research](/202604/16/2604.13699v1-mind-ai-co-scientist-for-material-research)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：连续黑盒优化中的自动算法选择
-11. [In-situ process monitoring for defect detection in wire-arc additive manufacturing: an agentic AI approach](/202604/15/2604.09889v1-in-situ-process-monitoring-for-defect-detection-in-wire-arc-additive-manufacturing-an-agentic-ai-approach)  
+   evidence：大模型驱动的科学发现自动假设验证框架
+9. [ToolOmni: Enabling Open-World Tool Use via Agentic learning with Proactive Retrieval and Grounded Execution](/202604/16/2604.13787v1-toolomni-enabling-open-world-tool-use-via-agentic-learning-with-proactive-retrieval-and-grounded-execution)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：使用大模型进行科学监测的智能体AI框架
+   evidence：用于开放世界工具使用和推理的智能体框架
+10. [TREX: Automating LLM Fine-tuning via Agent-Driven Tree-based Exploration](/202604/16/2604.14116v1-trex-automating-llm-fine-tuning-via-agent-driven-tree-based-exploration)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：用于自动化科学研究工作流的多智能体系统
 
 
 <div class="dpr-home-promo-card">
