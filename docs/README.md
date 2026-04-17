@@ -6,67 +6,55 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-16
-- 运行时间：2026-04-16 19:50:22 UTC
+- 最新运行日期：2026-04-17
+- 运行时间：2026-04-17 20:06:55 UTC
 - 运行状态：成功
-- 本次总论文数：15
-- 精读区：5
-- 速读区：10
+- 本次总论文数：11
+- 精读区：4
+- 速读区：7
 
 ### 今日简报（AI）
-今日聚焦物理信息神经网络（PINN）的深度应用，涵盖从珊瑚礁热场重构到复杂偏微分方程求解的满分突破。
-重点关注 PINN 如何通过物理约束解决稀疏数据下的环境建模难题，以及智能体在数学推理与工程优化中的自我演化。
-建议优先研读物理驱动模型在现实场景中的落地案例，掌握处理硬约束优化问题的最新范式。
-- 详情：[/202604/16/README](/202604/16/README)
+今日深度解析 11 篇前沿成果，重点攻克 PINN 算法正则化难题并探索其在金属 3D 打印中的工业应用。
+满分论文提出的辅助有限差分残差梯度正则化显著提升了 PINN 精度，而参数化框架则实现了跨材料的零样本热推理。
+推荐关注物理驱动 AI 与工业制造的深度融合，同时留意 AI Agent 自动建模及推理自审计等提效工具。
+- 详情：[/202604/17/README](/202604/17/README)
 
 ### 精读区论文标签
-1. [Depth-Resolved Coral Reef Thermal Fields from Satellite SST and Sparse In-Situ Loggers Using Physics-Informed Neural Networks](/202604/16/2604.13131v1-depth-resolved-coral-reef-thermal-fields-from-satellite-sst-and-sparse-in-situ-loggers-using-physics-informed-neural-networks)  
+1. [Auxiliary Finite-Difference Residual-Gradient Regularization for PINNs](/202604/17/2604.14472v1-auxiliary-finite-difference-residual-gradient-regularization-for-pinns)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：用于珊瑚礁垂直热方程的PINN
-2. [Physics-Informed Neural Networks for Solving Derivative-Constrained PDEs](/202604/16/2604.13723v1-physics-informed-neural-networks-for-solving-derivative-constrained-pdes)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：用于求解导数约束偏微分方程的物理信息神经网络
-3. [Applying an Agentic Coding Tool for Improving Published Algorithm Implementations](/202604/16/2604.13109v1-applying-an-agentic-coding-tool-for-improving-published-algorithm-implementations)  
+   evidence：PINN的有限差分残差梯度正则化
+2. [Material-Agnostic Zero-Shot Thermal Inference for Metal Additive Manufacturing via a Parametric PINN Framework](/202604/17/2604.14562v1-material-agnostic-zero-shot-thermal-inference-for-metal-additive-manufacturing-via-a-parametric-pinn-framework)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：AI辅助改进已发表的算法实现
-4. [AeTHERON: Autoregressive Topology-aware Heterogeneous Graph Operator Network for Fluid-Structure Interaction](/202604/16/2604.13369v1-aetheron-autoregressive-topology-aware-heterogeneous-graph-operator-network-for-fluid-structure-interaction)  
+   evidence：用于热建模的参数化PINN框架
+3. [El Agente Forjador: Task-Driven Agent Generation for Quantum Simulation](/202604/17/2604.14609v1-el-agente-forjador-task-driven-agent-generation-for-quantum-simulation)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于流固耦合的异构图神经算子
-5. [Weakly-supervised Learning for Physics-informed Neural Motion Planning via Sparse Roadmap](/202604/16/2604.13204v1-weakly-supervised-learning-for-physics-informed-neural-motion-planning-via-sparse-roadmap)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：求解Eikonal方程的物理信息神经运动规划
+   evidence：用于量子动力学中自主工具生成的多智能体框架
+4. [SOLIS: Physics-Informed Learning of Interpretable Neural Surrogates for Nonlinear Systems](/202604/17/2604.14879v1-solis-physics-informed-learning-of-interpretable-neural-surrogates-for-nonlinear-systems)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：物理信息驱动的可解释神经代理学习
 
 ### 速读区论文标签
-1. [MathAgent: Adversarial Evolution of Constraint Graphs for Mathematical Reasoning Data Synthesis](/202604/16/2604.11188v1-mathagent-adversarial-evolution-of-constraint-graphs-for-mathematical-reasoning-data-synthesis)  
+1. [Weak-DMD: A Galerkin approach to the problem of noise in the Dynamic Mode Decomposition algorithm](/202604/17/2604.14350v1-weak-dmd-a-galerkin-approach-to-the-problem-of-noise-in-the-dynamic-mode-decomposition-algorithm)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：基于智能体对抗演化的数学推理数据合成
-2. [Frontier-Eng: Benchmarking Self-Evolving Agents on Real-World Engineering Tasks with Generative Optimization](/202604/16/2604.12290v1-frontier-eng-benchmarking-self-evolving-agents-on-real-world-engineering-tasks-with-generative-optimization)  
+   evidence：用于近似时空模态和模型发现的数据驱动方法
+2. [AIBuildAI: An AI Agent for Automatically Building AI Models](/202604/17/2604.14455v1-aibuildai-an-ai-agent-for-automatically-building-ai-models)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于迭代优化和工程任务的自我进化智能体
-3. [HUANet: Hard-Constrained Unrolled ADMM for Constrained Convex Optimization](/202604/16/2604.13179v1-huanet-hard-constrained-unrolled-admm-for-constrained-convex-optimization)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：将数值优化算法展开为可训练的神经网络
-4. [SciFi: A Safe, Lightweight, User-Friendly, and Fully Autonomous Agentic AI Workflow for Scientific Applications](/202604/16/2604.13180v1-scifi-a-safe-lightweight-user-friendly-and-fully-autonomous-agentic-ai-workflow-for-scientific-applications)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：用于科学应用的自主智能体框架
-5. [Agent Mentor: Framing Agent Knowledge through Semantic Trajectory Analysis](/202604/16/2604.10513v1-agent-mentor-framing-agent-knowledge-through-semantic-trajectory-analysis)  
+   evidence：自动构建AI模型的AI智能体
+3. [Verify Before You Commit: Towards Faithful Reasoning in LLM Agents via Self-Auditing](/202604/17/2604.08401v1-verify-before-you-commit-towards-faithful-reasoning-in-llm-agents-via-self-auditing)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于监控和调整行为的智能体框架
-6. [Aethon: A Reference-Based Replication Primitive for Constant-Time Instantiation of Stateful AI Agents](/202604/16/2604.12129v1-aethon-a-reference-based-replication-primitive-for-constant-time-instantiation-of-stateful-ai-agents)  
+   evidence：通过自我审计实现LLM智能体可靠推理的框架
+4. [SEA-Eval: A Benchmark for Evaluating Self-Evolving Agents Beyond Episodic Assessment](/202604/17/2604.08988v1-sea-eval-a-benchmark-for-evaluating-self-evolving-agents-beyond-episodic-assessment)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：有状态AI智能体和智能体执行的基础设施
-7. [Numerical Instability and Chaos: Quantifying the Unpredictability of Large Language Models](/202604/16/2604.13206v1-numerical-instability-and-chaos-quantifying-the-unpredictability-of-large-language-models)  
+   evidence：评估跨任务边界自进化智能体的基准
+5. [DRBENCHER: Can Your Agent Identify the Entity, Retrieve Its Properties and Do the Math?](/202604/17/2604.09251v1-drbencher-can-your-agent-identify-the-entity-retrieve-its-properties-and-do-the-math)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：智能体工作流中大模型的数值不稳定性
-8. [MIND: AI Co-Scientist for Material Research](/202604/16/2604.13699v1-mind-ai-co-scientist-for-material-research)  
+   evidence：执行特定领域计算和研究的智能体基准
+6. [Credo: Declarative Control of LLM Pipelines via Beliefs and Policies](/202604/17/2604.14401v1-credo-declarative-control-of-llm-pipelines-via-beliefs-and-policies)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：大模型驱动的科学发现自动假设验证框架
-9. [ToolOmni: Enabling Open-World Tool Use via Agentic learning with Proactive Retrieval and Grounded Execution](/202604/16/2604.13787v1-toolomni-enabling-open-world-tool-use-via-agentic-learning-with-proactive-retrieval-and-grounded-execution)  
+   evidence：用于有状态决策的LLM流水线声明式控制
+7. [AgentGA: Evolving Code Solutions in Agent-Seed Space](/202604/17/2604.14655v1-agentga-evolving-code-solutions-in-agent-seed-space)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于开放世界工具使用和推理的智能体框架
-10. [TREX: Automating LLM Fine-tuning via Agent-Driven Tree-based Exploration](/202604/16/2604.14116v1-trex-automating-llm-fine-tuning-via-agent-driven-tree-based-exploration)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：用于自动化科学研究工作流的多智能体系统
+   evidence：使用智能体和遗传算法演化代码解决方案
 
 
 <div class="dpr-home-promo-card">
