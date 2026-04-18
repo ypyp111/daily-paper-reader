@@ -6,55 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-17
-- 运行时间：2026-04-17 20:06:55 UTC
+- 最新运行日期：2026-04-18
+- 运行时间：2026-04-18 19:56:49 UTC
 - 运行状态：成功
-- 本次总论文数：11
-- 精读区：4
-- 速读区：7
+- 本次总论文数：5
+- 精读区：2
+- 速读区：3
 
 ### 今日简报（AI）
-今日深度解析 11 篇前沿成果，重点攻克 PINN 算法正则化难题并探索其在金属 3D 打印中的工业应用。
-满分论文提出的辅助有限差分残差梯度正则化显著提升了 PINN 精度，而参数化框架则实现了跨材料的零样本热推理。
-推荐关注物理驱动 AI 与工业制造的深度融合，同时留意 AI Agent 自动建模及推理自审计等提效工具。
-- 详情：[/202604/17/README](/202604/17/README)
+今日深度复盘 5 篇前沿论文，重点攻克了 LLM 在计算物理领域的端到端自主研究闭环。
+核心结论指出“科研代理化”已成趋势，高分论文展示了 AI 如何自主完成从理论理解到物理模拟的全流程。
+建议普通读者关注 AI Agent 在垂直科研领域的落地，探索大模型如何重塑传统实验与代码生成效率。
+- 详情：[/202604/18/README](/202604/18/README)
 
 ### 精读区论文标签
-1. [Auxiliary Finite-Difference Residual-Gradient Regularization for PINNs](/202604/17/2604.14472v1-auxiliary-finite-difference-residual-gradient-regularization-for-pinns)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：PINN的有限差分残差梯度正则化
-2. [Material-Agnostic Zero-Shot Thermal Inference for Metal Additive Manufacturing via a Parametric PINN Framework](/202604/17/2604.14562v1-material-agnostic-zero-shot-thermal-inference-for-metal-additive-manufacturing-via-a-parametric-pinn-framework)  
+1. [Towards grounded autonomous research: an end-to-end LLM mini research loop on published computational physics](/202604/18/2604.12198v1-towards-grounded-autonomous-research-an-end-to-end-llm-mini-research-loop-on-published-computational-physics)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于热建模的参数化PINN框架
-3. [El Agente Forjador: Task-Driven Agent Generation for Quantum Simulation](/202604/17/2604.14609v1-el-agente-forjador-task-driven-agent-generation-for-quantum-simulation)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：用于量子动力学中自主工具生成的多智能体框架
-4. [SOLIS: Physics-Informed Learning of Interpretable Neural Surrogates for Nonlinear Systems](/202604/17/2604.14879v1-solis-physics-informed-learning-of-interpretable-neural-surrogates-for-nonlinear-systems)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：物理信息驱动的可解释神经代理学习
+   evidence：用于计算物理自主研究的大模型智能体
+2. [The Agentification of Scientific Research: A Physicist's Perspective](/202604/18/2604.14718v1-the-agentification-of-scientific-research-a-physicists-perspective)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：物理学家关于AI智能体用于科学发现的视角
 
 ### 速读区论文标签
-1. [Weak-DMD: A Galerkin approach to the problem of noise in the Dynamic Mode Decomposition algorithm](/202604/17/2604.14350v1-weak-dmd-a-galerkin-approach-to-the-problem-of-noise-in-the-dynamic-mode-decomposition-algorithm)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：用于近似时空模态和模型发现的数据驱动方法
-2. [AIBuildAI: An AI Agent for Automatically Building AI Models](/202604/17/2604.14455v1-aibuildai-an-ai-agent-for-automatically-building-ai-models)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：自动构建AI模型的AI智能体
-3. [Verify Before You Commit: Towards Faithful Reasoning in LLM Agents via Self-Auditing](/202604/17/2604.08401v1-verify-before-you-commit-towards-faithful-reasoning-in-llm-agents-via-self-auditing)  
+1. [Vector Field Synthesis with Sparse Streamlines Using Diffusion Model](/202604/18/2604.09838v1-vector-field-synthesis-with-sparse-streamlines-using-diffusion-model)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：通过自我审计实现LLM智能体可靠推理的框架
-4. [SEA-Eval: A Benchmark for Evaluating Self-Evolving Agents Beyond Episodic Assessment](/202604/17/2604.08988v1-sea-eval-a-benchmark-for-evaluating-self-evolving-agents-beyond-episodic-assessment)  
+   evidence：具有物理约束的矢量场合成扩散模型
+2. [Structure- and Stability-Preserving Learning of Port-Hamiltonian Systems](/202604/18/2604.13297v1-structure--and-stability-preserving-learning-of-port-hamiltonian-systems)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：评估跨任务边界自进化智能体的基准
-5. [DRBENCHER: Can Your Agent Identify the Entity, Retrieve Its Properties and Do the Math?](/202604/17/2604.09251v1-drbencher-can-your-agent-identify-the-entity-retrieve-its-properties-and-do-the-math)  
+   evidence：基于神经网络的哈密顿系统建模
+3. [MARS$^2$: Scaling Multi-Agent Tree Search via Reinforcement Learning for Code Generation](/202604/18/2604.14564v1-mars2-scaling-multi-agent-tree-search-via-reinforcement-learning-for-code-generation)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：执行特定领域计算和研究的智能体基准
-6. [Credo: Declarative Control of LLM Pipelines via Beliefs and Policies](/202604/17/2604.14401v1-credo-declarative-control-of-llm-pipelines-via-beliefs-and-policies)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：用于有状态决策的LLM流水线声明式控制
-7. [AgentGA: Evolving Code Solutions in Agent-Seed Space](/202604/17/2604.14655v1-agentga-evolving-code-solutions-in-agent-seed-space)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：使用智能体和遗传算法演化代码解决方案
+   evidence：多智能体强化学习用于代码和算法发现
 
 
 <div class="dpr-home-promo-card">
