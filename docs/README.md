@@ -6,71 +6,70 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-22
-- 运行时间：2026-04-22 20:28:15 UTC
+- 最新运行日期：2026-04-23
+- 运行时间：2026-04-23 20:38:59 UTC
 - 运行状态：成功
-- 本次总论文数：17
+- 本次总论文数：16
 - 精读区：6
-- 速读区：11
+- 速读区：10
 
 ### 今日简报（AI）
-今日精选 17 篇前沿成果，重点攻克高维分数阶 PDE 求解与 HVAC 系统的大规模物理信息建模
-- 详情：[/202604/22/README](/202604/22/README)
+今日精选 16 篇前沿成果，深度解析了物理信息神经网络（PINNs）在无限域波动及系统稳定性发现中的突破性进展。
+重点推荐基于映射的硬约束 PINNs 框架，其在处理复杂物理边界问题上表现卓越，同时神经算子正重塑物理系统的受激分析。
+建议关注 AI 智能体在自动化微调与科学实验复现中的应用，以探索 AI 与物理建模深度融合的工程效率。
+- 详情：[/202604/23/README](/202604/23/README)
 
 ### 精读区论文标签
-1. [Quadrature-Enhanced Monte Carlo fPINN Method for High-Dimensional Fractional PDEs](/202604/22/2604.19601v1-quadrature-enhanced-monte-carlo-fpinn-method-for-high-dimensional-fractional-pdes)  
+1. [Mapping-based Hard-constrained Physics-Informed Neural Networks for unbounded wave problems](/202604/23/2604.19843v1-mapping-based-hard-constrained-physics-informed-neural-networks-for-unbounded-wave-problems)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：用于分数阶PDE的特征增强物理信息神经网络 (fPINN)
-2. [Scalable Physics-Informed Neural Differential Equations and Data-Driven Algorithms for HVAC Systems](/202604/22/2604.18438v1-scalable-physics-informed-neural-differential-equations-and-data-driven-algorithms-for-hvac-systems)  
+   evidence：用于无界波动问题的硬约束PINN
+2. [A neural operator framework for data-driven discovery of stability and receptivity in physical systems](/202604/23/2604.19465v1-a-neural-operator-framework-for-data-driven-discovery-of-stability-and-receptivity-in-physical-systems)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于系统动力学的物理信息神经常微分方程
-3. [AI scientists produce results without reasoning scientifically](/202604/22/2604.18805v1-ai-scientists-produce-results-without-reasoning-scientifically)  
+   evidence：用于数据驱动发现物理系统稳定性的神经算子框架
+3. [Physics-Guided Dimension Reduction for Simulation-Free Operator Learning of Stiff Differential--Algebraic Systems](/202604/23/2604.19930v1-physics-guided-dimension-reduction-for-simulation-free-operator-learning-of-stiff-differential--algebraic-systems)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：用于刚性微分代数系统的物理信息DeepONet
+4. [AI models of unstable flow exhibit hallucination](/202604/23/2604.20372v1-ai-models-of-unstable-flow-exhibit-hallucination)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：流体动力学AI模型与输运问题求解
+5. [Cooperative Profiles Predict Multi-Agent LLM Team Performance in AI for Science Workflows](/202604/23/2604.20658v1-cooperative-profiles-predict-multi-agent-llm-team-performance-in-ai-for-science-workflows)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：用于AI for Science工作流的多智能体大模型团队
+6. [Machine learning moment closure models for the radiative transfer equation IV: enforcing symmetrizable hyperbolicity in two dimensions](/202604/23/2604.20143v1-machine-learning-moment-closure-models-for-the-radiative-transfer-equation-iv-enforcing-symmetrizable-hyperbolicity-in-two-dimensions)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：对八个领域的LLM科学智能体进行评估
-4. [AC-SINDy: Compositional Sparse Identification of Nonlinear Dynamics](/202604/22/2604.18889v1-ac-sindy-compositional-sparse-identification-of-nonlinear-dynamics)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：利用算术电路进行非线性动力学的组合稀疏识别
-5. [FlowForge: A Staged Local Rollout Engine for Flow-Field Prediction](/202604/22/2604.18953v1-flowforge-a-staged-local-rollout-engine-for-flow-field-prediction)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：用于CFD流场预测的深度学习代理模型
-6. [Regularity Analysis and Tensor Neural Network Methods for Quasiperiodic Elliptic Equations](/202604/22/2604.19575v1-regularity-analysis-and-tensor-neural-network-methods-for-quasiperiodic-elliptic-equations)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：求解椭圆方程的张量神经网络方法
+   evidence：辐射传输方程的机器学习矩闭合模型
 
 ### 速读区论文标签
-1. [Physics-Informed Neural Networks for Maximizing Quantum Fisher Information in Time-Dependent Many-Body Systems](/202604/22/2604.18506v1-physics-informed-neural-networks-for-maximizing-quantum-fisher-information-in-time-dependent-many-body-systems)  
+1. [Structure-Aware Variational Learning of a Class of Generalized Diffusions](/202604/23/2604.20188v1-structure-aware-variational-learning-of-a-class-of-generalized-diffusions)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：基于Fokker-Planck方程和变分法学习势函数
+2. [TREX: Automating LLM Fine-tuning via Agent-Driven Tree-based Exploration](/202604/23/2604.14116v2-trex-automating-llm-fine-tuning-via-agent-driven-tree-based-exploration)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：使用物理信息神经网络（PINN）框架解决含时量子动力学问题
-2. [Evaluation-driven Scaling for Scientific Discovery](/202604/22/2604.19341v1-evaluation-driven-scaling-for-scientific-discovery)  
+   evidence：自动化科学工作流的多智能体系统
+3. [A Scientific Human-Agent Reproduction Pipeline](/202604/23/2604.18752v1-a-scientific-human-agent-reproduction-pipeline)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：扩展评估驱动的科学发现循环
-3. [Just Type It in Isabelle! AI Agents Drafting, Mechanizing, and Generalizing from Human Hints](/202604/22/2604.15713v1-just-type-it-in-isabelle-ai-agents-drafting-mechanizing-and-generalizing-from-human-hints)  
+   evidence：用于自主复现科学数据分析的AI智能体框架
+4. [Separable Pathways for Causal Reasoning: How Architectural Scaffolding Enables Hypothesis-Space Restructuring in LLM Agents](/202604/23/2604.20039v1-separable-pathways-for-causal-reasoning-how-architectural-scaffolding-enables-hypothesis-space-restructuring-in-llm-agents)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：LLM智能体中假设空间重构的架构支撑
+5. [Learning to Evolve: A Self-Improving Framework for Multi-Agent Systems via Textual Parameter Graph Optimization](/202604/23/2604.20714v1-learning-to-evolve-a-self-improving-framework-for-multi-agent-systems-via-textual-parameter-graph-optimization)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：多智能体系统自改进框架与工作流优化
+6. [SkillFlow:Benchmarking Lifelong Skill Discovery and Evolution for Autonomous Agents](/202604/23/2604.17308v1-skillflowbenchmarking-lifelong-skill-discovery-and-evolution-for-autonomous-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于形式化和泛化数学证明的AI智能体
-4. [Geometric regularization of autoencoders via observed stochastic dynamics](/202604/22/2604.16282v1-geometric-regularization-of-autoencoders-via-observed-stochastic-dynamics)  
+   evidence：自主智能体技能发现的基准测试
+7. [Compiling Deterministic Structure into SLM Harnesses](/202604/23/2604.17450v1-compiling-deterministic-structure-into-slm-harnesses)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：学习随机动力系统中的漂移和扩散
-5. [Medial Axis Aware Learning of Signed Distance Functions](/202604/22/2604.16512v1-medial-axis-aware-learning-of-signed-distance-functions)  
+   evidence：使用LLM教师将智能体工作流编译为确定性代码
+8. [LiteResearcher: A Scalable Agentic RL Training Framework for Deep Research Agent](/202604/23/2604.17931v2-literesearcher-a-scalable-agentic-rl-training-framework-for-deep-research-agent)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：求解程函方程和符号距离函数的变分方法
-6. [AutoOR: Scalably Post-training LLMs to Autoformalize Operations Research Problems](/202604/22/2604.16804v1-autoor-scalably-post-training-llms-to-autoformalize-operations-research-problems)  
+   evidence：用于深度研究智能体的代理强化学习训练框架
+9. [Decompose, Structure, and Repair: A Neuro-Symbolic Framework for Autoformalization via Operator Trees](/202604/23/2604.19000v1-decompose-structure-and-repair-a-neuro-symbolic-framework-for-autoformalization-via-operator-trees)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：大模型用于优化问题的自动形式化
-7. [MeasHalu: Mitigation of Scientific Measurement Hallucinations for Large Language Models with Enhanced Reasoning](/202604/22/2604.16929v1-meashalu-mitigation-of-scientific-measurement-hallucinations-for-large-language-models-with-enhanced-reasoning)  
+   evidence：利用算子树进行数学命题自动形式化的神经符号框架
+10. [The Existential Theory of Research: Why Discovery Is Hard](/202604/23/2604.19810v1-the-existential-theory-of-research-why-discovery-is-hard)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：减轻AI4Science中大语言模型的科学测量幻觉
-8. [Matlas: A Semantic Search Engine for Mathematics](/202604/22/2604.17484v1-matlas-a-semantic-search-engine-for-mathematics)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：数学命题语义搜索引擎
-9. [LiteResearcher: A Scalable Agentic RL Training Framework for Deep Research Agent](/202604/22/2604.17931v1-literesearcher-a-scalable-agentic-rl-training-framework-for-deep-research-agent)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：用于深度研究的智能体强化学习训练框架
-10. [Information decomposition for disentangled and interpretable manifold learning of fluid flows via variational autoencoders](/202604/22/2604.18059v1-information-decomposition-for-disentangled-and-interpretable-manifold-learning-of-fluid-flows-via-variational-autoencoders)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：流体流动的可解释流形学习
-11. [On Accelerating Grounded Code Development for Research](/202604/22/2604.19022v1-on-accelerating-grounded-code-development-for-research)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：针对特定科学和技术领域的编程智能体
+   evidence：科学发现建模及其局限性的形式化框架
 
 
 <div class="dpr-home-promo-card">
