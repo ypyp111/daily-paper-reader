@@ -6,70 +6,64 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-26
-- 运行时间：2026-04-26 19:36:36 UTC
+- 最新运行日期：2026-04-27
+- 运行时间：2026-04-27 20:18:57 UTC
 - 运行状态：成功
-- 本次总论文数：16
+- 本次总论文数：14
 - 精读区：5
-- 速读区：11
+- 速读区：9
 
 ### 今日简报（AI）
-聚焦 AI for Science，今日深度解析 16 篇前沿论文，重点突破物理信息神经网络在复杂流体与电磁场模拟中的应用。
-重点推荐物理信息拉普拉斯算子（Droplet-LNO）对液滴动力学的精准预测，以及 PINN 在求解准静态磁流体方程上的满分表现。
-建议关注 AI 智能体在科学发现中的演化框架，尝试将多智能体辩论机制引入科研奖励系统。
-- 详情：[/202604/26/README](/202604/26/README)
+今日精选 14 篇前沿成果，重点攻克了机器学习在非线性偏微分方程及等离子体鞘层描述中的满分级应用。
+深度学习在物理仿真领域展现出极高精度，同时可进化智能体框架（EvoAgent）正重塑自动化科研工作流。
+建议普通读者从 AI for Science 的跨学科突破入手，探索智能体如何简化并
+- 详情：[/202604/27/README](/202604/27/README)
 
 ### 精读区论文标签
-1. [A Physics-Informed Neural Network for Solving the Quasi-static Magnetohydrodynamic Equations](/202604/26/2604.20085v1-a-physics-informed-neural-network-for-solving-the-quasi-static-magnetohydrodynamic-equations)  
+1. [Computational Control of Nonlinear Partial Differential Equations Using Machine Learning](/202604/27/2604.22414v1-computational-control-of-nonlinear-partial-differential-equations-using-machine-learning)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：用于求解托卡马克几何中准静态磁流体动力学方程的PINN
-2. [Droplet-LNO: Physics-Informed Laplace Neural Operators for Accurate Prediction of Droplet Spreading Dynamics on Complex Surfaces](/202604/26/2604.20993v1-droplet-lno-physics-informed-laplace-neural-operators-for-accurate-prediction-of-droplet-spreading-dynamics-on-complex-surfaces)  
+   evidence：提出了一个基于物理信息神经网络（PINNs）的非线性偏微分方程框架
+2. [A Deep Learning Approach to Describing the Plasma Sheath](/202604/27/2604.22566v1-a-deep-learning-approach-to-describing-the-plasma-sheath)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：用于多物理场PDE问题的物理信息拉普拉斯神经算子
-3. [Transferable Physics-Informed Representations via Closed-Form Head Adaptation](/202604/26/2604.21761v1-transferable-physics-informed-representations-via-closed-form-head-adaptation)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：用于求解新PDE的可迁移物理信息表示
-4. [Scalable Physics-Informed Neural Differential Equations and Data-Driven Algorithms for HVAC Systems](/202604/26/2604.18438v2-scalable-physics-informed-neural-differential-equations-and-data-driven-algorithms-for-hvac-systems)  
+   evidence：使用PINN评估流体模型并求解等离子体鞘层的控制方程
+3. [FlowForge: A Staged Local Rollout Engine for Flow-Field Prediction](/202604/27/2604.18953v2-flowforge-a-staged-local-rollout-engine-for-flow-field-prediction)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于暖通空调系统模拟的物理信息神经常微分方程
-5. [A Green-Integral-Constrained Neural Solver with Stochastic Physics-Informed Regularization](/202604/26/2604.21411v1-a-green-integral-constrained-neural-solver-with-stochastic-physics-informed-regularization)  
+   evidence：用于CFD流场预测和PDE基准测试的深度学习代理模型
+4. [Finite Expression Method with TranNet-based Function Learning for High-Dimensional Partial Differential Equations](/202604/27/2604.22208v1-finite-expression-method-with-trannet-based-function-learning-for-high-dimensional-partial-differential-equations)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：具有物理信息正则化的格林积分约束神经求解器
+   evidence：基于机器学习的高维偏微分方程求解器
+5. [A New Adaptive Deep Learning based Reduced Order Model for Hybrid-Type Parabolic PDEs: Rigorous Error Analysis and Applications](/202604/27/2604.22512v1-a-new-adaptive-deep-learning-based-reduced-order-model-for-hybrid-type-parabolic-pdes-rigorous-error-analysis-and-applications)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：基于深度学习的抛物型偏微分方程降阶模型
 
 ### 速读区论文标签
-1. [Debate as Reward: A Multi-Agent Reward System for Scientific Ideation via RL Post-Training](/202604/26/2604.16723v1-debate-as-reward-a-multi-agent-reward-system-for-scientific-ideation-via-rl-post-training)  
+1. [EvoAgent: An Evolvable Agent Framework with Skill Learning and Multi-Agent Delegation](/202604/27/2604.20133v2-evoagent-an-evolvable-agent-framework-with-skill-learning-and-multi-agent-delegation)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于科学构思和发现的多智能体奖励系统
-2. [EvoMaster: A Foundational Evolving Agent Framework for Agentic Science at Scale](/202604/26/2604.17406v2-evomaster-a-foundational-evolving-agent-framework-for-agentic-science-at-scale)  
+   evidence：具有技能学习能力的演化LLM智能体框架，用于复杂问题
+2. [The Last Harness You'll Ever Build](/202604/27/2604.21003v1-the-last-harness-youll-ever-build)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于自动化科学发现和迭代假设改进的演化智能体框架
-3. [LASER: Learning Active Sensing for Continuum Field Reconstruction](/202604/26/2604.19355v1-laser-learning-active-sensing-for-continuum-field-reconstruction)  
+   evidence：研究流程中AI智能体测试环境的自动化工程
+3. [From Research Question to Scientific Workflow: Leveraging Agentic AI for Science Automation](/202604/27/2604.21910v1-from-research-question-to-scientific-workflow-leveraging-agentic-ai-for-science-automation)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于物理动力学的连续场潜世界模型
-4. [What Makes an LLM a Good Optimizer? A Trajectory Analysis of LLM-Guided Evolutionary Search](/202604/26/2604.19440v1-what-makes-an-llm-a-good-optimizer-a-trajectory-analysis-of-llm-guided-evolutionary-search)  
+   evidence：用于科学自动化和工作流生成的智能体AI
+4. [JetSCI: A Hybrid JAX-PETSc Framework for Scalable Differentiable Simulation](/202604/27/2604.22087v1-jetsci-a-hybrid-jax-petsc-framework-for-scalable-differentiable-simulation)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：大模型引导的进化搜索与优化
-5. [A Hybridizable Neural Time Integrator for Stable Autoregressive Forecasting](/202604/26/2604.21101v1-a-hybridizable-neural-time-integrator-for-stable-autoregressive-forecasting)  
+   evidence：用于可扩展微分模拟和科学机器学习的 JAX-PETSc 混合框架
+5. [LARA: Validation-Driven Agentic Supercomputer Workflows for Atomistic Modeling](/202604/27/2604.22571v1-lara-validation-driven-agentic-supercomputer-workflows-for-atomistic-modeling)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于混沌动力系统和科学基础模型的神经时间积分器
-6. [Phenomenological Detector Design and Optimization in Vertically-Integrated Differentiable Full Simulations with Agentic-AI](/202604/26/2604.21804v1-phenomenological-detector-design-and-optimization-in-vertically-integrated-differentiable-full-simulations-with-agentic-ai)  
+   evidence：用于自动化科学工作流和原子建模的智能体框架
+6. [Agentic World Modeling: Foundations, Capabilities, Laws, and Beyond](/202604/27/2604.22748v1-agentic-world-modeling-foundations-capabilities-laws-and-beyond)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于探测器设计与优化的AI智能体
-7. [Federation over Text: Insight Sharing for Multi-Agent Reasoning](/202604/26/2604.16778v1-federation-over-text-insight-sharing-for-multi-agent-reasoning)  
+   evidence：用于设计实验和动力学建模的智能体世界模型
+7. [Do LLM-derived graph priors improve multi-agent coordination?](/202604/27/2604.17191v1-do-llm-derived-graph-priors-improve-multi-agent-coordination)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：多智能体推理与见解共享用于技能迁移
-8. [GraSP: Graph-Structured Skill Compositions for LLM Agents](/202604/26/2604.17870v1-grasp-graph-structured-skill-compositions-for-llm-agents)  
+   evidence：大语言模型为多智能体强化学习生成协调图先验
+8. [CoFEE: Reasoning Control for LLM-Based Feature Discovery](/202604/27/2604.21584v1-cofee-reasoning-control-for-llm-based-feature-discovery)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：大语言模型智能体的可执行技能图谱架构
-9. [Agent-World: Scaling Real-World Environment Synthesis for Evolving General Agent Intelligence](/202604/26/2604.18292v1-agent-world-scaling-real-world-environment-synthesis-for-evolving-general-agent-intelligence)  
+   evidence：基于大模型的自动化特征发现与推理控制框架
+9. [Learning to Communicate: Toward End-to-End Optimization of Multi-Agent Language Systems](/202604/27/2604.21794v1-learning-to-communicate-toward-end-to-end-optimization-of-multi-agent-language-systems)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于进化智能的智能体环境与任务发现
-10. [CHICO-Agent: An LLM Agent for the Cross-layer Optimization of 2.5D and 3D Chiplet-based Systems](/202604/26/2604.18764v1-chico-agent-an-llm-agent-for-the-cross-layer-optimization-of-25d-and-3d-chiplet-based-systems)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：用于芯片设计跨层优化和科学发现的LLM智能体框架
-11. [DR-Venus: Towards Frontier Edge-Scale Deep Research Agents with Only 10K Open Data](/202604/26/2604.19859v1-dr-venus-towards-frontier-edge-scale-deep-research-agents-with-only-10k-open-data)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：用于科学发现任务的深度研究智能体
+   evidence：多智能体语言系统端到端优化的训练框架
 
 
 <div class="dpr-home-promo-card">
