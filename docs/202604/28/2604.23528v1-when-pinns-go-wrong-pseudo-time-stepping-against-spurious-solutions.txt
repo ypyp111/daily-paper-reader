@@ -1,0 +1,2919 @@
+Title: When PINNs Go Wrong: Pseudo-Time Stepping Against Spurious Solutions
+
+URL Source: https://arxiv.org/pdf/2604.23528v1
+
+Published Time: Tue, 28 Apr 2026 00:59:11 GMT
+
+Number of Pages: 41
+
+Markdown Content:
+# WHEN PINN S GO WRONG : P SEUDO -T IME STEPPING AGAINST 
+
+# SPURIOUS SOLUTIONS 
+
+Sifan Wang 1 Shawn Koohy 2 Yiping Lu 3 Paris Perdikaris 21Institute for Foundations of Data Science, Yale University 
+
+> 2
+
+Department of Mechanical Engineering and Applied Mechanics, University of Pennsylvania 
+
+> 3
+
+Industrial Engineering & Management Science, Northwestern University 
+
+sifan.wang@yale.edu yiping.lu@northwestern.edu {skoohy, pgp}@seas.upenn.edu 
+
+## ABSTRACT 
+
+Physics-informed neural networks (PINNs) provide a promising machine learning framework for solving partial differential equations, but their training often breaks down on challenging problems, sometimes converging to physically incorrect solutions despite achieving small residual losses. This failure, we argue, is not merely an optimization difficulty. Rather, it reflects a fundamental weakness of the empirical PDE residual loss, which can admit trivial or spurious solutions during training. From this perspective, we revisit pseudo-time stepping, a technique that has recently shown strong empirical success in PINNs. We show that its main benefit is not simply to ease optimization; instead, when combined with collocation-point resampling, it helps reveal and avoid spurious solutions. At the same time, we find that the effectiveness of pseudo-time stepping depends critically on the choice of step size, which cannot be tuned reliably from the training loss alone. To overcome this limitation, we propose an adaptive pseudo-time stepping strategy that selects the step size from a finite-difference surrogate of the local residual Jacobian, yielding the largest step permitted by local stability without per-problem tuning. Across a diverse set of PDE benchmarks, the proposed method consistently improves both accuracy and robustness. Together, these findings provide a clearer understanding of why PINNs fail and suggest a practical pathway toward more reliable physics-informed learning. All code and data accompanying this manuscript are available at 
+
+https://github.com/sifanexisted/jaxpi2 .
+
+Keywords Physics-informed neural networks · Partial differential equations · Pseudo-time stepping 
+
+## 1 Introduction 
+
+Physics-informed neural networks (PINNs) [ 1, 2 ] have emerged as a flexible framework for solving partial differential equations by embedding the governing equations and auxiliary conditions directly into the training objective. Their mesh-free formulation, seamless use of automatic differentiation, and ability to combine physical constraints with observational data make them especially attractive for scientific computing. As a result, PINNs have been used not only for forward simulation of complex dynamical systems [ 3], but also for inverse problems such as parameter and coefficient identification [ 4, 5 ], data assimilation from sparse and noisy observations [ 6], uncertainty-aware modeling [ 7, 8], and data-driven discovery of governing equations from partial measurements [ 9, 10 , 11 ]. Representative applications span fluid mechanics [ 12 , 13 ], solid mechanics [ 14 , 15 ], heat transfer [ 13 , 16 , 17 ], reaction–diffusion systems [18, 19], wave propagation [20], subsurface flow [21, 22, 23], and biomedical modeling [24, 25, 26]. Despite their promise, PINNs often remain difficult to train reliably on challenging problems, especially when the target solution exhibits sharp transitions, long-time evolution, multiscale structure, or strong nonlinear and stiff dynamics. To address these limitations, a broad range of improvements has been proposed recently, including more expressive architectures [ 27 , 28 , 29 , 30 ], loss weighting strategies [ 31 , 32 , 33 ], optimization algorithms [ 34 , 35 , 36 ], and more effective collocation-point sampling schemes [ 37 , 38 , 39 , 40 ]. Beyond improving empirical performance, these developments have also led to a clearer picture of why standard PINNs fail in the first place. In particular, recent studies 
+
+> arXiv:2604.23528v1 [cs.LG] 26 Apr 2026
+
+have identified several recurring training pathologies, including spectral bias toward low-frequency solution components [41 , 42 ], gradient conflicts across different loss terms [ 43 , 44 , 45 ], optimization difficulties in stiff or multiscale regimes [34, 46], and failures caused by violating the intrinsic causal structure of time-dependent problems [47, 48, 49]. Yet these advances do not fully resolve a more fundamental issue: training can appear stable from the perspective of optimization while the resulting prediction remains physically incorrect. One particularly important manifestation of this failure is the tendency of PINNs to converge to trivial or spurious solutions. Among the many strategies proposed to improve PINN training, pseudo-time stepping has shown especially strong empirical benefits in mitigating this issue. Adapted from pseudo-transient continuation in numerical analysis, it replaces the original PDE residual constraints with a relaxed formulation that can guide training more robustly [ 50 , 51 , 52 ]. Existing explanations often attribute its success to improved conditioning or to a better-behaved loss landscape, but here we show empirically that this explanation is insufficient. In this work, we revisit pseudo-time stepping from the perspective of spurious-solution formation in PINNs. Our goal is to better understand why PINNs can fail even when the empirical residual loss is small, why pseudo-time stepping is often effective in such cases, and how this understanding can be translated into a more practical and robust training strategy. Our main contributions are as follows: • We identify a fundamental failure mode of the empirical PINN loss – convergence to spurious solutions that satisfy all training constraints at any finite collocation set – and prove its existence in a representative homogeneous setting. • We demonstrate, contrary to the prevailing optimization-centric view, that the empirical effectiveness of pseudo-time stepping cannot be explained by improved conditioning alone. • We show that fixed pseudo-time stepping is highly sensitive to the choice of step size, and that this sensitivity cannot be diagnosed from the training loss – making a fixed step size unreliable in practical settings where reference solutions are unavailable. • We derive an adaptive pseudo-time stepping strategy directly from the theory: a Barzilai–Borwein-style [ 53 ] finite-difference surrogate for the inverse local Jacobian magnitude. • We validate the proposed method against strong baselines across 10 challenging benchmarks spanning shock formation, chaotic dynamics, reaction-diffusion, and high-Reynolds-number flows, with consistent gains over both the baseline and best-tuned fixed pseudo-time stepping. The rest of the paper is organized as follows. In Section 2, we first review the standard PINN formulation in Section 2.1 and then analyze the spurious-solution failure mode induced by the empirical residual loss in Section 2.2. We next revisit pseudo-time stepping in PINNs in Section 2.3, where we highlight a key paradox: although the method is effective when collocation points are resampled, it can fail on a fixed collocation set even while attaining an apparently smaller training loss. This observation challenges the conventional view that pseudo-time stepping helps mainly by improving conditioning. We then resolve this paradox by developing a new mechanistic interpretation showing that pseudo-time stepping helps expose hidden residual defects in spurious solutions. In Section 2.4, we further show that conventional pseudo-time stepping is highly sensitive to the choice of step size, which motivates the adaptive pseudo-time stepping strategy introduced there. Section 3 presents empirical results on a diverse set of PDE benchmarks, and Section 4 concludes with a discussion of the implications and future directions. 
+
+## 2 Method 
+
+2.1 Physics-informed neural networks (PINNs) 
+
+In this section, we briefly review the standard formulation of physics-informed neural networks (PINNs), following the original framework of Raissi et al. [1]. Without loss of generality, we consider an abstract parabolic PDE of the form 
+
+
+
+ut + D[u] = f , (t, x) ∈ [0 , T ] × Ω,
+
+B[u] = 0 , (t, x) ∈ [0 , T ] × ∂Ω,
+
+u(0 , x) = g(x), x ∈ Ω,
+
+(2.1) where Ω ⊂ Rd is a bounded domain with sufficiently regular boundary ∂Ω, D[·] is a linear or nonlinear differential operator acting on the spatial variables x, and u(t, x) denotes the unknown solution. Here, f (t, x) on [0 , T ] × Ω and 
+
+g(x) on Ω are given functions with sufficient regularity such that the problem is well posed and admits a smooth solution. The operator B[·] denotes an abstract boundary operator, which may represent Dirichlet, Neumann, Robin, periodic, or other boundary conditions. 2We approximate the solution u(t, x) by a neural network uθ (t, x), where θ denotes the trainable parameters. With sufficiently smooth activation functions, uθ defines a differentiable approximation that can be evaluated at any query point (t, x). Moreover, the required derivatives with respect to the input variables and the parameters θ can be computed efficiently using automatic differentiation [54]. This allows us to define the PDE residual 
+
+Rint [uθ ]( t, x) := ∂tuθ (t, x) + D[uθ ]( t, x) − f (t, x), (t, x) ∈ [0 , T ] × Ω, (2.2) the boundary residual 
+
+Rbc [uθ ]( t, x) := B[uθ ]( t, x), (t, x) ∈ [0 , T ] × ∂Ω, (2.3) and the initial residual 
+
+Ric [uθ ]( x) := uθ (0 , x) − g(x), x ∈ Ω. (2.4) Let 
+
+Xint = {(ti
+
+> int
+
+, xi
+
+> int
+
+)}Nint  
+
+> i=1
+
+⊂ [0 , T ] × Ω, Xbc = {(ti
+
+> bc
+
+, xi
+
+> bc
+
+)}Nbc  
+
+> i=1
+
+⊂ [0 , T ] × ∂Ω, Xic = {xi
+
+> ic
+
+}Nic  
+
+> i=1
+
+⊂ Ω,
+
+denote the interior, boundary, and initial collocation sets, respectively. The corresponding empirical loss terms are defined by 
+
+Lint (θ; Xint ) := 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+Rint [uθ ]( ti
+
+> int
+
+, xi
+
+> int
+
+) 2 , (2.5) 
+
+Lbc (θ; Xbc ) := 1
+
+Nbc 
+
+> Nbc
+
+X
+
+> i=1
+
+Rbc [uθ ]( ti
+
+> bc
+
+, xi
+
+> bc
+
+) 2 , (2.6) 
+
+Lic (θ; Xic ) := 1
+
+Nic 
+
+> Nic
+
+X
+
+> i=1
+
+Ric [uθ ]( xi
+
+> ic
+
+) 2 . (2.7) The standard PINN objective is then 
+
+L(θ; Xint , X bc , X ic ) := λint Lint (θ; Xint ) + λbc Lbc (θ; Xbc ) + λic Lic (θ; Xic ), (2.8) where λint , λ bc > 0 and λic > 0 are weighting hyperparameters. This loss encourages the neural-network approximation uθ to satisfy the governing PDE together with the initial and boundary conditions in (2.1) . The collocation sets Xint , X bc , X ic may either be fixed throughout training or resampled at each iteration of a gradient-based optimizer. Although we focus on parabolic equations for exposition, the same formulation extends naturally to more general elliptic and hyperbolic PDEs, whether linear or nonlinear. 
+
+2.2 A Failure mode of PINNs: Tendency to learn trivial solutions 
+
+Recent advances in physics-informed neural networks (PINNs) have increasingly focused on understanding and mitigating their training pathologies, such as spectral bias [ 41 ], gradient conflicts [ 43 , 32 , 36 , 45 ], stiffness of training dynamics [34], causality violation [48, 55] and optimization failures [46, 38, 56]. 0 1 2      
+
+> t
+> 0246
+> x
+> Reference
+> −1.0
+> −0.50.00.51.0
+> 012
+> t
+> 0246
+> x
+> Predicted
+> −0.50.00.50.00.51.0
+> x
+> 0.00.51.0
+> y
+> Reference
+> 0.00 0.25 0.50 0.75 1.00
+> 0.00.51.0
+> x
+> 0.00.51.0
+> y
+> Predicted
+> 0.51.0
+
+Figure 1: Failure predictions of PINN models for linear advection (top) and lid-driven cavity flow (bottom). Among these pathologies, an especially important yet still insufficiently understood failure mode is the tendency of PINNs to converge to trivial or spurious solutions. Here, we aim to systematically study this long-observed phe-nomenon, in which training is attracted to trivial solutions rather than the desired physical ones. To demonstrate this phenomenon, we consider two representative benchmark problems that are widely used in the PINN literature, cov-ering both time-dependent and boundary-value settings. 
+
+Linear advection. We consider the one-dimensional linear advection equation 
+
+ut + c u x = 0 , (t, x ) ∈ [0 , 2] × [0 , 2π], (2.9) 
+
+u(0 , x ) = sin( x), x ∈ [0 , 2π], (2.10) with periodic boundary conditions, where u(t, x ) is the scalar solution and c = 50 is the prescribed advection speed. This benchmark is a representative time-dependent transport problem commonly used to assess the ability of PINNs to capture propagating solution structures. 3Lid-driven cavity flow. As a representative boundary-value problem, we consider the two-dimensional steady incompressible Navier–Stokes equations for lid-driven cavity flow: 
+
+(u · ∇ ) u + ∇p − 1
+
+Re ∆u = 0, x ∈ (0 , 1) 2, (2.11) 
+
+∇ · u = 0 , x ∈ (0 , 1) 2, (2.12) where u = ( u, v ) is the velocity field, p is the pressure, and Re = 5 ,000 is the Reynolds number. The boundary conditions are given by no-slip walls on the left, right, and bottom boundaries u = (0 , 0) , and a moving lid on the top boundary u = ( Ulid , 0) . This problem is a standard benchmark for PINNs in fluid mechanics and provides a prototypical example of a nonlinear boundary-value problem. The loss formulation for the advection problem follows directly from the problem setup in Section 2.1 and is therefore omitted for brevity. Here, we briefly outline the loss formulation for the lid-driven cavity flow. We approximate the solution by a neural network uθ = ( uθ (x), v θ (x), p θ (x)) , where θ denotes the trainable parameters. The corresponding PDE residuals are defined as 
+
+Ru[uθ ]( x) := uθ ∂xuθ + vθ ∂y uθ + ∂xpθ − 1Re (∂xx uθ + ∂yy uθ ) , (2.13) 
+
+Rv [uθ ]( x) := uθ ∂xvθ + vθ ∂y vθ + ∂y pθ − 1Re (∂xx vθ + ∂yy vθ ) , (2.14) 
+
+Rc[uθ ]( x) := ∂xuθ + ∂y vθ . (2.15) Let Xint = {xi
+
+> int
+
+}Nint  
+
+> i=1
+
+⊂ (0 , 1) 2 denote the set of interior collocation points. We define the three interior loss terms separately as 
+
+Lru (θ; Xint ) := 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+Ru[θ]( xi
+
+> int
+
+) 2 , (2.16) 
+
+Lrv (θ; Xint ) := 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+Rv [θ]( xi
+
+> int
+
+) 2 , (2.17) 
+
+Lrc (θ; Xint ) := 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+Rc[θ]( xi
+
+> int
+
+) 2 . (2.18) Similarly, let Xwall = {xi
+
+> wall
+
+}Nwall  
+
+> i=1
+
+⊂ ∂Ω denote the set of boundary collocation points. We define the boundary loss terms by 
+
+Lu, bc (θ; Xwall ) := 1
+
+Nwall 
+
+> Nwall
+
+X
+
+> i=1
+
+uθ (xi
+
+> wall
+
+) − ub(xi
+
+> wall
+
+) 2 , (2.19) 
+
+Lv, bc (θ; Xwall ) := 1
+
+Nwall 
+
+> Nwall
+
+X
+
+> i=1
+
+vθ (xi
+
+> wall
+
+) − vb(xi
+
+> wall
+
+) 2 , (2.20) where (ub(x), v b(x)) denotes the prescribed boundary velocity, given by 
+
+(ub(x), v b(x)) = 
+
+(0 , 0) , x ∈ ∂Ω \ { (x, 1) : x ∈ [0 , 1] },
+
+(Ulid , 0) , x ∈ { (x, 1) : x ∈ [0 , 1] }.
+
+The total loss is then given by 
+
+L(θ) := λru Lru + λrv Lrv + λrc Lrc + λu, bc Lu, bc + λv, bc Lv, bc . (2.21) Here, we train PINN models for the respective problems by minimizing the corresponding loss functions using the experimental settings detailed in Section 3, and the corresponding results are shown in Fig. 1. In both cases, the PINNs completely fail to capture the true solutions. A key observation is that the PINN often converges to a constant solution over a large interior region away from the boundaries, regardless of whether the problem is an initial-boundary value problem or a boundary value problem. We further emphasize that the phenomenon observed here appears to be broadly universal and relatively orthogonal to other previously identified PINN training pathologies, in the sense that it cannot be fully resolved by existing techniques. Even when improved network architectures [ 28 ], loss-weighting 4strategies [ 43 , 57 ], or advanced optimizers [ 35 , 36 , 58 ] are employed, very similar behavior can still arise for sufficiently challenging problems or parameter regimes, such as flows at high Reynolds numbers. Motivated by this phenomenon, we will show that the issue is not merely an optimization difficulty, but reflects a more fundamental ill-posedness of the empirical PDE residual loss: for any given set of collocation points, there exists a spurious solution u† that exactly satisfies the PDE at those finite collocation points. Although the two examples above involve periodic or nonhomogeneous boundary conditions, the same mechanism can already be seen in a simpler homogeneous Dirichlet setting. We therefore state the following theorem in this simplified setting to isolate the core issue. 
+
+Theorem 2.1 (Existence of spurious solutions for the empirical PINN loss) . Consider the homogeneous problem in 
+
+(2.1) with f = 0 and homogeneous Dirichlet boundary conditions u|∂Ω = 0 , and let u∗ be its classical solution. Let 
+
+Xint = {(ti
+
+> int
+
+, xi
+
+> int
+
+)}Nint  
+
+> i=1
+
+⊂ [0 , T ] × Ω be any finite set of interior collocation points, and define the empirical interior residual loss of u by 
+
+Lint (u; Xint ) = 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+Rint [u]( ti
+
+> int
+
+, xi
+
+> int
+
+) 2 . (2.22) 
+
+Then for any t0 > 0, there exists a smooth function u† ∈ C∞([0 , T ] × Ω) such that 1. u† satisfies the initial and Dirichlet boundary conditions, namely, 
+
+u†|∂Ω ≡ 0, u†(0 , x) = g(x), ∀x ∈ Ω; (2.23) 
+
+2. u† becomes trivial after time t0, in the sense that 
+
+u†(t, x) = 0 , ∀ t ≥ t0, x ∈ Ω; (2.24) 
+
+3. its empirical interior residual vanishes exactly: 
+
+Lint (u†; Xint ) = 0 . (2.25) 
+
+Consequently, for any t0 > 0, the spurious solution set 
+
+St0 := 
+
+u ∈ C∞([0 , T ] × Ω) 
+
+u|∂Ω ≡ 0,
+
+u(0 , x) = g(x), ∀x ∈ Ω,
+
+u(t, x) = 0 , ∀ t ≥ t0, x ∈ Ω,
+
+Lint (u; Xint ) = 0 
+
+ (2.26) 
+
+is nonempty. 
+
+The proof is provided in Appendix B.1 and is based on a smooth mollifier construction. The main idea is to construct a smooth function u† that agrees with the true solution u∗ near all collocation points before t0, but becomes identically zero for t ≥ t0. More precisely, we choose a smooth time cutoff α(t) such that 
+
+α(t) = 
+
+
+
+1, near ti
+
+> int
+
+, ti 
+
+> int
+
+< t 0,
+
+0, near ti
+
+> int
+
+, ti 
+
+> int
+
+≥ t0,
+
+0, t ≥ t0.
+
+(2.27) Then we define 
+
+u†(t, x) = α(t)u∗(t, x). (2.28) The resulting function u† remains smooth, satisfies the same initial and boundary conditions, and becomes trivial after 
+
+t0. Moreover, its PDE residual still vanishes at every collocation point: before t0, u† agrees locally with u∗, while after 
+
+t0, it agrees locally with the zero solution, which also satisfies the homogeneous PDE. Similar constructions can be adapted to boundary-value problems with inhomogeneous data, and we observe that the same pathology arises more broadly. A systematic treatment of such general settings is beyond the scope of this work and is left for future study. The theorem reveals a fundamental limitation of the conventional empirical PINN loss: when the collocation points are fixed throughout training, the optimization landscape may contain many poor global minima associated with trivial or spurious solutions. Minimizing this objective alone is therefore insufficient to prevent convergence to such undesirable states. Moreover, due to spectral bias, PINNs may preferentially converge to these spurious solutions. Our experiments provide strong evidence for this undesirable behavior. 5Figure 2: Lid-driven cavity. Predicted velocity fields U = √u2 + v2 at different steps of gradient descent during training. From top to bottom, the rows correspond to: the baseline PINN model; the baseline PINN model with pseudo-time stepping trained using a fixed-batch of collocation points; and the baseline model with pseudo-time stepping trained using randomly resampled collocation points at each iteration. The last row shows the convergence histories of the relative L2 error and the loss for these three methods. 
+
+Remark 2.2 (Beyond fixed collocation points) . Theorem 2.1 is an existence result for a fixed finite set of collocation points. In particular, the construction of u† exploits the fact that the empirical residual is evaluated only on a prescribed set Xint , and therefore does not by itself imply the same exact zero-residual property under random resampling or full space–time integration. Nevertheless, the same pathology may still persist in practice under random sampling or small-batch training. Indeed, if a spurious solution transitions from the true solution branch to the trivial state within a narrow transition layer of width 
+
+h, then its residual is concentrated in that layer. For a standard mean-squared PDE residual loss, the contribution of such a transition layer is typically of order O(h−1) due to the specific construction of the spurious solutions. Therefore, unless the optimization is able to reduce the PDE residual loss below this transition-layer scale, such spurious solutions may not be effectively excluded, even when collocation points are randomly resampled during training. 
+
+2.3 Pseudo-time stepping 
+
+In this section, we show that the pseudo-time stepping can effectively mitigate the training pathology identified in the previous section. Pseudo-time stepping, or pseudo-transient continuation, has a long history in numerical analysis, where it is widely used to stabilize iterative solution methods [ 50 , 59 ]. More recently, related ideas have been adopted in the PINN literature and have shown consistent empirical gains [ 51 , 60 , 52 , 61 , 62 ]. These benefits are typically motivated from a classical numerical-analysis perspective, which attributes them to improved conditioning of the training dynamics and a better-behaved loss landscape. Motivated by this observation, we replace the standard PDE residual loss with the pseudo-time-relaxed formulation in Eq. (2.35) and repeat the same experiment on the lid-driven cavity problem under identical settings. The results are shown in Fig. 2. Although pseudo-time stepping leads to a clear improvement, the underlying reason is not what one 6Figure 3: Inviscid Burgers’ equation. Top: Comparison of the predicted solutions obtained by the baseline PINN model and by pseudo-time stepping, with and without random collocation-point resampling at each iteration. Bottom: training loss and relative L2 error histories. might initially expect. In particular, the fixed-batch variant (row 2) consistently attains a lower PDE residual loss than the random-resampling variant (row 3), yet it still converges to an incorrect solution. To examine whether the same phenomenon also arises in time-dependent problems, we further consider the one-dimensional inviscid Burgers equation. The problem setup is provided in Appendix C.5, and the training protocol is described in Section 3. This problem is substantially more challenging than the viscous Burgers equation commonly studied in the PINN literature, because its solution develops discontinuous shocks. Figure 3 shows the predicted solutions together with the corresponding training-loss and relative L2 error histories. We observe the same qualitative behavior: pseudo-time stepping with a fixed collocation-point sets achieves excellent loss convergence, yet yields the worst predictive accuracy among the variants considered. In addition, the PDE residual loss obtained by pseudo-time stepping with randomly sampled collocation points is significantly higher. This behavior is expected for this problem when the PINN attempts to learn the correct physical solution, since the pointwise PDE residual can become arbitrarily large near the shock. We emphasize that this phenomenon appears to be quite universal, and it cannot be adequately explained from the traditional optimization perspective alone. If the primary role of pseudo-time stepping were simply to improve conditioning or make the loss landscape easier to optimize, then the fixed-batch variant should perform at least as well as the random-resampling variant, provided that the training loss is properly minimized. However, this is not what we observe. This discrepancy naturally leads to the following question: 
+
+Question: If pseudo-time stepping does not improve PINN training primarily through better conditioning, then what is the mechanism behind its effectiveness? 
+
+As we show in the following analysis, the primary benefit of pseudo-time stepping is more fundamental: it modifies the training trajectory to discourage convergence to the spurious solutions identified above. In particular, under collocation-point resampling, pseudo-time stepping makes these spurious solutions unstable by inducing much larger residuals on newly sampled points, thereby driving the optimization away from them. With this question in mind, we now return to how pseudo-time stepping is formulated for PINNs in boundary value problems. In this setting, instead of directly minimizing the interior PDE residual 
+
+Rint [uθ ]( x) = 0 , (2.29) pseudo-time stepping introduces auxiliary relaxation dynamics for the network prediction uθ along an artificial variable 
+
+s. Here, s is not a physical variable of the original PDE, but an auxiliary variable used to parameterize the training dynamics of the network parameters under gradient flow, 
+
+dθ (s)
+
+ds = −∇ θ L(θ(s)) . (2.30) 7Motivated by this viewpoint, pseudo-time stepping may be formally interpreted through the relaxed relation 
+
+∂suθ(s) + Rint [uθ(s)] = 0 . (2.31) At convergence in the artificial time s, one has ∂suθ(s) = 0 , and hence the steady state satisfies the target residual equation 
+
+Rint [uθ(s)] = 0 . (2.32) Let θk denote the network parameters at the k-th training step. Discretizing the artificial relaxation in s with step size 
+
+τ > 0 gives 
+
+uk − uk−1
+
+τ + Rint [uk] = 0 . (2.33) In the PINN setting, this relation is interpreted at the level of the network prediction, namely 
+
+uk ≈ uθk , uk−1 ≈ uθk−1 , (2.34) where θk and θk−1 denote the network parameters at two consecutive training steps. This motivates the following pseudo-time-relaxed residual loss 
+
+Lpts (θ; θk−1) = 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+uθ (xi
+
+> int
+
+) − uθk−1 (xi
+
+> int
+
+)
+
+τ + Rint [uθ ]( xi
+
+> int
+
+)
+
+> 2
+
+. (2.35) where {xi
+
+> int
+
+}Nint  
+
+> i=1
+
+is a set of collocation points sampled in the computational domain Ω of interest. The next parameter iterate is obtained by optimizing the total PINN loss, in which the original PDE residual loss is replaced by its pseudo-time-relaxed counterpart. In this update, the optimization is performed with respect to the current parameters θk, while the previous iterate θk−1 is treated as fixed and the boundary condition loss is kept unchanged. Intuitively, the new network prediction uθk is encouraged not only to reduce the PDE residual, but also to remain close to the previous prediction uθk−1 . This leads to a more stable training trajectory, in contrast to directly minimizing the residual in a single shot. 
+
+Remark 2.3 (Implicit versus explicit pseudo-time stepping) . In this work, we focus on the implicit pseudo-time stepping formulation. Although an explicit pseudo-time stepping variant can also be derived, our experiments indicate that it is generally less robust. This is consistent with the observations reported in TSONN [51]. 
+
+Remark 2.4 (Extension to time-dependent PDEs) . For time-dependent PDEs, the artificial variable s should not be confused with the physical time variable t. For a time-dependent PDE, 
+
+ut + D[u] = 0 , (2.36) 
+
+the interior residual becomes 
+
+Rint [uθ ]( t, x) = ∂tuθ (t, x) + D[uθ ]( t, x). (2.37) 
+
+Pseudo-time stepping is then applied exactly as in the boundary value setting, but now to this time-dependent residual, leading to 
+
+Lpts (θ; θk−1) = 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+uθ (ti
+
+> int
+
+, xi
+
+> int
+
+) − uθk−1 (ti
+
+> int
+
+, xi
+
+> int
+
+)
+
+τ + Rint [uθ ]( ti
+
+> int
+
+, xi
+
+> int
+
+)
+
+> 2
+
+. (2.38) 
+
+Thus, t remains the physical time variable in the PDE, while s only parameterizes the artificial relaxation used during training. 
+
+For the lid-driven cavity problem and the result presented in Fig. 2, we apply pseudo-time stepping to relax the PDE residual loss. This requires access to consecutive network parameters during training. Specifically, at iteration k, we retain the solution from the previous iterate 
+
+uθk−1 (x) = ( uθk−1 (x), v θk−1 (x), p θk−1 (x)) ,
+
+where θk−1 denotes the network parameters from iteration k − 1. The specific pseudo-time-relaxed interior loss terms are defined as 
+
+Lpts  
+
+> ru
+
+(θ; θk−1, X int ) := 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+uθ (xi
+
+> int
+
+) − uθk−1 (xi
+
+> int
+
+)
+
+τu
+
++ Ru[θ]( xi
+
+> int
+
+)
+
+> 2
+
+, (2.39) 
+
+Lpts  
+
+> rv
+
+(θ; θk−1, X int ) := 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+vθ (xi
+
+> int
+
+) − vθk−1 (xi
+
+> int
+
+)
+
+τv
+
++ Rv [θ]( xi
+
+> int
+
+)
+
+> 2
+
+, (2.40) 
+
+Lpts  
+
+> rc
+
+(θ; θk−1, X int ) := 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+pθ (xi
+
+> int
+
+) − pθk−1 (xi
+
+> int
+
+)
+
+τp
+
++ Rc[θ]( xi
+
+> int
+
+)
+
+> 2
+
+. (2.41) 8where τu, τ v , τ p > 0 are pseudo-time step sizes. To obtain the results in Fig. 2, we follow Scale-PINNs [ 61 ] and set 
+
+τ = τu = τv = τp = 0 .1. As will be shown in Fig. 5, the performance of pseudo-time stepping is highly sensitive to the choice of these step sizes, and cannot be reliably tuned by loss values, which motivates the development of an adaptive pseudo-time stepping strategy that automatically identifies suitable values during training. 0.0 2.5 5.0              
+
+> t
+> −101
+> u
+> Spurious Solution u†
+> u†
+> u∗
+> Ih
+> 0.02.55.0
+> t
+> −101
+> R[u†]
+> ODE Residual of u†
+> 0.02.55.0
+> t
+> −101
+> u†,+
+> u†,+=u†−τR[u†]
+> 0.02.55.0
+> t
+> −20
+> −10 010
+> R[u†,+]
+> ODE Residual of u†,+
+
+Figure 4: Illustration of the pseudo-time stepping mechanism in the PDE residual loss. From left to right, when the model approaches a spurious solution u† with a transition layer centered at time t0 and width h, a large residual error is produced in the transition region. The pseudo-time update u†,+ = u† − τ R[u†] significantly increases the residual in this region, thus strengthening the loss penalty against such spurious solutions. We now turn to the question raised at the beginning of this section. To build intuition for the underlying mechanism of pseudo-time stepping, we begin with a simple ODE example 
+
+ut = cos t, 
+
+with zero initial condition. For this example, we set τ = 1 and choose a transition-layer width h = 0 .4. Suppose that at some stage of training, the PINN prediction approaches a spurious profile with a sharp transition layer. As shown in Fig. 4, the PDE residual is large inside this transition layer, yet such a localized defect may not be adequately captured by a finite set of collocation points. After one pseudo-time stepping update, the solution profile is substantially altered, and the PDE residual of the updated state u†,+ increases by several orders of magnitude within the transition region. To formalize the intuition above, we prove the following theorem. 
+
+Theorem 2.5 (Pseudo-time stepping destabilizes spurious solutions under resampling) . Consider the initial boundary value problem in (2.1) , and assume that D is a linear differential operator acting only on the spatial variable x. Let u∗
+
+be a classical solution. Fix t0 ∈ (0 , T ) and h > 0. We consider the constructed spurious solution 
+
+u†(t, x) = αh(t) u∗(t, x), (2.42) 
+
+where αh ∈ C∞(R) is a smooth cutoff satisfying 
+
+αh(t) = 
+
+(1, t ≤ t0,
+
+0, t ≥ t0 + h. (2.43) 
+
+We denote its transition layer by Ih := [ t0, t 0 + h]. Next, we define the exact output of one explicit pseudo-time stepping update applied to u† by 
+
+u†,+ := u† − τ Rint [u†], τ > 0. (2.44) 
+
+Let eXint = {(˜ tj , ˜xj )}Mj=1 ⊂ (0 , T ) × Ω be i.i.d. random interior collocation points on (0 , T ) × Ω. We define the empirical residual loss on these newly sampled collocation points by 
+
+Lnew int (v) := 1
+
+M
+
+> M
+
+X
+
+> j=1
+
+Rint [v](˜ tj , ˜xj ) 2 . (2.45) 
+
+Then, with expectation taken over the random sample eXint ,
+
+E Lnew int (u†) = O(h−1), E Lnew int (u†,+) = O h−1 + τ 2h−3 . (2.46) 
+
+Moreover, if u∗(t0, ·)̸ ≡ 0, then these orders are sharp: 
+
+E Lnew int (u†) ≍ h−1, E Lnew int (u†,+) ≍ h−1 + τ 2h−3. (2.47) 
+
+In particular, one pseudo-time stepping update amplifies the empirical residual on newly sampled collocation points from order h−1 to order τ 2h−3.
+
+9The proof of this theorem is provided in Appendix B.2. Although the implemented loss corresponds to an implicit pseudo-time formulation, the explicit residual update in the theorem is used only as an analytical proxy to illustrate the residual-amplification mechanism. The theorem shows that, when combined with collocation resampling, pseudo-time stepping can destabilize spurious solutions by exposing and amplifying their hidden residual defects. As a result, the pseudo-time-relaxed residual loss penalizes such solutions more strongly than the conventional residual loss, thereby helping steer training toward the physical solution when the relaxed loss is properly minimized. It is worth noting that the choice of τ is subtle. In the idealized analysis, a larger τ leads to stronger amplification of hidden residual defects. In practice, however, we optimize the pseudo-time-relaxed loss in (2.35) , and there is no guarantee that one iteration of gradient descent update will exactly reproduce the corresponding pseudo-time stepping update from the current iterate. Moreover, if τ is too large, then the relaxed system 
+
+uk − uk−1
+
+τ + Rint 
+
+uk = 0 (2.48) corresponds to a coarse pseudo-time discretization, which introduces a larger discretization error in approximating the underlying continuous pseudo-time dynamics, This, in turn, can make the resulting training objective harder to optimize stably. Therefore, τ must be chosen carefully to balance defect amplification and optimization stability. As we discuss in the next section, this tradeoff motivates the need for an adaptive strategy to choose τ appropriately during training. 
+
+Related work. TSONN [ 51 ] and Scale-PINN [ 61 ] showed empirically that pseudo-time-style losses can substantially improve PINN training, with the pseudo-time step τ chosen through heuristic search. In contrast, our work provides, to the best of our knowledge, the first theoretical explanation for this phenomenon through the lens of spurious-solution formation, and further leads to a principled adaptive strategy for selecting τ directly from this analysis. More broadly, many techniques proposed for PINNs can be viewed, at least intuitively, as ways to suppress spurious solutions. For example, adaptive loss-weighting schemes [ 31 , 43 , 32 , 44 ] often assign larger weights to initial and boundary condition losses, or to regions with large PDE residuals, thereby discouraging convergence to trivial or nonphysical solutions. Likewise, adaptive sampling strategies [ 40 , 37 ] place more collocation points in high-residual regions, enabling the model to better resolve difficult parts of the domain and enforce the PDE constraints more effectively. Causal training [ 48 , 47 ] follows a similar principle in time-dependent problems by placing greater emphasis on reducing residuals at earlier times. From this perspective, pseudo-time stepping provides a complementary mechanism. Rather than only reweighting losses or redistributing training points, it directly modifies the residual formulation itself, so that hidden defects associated with spurious solutions are revealed and amplified, making these undesirable solutions much more strongly penalized during training. 
+
+2.4 Adaptive pseudo-time stepping 
+
+Although we have both theoretically and empirically demonstrated the effectiveness of pseudo-time stepping in PINNs, we also observe a fundamental practical limitation of the current method: its performance is highly sensitive to the choice of τ . More importantly, the training losses obtained with different values of τ are often very similar, even when the final solution quality differs substantially. For the illustrative lid-driven cavity example considered here, we conduct an ablation study of pseudo-time stepping under different choices of τ , and the corresponding results are summarized in Fig. 5. We observe that the error convergence can differ dramatically across different choices of τ , even when the corresponding loss values remain highly comparable. Our further experiments show that the optimal value of τ depends strongly on many aspects of the problem setup, including the PDE being solved, the optimizer, the network architecture, and the loss weighting strategy. As a result, it is difficult to tune τ by monitoring the training loss alone. This is especially problematic in PINNs for solving forward problems, as the loss is often the only directly accessible metric during training. In addition, extensive hyperparameter tuning over τ can introduce substantial additional computational cost in practice. To address the limitation discussed above, we seek to develop a self-adaptive strategy for selecting τ . We begin by analyzing the local behavior of the pseudo-time stepping update 
+
+uk − uk−1
+
+τ + Rint [uk] = 0 . (2.49) The key idea is that the stability and effectiveness of this iteration depend on the local Jacobian of the residual operator. Let u∗ denote a solution of the interior residual equation, 
+
+Rint [u∗] = 0 , (2.50) 10 0 20000 40000 
+
+Step  
+
+> 10 −1
+> 10 0
+
+Rel. L2 error   
+
+> 020000 40000
+
+Step 
+
+> 10 −3
+> 10 −1
+
+Continuity loss   
+
+> 020000 40000
+
+Step 
+
+> 10 −3
+> 10 −1
+
+Momentum loss ( x)  
+
+> 020000 40000
+
+Step 
+
+> 10 −3
+> 10 −1
+
+Momentum loss ( y)1/τ = 0 .1 1/τ = 1 1/τ = 2 1/τ = 10 1/τ = 20 Figure 5: Lid-driven cavity. Histories of the relative L2 error and PDE residual losses during PINN training with pseudo-time stepping for different choices of τ .and define the error ek := uk − u∗. Linearizing Rint around u∗ gives 
+
+Rint [uk] ≈ J∗(uk − u∗) = J∗ek, J∗ := ∂Rint 
+
+∂u (u∗). (2.51) Substituting this approximation into (2.49) yields 
+
+ek − ek−1
+
+τ + J∗ek ≈ 0, (2.52) or equivalently 
+
+ek ≈ (I + τ J ∗)−1ek−1. (2.53) Therefore, if λi is an eigenvalue of J∗, for the iteration to be locally contractive, we require 
+
+ρ (I + τ J ∗)−1 = max 
+
+> i
+
+11 + τ λ i
+
+< 1, (2.54) which shows that the choice of τ is governed by the local spectrum of J∗. In practice, the useful range of τ is determined by both the local residual Jacobian and the stability of the neural-network optimization used to enforce the pseudo-time update. Theorem 2.5 further clarifies how τ should be selected. Since the amplification ratio scales like τ 2h−3, τ should be chosen as large as possible while still preserving stable training. This observation naturally motivates an adaptive strategy that chooses τ according to local Jacobian information. In practice, however, explicitly estimating the spectrum of the Jacobian during training is prohibitively expensive. We therefore seek a cheap local surrogate that captures the same scaling behavior. To this end, we compare the change in the iterate with the corresponding change in the residual: 
+
+τ k := ∥uk − uk−1∥∥R int [uk] − R int [uk−1]∥ . (2.55) This quantity can be interpreted as an approximation to the inverse local Jacobian magnitude along the current update direction. Indeed, by a first-order Taylor expansion at uk−1,
+
+Rint [uk] − R int [uk−1] ≈ Jk−1(uk − uk−1), Jk−1 := ∂Rint 
+
+∂u (uk−1). (2.56) Hence, 
+
+∥R int [uk] − R int [uk−1]∥∥uk − uk−1∥ ≈ ∥ Jk−1vk∥, vk := uk − uk−1
+
+∥uk − uk−1∥ , (2.57) so that 
+
+τ k ≈ 1
+
+∥Jk−1vk∥ . (2.58) The estimator (2.57) is a finite-difference surrogate for the local Jacobian magnitude, analogous in spirit to the two-point step-size methods of Barzilai and Borwein [ 53 ] in unconstrained optimization, but adapted here to operate on the 11 Algorithm 1 Training PINNs with adaptive pseudo-time stepping 
+
+Require: initial network parameters θ0, θ 1, initial pseudo-time step τ 1 > 0, learning rate η > 0, total training steps K,update frequency m ∈ N, smoothing factor β ∈ (0 , 1] , small constant ε > 0
+
+1: for k = 1 , 2, . . . , K do 
+
+2: Sample random collocation sets Xk
+
+> int
+
+, Xk
+
+> bc
+
+, and Xk
+
+> ic
+
+3: Update the pseudo-time step size every m iterations by 
+
+∆uk := uθk (Xk
+
+> int
+
+) − uθk−1 (Xk
+
+> int
+
+),
+
+∆rk := Rint [uθk ]( Xk
+
+> int
+
+) − R int [uθk−1 ]( Xk
+
+> int
+
+),γk := CosineDecay  Lint (θk; Xk
+
+> int
+
+), Lint (θ0; X0int ) ,
+
+bτ k := γk ∥∆uk∥2
+
+∥∆rk∥2 + ε ,τ k := stopgrad 
+
+((1 − β)τ k−1 + βbτ k, k mod m = 0 ,τ k−1, otherwise .
+
+!
+
+.
+
+(2.59) (2.60) (2.61) (2.62) (2.63) 
+
+4: Define the pseudo-time stepping PINN loss at iteration k as a function of the current parameters θ, with the previous iterate θk−1 held fixed: 
+
+Lk(θ; θk−1) := 1
+
+|Xk
+
+> int
+
+|
+
+X
+
+> x∈Xk
+> int
+
+uθ (x) − uθk−1 (x)
+
+τ k + Rint [uθ ]( x)
+
+> 2
+
++ λbc Lbc (θ; Xk
+
+> bc
+
+) + λic Lic (θ; Xk
+
+> ic
+
+). (2.64) 
+
+5: Compute the gradient with respect to the current parameters θ evaluated at θ = θk, and perform one gradient-descent step: 
+
+gk ← ∇ θ Lk(θ; θk−1) θ=θk , (2.65) 
+
+θk+1 ← θk − ηg k. (2.66) 
+
+6: end for 
+
+residual operator in solution space rather than on the gradient in parameter space. Although τ k does not recover the full spectrum of the Jacobian, it provides an inexpensive estimate of the inverse local stiffness in the direction most relevant to the current update. This makes it a practical surrogate for adapting τ during training. Based on the discussion above, we now present a practical training procedure for PINNs with adaptive pseudo-time stepping; the full procedure is summarized in Algorithm 1. In implementation, it is important to apply a stop-gradient operation when updating the pseudo-time step sizes. This is because the pseudo-time steps are computed from the network predictions and therefore depend on the model parameters θ; however, during training they are intended to act as auxiliary weights rather than optimization variables. 0 1 2 3 4 5 6 7 8Logarithmic loss reduction log 10  
+
+> (L0+εL+ε
+> )
+> 0.00.20.40.60.81.01.2Shrink factor  γ No decay Cosine decay region
+> γmin = 0 .1
+
+Figure 6: Illustration of the shrink factor used in adaptive pseudo-time stepping with sstart =2, s end = 6 , γmin = 0 .1.In addition, one may note that we further introduce a shrink factor to modulate the adaptive pseudo-time step τ k. Specifically, γk ∈
+
+[γmin , 1] is defined through a cosine-decay schedule based on the relative reduction of the training PDE residual loss: 
+
+γk := γmin + (1 − γmin ) 1 + cos( πp k)2 , (2.67) where pk ∈ [0 , 1] denotes the normalized logarithmic reduction of the interior residual loss Lk 
+
+> int
+
+:= Lint (θk; Xk
+
+> int
+
+) relative to its initial value L0int :
+
+pk := log 10 
+
+ (L0int + ε)/(Lk 
+
+> int
+
++ ε) − sstart 
+
+send − sstart 
+
+. (2.68) Here, sstart and send are two thresholds that control when the cosine decay starts and stops. They are defined in terms of the logarithmic reduction of the interior residual loss. Specifically, sstart is the point 12 at which the shrink factor begins to decrease from 1, and send is the point at which it reaches its minimum value. Therefore, the interval [sstart , s end ] defines the stage of training over which the decay is active, as illustrated in Fig. 6. This design is motivated by our empirical observation that, in the later stages of training, an excessively large τ k can destabilize the optimization process. As the learning rate becomes small and the training dynamics become increasingly stiff, a single gradient step may no longer be sufficient to accurately realize the desired pseudo-time stepping update. The shrink factor therefore serves as an additional stabilization mechanism by progressively reducing the effective pseudo-time step as training proceeds. It is worth noting that conventional pseudo-time stepping in PINNs typically uses a single fixed step size for all PDE residual terms. However, when the loss function contains several such terms, it is natural to assign a separate pseudo-time step size to each relaxed equation. For example, in the lid-driven cavity problem, we introduce component-wise pseudo-time step sizes 
+
+τ k =  τ ku , τ kv , τ kp
+
+,
+
+corresponding to the u-momentum, v-momentum, and continuity equations, respectively. Specifically, we define 
+
+τ ku := ∥uθk − uθk−1 ∥2
+
+∥R u[uθk ] − R u[uθk−1 ]∥2 + ε , (2.69) 
+
+τ kv := ∥vθk − vθk−1 ∥2
+
+∥R v [uθk ] − R v [uθk−1 ]∥2 + ε , (2.70) 
+
+τ kp := ∥pθk − pθk−1 ∥2
+
+∥R c[uθk ] − R c[uθk−1 ]∥2 + ε . (2.71) This component-wise relaxation provides additional flexibility, as it allows each equation to adapt according to its own scale and local optimization dynamics. 0 20000 40000         
+
+> Step
+> 10 −1
+> Rel. L2error
+> Fixed pseudo-time Adaptive pseudo-time
+> 020000 40000
+> Step
+> 010 20
+> Pseudo-time step size 1 /τ u
+> 020000 40000
+> Step
+> 010 20
+> Pseudo-time step size 1 /τ v
+> 020000 40000
+> Step
+> 010 20
+> Pseudo-time step size 1 /τ p
+
+Figure 7: Lid-driven cavity : Comparison of adaptive pseudo-time stepping with fixed pseudo-time stepping using the best tuned shared step size, 1/τ = 10 . From left to right: relative L2 error versus training iterations, and the evolution of the adaptive pseudo-time step sizes τu, τv , and τp. In the last three panels, the adaptive step sizes are shown together with the reference fixed-step value. In Figure 7, we compare conventional pseudo-time stepping with a fixed shared step size, using the best-tuned value for this example ( 1/τ = 10 ), against the proposed adaptive variant. The adaptive variant achieves error convergence comparable to that of the optimally tuned fixed-step method. In addition, starting from their initial value of 1, the adaptive pseudo-time step sizes remain roughly close to the reference value throughout training. In the Results section, we further assess the effectiveness of the adaptive strategy on a wider range of problems. 
+
+## 3 Results 
+
+In this section, we aim to evaluate the effectiveness of the proposed adaptive pseudo-time stepping scheme in PINNs for solving forward PDE problems. To this end, we consider a diverse set of 10 representative and challenging benchmarks arising from fundamental physical phenomena. These examples span shock formation, chaotic dynamics, reaction–diffusion systems, fluid mechanics, and heat transfer. Detailed descriptions of all problem setups, including PDE parameters, initial and boundary conditions, numerical implementations are provided in Appendix C. Here, we view PINNs as an integrated computational framework whose performance is governed by the interaction of multiple design choices. In practice, training failures often arise from the coupling among these components, and no single modification is sufficient to resolve all difficulties. Therefore, to fairly assess the value of a particular method, it is more meaningful to compare it against a strong baseline that already incorporates established improvements. Following this principle, we construct a competitive baseline by integrating several techniques that have been widely studied 13 and shown to improve PINN training. Specifically, our baseline combines improvements in architecture design, loss formulation, and optimization: • PirateNet [ 28 ]: a physics-informed residual adaptive network designed to improve the training of deep PINNs by mitigating spectral bias and better capturing sharp gradients and transition regions; • Causal training [48]: a PDE residual weighting strategy that respects temporal causality and improves robustness for time-dependent problems; • Self-adaptive loss weighting [ 32 , 43 ]: a global loss weighting scheme for balancing gradient contributions from loss terms with different scales; • SOAP [ 63 , 36 ]: a quasi-second-order optimization method that alleviates directional gradient conflicts among multiple loss terms. We believe this baseline represents one of the most accurate and scalable PINN pipelines currently available. It has achieved state-of-the-art performance across a broad range of PDE benchmarks [ 64 , 36 ] and has also enabled successful simulations of three-dimensional turbulent flows [ 3]. A comprehensive description of the techniques incorporated into this baseline is provided in Appendices C.1, C.2, and C.3, respectively. Unless otherwise stated, we use the same training protocol and hyperparameter settings for all experiments. Our goal is to evaluate the methods under a robust and unified baseline while minimizing problem-specific tuning. This is particularly important for forward PDE problems, where the reference solution is unavailable during training and hyperparameter selection cannot rely on test-time accuracy. The resulting setup is given below. We use PirateNet [ 28 ] as the backbone architecture, with three residual blocks (nine layers in total), a hidden width of 256, and Tanh activation functions. When applicable, we impose exact periodic boundary conditions following [ 65 ]. We train all models for 10 5 iterations using mini-batch gradient descent, with 4,096 randomly sampled collocation points per iteration for 2D problems and 8,192 for 3D problems. The learning rate schedule begins with a linear warm-up over the first 2,000 iterations, increasing from 0 to 10 −3, followed by exponential decay with a factor of 0.9 every 2,000 iterations. To further improve stability and convergence, we employ learning-rate annealing for loss balancing [ 43 , 64 ], updating the loss weights every 1,000 iterations using a moving average. For time-dependent PDEs, we additionally apply causal training [ 48 , 64 ] with a causal tolerance of 1.0. Optimization is performed using the SOAP optimizer [ 63 , 36 ] with β1 = 0 .9 and β2 = 0 .999 , while the covariance matrix is updated every two iterations. The full set of hyperparameters is reported in Table 4, and largely follows the configurations established in [64, 28, 36]. To ensure a fair comparison, we evaluate both conventional pseudo-time stepping and the proposed adaptive pseudo-time stepping on top of the constructed baseline using identical hyperparameter settings in all experiments. For conventional pseudo-time stepping, we report the best result obtained over step sizes spanning several orders of magnitude, τ ∈ { 0.01 , 0.1, 1, 10 , 100 }. We emphasize, however, that this tuning is performed only for benchmarking purposes, where the reference solution is available. In practical settings, where the ground-truth solution is unknown, such tuning is generally not feasible. For the adaptive variant, we initialize all step sizes to 1 and update the step size every 1,000 iterations unless otherwise stated. Moreover, we enable step size shrinkage with sstart = 2 , send = 6 , and 
+
+γmin = 0 .1. This choice is empirical and is based on our observation that, with the constructed baseline, the PINN loss typically decreases by about six orders of magnitude from its initial value during training. 
+
+Main results. Table 1 reports the relative L2 error between the ground-truth PDE solutions and the corresponding PINN predictions across a diverse set of benchmark problems. Overall, our baseline PINN equipped with adaptive pseudo-time stepping achieves the best performance in every case, outperforming both the strong baseline and fixed pseudo-time stepping with carefully tuned τ . These quantitative gains are further supported by the visual results in Fig. 11 to Fig. 18. We can observe that the predicted solutions by adaptive pseudo-time stepping are in good agreement with the reference numerical solutions and yield consistently better error convergence. A key observation is that, for conventional pseudo-time stepping, the optimal choice of τ varies substantially across problems, often spanning several orders of magnitude. This highlights the practical difficulty of selecting τ . We emphasize that the fixed τ values reported in Table 1 are included only for benchmarking purposes. While better values may exist, identifying them would require more extensive hyperparameter tuning. More critically, they cannot be identified reliably from the training losses alone, making fixed pseudo-time stepping difficult to use in realistic applications. This point is further illustrated by the inviscid Burgers and Gray–Scott examples (Figs.15 and 13), where the best predictive performance is obtained with choices of τ that are associated with noticeably larger training losses. Therefore, the training loss is not a reliable criterion for tuning τ , even when exhaustive benchmarking is feasible. Another important observation is that the loss convergence provides further evidence for our interpretation of pseudo-time stepping. As we argued in Section 2.3, its main benefit does not appear to come from improved conditioning alone, 14 Table 1: Comparison of the baseline PINN and the same baseline augmented with either fixed or adaptive pseudo-time stepping. The evaluation metric is the relative L2 error over the full space–time domain. For fixed pseudo-time stepping, we report the best result over τ ∈ { 0.01 , 0.1, 1, 10 , 100 }, together with the corresponding τbest .
+
+Benchmark Baseline Fixed pseudo-time Adaptive pseudo-time Rel. L2 error τbest 
+
+Allen–Cahn 5.17 × 10 −6 3.26 × 10 −6 1 3.05 × 10 −6
+
+Korteweg–De Vries 3.55 × 10 −4 2.92 × 10 −4 1 2.28 × 10 −4
+
+Inviscid Burgers 2.13 × 10 −1 1.01 × 10 −1 10 6.47 × 10 −2
+
+Kuramoto–Sivashinsky 1.06 × 10 −1 3.19 × 10 −2 10 1.11 × 10 −2
+
+Gray–Scott 4.14 × 10 −1 1.07 × 10 −1 100 1.52 × 10 −2
+
+Ginzburg–Landau 1.74 × 10 −1 5.46 × 10 −2 1 7.75 × 10 −3
+
+Lid-driven cavity (Re = 5 × 10 3) 6.33 × 10 −1 4.93 × 10 −2 10 4.13 × 10 −2
+
+Backward-facing step (Re = 8 × 10 2) 3.02 × 10 −1 1.34 × 10 −2 0.1 2.32 × 10 −3
+
+Kolmogorov flow (Re = 10 4) 7.66 × 10 −1 9.12 × 10 −2 10 7.05 × 10 −2
+
+Rayleigh–Taylor instability (Ra = 10 6) 3.98 × 10 −1 5.61 × 10 −3 1 3.82 × 10 −3
+
+but rather from residual amplification under collocation-point resampling, which helps reveal and suppress spurious solutions. This point is illustrated by the inviscid Burgers, KS, and backward-facing step examples (Fig 15, 13, and 17), where the pseudo-time stepping produces significantly lower test errors even though its training losses are comparable to, and in some cases higher than, those of the competing methods. We also observe the previously identified failure mode in the Kolmogorov flow problem (Fig. 8) and the Rayleigh–Taylor instability problem (Fig. 18). In both cases, the baseline PINN performs poorly. More importantly, after some time, its prediction becomes nearly stationary and no longer evolves with time, suggesting that the model has converged to a nonphysical spurious solution rather than capturing the true dynamics. For the boundary-value problem of backward-facing step flow, the failure takes a different form: the baseline PINN learns a flow that is largely unidirectional and gradually decays toward the outlet. Taken together, these results provide further evidence that the PINN converges to the spurious solutions discussed in the Section 2.2. Finally, we note that pseudo-time stepping is most beneficial for problems in which PINN models are susceptible to converging to spurious solutions, a phenomenon that typically arises in PDEs with sharp transition regions or long-time evolution. In contrast, when the PINN training already performs well, the improvement brought by pseudo-time stepping is naturally more limited. This is consistent with our observations on the Allen–Cahn and wave equation benchmarks, where the gains are less pronounced. We attribute this to the fact that these problems have been studied extensively and that our baseline already reaches accuracy close to the float32 precision limit used in training. Nevertheless, Fig. 11 shows that pseudo-time stepping does not hurt training and still yields faster convergence during the early stages. 
+
+Effect of pseudo-time step size update frequency. We also note that the proposed adaptive pseudo-time stepping exhibits some sensitivity to the update frequency, and we report this effect for completeness. To investigate this, we consider four benchmark problems and train PINN models with adaptive pseudo-time stepping using different update frequencies, with each setting repeated over five random seeds. The resulting relative L2 errors are summarized in the left panel of Fig. 9. We observe that more frequent updates generally lead to worse predictive accuracy. We attribute this behavior to the fact that overly frequent changes in the pseudo-time step sizes can destabilize the training process. In contrast, updating the step size at a moderate frequency provides a better balance between adaptivity and stability, leading to more reliable performance across different runs. Based on this observation, we update the pseudo-time step size τ every 1,000 iterations. An additional advantage of this choice is that its computational overhead is negligible relative to the overall training cost. 
+
+Effect of the shrink factor in adaptive pseudo-time stepping. Another important ablation investigates the proposed step size shrinkage during training. To assess its effect, we compare adaptive pseudo-time stepping with and without shrinkage on the same four benchmark problems, and report the relative L2 error averaged over five random seeds. The results are shown in the right panel of Fig. 9. Overall, the effect is not entirely uniform across problems. However, disabling shrinkage can lead to substantially worse performance in some cases, most notably for the Gray–Scott equation. Since our goal is to develop an adaptive pseudo-time stepping strategy that is robust across a wide range of 15 0 50000 100000                     
+
+> Step
+> 10 −7
+> 10 −5
+> 10 −3
+> 10 −1
+> IC loss ( u)
+> 050000 100000
+> Step
+> 10 −7
+> 10 −5
+> 10 −3
+> 10 −1IC loss ( v)
+> 050000 100000
+> Step
+> 10 −2
+> 10 −1
+> 10 0
+> PDE loss ( u)
+> 050000 100000
+> Step
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> PDE loss ( v)
+> 050000 100000
+> Step
+> 10 −2
+> 10 −1
+> 10 0
+> PDE loss (continuity)
+> 050000 100000
+> Step
+> 10 −1
+> 10 0
+> Rel. L2error ( ω)
+> Baseline Fixed pseudo-time (1 /τ = 0 .1) Fixed pseudo-time (1 /τ = 1) Fixed pseudo-time (1 /τ = 10) Adaptive pseudo-time
+
+Figure 8: Kolmogorov flow. Top: Comparison of the reference solution, the baseline PINN, and the baseline PINN with adaptive pseudo-time stepping. Bottom: training loss and relative L2 error histories. 10 100 1000 5000 
+
+Update frequency 
+
+10 −2
+
+10 −1
+
+10 0
+
+> Rel.  L2 error
+
+Inviscid Burgers Kolmogorov flow Lid-driven cavity Grey-Scott 
+
+Inviscid Burgers Kolmogorov flow Lid-driven cavity Grey-Scott 0.000 0.025 0.050 0.075 0.100 
+
+> Rel.  L2 error
+
+With shrink Without shrink 
+
+Figure 9: Ablation studies of the update frequency (left) and step size shrinkage (right) in adaptive pseudo-time stepping. The relative L2 errors are averaged over five random seeds for four benchmark problems. problems, we enable shrinkage in all experiments. This choice leads to more reliable training behavior overall, even if its benefit is not equally evident on every benchmark. 
+
+Robustness of adaptive pseudo-time stepping. As a final ablation study, we examine both the role of individual components in the baseline and the robustness of pseudo-time stepping when combined with different design choices. To this end, we consider two representative benchmark problems, namely the Ginzburg–Landau equation and the Rayleigh–Taylor instability. For each problem, we start from the full baseline and disable one key component at a time while keeping all other components unchanged. In particular, we consider ablations of the PirateNet architecture, the SOAP optimizer, and causal training, and for each resulting variant we evaluate the model both with and without 16 MLP PirateNet Adam SOAP w/o Causal w/ Causal          
+
+> 10 −2
+> 10 −1
+> 10 0
+> Rel.  L2 error
+> Architecture Optimizer Causal
+> Ginzburg-Landau
+> Without pseudo-time With pseudo-time MLP PirateNet Adam SOAP w/o Causal w/ Causal
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> Rel.  L2 error
+> Architecture Optimizer Causal
+> Rayleigh-Taylor
+
+Figure 10: Ablation studies of the baseline and robustness of pseudo-time stepping on the Ginzburg–Landau equation (left) and the Rayleigh–Taylor instability (right). Relative L2 errors are reported for different baseline variants, each obtained by removing one key component from the full baseline while keeping the others unchanged. For each variant, results are shown both with and without pseudo-time stepping, and are averaged over five random seeds. pseudo-time stepping. The relative L2 errors, averaged over five random seeds, are reported in Fig. 10. Overall, pseudo-time stepping improves performance consistently across all settings, regardless of the choice of architecture, optimizer, or causal training. In addition, replacing Adam with SOAP and MLP with PirateNet generally improves accuracy. However, without pseudo-time stepping, these challenging problems still yield errors above 10 %, even with the stronger baseline components. By contrast, causal training does not significantly improve the final accuracy in these examples, although in our experience it mainly helps make training more robust. We also observe that the network architecture is particularly important for the Rayleigh–Taylor example: using an MLP, with or without pseudo-time stepping, leads to similarly poor performance. 
+
+Computational costs. We summarize the computational overhead of pseudo-time stepping in Table 2, which reports the wall-clock training time per 100 iterations for the baseline PINN and the same baseline augmented with pseudo-time stepping on a single H200 GPU. Overall, the additional cost is modest across most benchmarks. This is because pseudo-time stepping only requires an extra evaluation of the network outputs using the parameters from the previous iteration, which are treated as constants and therefore do not contribute to backpropagation. These results suggest that pseudo-time stepping can substantially improve training behavior while introducing only a small computational overhead in most cases. For the proposed adaptive pseudo-time stepping, the cost of updating the step size is negligible relative to the total training cost, since it is performed only once every few thousand iterations. Table 2: Computational cost of the baseline PINN and the same baseline augmented with fixed pseudo-time stepping. We report the wall-clock training time per 100 iterations (in seconds), measured on a single H200 GPU, as mean ±
+
+standard deviation. 
+
+Benchmark Training time per 100 iterations (s) Baseline Pseudo-time stepping 
+
+Allen–Cahn 2.50 ± 0.08 2.63 ± 0.07 
+
+Korteweg–De Vries 2.39 ± 0.06 2.42 ± 0.08 
+
+Inviscid Burgers 1.07 ± 0.03 1.08 ± 0.04 
+
+Kuramoto–Sivashinsky 3.03 ± 0.11 5.50 ± 0.18 
+
+Gray–Scott 4.26 ± 0.13 4.56 ± 0.17 
+
+Ginzburg–Landau 4.33 ± 0.19 4.67 ± 0.16 
+
+Lid-driven cavity (Re = 5 × 10 3) 1.09 ± 0.03 1.13 ± 0.04 
+
+Backward-facing step (Re = 8 × 10 2) 1.39 ± 0.05 1.41 ± 0.06 
+
+Kolmogorov flow (Re = 10 4) 4.90 ± 0.20 5.02 ± 0.17 
+
+Rayleigh–Taylor instability (Ra = 10 6) 6.65 ± 0.21 6.81 ± 0.27 
+
+17 4 Discussion 
+
+In this work, we identify a fundamental challenge in PINN training: the tendency to converge to spurious solutions. We argue that this failure mode originates from an inherent weakness in the loss formulation, namely that the PDE residual is enforced only at a finite set of collocation points, which can make the training objective effectively ill-posed. Through both theoretical analysis and empirical evidence, we show that this issue can be substantially mitigated by introducing pseudo-time stepping into the PDE residual loss. At the same time, we demonstrate that the effectiveness of pseudo-time stepping depends critically on the choice of the pseudo-time step τ . To overcome this limitation, we propose an adaptive pseudo-time stepping strategy that automatically selects τ using a cheap estimate of the PDE operator’s local Jacobian stiffness. We validate the proposed method across a broad set of PDE benchmarks, and the results show that it consistently outperforms conventional pseudo-time stepping with manually tuned τ , while also exhibiting strong robustness. More broadly, we believe this work provides a clearer perspective on why PINNs fail and helps open new directions for improving their reliability. In particular, our analysis suggests that the spurious solutions are a central obstacle in physics-informed learning, and that understanding how to detect and avoid them is essential for building more robust methods. From a methodological standpoint, there is still considerable room to improve pseudo-time stepping, for example by incorporating longer optimization histories, introducing spatially or temporally local step sizes, or developing more principled adaptive strategies that better exploit the structure of the underlying PDE operator. Moreover, the proposed idea is not limited to standard PINNs, and can be extended naturally to the training of physics-informed neural operators, where related optimization difficulties may also arise. On the application side, our current study mainly validates the method on fluid-related problems; it would be equally interesting to investigate its effectiveness in computational solid mechanics, including elasticity, fracture, and other challenging settings. Overall, we hope this work serves as a useful step toward more robust and scalable physics-informed machine learning. 
+
+## Acknowledgments 
+
+This work was supported by the U.S. Department of Energy, Office of Science, Advanced Scientific Computing Research program, under Award No. DE-SC0024563. We also gratefully acknowledge support from the NVIDIA Academic Grant Program. 
+
+## References 
+
+[1] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. [2] George Em Karniadakis, Ioannis G Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , pages 1–19, 2021. [3] Sifan Wang, Shyam Sankaran, Xiantao Fan, Panos Stinis, and Paris Perdikaris. Simulating three-dimensional turbulence with physics-informed neural networks. arXiv preprint arXiv:2507.08972 , 2025. [4] Ehsan Haghighat, Maziar Raissi, Adrian Moure, Hector Gomez, and Ruben Juanes. A physics-informed deep learning framework for inversion and surrogate modeling in solid mechanics. Computer Methods in Applied Mechanics and Engineering , 379:113741, 2021. [5] Yuyao Chen, Lu Lu, George Em Karniadakis, and Luca Dal Negro. Physics-informed neural networks for inverse problems in nano-optics and metamaterials. Optics express , 28(8):11618–11633, 2020. [6] QiZhi He, David Barajas-Solano, Guzel Tartakovsky, and Alexandre M Tartakovsky. Physics-informed neural networks for multiphysics data assimilation with application to subsurface transport. Advances in Water Resources ,141:103610, 2020. [7] Liu Yang, Xuhui Meng, and George Em Karniadakis. B-pinns: Bayesian physics-informed neural networks for forward and inverse pde problems with noisy data. Journal of Computational Physics , 425:109913, 2021. [8] Kevin Linka, Amelie Schäfer, Xuhui Meng, Zongren Zou, George Em Karniadakis, and Ellen Kuhl. Bayesian physics informed neural networks for real-world nonlinear dynamical systems. Computer Methods in Applied Mechanics and Engineering , 402:115346, 2022. [9] Maziar Raissi. Deep hidden physics models: Deep learning of nonlinear partial differential equations. The Journal of Machine Learning Research , 19(1):932–955, 2018. 18 [10] Maziar Raissi, Alireza Yazdani, and George Em Karniadakis. Hidden fluid mechanics: Learning velocity and pressure fields from flow visualizations. Science , 367(6481):1026–1030, 2020. [11] Yongji Wang, Ching-Yao Lai, David J Prior, and Charlie Cowen-Breen. Deep learning the flow law of antarctic ice shelves. Science , 387(6739):1219–1224, 2025. [12] Chengping Rao, Hao Sun, and Yang Liu. Physics-informed deep learning for incompressible laminar flows. 
+
+Theoretical and Applied Mechanics Letters , 10(3):207–212, 2020. [13] Shengze Cai, Zhicheng Wang, Sifan Wang, Paris Perdikaris, and George Em Karniadakis. Physics-informed neural networks for heat transfer problems. Journal of Heat Transfer , 143(6), 2021. [14] Enrui Zhang, Ming Dao, George Em Karniadakis, and Subra Suresh. Analyses of internal structures and defects in materials using physics-informed neural networks. Science advances , 8(7):eabk0644, 2022. [15] Yu Diao, Jianchuan Yang, Ying Zhang, Dawei Zhang, and Yiming Du. Solving multi-material problems in solid mechanics using physics-informed neural networks based on domain decomposition technology. Computer Methods in Applied Mechanics and Engineering , 413:116120, 2023. [16] Jiaxuan Xu, Han Wei, and Hua Bao. Physics-informed neural networks for studying heat transfer in porous media. 
+
+International Journal of Heat and Mass Transfer , 217:124671, 2023. [17] Ruiyang Li, Jiahang Zhou, Jian-Xun Wang, and Tengfei Luo. Physics-informed bayesian neural networks for solving phonon boltzmann transport equation in forward and inverse problems with sparse and noisy data. ASME Journal of Heat and Mass Transfer , 147(3):032501, 2025. [18] Francesco Colace, Dajana Conte, Giovanni Pagano, Beatrice Paternoster, and Carmine Valentino. Physics-informed neural networks for a lithium-ion batteries model: A case of study. Advances in Computational Science & Engineering (ACSE) , 2(4), 2024. [19] Alexandra Serebrennikova, Raimund Teubler, Lisa Hoffellner, Erich Leitner, Ulrich Hirn, and Karin Zojer. Physics informed neural networks reveal valid models for reactive diffusion of volatiles through paper. Chemical Engineering Science , 285:119636, 2024. [20] Linfeng Wang, Hao Wang, Lin Liang, Jian Li, Zhoumo Zeng, and Yang Liu. Physics-informed neural networks for transcranial ultrasound wave propagation. Ultrasonics , 132:107026, 2023. [21] AM Tartakovsky, C Ortiz Marrero, Paris Perdikaris, GD Tartakovsky, and D Barajas-Solano. Physics-informed deep neural networks for learning parameters and constitutive relationships in subsurface flow problems. Water Resources Research , 56(5):e2019WR026731, 2020. [22] Cedric G Fraces and Hamdi Tchelepi. Physics informed deep learning for flow and transport in porous media. In 
+
+SPE Reservoir Simulation Conference , page D011S006R002. SPE, 2021. [23] P Haruzi and Z Moreno. Modeling water flow and solute transport in unsaturated soils using physics-informed neural networks trained with geoelectrical data. Water Resources Research , 59(6):e2023WR034538, 2023. [24] Georgios Kissas, Yibo Yang, Eileen Hwuang, Walter R Witschey, John A Detre, and Paris Perdikaris. Machine learning in cardiovascular flows modeling: Predicting arterial blood pressure from non-invasive 4D flow MRI data using physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 358:112623, 2020. [25] Kaan Sel, Amirmohammad Mohammadi, Roderic I Pettigrew, and Roozbeh Jafari. Physics-informed neural networks for modeling physiological time series for cuffless blood pressure estimation. npj Digital Medicine ,6(1):110, 2023. [26] Olzhas Mukhmetov, Yong Zhao, Aigerim Mashekova, Vasilios Zarikas, Eddie Yin Kwee Ng, and Nurduman Aidossov. Physics-informed neural network for fast prediction of temperature distributions in cancerous breasts as a potential efficient portable ai-based diagnostic tool. Computer methods and programs in biomedicine ,242:107834, 2023. [27] Ameya D Jagtap and George Em Karniadakis. Extended physics-informed neural networks (XPINNs): A generalized space-time domain decomposition based deep learning framework for nonlinear partial differential equations. Communications in Computational Physics , 28(5):2002–2041, 2020. [28] Sifan Wang, Bowen Li, Yuhan Chen, and Paris Perdikaris. Piratenets: Physics-informed deep learning with residual adaptive networks. Journal of Machine Learning Research , 25(402):1–51, 2024. [29] Ben Moseley, Andrew Markham, and Tarje Nissen-Meyer. Finite basis physics-informed neural networks (fbpinns): a scalable domain decomposition approach for solving differential equations. arXiv preprint arXiv:2107.07871 ,2021. 19 [30] Zhiyuan Zhao, Xueying Ding, and B Aditya Prakash. Pinnsformer: A transformer-based framework for physics-informed neural networks. arXiv preprint arXiv:2307.11833 , 2023. [31] Levi McClenny and Ulisses Braga-Neto. Self-adaptive physics-informed neural networks using a soft attention mechanism. arXiv preprint arXiv:2009.04544 , 2020. [32] Sifan Wang, Xinling Yu, and Paris Perdikaris. When and why PINNs fail to train: A neural tangent kernel perspective. Journal of Computational Physics , 449:110768, 2022. [33] Rafael Bischof and Michael A Kraus. Multi-objective loss balancing for physics-informed deep learning. Computer Methods in Applied Mechanics and Engineering , 439:117914, 2025. [34] Pratik Rathore, Weimu Lei, Zachary Frangella, Lu Lu, and Madeleine Udell. Challenges in training pinns: A loss landscape perspective. arXiv preprint arXiv:2402.01868 , 2024. [35] Johannes Müller and Marius Zeinhofer. Achieving high accuracy with pinns via energy natural gradient descent. In International Conference on Machine Learning , pages 25471–25485. PMLR, 2023. [36] Sifan Wang, Ananyae Kumar bhartari, Bowen Li, and Paris Perdikaris. Gradient alignment in physics-informed neural networks: A second-order optimization perspective. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. [37] Chenxi Wu, Min Zhu, Qinyang Tan, Yadhu Kartha, and Lu Lu. A comprehensive study of non-adaptive and residual-based adaptive sampling for physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 403:115671, 2023. [38] Zhiwei Gao, Liang Yan, and Tao Zhou. Failure-informed adaptive sampling for pinns. SIAM Journal on Scientific Computing , 45(4):A1971–A1994, 2023. [39] Zhiping Mao and Xuhui Meng. Physics-informed neural networks with residual/gradient-based adaptive sampling methods for solving partial differential equations with sharp solutions. Applied Mathematics and Mechanics ,44(7):1069–1084, 2023. [40] Arka Daw, Jie Bu, Sifan Wang, Paris Perdikaris, and Anuj Karpatne. Mitigating propagation failures in physics-informed neural networks using retain-resample-release (r3) sampling. arXiv preprint arXiv:2207.02338 , 2022. [41] Sifan Wang, Hanwen Wang, and Paris Perdikaris. On the eigenvector bias of fourier feature networks: From regression to solving multi-scale PDEs with physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 384:113938, 2021. [42] Abdul Hannan Mustajab, Hao Lyu, Zarghaam Rizvi, and Frank Wuttke. Physics-informed neural networks for high-frequency and multi-scale problems using transfer learning. Applied Sciences , 14(8):3204, 2024. [43] Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing , 43(5):A3055–A3081, 2021. [44] Sokratis J Anagnostopoulos, Juan Diego Toscano, Nikolaos Stergiopulos, and George Em Karniadakis. Residual-based attention in physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering ,421:116805, 2024. [45] Qiang Liu, Mengyu Chu, and Nils Thuerey. Config: Towards conflict-free training of physics informed neural networks. arXiv preprint arXiv:2408.11104 , 2024. [46] Aditi S Krishnapriyan, Amir Gholami, Shandian Zhe, Robert M Kirby, and Michael W Mahoney. Characterizing possible failure modes in physics-informed neural networks. arXiv preprint arXiv:2109.01050 , 2021. [47] Michael Penwarden, Ameya D Jagtap, Shandian Zhe, George Em Karniadakis, and Robert M Kirby. A unified scalable framework for causal sweeping strategies for physics-informed neural networks (pinns) and their temporal decompositions. Journal of Computational Physics , 493:112464, 2023. [48] Sifan Wang, Shyam Sankaran, and Paris Perdikaris. Respecting causality for training physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 421:116813, 2024. [49] Pratanu Roy and Stephen T Castonguay. Exact enforcement of temporal continuity in sequential physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 430:117197, 2024. [50] Carl Timothy Kelley and David E Keyes. Convergence analysis of pseudo-transient continuation. SIAM Journal on Numerical Analysis , 35(2):508–523, 1998. [51] Wenbo Cao and Weiwei Zhang. Tsonn: Time-stepping-oriented neural network for solving partial differential equations. arXiv preprint arXiv:2310.16491 , 2023. 20 [52] Zhuo Zhang, Xiong Xiong, Sen Zhang, Wei Wang, Xi Yang, Shilin Zhang, and Canqun Yang. A pseudo-time stepping and parameterized physics-informed neural network framework for navier–stokes equations. Physics of Fluids , 37(3), 2025. [53] Jonathan Barzilai and Jonathan M Borwein. Two-point step size gradient methods. IMA journal of numerical analysis , 8(1):141–148, 1988. [54] Andreas Griewank and Andrea Walther. Evaluating derivatives: principles and techniques of algorithmic differentiation . SIAM, 2008. [55] Vasilii Alekseevich Es’ kin, DV Davydov, Ekaterina Dmitrievna Egorova, Alexey Olegovich Malkhanov, Mikhail A Akhukov, and Mikhail E Smorkalov. About modifications of the loss function for the causal training of physics-informed neural networks. In Doklady Mathematics , volume 110, pages S172–S192. Springer, 2024. [56] Chenhui Xu, Dancheng Liu, Amir Nassereldine, and Jinjun Xiong. Fp64 is all you need: rethinking failure modes in physics-informed neural networks. arXiv preprint arXiv:2505.10949 , 2025. [57] Levi D McClenny and Ulisses M Braga-Neto. Self-adaptive physics-informed neural networks. Journal of Computational Physics , 474:111722, 2023. [58] Elham Kiyani, Khemraj Shukla, Jorge F Urbán, Jérôme Darbon, and George Em Karniadakis. Optimizing the optimizer for physics-informed neural networks and kolmogorov-arnold networks. Computer Methods in Applied Mechanics and Engineering , 446:118308, 2025. [59] Todd S Coffey, Carl Tim Kelley, and David E Keyes. Pseudotransient continuation and differential-algebraic equations. SIAM Journal on Scientific Computing , 25(2):553–569, 2003. [60] Zhen Cao, Kai Liu, Kun Luo, Sifan Wang, Liang Jiang, and Jianren Fan. Surrogate modeling of multi-dimensional premixed and non-premixed combustion using pseudo-time stepping physics-informed neural networks. Physics of Fluids , 36(11), 2024. [61] Pao-Hsiung Chiu, Jian Cheng Wong, Chin Chun Ooi, Chang Wei, Yuchen Fan, and Yew-Soon Ong. Scale-pinn: Learning efficient physics-informed neural networks through sequential correction. arXiv preprint arXiv:2602.19475 , 2026. [62] Chang Wei, Yuchen Fan, Chin Chun Ooi, Jian Cheng Wong, Heyang Wang, and Pao-Hsiung Chiu. Bridging computational fluid dynamics algorithm and physics-informed learning: Simple-pinn for incompressible navier-stokes equations. arXiv preprint arXiv:2603.24013 , 2026. [63] Nikhil Vyas, Depen Morwani, Rosie Zhao, Itai Shapira, David Brandfonbrener, Lucas Janson, and Sham Kakade. Soap: Improving and stabilizing shampoo using adam. arXiv preprint arXiv:2409.11321 , 2024. [64] Sifan Wang, Shyam Sankaran, Hanwen Wang, and Paris Perdikaris. An expert’s guide to training physics-informed neural networks. arXiv preprint arXiv:2308.08468 , 2023. [65] Suchuan Dong and Naxian Ni. A method for representing periodic functions and enforcing exactly periodic boundary conditions with deep neural networks. Journal of Computational Physics , 435:110242, 2021. [66] Matthew Tancik, Pratul P Srinivasan, Ben Mildenhall, Sara Fridovich-Keil, Nithin Raghavan, Utkarsh Singhal, Ravi Ramamoorthi, Jonathan T Barron, and Ren Ng. Fourier features let networks learn high frequency functions in low dimensional domains. arXiv preprint arXiv:2006.10739 , 2020. [67] Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 ,2014. [68] Tobin A Driscoll, Nicholas Hale, and Lloyd N Trefethen. Chebfun guide, 2014. [69] David I. Ketcheson, Kyle T. Mandli, Aron J. Ahmadia, Amal Alghamdi, Manuel Quezada de Luna, Matteo Parsani, Matthew G. Knepley, and Matthew Emmett. PyClaw: Accessible, Extensible, Scalable Tools for Wave Propagation Problems. SIAM Journal on Scientific Computing , 34(4):C210–C231, November 2012. [70] Thomas D. Economon, Francisco Palacios, Sean R. Copeland, Trent W. Lukaczyk, and Juan J. Alonso. Su2: An open-source suite for multiphysics simulation and design. AIAA Journal , 54(3):828–846, 2016. [71] Deniz A. Bezgin, Aaron B. Buhendwa, and Nikolaus A. Adams. Jax-fluids: A fully-differentiable high-order computational fluid dynamics solver for compressible two-phase flows. Computer Physics Communications ,282:108527, 1 2023. [72] Norman J Zabusky and Martin D Kruskal. Interaction of" solitons" in a collisionless plasma and the recurrence of initial states. Physical review letters , 15(6):240, 1965. 21 A Nomenclature 
+
+Table 3: Notation used throughout the paper. 
+
+Symbol Type Description Domain and geometry 
+
+Ω ⊂ Rd domain Bounded spatial domain with regular boundary ∂Ω
+
+∂Ω boundary Boundary of the spatial domain 
+
+[0 , T ] time interval Physical time horizon for parabolic or hyperbolic problems 
+
+(t, x) coordinates Physical time and spatial coordinate 
+
+d integer Spatial dimension 
+
+PDE operators and data 
+
+D[ · ] operator Linear or nonlinear spatial differential operator 
+
+B[ · ] operator Abstract boundary operator (e.g., Dirichlet, Neumann, Robin) 
+
+f (t, x) forcing Right-hand-side source term of the PDE 
+
+g(x) initial data Prescribed initial condition at t = 0 
+
+u∗(t, x) solution Exact solution of the PDE 
+
+Neural network approximation and residuals 
+
+uθ (t, x) network output Neural-network approximation of the solution parameterized by θθ parameters Trainable weights and biases of the network 
+
+Rint [uθ ] residual Interior PDE residual, e.g., ∂tuθ + D[uθ ] − f
+
+Rbc [uθ ] residual Boundary-condition residual on ∂Ω
+
+Ric [uθ ] residual Initial-condition residual uθ (0 , x) − g(x)
+
+Collocation sets and counts 
+
+Xint set Interior collocation points in [0 , T ] × Ω, with cardinality Nint 
+
+Xbc set Boundary collocation points in [0 , T ] × ∂Ω, with cardinality Nbc 
+
+Xic set Initial collocation points in Ω, with cardinality Nic 
+
+Nint , N bc , N ic integers Numbers of interior, boundary, and initial collocation points 
+
+Loss functions 
+
+Lint (θ; Xint ) scalar loss Mean-squared PDE residual over interior collocation points 
+
+Lbc (θ; Xbc ) scalar loss Mean-squared boundary-condition residual 
+
+Lic (θ; Xic ) scalar loss Mean-squared initial-condition residual 
+
+L(θ) scalar loss Total PINN loss: λint Lint + λbc Lbc + λic Lic 
+
+λint , λ bc , λ ic > 0 scalars Positive weights assigned to each loss component 
+
+Pseudo-time stepping 
+
+s artificial time Auxiliary variable parameterizing training dynamics 
+
+τ step size Pseudo-time step size 
+
+Lpts (θ; θk−1) scalar loss Pseudo-time-relaxed residual loss evaluated at iterate k
+
+u†(t, x) function Spurious solution that satisfies the PDE at finite collocation points 
+
+u†,+ function One pseudo-time update applied to u†
+
+αh(t) cutoff Smooth time cutoff with αh(t) = 1 for t ≤ t0 and αh(t) = 0 for 
+
+t ≥ t0 + hIh = [ t0, t 0 + h] interval Transition layer of width h in the spurious-solution construction 
+
+Adaptive pseudo-time stepping 
+
+∆uk vector Change in network output, uθk − uθk−1
+
+∆rk vector Change in PDE residual between consecutive iterates 
+
+bτ k scalar Raw adaptive estimate: γk ∥∆uk ∥2/ ∥∆rk ∥2 + ε
+
+γk ∈ [γmin , 1] shrink factor Cosine-decay factor that reduces bτ k as training progresses 
+
+β ∈ (0 , 1] scalar Exponential smoothing factor used to update τ k
+
+τmin , τ max scalars Lower and upper clipping bounds for the adaptive pseudo-time step 
+
+sstart , s end scalars Decade thresholds controlling the cosine-decay schedule for γk
+
+m ∈ N integer Update frequency for τ k during training 
+
+Continued on next page. 
+
+22 Table 3 continued from previous page. 
+
+Symbol Type Description 
+
+Jk Jacobian Local Jacobian of Rint evaluated at uθk
+
+Optimization 
+
+η > 0 learning rate Step size of the gradient-based optimizer 
+
+gk gradient Gradient ∇θ L(θk ) used to update the parameters 
+
+K integer Total number of training iterations 
+
+## B Proofs 
+
+B.1 Proof of Theorem 2.1 
+
+Proof. Let 
+
+Xint = {(ti
+
+> int
+
+, xi
+
+> int
+
+)}Nint  
+
+> i=1
+
+⊂ [0 , T ] × Ω (B.1) be the given finite set of interior collocation points. Define 
+
+J− := {i ∈ { 1, . . . , N int } : ti 
+
+> int
+
+< t 0}, (B.2) 
+
+J+ := {i ∈ { 1, . . . , N int } : ti 
+
+> int
+
+≥ t0}. (B.3) We will construct a smooth time cutoff α ∈ C∞(R) such that 
+
+α(t) = 
+
+
+
+1, t = 0 ,
+
+1, in a neighborhood of each ti 
+
+> int
+
+with i ∈ J−,
+
+0, in a neighborhood of each ti 
+
+> int
+
+with i ∈ J+,
+
+0, ∀ t ≥ t0.
+
+(B.4) Since the set {ti
+
+> int
+
+}Nint  
+
+> i=1
+
+is finite, we can choose δ > 0 such that 
+
+[ ti 
+
+> int
+
+− δ, t i 
+
+> int
+
++ δ ] ⊂ (0 , t 0) for all i ∈ J−. (B.5) Let 
+
+K := [
+
+> i∈J−
+
+[ ti 
+
+> int
+
+− δ, t i 
+
+> int
+
++ δ ] ∪ { 0}. (B.6) Then K is a compact subset of (−∞ , t 0).Choose an open set U ⊂ R such that 
+
+K ⊂ U and U ⊂ (−∞ , t 0). (B.7) Let χU be the indicator function of U , and let ρ ∈ C∞ 
+
+> c
+
+(R) be a standard mollifier satisfying 
+
+ρ ≥ 0, supp ρ ⊂ (−1, 1) ,
+
+Z
+
+> R
+
+ρ(s) ds = 1 . (B.8) For η > 0, define 
+
+ρη (s) := 1
+
+η ρ
+
+ sη
+
+
+
+, (B.9) 
+
+α := ρη ∗ χU . (B.10) For sufficiently small η > 0, the function α ∈ C∞(R) satisfies 
+
+0 ≤ α ≤ 1, (B.11) and, because K lies a positive distance away from U c, we have α = 1 on K. Also, since U ⊂ (−∞ , t 0), we have 
+
+α(t) = 0 for all t ≥ t0. Hence (B.4) holds. 23 Now define 
+
+u†(t, x) := α(t) u∗(t, x). (B.12) Since α ∈ C∞(R) and u∗ is classical, it follows that u† is classical on [0 , T ] × Ω.We verify the three claims. 
+
+(i) Initial and boundary conditions. Since α(0) = 1 ,
+
+u†(0 , x) = α(0) u∗(0 , x) = u∗(0 , x) = g(x). (B.13) Moreover, on [0 , T ] × ∂Ω,
+
+u†(t, x) = α(t) u∗(t, x) = 0 , (B.14) because u∗ satisfies the homogeneous Dirichlet boundary condition. 
+
+(ii) Triviality for t ≥ t0. By (B.4), 
+
+u†(t, x) = α(t) u∗(t, x) = 0 , ∀ t ≥ t0, x ∈ Ω. (B.15) 
+
+(iii) Vanishing empirical residual. Fix any collocation point (tj , xj ) ∈ Xint .If j ∈ J−, then by (B.4), α ≡ 1 in a neighborhood of tj . Hence u† = u∗ in a neighborhood of (tj , xj ), and therefore 
+
+Rint [u†]( tj , xj ) = Rint [u∗]( tj , xj ) = 0 , (B.16) since u∗ is a classical solution of the homogeneous PDE. If j ∈ J+, then by (B.4) , α ≡ 0 in a neighborhood of tj . Hence u† ≡ 0 in a neighborhood of (tj , xj ). Since the PDE is homogeneous ( f = 0 ), the zero function has zero interior residual, and thus 
+
+Rint [u†]( tj , xj ) = 0 . (B.17) Therefore, 
+
+Rint [u†]( tj , xj ) = 0 , j = 1 , . . . , N int , (B.18) and so 
+
+Lint (u†; Xint ) = 1
+
+Nint 
+
+> Nint
+
+X
+
+> j=1
+
+Rint [u†]( tj , xj ) 2 = 0 . (B.19) This proves the theorem. 
+
+B.2 Proof of Theorem 2.5 
+
+Proof. We first recall a standard construction of the cutoff αh.
+
+Step 1: Standard smooth cutoff construction. Define 
+
+ϕ(s) := 
+
+(e−1/s , s > 0,
+
+0, s ≤ 0. (B.20) Then ϕ ∈ C∞(R), ϕ(s) > 0 for s > 0, and all derivatives of ϕ vanish at s = 0 . Now set 
+
+η(s) := ϕ(1 − s)
+
+ϕ(s) + ϕ(1 − s) . (B.21) Then η ∈ C∞(R) and satisfies 
+
+η(s) = 1 for s ≤ 0, η(s) = 0 for s ≥ 1, 0 ≤ η(s) ≤ 1. (B.22) 24 Since η is smooth and constant outside [0 , 1] , all of its derivatives are bounded, and moreover 
+
+η′(0) = η′(1) = 0 . (B.23) For the given t0 and h > 0, define 
+
+αh(t) := η
+
+ t − t0
+
+h
+
+
+
+. (B.24) Then αh ∈ C∞(R) and 
+
+αh(t) = 1 for t ≤ t0, αh(t) = 0 for t ≥ t0 + h. (B.25) By the chain rule, 
+
+α(k) 
+
+> h
+
+(t) = h−kη(k)
+
+ t − t0
+
+h
+
+
+
+. (B.26) Recall that the transition layer is defined by 
+
+Ih := [ t0, t 0 + h], (B.27) so in particular 
+
+supp( α′
+
+> h
+
+) ⊂ Ih, supp( α′′ 
+
+> h
+
+) ⊂ Ih. (B.28) 
+
+Step 2: Expectation as a space-time average. Since the fresh collocation points (˜ tj , ˜xj ), j = 1 , . . . , M , are i.i.d. and uniformly distributed on (0 , T ) × Ω, for any measurable function F on (0 , T ) × Ω,
+
+E
+
+ 1
+
+M
+
+> M
+
+X
+
+> j=1
+
+F (˜ tj , ˜xj )
+
+ = 1
+
+T |Ω|
+
+Z T
+
+> 0
+
+Z
+
+> Ω
+
+F (t, x) dx dt. (B.29) Therefore, for any sufficiently regular v,
+
+E Lnew int (v) = 1
+
+T |Ω|
+
+Z T
+
+> 0
+
+Z
+
+> Ω
+
+|R int [v]( t, x)|2 dx dt. (B.30) 
+
+Step 3: Residual of the spurious solution. Since u∗ is a classical solution of (2.1), 
+
+Rint [u∗] = 0 . (B.31) Because D is linear and acts only on the spatial variable x, while αh depends only on t,
+
+D[αhu∗] = αh D[u∗]. (B.32) Hence 
+
+Rint [u†] = ∂t(αhu∗) + D[αhu∗]= α′
+
+> h
+
+u∗ + αh∂tu∗ + αhD[u∗]= α′
+
+> h
+
+u∗ + αh Rint [u∗]= α′
+
+> h
+
+u∗, (B.33) so Rint [u†] is supported in Ih × Ω. Let 
+
+G(t) := 
+
+Z
+
+> Ω
+
+|u∗(t, x)|2 dx. (B.34) Since u∗ is classical, G is continuous on [0 , T ]. Moreover, since u∗ is continuous on the compact set [0 , T ] × Ω, there exists 
+
+K := ∥u∗∥L∞((0 ,T )×Ω) < ∞, (B.35) 25 and hence 0 ≤ G(t) ≤ | Ω|K2 for all t ∈ [0 , T ]. Using Step 2, 
+
+E Lnew int (u†) = 1
+
+T |Ω|
+
+Z
+
+> Ih
+
+|α′
+
+> h
+
+(t)|2 G(t) dt. (B.36) Now 
+
+Z
+
+> Ih
+
+|α′
+
+> h
+
+(t)|2 dt =
+
+Z t0+ht0
+
+h−2 η′
+
+ t − t0
+
+h
+
+ 2
+
+dt = h−1
+
+Z 10
+
+|η′(s)|2 ds, (B.37) and therefore 
+
+E Lnew int (u†) ≤ K2
+
+T
+
+Z
+
+> Ih
+
+|α′
+
+> h
+
+(t)|2 dt = K2
+
+T
+
+Z 10
+
+|η′(s)|2 ds 
+
+
+
+h−1, (B.38) which proves E Lnew int (u†) = O(h−1).
+
+Step 4: Residual after one pseudo-time stepping update. By definition, 
+
+u†,+ = u† − τ Rint [u†] = αhu∗ − τ α ′
+
+> h
+
+u∗ = ( αh − τ α ′
+
+> h
+
+)u∗. (B.39) Applying the same product rule as above gives 
+
+Rint [u†,+] = ∂t
+
+ (αh − τ α ′
+
+> h
+
+)u∗ + D (αh − τ α ′
+
+> h
+
+)u∗
+
+= ( α′ 
+
+> h
+
+− τ α ′′ 
+
+> h
+
+)u∗ + ( αh − τ α ′
+
+> h
+
+)Rint [u∗]= ( α′ 
+
+> h
+
+− τ α ′′ 
+
+> h
+
+)u∗. (B.40) Hence 
+
+E Lnew int (u†,+) = 1
+
+T |Ω|
+
+Z
+
+> Ih
+
+|α′
+
+> h
+
+(t) − τ α ′′ 
+
+> h
+
+(t)|2 G(t) dt ≤ K2
+
+T
+
+Z
+
+> Ih
+
+|α′
+
+> h
+
+(t) − τ α ′′ 
+
+> h
+
+(t)|2 dt. (B.41) Expanding the square, Z
+
+> Ih
+
+|α′ 
+
+> h
+
+− τ α ′′ 
+
+> h
+
+|2 dt =
+
+Z
+
+> Ih
+
+|α′
+
+> h
+
+|2 dt − 2τ
+
+Z
+
+> Ih
+
+α′
+
+> h
+
+α′′  
+
+> h
+
+dt + τ 2
+
+Z
+
+> Ih
+
+|α′′ 
+
+> h
+
+|2 dt. (B.42) The cross term vanishes: Z
+
+> Ih
+
+α′
+
+> h
+
+(t)α′′ 
+
+> h
+
+(t) dt = 12
+
+h
+
+(α′
+
+> h
+
+(t)) 2it0+ht0
+
+= 0 , (B.43) because α′
+
+> h
+
+(t0) = α′
+
+> h
+
+(t0 + h) = 0 . Therefore 
+
+Z
+
+> Ih
+
+|α′ 
+
+> h
+
+− τ α ′′ 
+
+> h
+
+|2 dt =
+
+Z
+
+> Ih
+
+|α′
+
+> h
+
+|2 dt + τ 2
+
+Z
+
+> Ih
+
+|α′′ 
+
+> h
+
+|2 dt. (B.44) Also, 
+
+Z
+
+> Ih
+
+|α′′ 
+
+> h
+
+(t)|2 dt =
+
+Z t0+ht0
+
+h−4 η′′ 
+
+ t − t0
+
+h
+
+ 2
+
+dt = h−3
+
+Z 10
+
+|η′′ (s)|2 ds. (B.45) Hence 
+
+E Lnew int (u†,+) ≤ K2
+
+T
+
+Z 10
+
+|η′(s)|2 ds · h−1 + τ 2
+
+Z 10
+
+|η′′ (s)|2 ds · h−3
+
+
+
+, (B.46) which implies 
+
+E Lnew int (u†,+) = O h−1 + τ 2h−3 . (B.47) 
+
+Step 5: Sharpness under the nondegeneracy assumption. Assume now that u∗(t0, ·)̸ ≡ 0, so that 
+
+G(t0) = 
+
+Z
+
+> Ω
+
+|u∗(t0, x)|2 dx > 0. (B.48) 26 Since G is continuous, there exist constants c0 > 0 and h0 > 0 such that 
+
+G(t) ≥ c0 for all t ∈ [t0, t 0 + h], 0 < h ≤ h0. (B.49) Using this lower bound, 
+
+E Lnew int (u†) ≥ c0
+
+T |Ω|
+
+Z
+
+> Ih
+
+|α′
+
+> h
+
+(t)|2 dt = c0
+
+T |Ω|
+
+Z 10
+
+|η′(s)|2 ds 
+
+
+
+h−1. (B.50) Combined with the upper bound from Step 3, this yields 
+
+E Lnew int (u†) ≍ h−1. (B.51) Similarly, 
+
+E Lnew int (u†,+) ≥ c0
+
+T |Ω|
+
+Z
+
+> Ih
+
+|α′
+
+> h
+
+(t) − τ α ′′ 
+
+> h
+
+(t)|2 dt = c0
+
+T |Ω|
+
+Z 10
+
+|η′(s)|2 ds 
+
+
+
+h−1 + τ 2
+
+Z 10
+
+|η′′ (s)|2 ds 
+
+
+
+h−3
+
+
+
+,
+
+(B.52) where we used the identity from Step 4. Combining with the upper bound from Step 4, we conclude 
+
+E Lnew int (u†) ≍ h−1, E Lnew int (u†,+) ≍ h−1 + τ 2h−3. (B.53) This completes the proof. 
+
+## C Experimental Details 
+
+In this section, we summarize the experimental setup used throughout the paper. We first describe the neural architectures and boundary-condition treatments considered in our study, followed by the optimizers and weighting strategies used during training. We then present the benchmark-specific hyperparameter settings and the numerical configurations used to generate the reference solutions for all PDE problems, and finally provide additional visualizations to complement the quantitative comparisons in the main text. 
+
+C.1 Architectures 
+
+This section presents the network architectures considered in our work. 
+
+PirateNet. We also consider PirateNet [ 28 ], which was proposed to improve the stability and efficiency of training deep PINNs. The architecture first maps the input coordinate x into a higher-dimensional feature space using random Fourier features [66]: 
+
+Φ( x) = 
+
+cos( Bx )sin( Bx )
+
+
+
+,
+
+where B ∈ Rm×d has entries sampled i.i.d. from N (0 , s 2) with user-specified s > 0. This embedding helps mitigate spectral bias by enriching the frequency content of the corresponding neural tangent kernel, thereby improving the approximation of high-frequency and multiscale solution components [41]. The embedded input is then passed through two dense layers that serve as gates: 
+
+U = σ(W1Φ( x) + b1), V = σ(W2Φ( x) + b2),
+
+where σ is a pointwise activation function. This gating mechanism mirrors that used in the modified MLP. Let x(1) = Φ( x), and let x(l) denote the input to the l-th residual block for 1 ≤ l ≤ L. Each block is defined as 
+
+f (l) = σ W(l)1 x(l) + b(l)1
+
+, (C.1) 
+
+z(l)1 = f (l) ⊙ U +  1 − f (l) ⊙ V, (C.2) 
+
+g(l) = σ W(l)2 z(l)1 + b(l)2
+
+, (C.3) 
+
+z(l)2 = g(l) ⊙ U +  1 − g(l) ⊙ V, (C.4) 
+
+h(l) = σ W(l)3 z(l)2 + b(l)3
+
+, (C.5) 
+
+x(l+1) = α(l)h(l) +  1 − α(l)x(l). (C.6) 27 Thus, each block contains three dense layers, two gating operations, and an adaptive residual connection. The trainable coefficient α(l) controls the degree of nonlinearity in the block: α(l) = 0 corresponds to an identity map, whereas 
+
+α(l) = 1 yields a fully nonlinear transformation. For a PirateNet with L residual blocks, the final output is 
+
+uθ = W(L+1) x(L). (C.7) In our implementation, we initialize α(l) = 0 , so the network starts as a shallow model whose output is a linear combination of first-layer embeddings. This initialization alleviates optimization difficulties in deep PINN models, while allowing the effective depth to increase adaptively during training as the α(l) values evolve. 
+
+Exact imposition of periodic boundary conditions. To impose periodic boundary conditions exactly, we follow the construction of [ 65 ], which enforces periodicity as a hard constraint and can improve both optimization and accuracy. Consider a one-dimensional periodic function with period P , satisfying 
+
+u(l)(a) = u(l)(a + P ), l = 0 , 1, 2, . . . . (C.8) We introduce the Fourier embedding 
+
+v(x) =  cos( ωx ), sin( ωx ), (C.9) where ω = 2πP . Any neural network of the form uθ (v(x)) then satisfies the periodic boundary condition by construction. This idea extends directly to higher dimensions. For a two-dimensional domain with periods Px and Py , the periodicity conditions are 
+
+∂l
+
+∂x l u(a, y ) = ∂l
+
+∂x l u(a + Px, y ), y ∈ [b, b + Py ], (C.10) 
+
+∂l
+
+∂y l u(x, b ) = ∂l
+
+∂y l u(x, b + Py ), x ∈ [a, a + Px], (C.11) for l = 0 , 1, 2, . . . . These constraints can be encoded through the embedding 
+
+v(x, y ) = [cos( ωxx), sin( ωxx), cos( ωy y), sin( ωy y)] , (C.12) where ωx = 2πPx and ωy = 2πPy .For time-dependent problems, we simply concatenate the time variable with the spatial embedding, for example 
+
+uθ ([ t, v(x)]) in one spatial dimension or uθ ([ t, v(x, y )]) in two spatial dimensions. 
+
+C.2 Optimizers 
+
+We consider the following optimizers in our experiments: • Adam. We use Adam [ 67 ] with the standard hyperparameter setting β1 = 0 .9 and β2 = 0 .999 . Owing to its robustness and computational efficiency, Adam has become a standard choice for training PINNs. • SOAP [ 63 ]. SOAP is a recently proposed optimizer that integrates Shampoo-style second-order precondi-tioning with Adam-style adaptive updates in a rotated eigenbasis. In our experiments, we use β1 = 0 .9 and 
+
+β2 = 0 .999 , which provide the best overall performance across our benchmark problems. We update the covariance matrices every 2 iterations. 
+
+SOAP update. For completeness, we briefly outline the SOAP update rule used during training. At iteration k, for a parameter matrix Wk with gradient Gk, SOAP maintains Shampoo-style preconditioner statistics and periodically computes the corresponding left and right eigenspaces, denoted by QkL and QkR, respectively. At iteration k, the gradient is first projected into this rotated basis: 
+
+eGk = ( QkL)⊤GkQkR.
+
+SOAP then applies an Adam-style update in the rotated coordinates: 
+
+emk = β1 emk−1 + (1 − β1) eGk, evk = β2 evk−1 + (1 − β2)  eGk ⊙ eGk,
+
+from which the preconditioned update is formed as 
+
+eUk = emk
+
+√evk + ϵ .
+
+28 Finally, the update is mapped back to the original parameter space: 
+
+Uk = QkL eUk(QkR)⊤, Wk+1 = Wk − ηUk.
+
+In this sense, SOAP may be viewed as performing Adam in the eigenspace induced by Shampoo, while updating this basis only periodically according to a prescribed preconditioning frequency. 
+
+C.3 Weighting schemes Causal training. Recent work [ 48 ] has shown that, when solving time-dependent PDEs, PINNs can violate temporal causality by reducing the residual at later times before accurately resolving the solution at earlier times. To alleviate this issue, we adopt a causality-aware training strategy that reweights the residual loss across time. Specifically, we partition the temporal domain into M equal subintervals and denote by Li
+
+> int
+
+(θ) the PDE residual loss over the i-th subinterval. The weighted residual loss is then defined as 
+
+Lint = 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+wiLi
+
+> int
+
+(θ). (C.13) The temporal weights are chosen as 
+
+wi = exp −ϵ
+
+> i−1
+
+X
+
+> k=1
+
+Lk
+
+> int
+
+(θ)
+
+!
+
+, i = 2 , 3, . . . , M, (C.14) with w1 = 1 . Substituting these weights into the residual loss yields 
+
+Lint = 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+exp −ϵ
+
+> i−1
+
+X
+
+> k=1
+
+Lk
+
+> int
+
+(θ)
+
+!
+
+Li
+
+> int
+
+(θ). (C.15) This construction assigns each time segment a weight that decays exponentially with the accumulated residual loss over all preceding segments. Consequently, the residual loss in the i-th segment is minimized only after the earlier residual losses {L k
+
+> int
+
+(θ)}i−1 
+
+> k=1
+
+have been sufficiently reduced. In this way, the optimization encourages the PINN model to gradually learn the PDE solution following the temporal ordering of the underlying dynamics. 
+
+Learning rate annealing. Another major challenge in training PINNs is balancing the different loss components, which often have very different scales and can therefore produce highly unbalanced gradients. This imbalance may cause optimization to favor certain terms while neglecting others, ultimately leading to training failure. To address this issue, we employ the self-adaptive learning rate annealing strategy proposed in [ 43 ], which automatically balances the weighted loss 
+
+L(θ) = λic Lic (θ) + λbc Lbc (θ) + λint Lint , (C.16) The global weights are dynamically computed to equalize the gradient norms of each loss component: 
+
+ˆλic = ∥∇ θ Lic (θ)∥ + ∥∇ θ Lbc (θ)∥ + ∥∇ θ Lint (θ)∥∥∇ θ Lic (θ)∥ , (C.17) 
+
+ˆλbc = ∥∇ θ Lic (θ)∥ + ∥∇ θ Lbc (θ)∥ + ∥∇ θ Lint (θ)∥∥∇ θ Lbc (θ)∥ , (C.18) 
+
+ˆλint = ∥∇ θ Lic (θ)∥ + ∥∇ θ Lbc (θ)∥ + ∥∇ θ Lint (θ)∥∥∇ θ Lint (θ)∥ , (C.19) where ∥ · ∥ denotes the L2 norm. Then we obtain 
+
+∥ˆλic ∇θ Lic (θ)∥ = ∥ˆλbc ∇θ Lbc (θ)∥ = ∥ˆλint ∇θ Lint (θ)∥ = ∥∇ θ Lic (θ)∥ + ∥∇ θ Lbc (θ)∥ + ∥∇ θ Lint (θ)∥. (C.20) Thus, the weighted losses contribute gradients of comparable magnitude, which helps prevent the optimization from being dominated by any single term. In practice, the weights are updated using running averages of their previous values, which improves stability during stochastic gradient descent. Moreover, these updates are performed only at user-specified intervals, typically every 100–1000 iterations, so the additional computational cost is minimal. Finally, we emphasize that when loss weighting is used together with pseudo-time stepping, the pseudo-time step should be updated before the loss weights are updated. This ordering is important because the pseudo-time-step update depends on the magnitude of the most recent residual-loss gradient. Reversing the order can noticeably degrade training performance. 29 C.4 Hyper-parameters 
+
+Table 4 summarizes the hyperparameter settings used for all benchmark PDEs. It includes the backbone architecture, learning rate schedule, training setup, and weighting strategies used in our experiments. Most settings are shared across problems, with only a few benchmark-specific choices such as activation function, batch size, and causal-weighting parameters. Table 4: Hyperparameter configurations for benchmark PDEs. Hyperparameter settings used to reproduce our experimental results. The backbone architecture is PirateNet, where Depth indicates the number of adaptive residual blocks, and Width denotes the number of neurons per hidden layer. RFF represents Random Fourier Features.                                                                          
+
+> Parameter Inviscid Burgers AC KdV KS GS GL LDC BFS KF RT Architecture PirateNet Depth 3Width 256 Activation Tanh Tanh Tanh Tanh Swish Swish Tanh Swish Tanh Swish RFF scale 2.0 2.0 2.0 2.0 2.0 2.0 10.0 2.0 2.0 2.0
+> Learning rate schedule
+> Initial learning rate 10 −3
+> Decay rate 0.9 Decay steps 2×10 3
+> Warmup steps 2×10 3
+> Training
+> Iterations 10 5
+> Batch size 4,096 4,096 4,096 4,096 8,192 8,192 4,096 4,096 8,192 8,192
+> Weighting Scheme Grad Norm
+> Causal weighting
+> Tolerance 1.0 1.0 1.0 1.0 1.0 1.0 N / A N / A 1.0 1.0 # Chunks 16 16 16 16 16 16 N / A N / A 16 16
+
+C.5 Benchmarks 
+
+Compared with the benchmark settings commonly used in the current PINN literature, where long-time dynamics are often handled through time-marching or temporal decomposition, our problem setup adopts slightly shorter final times for these physical systems. This choice is intentional, since our goal is not to rely on time-marching strategies. Although such strategies can improve long-time prediction accuracy, they also introduce substantial computational overhead and can obscure the intrinsic capability of the underlying method. Instead, we aim to assess how far in time PINNs, equipped with modern training techniques, can remain accurate without temporal decomposition. The parameter settings and numerical configurations used to generate the reference solutions for all benchmarks are summarized in Table 5. 
+
+Allen–Cahn equation. The Allen–Cahn equation is a prototypical reaction–diffusion model arising in phase-field descriptions of interface motion and phase separation. Because it involves both diffusive smoothing and nonlinear bistable dynamics, it often develops sharp transition layers and is therefore widely used as a benchmark for PINNs. We consider the one-dimensional Allen–Cahn equation 
+
+ut − ϵu xx + α  u3 − u = 0 , (t, x ) ∈ [0 , T ] × Ω, (C.21) where Ω = [ −1, 1] . In the standard benchmark setting, we take 
+
+ϵ = 10 −4, α = 5 , (C.22) with the initial condition 
+
+u(0 , x ) = x2 cos( πx ), (C.23) 30 Table 5: Parameter settings, numerical configurations, and corresponding software packages used to generate the reference solutions for the PDE benchmarks; see Chebfun [68], PyClaw [69], SU2 [70], and JAX-Fluids [71].                                                                                 
+
+> PDE Parameter Package Resolution
+> AC ϵ= 10 −4, a = 5 Chebfun 200 ×512
+> Inviscid Burgers −PyClaw 200 ×512
+> KdV η= 1 , μ = 0 .022 Chebfun 200 ×512
+> KS α= 100 /16 , β = 100 /16 2, γ = 100 /16 4Chebfun 250 ×512
+> GS ϵ1= 0 .2, ϵ 2= 0 .1, b 1= 40 , b 2= 100 , c 1=c2= 1 ,000 Chebfun 100 ×200 ×200
+> GL ϵ= 0 .004 , μ = 10 , γ = 10 + 15 iChebfun 100 ×200 ×200
+> LDC Re =5 ×10 3JAX-Fluids 128 ×128
+> BFS Re =8 ×10 2SU2 485 ×65
+> KF Re =10 4IncompressibleNavierStokes 50 ×512 ×512
+> RT Ra =10 6,Pr = 0 .71 IncompressibleNavierStokes 40 ×100 ×200
+
+and periodic boundary conditions 
+
+u(t, −1) = u(t, 1) , ux(t, −1) = ux(t, 1) . (C.24) We aim to train PINNs to solve this problem accurately up to T = 1 .
+
+Korteweg–De Vries equation. The Korteweg–De Vries (KdV) equation is a prototypical nonlinear dispersive PDE arising in the study of shallow-water waves. It captures the interplay between nonlinear wave steepening and dispersive spreading, and is widely known for its solitary-wave behavior. As such, it provides a useful benchmark for evaluating the ability of PINNs to learn nonlinear wave dynamics. We consider the one-dimensional KdV equation 
+
+ut + ηuu x + μ2uxxx = 0 , (t, x ) ∈ [0 , T ] × Ω, (C.25) where Ω = [ −1, 1] , with initial condition 
+
+u(0 , x ) = cos( πx ), (C.26) and periodic boundary condition 
+
+u(t, −1) = u(t, 1) . (C.27) Following the classical setting, we take η = 1 and μ = 0 .022 [ 72 ]. Under this evolution, the initial wave develops into a sequence of solitary-type waves. We aim to train PINNs to solve this problem accurately up to T = 1 .
+
+Inviscid Burgers’ equation. The inviscid Burgers equation is one of the simplest nonlinear hyperbolic PDEs and serves as a classical prototype for nonlinear wave propagation and shock formation. Despite its simple form, the nonlinear convection term causes initially smooth solutions to steepen over time and eventually form an exact discontinuity in finite time. This makes the problem substantially more challenging than the viscous Burgers equation more commonly studied in the PINN literature, where the viscosity term smooths the solution and prevents true shock discontinuities. In this work, we consider the one-dimensional inviscid Burgers equation 
+
+ut + uu x = 0 , (t, x ) ∈ [0 , T ] × Ω, (C.28) with Ω = [ −1, 1] . Following the standard benchmark setting, we impose the initial condition 
+
+u(0 , x ) = − sin( πx ), (C.29) together with periodic boundary conditions 
+
+u(t, −1) = u(t, 1) . (C.30) Under this evolution, the solution steepens and develops a shock, creating a challenging test case for PINN training. Our goal is to train PINNs to accurately solve this problem up to the final time T = 1 .5.31 Kuramoto-Sivashinsky equation. The Kuramoto–Sivashinsky (KS) equation is a classical nonlinear PDE arising in pattern-forming dissipative systems such as flame fronts, thin film flows, and plasma instabilities. Its dynamics reflect a balance among nonlinear advection, destabilization, and higher-order dissipation, leading to complex multiscale spatiotemporal behavior even in one dimension. This makes it a challenging benchmark for PINNs. The one-dimensional equation takes the form: 
+
+ut + αuu x + βu xx + γu xxxx = 0 , t ∈ [0 , T ], x ∈ [0 , 2π],u(0 , x ) = u0(x),
+
+where u represents the height of a thin film or flame front. This equation arises in various physical contexts, including flame front propagation, thin film flows, and plasma instabilities. In this example, we take T = 0 .35 , α = 100 /16 , β = 100 /16 2, γ = 100 /16 4 and u0(x) = cos( x)(1 + sin( x)) .
+
+Grey-Scott equation. The Gray–Scott equation is a classical reaction–diffusion system that models the interaction of two chemical species undergoing diffusion and nonlinear reactions. It is well known for producing rich pattern formation phenomena, including spots, stripes, and self-organized structures, and is therefore a standard benchmark for learning complex spatiotemporal dynamics. The system is described by the following coupled PDEs: 
+
+ut = ϵ1∆u + b1(1 − u) − c1uv 2, t ∈ (0 , 0.8) , (x, y ) ∈ (−1, 1) 2 ,vt = ϵ2∆v − b2v + c2uv 2 , t ∈ (0 , 0.8) , (x, y ) ∈ (−1, 1) 2 ,
+
+With periodic boundary conditions, the initial conditions are: 
+
+u0(x, y ) = 1 − exp( −10(( x + 0 .05) 2 + ( y + 0 .02) 2)) ,v0(x, y ) = 1 − exp( −10(( x − 0.05) 2 + ( y − 0.02) 2)) .
+
+where u and v represent activator and inhibitor concentrations respectively, ε1 and ε2 are diffusion coefficients, and 
+
+(b1, b 2, c 1, c 2) control reaction kinetics. This system generates diverse spatial patterns including spots and stripes. We set parameters ϵ1 = 0 .2, ϵ2 = 0 .1, b1 = 40 , b2 = 100 , and c1 = c2 = 1 ,000 , which generates characteristic pattern formations. Due to the similar behavior of u and v, we report only the relative L2 error of u in Table 1. The corresponding PDE residuals are defined as 
+
+Ru[uθ ]( t, x, y ) := ∂tuθ − ϵ1 (∂xx uθ + ∂yy uθ ) − b1(1 − uθ ) + c1uθ v2 
+
+> θ
+
+, (C.31) 
+
+Rv [uθ ]( t, x, y ) := ∂tvθ − ϵ2 (∂xx vθ + ∂yy vθ ) + b2vθ − c2uθ v2 
+
+> θ
+
+. (C.32) The PDE residual loss relaxed by pseudo-time stepping is given by 
+
+Lpts  
+
+> ru
+
+(θk; θk−1, X int ) := 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+uθk (ti
+
+> int
+
+, x i
+
+> int
+
+, y i
+
+> int
+
+) − uθk−1 (ti
+
+> int
+
+, x i
+
+> int
+
+, y i
+
+> int
+
+)
+
+τu
+
++ Ru[uθk ]( ti
+
+> int
+
+, x i
+
+> int
+
+, y i
+
+> int
+
+)
+
+> 2
+
+,
+
+(C.33) 
+
+Lpts  
+
+> rv
+
+(θk; θk−1, X int ) := 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+vθk (ti
+
+> int
+
+, x i
+
+> int
+
+, y i
+
+> int
+
+) − vθk−1 (ti
+
+> int
+
+, x i
+
+> int
+
+, y i
+
+> int
+
+)
+
+τv
+
++ Rv [uθk ]( ti
+
+> int
+
+, x i
+
+> int
+
+, y i
+
+> int
+
+)
+
+> 2
+
+. (C.34) 
+
+Ginzburg-Landau equation. The Ginzburg–Landau equation is a classical model for pattern formation and weakly nonlinear dynamics near instability onset. It arises in many physical settings, including superconductivity, nonlinear waves, and oscillatory media, and serves as a standard benchmark for learning complex spatiotemporal dynamics. The complex Ginzburg-Landau equation in 2D takes the form 
+
+∂A ∂t = ϵ∆A + μA − γA |A|2 , t ∈ (0 , 0.4) , (x, y ) ∈ (−1, 1) 2 ,
+
+with periodic boundary conditions, an initial condition 
+
+A0(x, y ) = (10 y + 10 ix ) exp  −0.01(2500 x2 + 2500 y2) ,
+
+where A is the complex amplitude representing the envelope of oscillations, ϵ represents the diffusion coefficient, μ
+
+is the linear growth rate, and γ controls the nonlinear saturation. For this example, we set ϵ = 0 .004 , μ = 10 and 
+
+γ = 10 + 15 i.32 By denoting A = u + iv , we can decompose the equation into real and imaginary components, resulting in the following system of PDEs, 
+
+∂u ∂t = ϵ∆u + μ(u − (u − 1.5v)( u2 + v2)) ,∂v ∂t = ϵ∆v + μ(v − (v + 1 .5u)( u2 + v2)) .
+
+Given the coupled dynamics of u and v, we present the relative L2 error of u in Table 1. The PDE residual loss relaxed by pseudo-time stepping is defined analogously to that for the Gray–Scott equation. 
+
+Lid-driven Cavity. We study the incompressible Navier-Stokes equations in non-dimensional form for a two-dimensional domain: 
+
+u · ∇ u + ∇p − 1
+
+Re ∆u = 0 , (x, y ) ∈ (0 , 1) 2 ,
+
+∇ · u = 0 , (x, y ) ∈ (0 , 1) 2 ,
+
+where u = ( u, v ) represents the steady-state velocity field, p is the pressure field, and Re is the Reynolds number which characterizes the ratio of inertial to viscous forces. This system models the equilibrium state of the flow, which is driven by the top boundary moving at a constant velocity while the other walls are stationary, leading to the formation of characteristic vortical structures whose complexity increases with the Reynolds number. To ensure continuity at the corner boundaries, we implement a smoothed top-lid boundary condition: 
+
+u(x, y ) = 1 − cosh ( C0(x − 0.5)) cosh (0 .5C0) , v(x, y ) = 0 , (C.35) where x ∈ [0 , 1] , y = 1 , C 0 = 50 . For the other three walls, we enforce a no-slip boundary condition. Our goal is to obtain the velocity and pressure field corresponding to a Reynolds number of 5,000 . The accuracy of our method is evaluated using the velocity magnitude √u2 + v2, with results presented in Table 1. 
+
+Backward facing step flow. Backward-facing step flow is a standard benchmark for separated internal flows and is widely used to study the formation of recirculation and reattachment caused by a sudden expansion in channel geometry. Despite its simple configuration, it exhibits nontrivial flow structures, making it a useful test for whether PINNs can capture localized gradients and separation behavior in incompressible viscous flows. We consider the steady two-dimensional laminar incompressible flow over a backward-facing step. Let u = ( u, v )
+
+denote the velocity field and p the pressure. The governing equations are the steady incompressible Navier–Stokes equations 
+
+∇ · u = 0 , (C.36) 
+
+(u · ∇ )u + ∇p − ν∆u = 0 , (C.37) in the fluid domain Ω downstream of the step. The channel has downstream length 15 H, where H = 1 is the channel height after expansion. The left boundary is divided into two parts: the upper half is the inlet, and the lower half is the vertical step face. At the inlet, we prescribe a fully developed parabolic profile in the positive x-direction, 
+
+u(0 , y ) = 24 y(0 .5 − y), v(0 , y ) = 0 , 0 ≤ y ≤ 0.5. (C.38) The fluid density is fixed to ρ = 1 , and the viscosity is chosen as ν = 0 .0025 for Re = 400 and ν = 0 .00125 for 
+
+Re = 800 . No-slip boundary conditions are imposed on the top and bottom walls as well as on the step face, 
+
+u = 0 on walls . (C.39) At the outlet, a reference pressure condition is imposed, 
+
+p = 0 . (C.40) We report the relative L2 error of u in Table 1. The PDE residual loss relaxed by pseudo-time stepping is defined analogously to that for the lid-driven cavity flow. 33 Kolmogorov flow. Kolmogorov flow is a classical benchmark for studying forced incompressible turbulence and nonlinear energy transfer across spatial scales. Owing to its simple geometry and well-controlled sinusoidal forcing, it is widely used to evaluate whether numerical methods can capture complex fluid dynamics and long-range spatiotemporal interactions. We study the two-dimensional Kolmogorov flow governed by the incompressible Navier-Stokes equations: 
+
+ut + u · ∇ u = −∇ p + 1
+
+Re ∆u + f ,
+
+∇ · u = 0 ,
+
+on the unit square domain (x, y ) ∈ [0 , 1] 2.Here u = ( u, v ) represents the time-varying velocity field, and f denotes the external forcing term that maintains the flow structure. The system evolves from a random initial state and develops characteristic flow patterns, where energy transfers between different spatial scales through nonlinear interactions and viscous dissipation. For our study, the system is driven by a sinusoidal forcing f = (2 sin(4 πy ), 0) . The numerical experiment initializes with a random initial condition and evolves until T = 0 .8. The model’s performance is quantified by the relative L2
+
+error of vorticity (Table 1). The PDE residual loss relaxed by pseudo-time stepping is defined analogously to that for the lid-driven cavity flow. 
+
+Rayleigh–Taylor instability. Rayleigh–Taylor instability is a classical buoyancy-driven flow instability that occurs when a heavier fluid lies above a lighter one. Small perturbations grow over time and develop into complex plume-like structures, making this problem a useful benchmark for testing whether PINNs can capture strongly nonlinear flow dynamics. We consider a coupled flow–temperature system in the rectangular domain (x, y ) ∈ [0 , 1] × [0 , 2] :
+
+ut + u · ∇ u = −∇ p +
+
+r P r Ra ∆u + T ey , (C.41) 
+
+∇ · u = 0 , (C.42) 
+
+Tt + ∇ · (uT ) = 1
+
+√P r Ra ∆T. (C.43) Here T denotes the temperature field, which acts as a density proxy under the Boussinesq approximation, P r is the Prandtl number, and Ra is the Rayleigh number. In our experiments, we set P r = 0 .71 and Ra = 10 6. Periodic boundary conditions are imposed in the horizontal direction for both u and T , while Dirichlet conditions u = T = 0 are enforced on the top and bottom boundaries. We evaluate model accuracy using the relative L2 error of the temperature field, with results reported in Table 1. We define the network output as 
+
+uθ (t, x, y ) =  uθ (t, x, y ), v θ (t, x, y ), p θ (t, x, y ), T θ (t, x, y ).
+
+The corresponding PDE residuals are defined as 
+
+Ru[uθ ]( t, x, y ) := ∂tuθ + uθ ∂xuθ + vθ ∂y uθ + ∂xpθ −
+
+r P r Ra (∂xx uθ + ∂yy uθ ) , (C.44) 
+
+Rv [uθ ]( t, x, y ) := ∂tvθ + uθ ∂xvθ + vθ ∂y vθ + ∂y pθ −
+
+r P r Ra (∂xx vθ + ∂yy vθ ) − Tθ , (C.45) 
+
+Rc[uθ ]( t, x, y ) := ∂xuθ + ∂y vθ , (C.46) 
+
+RT [uθ ]( t, x, y ) := ∂tTθ + ∂x(uθ Tθ ) + ∂y (vθ Tθ ) − 1
+
+√P r Ra ∂tt Tθ . (C.47) Let 
+
+Xint = {(ti
+
+> int
+
+, x i
+
+> int
+
+, y i
+
+> int
+
+)}Nint  
+
+> i=1
+
+⊂ (0 , 0.8) × (0 , 1) × (0 , 2) 
+
+denote the set of interior collocation points. Then the PDE residual loss relaxed by pseudo-time stepping is given by 
+
+Lpts  
+
+> r
+
+(θk; θk−1, X int ) := λru Lpts  
+
+> ru
+
++ λrv Lpts  
+
+> rv
+
++ λrc Lpts  
+
+> rc
+
++ λrT Lpts  
+
+> rT
+
+, (C.48) 34 where 
+
+Lpts 
+
+ru (θk; θk−1, X int ) := 1
+
+Nint 
+
+Nint X
+
+i=1 
+
+uθk (ti
+
+int , x i
+
+int , y i
+
+int ) − uθk−1 (ti
+
+int , x i
+
+int , y i
+
+int )
+
+τu
+
++ Ru[uθk ]( ti
+
+int , x i
+
+int , y i
+
+int )
+
+2
+
+,
+
+(C.49) 
+
+Lpts 
+
+rv (θk; θk−1, X int ) := 1
+
+Nint 
+
+Nint X
+
+i=1 
+
+vθk (ti
+
+int , x i
+
+int , y i
+
+int ) − vθk−1 (ti
+
+int , x i
+
+int , y i
+
+int )
+
+τv
+
++ Rv [uθk ]( ti
+
+int , x i
+
+int , y i
+
+int )
+
+2
+
+, (C.50) 
+
+Lpts 
+
+rc (θk; θk−1, X int ) := 1
+
+Nint 
+
+Nint X
+
+i=1 
+
+pθk (ti
+
+int , x i
+
+int , y i
+
+int ) − pθk−1 (ti
+
+int , x i
+
+int , y i
+
+int )
+
+τp
+
++ Rc[uθk ]( ti
+
+int , x i
+
+int , y i
+
+int )
+
+2
+
+, (C.51) 
+
+Lpts 
+
+rT (θk; θk−1, X int ) := 1
+
+Nint 
+
+Nint X
+
+i=1 
+
+Tθk (ti
+
+int , x i
+
+int , y i
+
+int ) − Tθk−1 (ti
+
+int , x i
+
+int , y i
+
+int )
+
+τT
+
++ RT [uθk ]( ti
+
+int , x i
+
+int , y i
+
+int )
+
+2
+
+.
+
+(C.52) 35 C.6 Additional visualizations 
+
+Figure 11: Allen–Cahn equation. Comparison of the reference solution, the baseline PINN, and the baseline PINN with fixed and adaptive pseudo-time stepping. Top: predicted solutions. Bottom: training loss, relative L2 error, and pseudo-time step size histories. 
+
+Figure 12: Korteweg–De Vries equation. Comparison of the reference solution, the baseline PINN, and the baseline PINN with fixed and adaptive pseudo-time stepping. Top: predicted solutions. Bottom: training loss, relative L2 error, and pseudo-time step size histories. 36 Figure 13: Inviscid Burgers’ equation. Comparison of the reference solution, the baseline PINN, and the baseline PINN with fixed and adaptive pseudo-time stepping. Top: predicted solutions. Bottom: training loss, relative L2 error, and pseudo-time step size histories. 
+
+Figure 14: Kuramoto–Sivashinsky equation. Comparison of the reference solution, the baseline PINN, and the baseline PINN with fixed and adaptive pseudo-time stepping. Top: predicted solutions. Bottom: training loss, relative L2 error, and pseudo-time step size histories. 37 0 50000 100000 
+
+Step 
+
+10 −7
+
+10 −4
+
+10 −1
+
+IC loss ( u)
+
+0 50000 100000 
+
+Step 
+
+10 −7
+
+10 −4
+
+10 −1 IC loss ( v)
+
+0 50000 100000 
+
+Step 
+
+10 −2
+
+10 0
+
+10 2
+
+PDE loss ( u)
+
+0 50000 100000 
+
+Step 
+
+10 −2
+
+10 0
+
+10 2 PDE loss ( v)
+
+0 50000 100000 
+
+Step 
+
+10 −1
+
+Rel. L2 error ( u)
+
+0 50000 100000 
+
+Step 
+
+10 −1
+
+10 0
+
+Rel. L2 error ( v)
+
+Baseline Fixed pseudo-time (1 /τ = 0 .1) Fixed pseudo-time (1 /τ = 1) Fixed pseudo-time (1 /τ = 10) Fixed pseudo-time (1 /τ = 100) Adaptive pseudo-time Figure 15: Grey-Scott equations . Top: Comparison of the reference solution, the baseline PINN, and the baseline PINN with fixed and adaptive pseudo-time stepping. Bottom: training loss and relative L2 error histories. 38 0 50000 100000 
+
+Step 
+
+10 −9
+
+10 −6
+
+10 −3
+
+IC loss ( u)
+
+0 50000 100000 
+
+Step 
+
+10 −9
+
+10 −6
+
+10 −3
+
+IC loss ( v)
+
+0 50000 100000 
+
+Step 
+
+10 −5
+
+10 −3
+
+10 −1
+
+PDE loss ( u)
+
+0 50000 100000 
+
+Step 
+
+10 −5
+
+10 −3
+
+10 −1
+
+PDE loss ( v)
+
+0 50000 100000 
+
+Step 
+
+10 −2
+
+10 −1
+
+10 0
+
+Rel. L2 error ( u)
+
+0 50000 100000 
+
+Step 
+
+10 −2
+
+10 −1
+
+10 0
+
+Rel. L2 error ( v)
+
+Baseline Fixed pseudo-time (1 /τ = 0 .1) Fixed pseudo-time (1 /τ = 1) Fixed pseudo-time (1 /τ = 10) Adaptive pseudo-time Figure 16: Ginzburg–Landau equations . Top: Comparison of the reference solution, the baseline PINN, and the baseline PINN with adaptive pseudo-time stepping. Bottom: training loss and relative L2 error histories. 39 Step 
+
+10 −6
+
+10 −3
+
+Inlet loss ( u)
+
+Step 
+
+10 −8
+
+10 −5
+
+10 −2 Inlet loss ( v)
+
+Step 
+
+10 −8
+
+10 −5
+
+10 −2
+
+Non-slip loss ( u)
+
+Step 
+
+10 −8
+
+10 −5
+
+10 −2
+
+Non-slip loss ( v)
+
+Step 
+
+10 −8
+
+10 −4
+
+Outlet loss ( p)
+
+0 50000 100000 
+
+Step 
+
+10 −5
+
+10 −2
+
+10 1 Momentum loss ( u)
+
+0 50000 100000 
+
+Step 
+
+10 −5
+
+10 −2
+
+10 1 Momentum loss ( v)
+
+0 50000 100000 
+
+Step 
+
+10 −5
+
+10 −2
+
+10 1
+
+Continuity loss 
+
+0 50000 100000 
+
+Step 
+
+10 −1
+
+10 1 Rel. L2 error ( u)
+
+0 50000 100000 
+
+Step 
+
+10 −1
+
+10 1
+
+Rel. L2 error ( v)
+
+Baseline Fixed pseudo-time (1 /τ = 0 .1) Fixed pseudo-time (1 /τ = 1) Fixed pseudo-time (1 /τ = 10) Adaptive pseudo-time Figure 17: Backward-facing step flow . Top: Comparison of the reference velocity field U = √u2 + v2, the baseline PINN, and the baseline PINN with adaptive pseudo-time stepping. Bottom: training loss and relative L2 error histories. 40 Step 10 −8
+
+10 −4
+
+IC loss ( u)
+
+Step 10 −8
+
+10 −4
+
+IC loss ( v)
+
+Step 10 −7
+
+10 −3
+
+IC loss ( T )
+
+Step 10 −9
+
+10 −5
+
+10 −1 BC loss ( u)
+
+Step 10 −9
+
+10 −5
+
+10 −1 BC loss ( v)
+
+Step 10 −8
+
+10 −4
+
+BC loss ( T )
+
+Step 10 −6
+
+10 −3
+
+10 0 PDE loss ( u)
+
+0 100000 Step 10 −5
+
+10 −2
+
+PDE loss ( v)
+
+0 100000 Step 10 −4
+
+10 −1
+
+PDE loss (continuity) 
+
+0 100000 Step 10 −5
+
+10 −2
+
+PDE loss ( T )
+
+0 100000 Step 10 −2
+
+10 −1
+
+10 0
+
+Rel. L2 error ( u)
+
+0 100000 Step 10 −2
+
+10 −1
+
+10 0
+
+Rel. L2 error ( v)
+
+0 100000 Step 10 −2
+
+10 −1
+
+10 0
+
+Rel. L2 error ( T )
+
+0 100000 Step 123
+
+Pseudo-time step size 
+
+> 1/τ u
+> 1/τ v
+> 1/τ p
+> 1/τ T
+
+Baseline Fixed pseudo-time (1 /τ = 0 .1) Fixed pseudo-time (1 /τ = 1) Fixed pseudo-time (1 /τ = 10) Adaptive pseudo-time Figure 18: Rayleigh-Taylor instability . Top: Comparison of the reference temperature field, the baseline PINN, and the baseline PINN with adaptive pseudo-time stepping. Bottom: training loss and relative L2 error histories. 41
