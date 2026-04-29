@@ -6,80 +6,74 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-28
-- 运行时间：2026-04-28 21:06:43 UTC
+- 最新运行日期：2026-04-29
+- 运行时间：2026-04-29 21:06:17 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：8
+- 本次总论文数：17
+- 精读区：6
 - 速读区：11
 
 ### 今日简报（AI）
-- 今日共生成 19 篇推荐（精读 8 篇，速读 11 篇）
-- 精读：《Physics-Informed Neural Networks for Solving Two-Flavor Neutrino Oscillations in Vacuum and Matter Environments for Atmospheric and Reactor Neutrinos》（10.0/10）, 《When PINNs Go Wrong: Pseudo-Time Stepping Against Spurious Solutions》（10.0/10）
-- 速读：《FormalScience: Scalable Human-in-the-Loop Autoformalisation of Science with Agentic Code Generation in Lean》（8.0/10）, 《No Test Cases, No Problem: Distillation-Driven Code Generation for Scientific Workflows》（8.0/10）, 《PhysCodeBench: Benchmarking Physics-Aware Symbolic Simulation of 3D Scenes via Self-Corrective Multi-Agent Refinement》（8.0/10）
+- 今日共生成 17 篇推荐（精读 6 篇，速读 11 篇）
+- 精读：《C-PINN: A neural network framework based on the Cordès condition for solving linear and fully nonlinear equations in non-divergence form and its applications》（10.0/10）, 《PINNs in More General Geometry》（9.0/10）
+- 速读：《QED: An Open-Source Multi-Agent System for Generating Mathematical Proofs on Open Problems》（7.0/10）, 《Latent-Hysteresis Graph ODEs: Modeling Coupled Topology-Feature Evolution via Continuous Phase Transitions》（7.0/10）, 《From PDEs on standard domains to self-similar particle systems on fractals》（7.0/10）
 - 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202604/28/README](/202604/28/README)
+- 详情：[/202604/29/README](/202604/29/README)
 
 ### 精读区论文标签
-1. [Physics-Informed Neural Networks for Solving Two-Flavor Neutrino Oscillations in Vacuum and Matter Environments for Atmospheric and Reactor Neutrinos](/202604/28/2604.22862v1-physics-informed-neural-networks-for-solving-two-flavor-neutrino-oscillations-in-vacuum-and-matter-environments-for-atmospheric-and-reactor-neutrinos)  
+1. [C-PINN: A neural network framework based on the Cordès condition for solving linear and fully nonlinear equations in non-divergence form and its applications](/202604/29/2604.25606v1-c-pinn-a-neural-network-framework-based-on-the-cords-condition-for-solving-linear-and-fully-nonlinear-equations-in-non-divergence-form-and-its-applications)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：使用PINN求解中微子演化的控制微分方程
-2. [When PINNs Go Wrong: Pseudo-Time Stepping Against Spurious Solutions](/202604/28/2604.23528v1-when-pinns-go-wrong-pseudo-time-stepping-against-spurious-solutions)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：解决PINN训练失败和伪解问题
-3. [Multi-scale Dynamic Wake Modeling of Floating Offshore Wind Turbines via Fourier Neural Operators and Physics-Informed Neural Networks](/202604/28/2604.23937v1-multi-scale-dynamic-wake-modeling-of-floating-offshore-wind-turbines-via-fourier-neural-operators-and-physics-informed-neural-networks)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：用于尾流建模的傅里叶神经算子与PINN
-4. [A neural operator framework for data-driven discovery of stability and receptivity in physical systems](/202604/28/2604.19465v2-a-neural-operator-framework-for-data-driven-discovery-of-stability-and-receptivity-in-physical-systems)  
+   evidence：提出了一种基于Cordes条件的PINN框架，用于求解线性和非线性偏微分方程
+2. [PINNs in More General Geometry](/202604/29/2604.25020v1-pinns-in-more-general-geometry)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于物理稳定性数据驱动发现的神经算子框架
-5. [Physics-Guided Dimension Reduction for Simulation-Free Operator Learning of Stiff Differential-Algebraic Systems](/202604/28/2604.19930v2-physics-guided-dimension-reduction-for-simulation-free-operator-learning-of-stiff-differential-algebraic-systems)  
+   evidence：用于解决几何微分泛函的PINN模型
+3. [Encoded Forward Backward Stochastic Neural Network for High-Dimensional Backward Stochastic Differential Equations and Parabolic Partial Differential Equations](/202604/29/2604.25147v1-encoded-forward-backward-stochastic-neural-network-for-high-dimensional-backward-stochastic-differential-equations-and-parabolic-partial-differential-equations)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于刚性微分代数系统的物理信息DeepONet
-6. [Learning Interpretable PDE Representations for Generative Reconstructions with Structured Sparsity](/202604/28/2604.23867v1-learning-interpretable-pde-representations-for-generative-reconstructions-with-structured-sparsity)  
+   evidence：求解高维抛物型偏微分方程的深度学习方法
+4. [Shearlet Neural Operators for Anisotropic-Shock-Dominated and Multi-scale parametric partial differential equations](/202604/29/2604.25181v1-shearlet-neural-operators-for-anisotropic-shock-dominated-and-multi-scale-parametric-partial-differential-equations)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：可解释的PDE表示学习与生成式重建
-7. [Adaptive-Distribution Randomized Neural Networks for PDEs: A Low-Dimensional Distribution-Learning Framework](/202604/28/2604.23999v1-adaptive-distribution-randomized-neural-networks-for-pdes-a-low-dimensional-distribution-learning-framework)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：用于求解PDE的自适应随机神经网络
-8. [SeaEvo: Advancing Algorithm Discovery with Strategy Space Evolution](/202604/28/2604.24372v1-seaevo-advancing-algorithm-discovery-with-strategy-space-evolution)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：大模型引导的进化搜索用于自动算法发现
+   evidence：用于求解参数化偏微分方程的神经算子架构
+5. [A Hybridizable Neural Time Integrator for Stable Autoregressive Forecasting](/202604/29/2604.21101v2-a-hybridizable-neural-time-integrator-for-stable-autoregressive-forecasting)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：用于科学基础模型和混沌系统的混合神经时间积分器
+6. [A Discrete-Time Random Feature Method for Nonlinear Evolution Equations with Implicit-Explicit Runge--Kutta Time Stepping](/202604/29/2604.25502v1-a-discrete-time-random-feature-method-for-nonlinear-evolution-equations-with-implicit-explicit-runge--kutta-time-stepping)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：利用随机特征和IMEX-RK求解非线性演化偏微分方程的AI驱动数值方法
 
 ### 速读区论文标签
-1. [FormalScience: Scalable Human-in-the-Loop Autoformalisation of Science with Agentic Code Generation in Lean](/202604/28/2604.23002v1-formalscience-scalable-human-in-the-loop-autoformalisation-of-science-with-agentic-code-generation-in-lean)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：物理推理自动形式化的智能体流水线
-2. [No Test Cases, No Problem: Distillation-Driven Code Generation for Scientific Workflows](/202604/28/2604.23106v1-no-test-cases-no-problem-distillation-driven-code-generation-for-scientific-workflows)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：用于科学代码生成和工作流的多智能体大模型框架
-3. [PhysCodeBench: Benchmarking Physics-Aware Symbolic Simulation of 3D Scenes via Self-Corrective Multi-Agent Refinement](/202604/28/2604.23580v1-physcodebench-benchmarking-physics-aware-symbolic-simulation-of-3d-scenes-via-self-corrective-multi-agent-refinement)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：通过多智能体优化的物理感知符号模拟
-4. [A2DEPT: Large Language Model-Driven Automated Algorithm Design via Evolutionary Program Trees](/202604/28/2604.24043v1-a2dept-large-language-model-driven-automated-algorithm-design-via-evolutionary-program-trees)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：LLM驱动的自动化算法设计
-5. [Escher-Loop: Mutual Evolution by Closed-Loop Self-Referential Optimization](/202604/28/2604.23472v1-escher-loop-mutual-evolution-by-closed-loop-self-referential-optimization)  
+1. [QED: An Open-Source Multi-Agent System for Generating Mathematical Proofs on Open Problems](/202604/29/2604.24021v1-qed-an-open-source-multi-agent-system-for-generating-mathematical-proofs-on-open-problems)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于递归细化和优化任务智能体的自主智能体
-6. [GeoCert: Certified Geometric AI for Reliable Forecasting](/202604/28/2604.23474v1-geocert-certified-geometric-ai-for-reliable-forecasting)  
+   evidence：用于数学证明和科学发现的多智能体系统
+2. [Latent-Hysteresis Graph ODEs: Modeling Coupled Topology-Feature Evolution via Continuous Phase Transitions](/202604/29/2604.24293v1-latent-hysteresis-graph-odes-modeling-coupled-topology-feature-evolution-via-continuous-phase-transitions)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于物理一致性预测和物理定律的几何AI
-7. [Agentic Fusion of Large Atomic and Language Models to Accelerate Materials Discovery](/202604/28/2604.23758v1-agentic-fusion-of-large-atomic-and-language-models-to-accelerate-materials-discovery)  
+   evidence：用于连续时间表示流的图神经常微分方程
+3. [From PDEs on standard domains to self-similar particle systems on fractals](/202604/29/2604.24388v1-from-pdes-on-standard-domains-to-self-similar-particle-systems-on-fractals)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：协同原子模型和LLM用于材料发现的智能体框架
-8. [Agentic AI platforms for autonomous training and rule induction of human-human and virus-human protein-protein interactions](/202604/28/2604.23924v1-agentic-ai-platforms-for-autonomous-training-and-rule-induction-of-human-human-and-virus-human-protein-protein-interactions)  
+   evidence：分形域上PDE的数值近似方案
+4. [Conflict-Aware Harmonized Rotational Gradient for Multiscale Kinetic Regimes](/202604/29/2604.24745v1-conflict-aware-harmonized-rotational-gradient-for-multiscale-kinetic-regimes)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于自主科学规则归纳的智能体AI平台
-9. [Dual-Cluster Memory Agent: Resolving Multi-Paradigm Ambiguity in Optimization Problem Solving](/202604/28/2604.20183v1-dual-cluster-memory-agent-resolving-multi-paradigm-ambiguity-in-optimization-problem-solving)  
+   evidence：针对多尺度动力学物理问题的AI驱动多任务学习方法
+5. [Why Search When You Can Transfer? Amortized Agentic Workflow Design from Structural Priors](/202604/29/2604.25012v1-why-search-when-you-can-transfer-amortized-agentic-workflow-design-from-structural-priors)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：通过大模型进行自动化智能体工作流设计与算法发现
+6. [EvoAgent: An Evolvable Agent Framework with Skill Learning and Multi-Agent Delegation](/202604/29/2604.20133v1-evoagent-an-evolvable-agent-framework-with-skill-learning-and-multi-agent-delegation)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于解决具有结构歧义的优化问题的LLM智能体
-10. [Transformer as an Euler Discretization of Score-based Variational Flow](/202604/28/2604.23740v1-transformer-as-an-euler-discretization-of-score-based-variational-flow)  
+   evidence：用于自动化技能学习和任务分解的大模型智能体框架
+7. [The Last Harness You'll Ever Build](/202604/29/2604.21003v2-the-last-harness-youll-ever-build)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：Transformer架构作为连续动力系统的离散化
-11. [Rewarding the Scientific Process: Process-Level Reward Modeling for Agentic Data Analysis](/202604/28/2604.24198v1-rewarding-the-scientific-process-process-level-reward-modeling-for-agentic-data-analysis)  
+   evidence：自动化AI智能体的研究流水线和编排逻辑
+8. [ContextWeaver: Selective and Dependency-Structured Memory Construction for LLM Agents](/202604/29/2604.23069v1-contextweaver-selective-and-dependency-structured-memory-construction-for-llm-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于智能体数据分析和科学推理的过程级奖励建模
+   evidence：用于多步推理和记忆管理的LLM智能体框架
+9. [Primitive Recursion without Composition: Dynamical Characterizations, from Neural Networks to Polynomial ODEs](/202604/29/2604.24356v1-primitive-recursion-without-composition-dynamical-characterizations-from-neural-networks-to-polynomial-odes)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：神经网络和多项式ODE的动力学表征
+10. [PhysNote: Self-Knowledge Notes for Evolvable Physical Reasoning in Vision-Language Model](/202604/29/2604.24443v1-physnote-self-knowledge-notes-for-evolvable-physical-reasoning-in-vision-language-model)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：用于在视觉语言模型中外部化和完善物理知识的智能体框架
+11. [Skill Retrieval Augmentation for Agentic AI](/202604/29/2604.24594v1-skill-retrieval-augmentation-for-agentic-ai)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：智能体技能检索方法可用于自动化算法发现
 
 
 <div class="dpr-home-promo-card">
