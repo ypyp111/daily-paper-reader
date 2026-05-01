@@ -6,63 +6,70 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-04-30
-- 运行时间：2026-04-30 20:18:48 UTC
+- 最新运行日期：2026-05-01
+- 运行时间：2026-05-01 20:45:20 UTC
 - 运行状态：成功
-- 本次总论文数：14
+- 本次总论文数：16
 - 精读区：5
-- 速读区：9
+- 速读区：11
 
 ### 今日简报（AI）
-今日深度研读 14 篇前沿论文，重点聚焦物理信息神经网络（PINN）在核物理与流体仿真中的高精度应用。
-满分论文攻克了中子扩散方程的物理损失缩放难题，而 Temporal U-Net 则实现了流体插值的
-- 详情：[/202604/30/README](/202604/30/README)
+今日深度解析 16 篇 AI 科学计算前沿，重点聚焦物理信息神经网络（PINN）在处理复杂异构任务与局部高能源项上的满分突破。
+组合式元学习与自适应小波技术为 PINN 攻克任务异构性及局部高梯度难题提供了最优解，显著提升了物理建模的精度与泛化力。
+建议关注 AI 智能体驱动的自动化机器学习流水线，探索科学大模型协作在复杂物理场模拟中的落地潜力。
+- 详情：[/202605/01/README](/202605/01/README)
 
 ### 精读区论文标签
-1. [On Physics-Based Loss Scaling for MF-PINNs applied to the neutron diffusion equation](/202604/30/2604.25957v1-on-physics-based-loss-scaling-for-mf-pinns-applied-to-the-neutron-diffusion-equation)  
+1. [Compositional Meta-Learning for Mitigating Task Heterogeneity in Physics-Informed Neural Networks](/202605/01/2604.26999v1-compositional-meta-learning-for-mitigating-task-heterogeneity-in-physics-informed-neural-networks)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：物理信息神经网络用于中子扩散方程
-2. [Physics-Informed Temporal U-Net for High-Fidelity Fluid Interpolation](/202604/30/2604.23372v1-physics-informed-temporal-u-net-for-high-fidelity-fluid-interpolation)  
+   evidence：提出了一种用于物理信息神经网络（PINNs）的元学习框架，以解决参数化偏微分方程
+2. [An adaptive wavelet-based PINN for problems with localized high-magnitude source](/202605/01/2604.28180v1-an-adaptive-wavelet-based-pinn-for-problems-with-localized-high-magnitude-source)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：提出了一种基于自适应小波的PINN，用于解决具有局部源项的微分方程
+3. [Machine Collective Intelligence for Explainable Scientific Discovery](/202605/01/2604.27297v1-machine-collective-intelligence-for-explainable-scientific-discovery)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于流体动力学插值的物理信息桥接
-3. [Learning subgrid interfacial area in two-phase flows with regime-dependent inductive biases](/202604/30/2604.23946v1-learning-subgrid-interfacial-area-in-two-phase-flows-with-regime-dependent-inductive-biases)  
+   evidence：协调多个推理智能体自主发现控制方程
+4. [An adaptive Deep Ritz framework for second-order fully nonlinear partial differential equations](/202605/01/2604.27731v1-an-adaptive-deep-ritz-framework-for-second-order-fully-nonlinear-partial-differential-equations)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：作为PINNs替代方案的Deep Ritz框架，用于求解非线性偏微分方程
+5. [PINN-Cast: Exploring the Role of Continuous-Depth NODE in Transformers and Physics Informed Loss as Soft Physical Constraints in Short-term Weather Forecasting](/202605/01/2604.27313v1-pinn-cast-exploring-the-role-of-continuous-depth-node-in-transformers-and-physics-informed-loss-as-soft-physical-constraints-in-short-term-weather-forecasting)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：物理约束的机器学习用于多相流
-4. [OMEGA: Optimizing Machine Learning by Evaluating Generated Algorithms](/202604/30/2604.26211v1-omega-optimizing-machine-learning-by-evaluating-generated-algorithms)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：自动发现机器学习算法和可执行代码
-5. [Data-driven discovery of polynomial ODEs with provably bounded solutions](/202604/30/2604.26933v1-data-driven-discovery-of-polynomial-odes-with-provably-bounded-solutions)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：具有可证明稳定性和有界性的ODE数据驱动发现
+   evidence：将物理信息损失和神经常微分方程集成到 Transformer 架构中进行物理建模
 
 ### 速读区论文标签
-1. [Time-varying Interaction Graph ODE for Dynamic Graph Representation Learning](/202604/30/2604.24811v1-time-varying-interaction-graph-ode-for-dynamic-graph-representation-learning)  
+1. [Learning subgrid interfacial area in two-phase flows with regime-dependent inductive biases](/202605/01/2604.23946v2-learning-subgrid-interfacial-area-in-two-phase-flows-with-regime-dependent-inductive-biases)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于动态交互连续时间建模的图神经ODE
-2. [AutoResearchBench: Benchmarking AI Agents on Complex Scientific Literature Discovery](/202604/30/2604.25256v1-autoresearchbench-benchmarking-ai-agents-on-complex-scientific-literature-discovery)  
+   evidence：物理约束机器学习用于物理系统中的子网格闭合预测
+2. [Think it, Run it: Autonomous ML pipeline generation via self-healing multi-agent AI](/202605/01/2604.27096v1-think-it-run-it-autonomous-ml-pipeline-generation-via-self-healing-multi-agent-ai)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：AI智能体科学文献发现基准
-3. [Plausible but Wrong: A case study on Agentic Failures in Astrophysical Workflows](/202604/30/2604.25345v1-plausible-but-wrong-a-case-study-on-agentic-failures-in-astrophysical-workflows)  
+   evidence：用于自动机器学习流水线生成和算法发现的多智能体AI
+3. [Heterogeneous Scientific Foundation Model Collaboration](/202605/01/2604.27351v1-heterogeneous-scientific-foundation-model-collaboration)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：科学工作流和天体物理任务中 AI 智能体的评估
-4. [Reduced-order modeling of a viscoelastic turbulent jet with hybrid machine learning models](/202604/30/2604.26240v1-reduced-order-modeling-of-a-viscoelastic-turbulent-jet-with-hybrid-machine-learning-models)  
+   evidence：用于科学基础模型和自动推理的智能体框架
+4. [Collaborative Agent Reasoning Engineering (CARE): A Three-Party Design Methodology for Systematically Engineering AI Agents with Subject Matter Experts, Developers, and Helper Agents](/202605/01/2604.28043v1-collaborative-agent-reasoning-engineering-care-a-three-party-design-methodology-for-systematically-engineering-ai-agents-with-subject-matter-experts-developers-and-helper-agents)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于湍流喷流模拟的混合机器学习
-5. [SciHorizon-DataEVA: An Agentic System for AI-Readiness Evaluation of Heterogeneous Scientific Data](/202604/30/2604.26645v1-scihorizon-dataeva-an-agentic-system-for-ai-readiness-evaluation-of-heterogeneous-scientific-data)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：用于科学数据AI就绪性评估的智能体系统
-6. [Zero-to-CAD: Agentic Synthesis of Interpretable CAD Programs at Million-Scale Without Real Data](/202604/30/2604.24479v1-zero-to-cad-agentic-synthesis-of-interpretable-cad-programs-at-million-scale-without-real-data)  
+   evidence：用于科学领域自动化发现的LLM智能体工程化方法论
+5. [QED: An Open-Source Multi-Agent System for Generating Mathematical Proofs on Open Problems](/202605/01/2604.24021v2-qed-an-open-source-multi-agent-system-for-generating-mathematical-proofs-on-open-problems)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：在反馈驱动环境中使用大模型进行智能体合成
-7. [Agentic Architect: An Agentic AI Framework for Architecture Design Exploration and Optimization](/202604/30/2604.25083v1-agentic-architect-an-agentic-ai-framework-for-architecture-design-exploration-and-optimization)  
+   evidence：用于数学发现和自动推理的多智能体系统
+6. [Frontier Coding Agents Can Now Implement an AlphaZero Self-Play Machine Learning Pipeline For Connect Four That Performs Comparably to an External Solver](/202605/01/2604.25067v1-frontier-coding-agents-can-now-implement-an-alphazero-self-play-machine-learning-pipeline-for-connect-four-that-performs-comparably-to-an-external-solver)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于设计探索与优化的智能体AI框架
-8. [Recursive Multi-Agent Systems](/202604/30/2604.25917v1-recursive-multi-agent-systems)  
+   evidence：自主智能体用于自动化机器学习流水线实现
+7. [Frontier Coding Agents Can Now Implement an AlphaZero Self-Play Machine Learning Pipeline For Connect Four That Performs Comparably to an External Solver](/202605/01/2604.25067v2-frontier-coding-agents-can-now-implement-an-alphazero-self-play-machine-learning-pipeline-for-connect-four-that-performs-comparably-to-an-external-solver)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于扩展智能体协作和推理的递归多智能体框架
-9. [Structure-Aware Tensorial Model Reduction](/202604/30/2604.26280v1-structure-aware-tensorial-model-reduction)  
+   evidence：自主智能体用于自动化机器学习流水线实现与算法发现
+8. [AGEL-Comp: A Neuro-Symbolic Framework for Compositional Generalization in Interactive Agents](/202605/01/2604.26522v1-agel-comp-a-neuro-symbolic-framework-for-compositional-generalization-in-interactive-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：参数化偏微分方程的降阶模型
+   evidence：通过交互合成逻辑和程序的神经符号AI智能体架构
+9. [Self-Evolving Software Agents](/202605/01/2604.27264v1-self-evolving-software-agents)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：基于大模型的自主智能体用于代码合成与目标演化
+10. [Beyond the Training Distribution: Mapping Generalization Boundaries in Neural Program Synthesis](/202605/01/2604.27551v1-beyond-the-training-distribution-mapping-generalization-boundaries-in-neural-program-synthesis)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：通过神经程序合成进行自动化算法发现的方法论桥梁
+11. [Language Models Refine Mechanical Linkage Designs Through Symbolic Reflection and Modular Optimisation](/202605/01/2604.27962v1-language-models-refine-mechanical-linkage-designs-through-symbolic-reflection-and-modular-optimisation)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：大模型智能体用于自动化科学发现与符号优化
 
 
 <div class="dpr-home-promo-card">
