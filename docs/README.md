@@ -6,70 +6,58 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-01
-- 运行时间：2026-05-01 20:45:20 UTC
+- 最新运行日期：2026-05-02
+- 运行时间：2026-05-02 19:53:25 UTC
 - 运行状态：成功
-- 本次总论文数：16
-- 精读区：5
-- 速读区：11
+- 本次总论文数：12
+- 精读区：2
+- 速读区：10
 
 ### 今日简报（AI）
-今日深度解析 16 篇 AI 科学计算前沿，重点聚焦物理信息神经网络（PINN）在处理复杂异构任务与局部高能源项上的满分突破。
-组合式元学习与自适应小波技术为 PINN 攻克任务异构性及局部高梯度难题提供了最优解，显著提升了物理建模的精度与泛化力。
-建议关注 AI 智能体驱动的自动化机器学习流水线，探索科学大模型协作在复杂物理场模拟中的落地潜力。
-- 详情：[/202605/01/README](/202605/01/README)
+今日深度研读 12 篇前沿成果，重点聚焦于利用深度学习优化辐射传输方程与湍流闭合模型的求解效率。
+核心推荐 MgNet 求解器在物理仿真中的新应用，以及基于 Nudged LES 动力学的求解器感知湍流建模方案。
+建议关注 AI 与物理科学的深度融合，特别是光学平台上的端到端自主科学发现潜力。
+- 详情：[/202605/02/README](/202605/02/README)
 
 ### 精读区论文标签
-1. [Compositional Meta-Learning for Mitigating Task Heterogeneity in Physics-Informed Neural Networks](/202605/01/2604.26999v1-compositional-meta-learning-for-mitigating-task-heterogeneity-in-physics-informed-neural-networks)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：提出了一种用于物理信息神经网络（PINNs）的元学习框架，以解决参数化偏微分方程
-2. [An adaptive wavelet-based PINN for problems with localized high-magnitude source](/202605/01/2604.28180v1-an-adaptive-wavelet-based-pinn-for-problems-with-localized-high-magnitude-source)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：提出了一种基于自适应小波的PINN，用于解决具有局部源项的微分方程
-3. [Machine Collective Intelligence for Explainable Scientific Discovery](/202605/01/2604.27297v1-machine-collective-intelligence-for-explainable-scientific-discovery)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：协调多个推理智能体自主发现控制方程
-4. [An adaptive Deep Ritz framework for second-order fully nonlinear partial differential equations](/202605/01/2604.27731v1-an-adaptive-deep-ritz-framework-for-second-order-fully-nonlinear-partial-differential-equations)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：作为PINNs替代方案的Deep Ritz框架，用于求解非线性偏微分方程
-5. [PINN-Cast: Exploring the Role of Continuous-Depth NODE in Transformers and Physics Informed Loss as Soft Physical Constraints in Short-term Weather Forecasting](/202605/01/2604.27313v1-pinn-cast-exploring-the-role-of-continuous-depth-node-in-transformers-and-physics-informed-loss-as-soft-physical-constraints-in-short-term-weather-forecasting)  
+1. [A Filtered MgNet Solver For Radiative Transfer Equations](/202605/02/2604.23265v1-a-filtered-mgnet-solver-for-radiative-transfer-equations)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：将物理信息损失和神经常微分方程集成到 Transformer 架构中进行物理建模
+   evidence：辐射传输方程的算子学习框架
+2. [Deep Learning of Solver-Aware Turbulence Closures from Nudged LES Dynamics](/202605/02/2604.23874v1-deep-learning-of-solver-aware-turbulence-closures-from-nudged-les-dynamics)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：求解器中湍流闭合的深度学习
 
 ### 速读区论文标签
-1. [Learning subgrid interfacial area in two-phase flows with regime-dependent inductive biases](/202605/01/2604.23946v2-learning-subgrid-interfacial-area-in-two-phase-flows-with-regime-dependent-inductive-biases)  
+1. [Deep Learning of Solver-Aware Turbulence Closures from Nudged LES Dynamics](/202605/02/2604.23874v2-deep-learning-of-solver-aware-turbulence-closures-from-nudged-les-dynamics)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：物理约束机器学习用于物理系统中的子网格闭合预测
-2. [Think it, Run it: Autonomous ML pipeline generation via self-healing multi-agent AI](/202605/01/2604.27096v1-think-it-run-it-autonomous-ml-pipeline-generation-via-self-healing-multi-agent-ai)  
+   evidence：求解器中湍流闭合模型的深度学习
+2. [End-to-end autonomous scientific discovery on a real optical platform](/202605/02/2604.27092v1-end-to-end-autonomous-scientific-discovery-on-a-real-optical-platform)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于自动机器学习流水线生成和算法发现的多智能体AI
-3. [Heterogeneous Scientific Foundation Model Collaboration](/202605/01/2604.27351v1-heterogeneous-scientific-foundation-model-collaboration)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：用于科学基础模型和自动推理的智能体框架
-4. [Collaborative Agent Reasoning Engineering (CARE): A Three-Party Design Methodology for Systematically Engineering AI Agents with Subject Matter Experts, Developers, and Helper Agents](/202605/01/2604.28043v1-collaborative-agent-reasoning-engineering-care-a-three-party-design-methodology-for-systematically-engineering-ai-agents-with-subject-matter-experts-developers-and-helper-agents)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：用于科学领域自动化发现的LLM智能体工程化方法论
-5. [QED: An Open-Source Multi-Agent System for Generating Mathematical Proofs on Open Problems](/202605/01/2604.24021v2-qed-an-open-source-multi-agent-system-for-generating-mathematical-proofs-on-open-problems)  
+   evidence：基于大语言模型的智能体系统，用于端到端自主科学发现
+3. [From Coarse to Fine: Self-Adaptive Hierarchical Planning for LLM Agents](/202605/02/2604.23194v1-from-coarse-to-fine-self-adaptive-hierarchical-planning-for-llm-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于数学发现和自动推理的多智能体系统
-6. [Frontier Coding Agents Can Now Implement an AlphaZero Self-Play Machine Learning Pipeline For Connect Four That Performs Comparably to an External Solver](/202605/01/2604.25067v1-frontier-coding-agents-can-now-implement-an-alphazero-self-play-machine-learning-pipeline-for-connect-four-that-performs-comparably-to-an-external-solver)  
+   evidence：LLM智能体在动态任务中的自适应分层规划
+4. [GraphPlanner: Graph Memory-Augmented Agentic Routing for Multi-Agent LLMs](/202605/02/2604.23626v1-graphplanner-graph-memory-augmented-agentic-routing-for-multi-agent-llms)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：自主智能体用于自动化机器学习流水线实现
-7. [Frontier Coding Agents Can Now Implement an AlphaZero Self-Play Machine Learning Pipeline For Connect Four That Performs Comparably to an External Solver](/202605/01/2604.25067v2-frontier-coding-agents-can-now-implement-an-alphazero-self-play-machine-learning-pipeline-for-connect-four-that-performs-comparably-to-an-external-solver)  
+   evidence：多智能体大模型路由与任务规划框架
+5. [Optimas: An Intelligent Analytics-Informed Generative AI Framework for Performance Optimization](/202605/02/2604.23892v1-optimas-an-intelligent-analytics-informed-generative-ai-framework-for-performance-optimization)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：自主智能体用于自动化机器学习流水线实现与算法发现
-8. [AGEL-Comp: A Neuro-Symbolic Framework for Compositional Generalization in Interactive Agents](/202605/01/2604.26522v1-agel-comp-a-neuro-symbolic-framework-for-compositional-generalization-in-interactive-agents)  
+   evidence：使用LLM进行自动代码优化的多智能体工作流
+6. [Learning with Embedded Linear Equality Constraints via Variational Bayesian Inference](/202605/02/2604.24911v1-learning-with-embedded-linear-equality-constraints-via-variational-bayesian-inference)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：通过交互合成逻辑和程序的神经符号AI智能体架构
-9. [Self-Evolving Software Agents](/202605/01/2604.27264v1-self-evolving-software-agents)  
+   evidence：将物理约束嵌入贝叶斯神经网络
+7. [OxyGent: Making Multi-Agent Systems Modular, Observable, and Evolvable via Oxy Abstraction](/202605/02/2604.25602v2-oxygent-making-multi-agent-systems-modular-observable-and-evolvable-via-oxy-abstraction)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：基于大模型的自主智能体用于代码合成与目标演化
-10. [Beyond the Training Distribution: Mapping Generalization Boundaries in Neural Program Synthesis](/202605/01/2604.27551v1-beyond-the-training-distribution-mapping-generalization-boundaries-in-neural-program-synthesis)  
+   evidence：用于自主演化和推理流的多智能体系统框架
+8. [Inferring bifurcation diagrams of two distinct chaotic systems by a single machine](/202605/02/2604.26632v1-inferring-bifurcation-diagrams-of-two-distinct-chaotic-systems-by-a-single-machine)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：通过神经程序合成进行自动化算法发现的方法论桥梁
-11. [Language Models Refine Mechanical Linkage Designs Through Symbolic Reflection and Modular Optimisation](/202605/01/2604.27962v1-language-models-refine-mechanical-linkage-designs-through-symbolic-reflection-and-modular-optimisation)  
+   evidence：利用储备池计算推断混沌系统的动力学和分叉图
+9. [Safe Bilevel Delegation (SBD): A Formal Framework for Runtime Delegation Safety in Multi-Agent Systems](/202605/02/2604.27358v1-safe-bilevel-delegation-sbd-a-formal-framework-for-runtime-delegation-safety-in-multi-agent-systems)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：大模型智能体用于自动化科学发现与符号优化
+   evidence：多智能体系统中运行时委派安全的正式框架
+10. [Rethinking Agentic Reinforcement Learning In Large Language Models](/202605/02/2604.27859v1-rethinking-agentic-reinforcement-learning-in-large-language-models)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：用于自主目标设定和推理的智能体强化学习
 
 
 <div class="dpr-home-promo-card">
