@@ -6,46 +6,50 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-03
-- 运行时间：2026-05-03 19:48:01 UTC
+- 最新运行日期：2026-05-04
+- 运行时间：2026-05-04 20:09:32 UTC
 - 运行状态：成功
-- 本次总论文数：8
-- 精读区：1
-- 速读区：7
+- 本次总论文数：10
+- 精读区：5
+- 速读区：5
 
 ### 今日简报（AI）
-今日深度解析计算科学大模型新范式，涵盖从量子材料表征到形式化定理证明的 8 项前沿进展。
-核心关注评分 9.0 的免重训上下文建模技术，它实现了基础模型在多领域科学计算中的“即插即用”与高效迁移。
-建议普通读者重点了解 AI 如何通过上下文学习降低科研门槛，把握“AI for Science”从模型微调转向范式创新的新趋势。
-- 详情：[/202605/03/README](/202605/03/README)
+今日聚焦物理信息驱动的 AI 建模，重点解读关于偏微分方程（PDE）学习与局部隐式表示的两篇满
+- 详情：[/202605/04/README](/202605/04/README)
 
 ### 精读区论文标签
-1. [In-context modeling as a retrain-free paradigm for foundation models in computational science](/202605/03/2604.23098v1-in-context-modeling-as-a-retrain-free-paradigm-for-foundation-models-in-computational-science)  
+1. [PILIR: Physics-Informed Local Implicit Representation](/202605/04/2605.00385v1-pilir-physics-informed-local-implicit-representation)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：用于偏微分方程的物理信息神经网络和生成式神经算子
+2. [HyCOP: Hybrid Composition Operators for Interpretable Learning of PDEs](/202605/04/2605.00820v1-hycop-hybrid-composition-operators-for-interpretable-learning-of-pdes)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：混合组合算子用于可解释的PDE学习
+3. [Deep Learning-Enabled Dissolved Oxygen Sensing in Biofouling Environments for Ocean Monitoring](/202605/04/2604.24236v1-deep-learning-enabled-dissolved-oxygen-sensing-in-biofouling-environments-for-ocean-monitoring)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：计算科学基础模型的物理信息上下文建模
+   evidence：用于传感器数据的物理信息神经网络 (PINN)
+4. [Adaptive anisotropic composite quadratures for residual minimisation in neural PDE approximations](/202605/04/2605.00308v1-adaptive-anisotropic-composite-quadratures-for-residual-minimisation-in-neural-pde-approximations)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：神经偏微分方程近似的数值求积
+5. [Deep-Picard Iteration for Space-time Fractional Diffusion PDEs](/202605/04/2605.00456v1-deep-picard-iteration-for-space-time-fractional-diffusion-pdes)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：高维分数阶扩散偏微分方程的深度学习框架
 
 ### 速读区论文标签
-1. [Accelerating Quantum Materials Characterization: Hybrid Active Learning for Autonomous Spin Wave Spectroscopy](/202605/03/2604.23821v1-accelerating-quantum-materials-characterization-hybrid-active-learning-for-autonomous-spin-wave-spectroscopy)  
+1. [Scale-Aware Adversarial Analysis: A Diagnostic for Generative AI in Multiscale Complex Systems](/202605/04/2605.00510v1-scale-aware-adversarial-analysis-a-diagnostic-for-generative-ai-in-multiscale-complex-systems)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于自主科学发现的物理信息框架
-2. [The functional form of galaxy and halo luminosity and mass functions](/202605/03/2604.23236v1-the-functional-form-of-galaxy-and-halo-luminosity-and-mass-functions)  
+   evidence：多尺度复杂物理系统中AI的诊断工具
+2. [Can Coding Agents Reproduce Findings in Computational Materials Science?](/202605/04/2605.00803v1-can-coding-agents-reproduce-findings-in-computational-materials-science)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：基于大模型的智能体用于复现计算科学工作流
+3. [Rethinking Wireless Communications through Formal Mathematical AI Reasoning](/202605/04/2604.25155v1-rethinking-wireless-communications-through-formal-mathematical-ai-reasoning)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：使用符号回归自动搜索函数形式
-3. [OptProver: Bridging Olympiad and Optimization through Continual Training in Formal Theorem Proving](/202605/03/2604.23712v2-optprover-bridging-olympiad-and-optimization-through-continual-training-in-formal-theorem-proving)  
+   evidence：基于LLM的数学物理推导与发现
+4. [RoadMapper: A Multi-Agent System for Roadmap Generation of Solving Complex Research Problems](/202605/04/2604.27616v1-roadmapper-a-multi-agent-system-for-roadmap-generation-of-solving-complex-research-problems)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于优化和科学计算的正式定理证明
-4. [The Last Human-Written Paper: Agent-Native Research Artifacts](/202605/03/2604.24658v1-the-last-human-written-paper-agent-native-research-artifacts)  
+   evidence：用于解决复杂研究问题和路线图生成的多智能体系统
+5. [Exploring Interaction Paradigms for LLM Agents in Scientific Visualization](/202605/04/2604.27996v1-exploring-interaction-paradigms-for-llm-agents-in-scientific-visualization)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：面向智能体的研究产物，用于机器可执行的科学发现
-5. [The Last Human-Written Paper: Agent-Native Research Artifacts](/202605/03/2604.24658v2-the-last-human-written-paper-agent-native-research-artifacts)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：面向智能体的科学发现研究产物
-6. [Can Current Agents Close the Discovery-to-Application Gap? A Case Study in Minecraft](/202605/03/2604.24697v1-can-current-agents-close-the-discovery-to-application-gap-a-case-study-in-minecraft)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：用于科学发现闭环的智能体
-7. [Intern-Atlas: A Methodological Evolution Graph as Research Infrastructure for AI Scientists](/202605/03/2604.28158v1-intern-atlas-a-methodological-evolution-graph-as-research-infrastructure-for-ai-scientists)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：AI科研智能体基础设施
+   evidence：用于科学可视化工作流的大模型智能体
 
 
 <div class="dpr-home-promo-card">

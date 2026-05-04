@@ -1,0 +1,1952 @@
+Title: HyCOP: Hybrid Composition Operators for Interpretable Learning of PDEs
+
+URL Source: https://arxiv.org/pdf/2605.00820v1
+
+Published Time: Mon, 04 May 2026 01:09:07 GMT
+
+Number of Pages: 39
+
+Markdown Content:
+# HyCOP: Hybrid Composition Operators for Interpretable Learning of PDEs 
+
+Jinpai Zhao ∗
+
+Oden Institute University of Texas at Austin Austin, TX, USA 
+
+max.zhao@utexas.edu 
+
+Nishant Panda ∗
+
+Information Sciences, CAI-3 Los Alamos National Laboratory Los Alamos, NM 87545, USA 
+
+nishpan@lanl.gov 
+
+Yen Ting Lin 
+
+Information Sciences, CAI-3 Los Alamos National Laboratory Los Alamos, NM 87545, USA 
+
+yentingl@lanl.gov 
+
+Eirik Valseth 
+
+Norwegian University of Life Sciences Ås, Norway / Simula Research Lab. Oslo, Norway 
+
+eirik.valseth@nmbu.no 
+
+Diane Oyen 
+
+Information Sciences, CAI-3 Los Alamos National Laboratory Los Alamos, NM 87545, USA 
+
+doyen@lanl.gov 
+
+Clint Dawson 
+
+Oden Institute University of Texas at Austin Austin, TX, USA 
+
+clint.dawson@austin.utexas.edu 
+
+## Abstract 
+
+We introduce HyCOP, a modular framework that learns parametric PDE solution operators by composing simple modules (advection, diffusion, learned closures, boundary handling) in a query-conditioned way. Rather than learning a monolithic map, HyCOP learns a policy over short programs—which module to apply and for how long—conditioned on regime features and state statistics. Modules may be numerical sub-solvers or learned components, enabling hybrid surrogates evalu-ated at arbitrary query times without autoregressive rollout. Across diverse PDE benchmarks, HyCOP produces interpretable programs, delivers order-of-magnitude OOD improvements over monolithic neural operators, and supports modular trans-fer through dictionary updates (e.g., boundary swaps, residual enrichment). Our theory characterizes expressivity and gives an error decomposition that separates composition error from module error and doubles as a process-level diagnostic. 
+
+## 1 Introduction 
+
+Scientific machine learning (SciML) is moving beyond monolithic replacement of numerical solvers. Across fluid dynamics, climate modeling, and multi-physics simulation, practitioners increasingly build hybrid pipelines that embed pretrained neural surrogates alongside classical numerical modules within larger workflows [Jakeman et al., 2026, Singh et al., 2017]. Verification and validation frameworks now treat such hybrid models as a first-class category [Jakeman et al., 2026], recognizing that trustworthy SciML requires not only accurate components but principled ways to combine them. A central question therefore remains: given a heterogeneous collection of numerical and learned  
+
+> ∗Equal contribution. Corresponding author: nishpan@lanl.gov . LA-UR-26-23260. Preprint.
+> arXiv:2605.00820v1 [cs.CE] 1 May 2026
+
+components, how should a scientist compose them into a surrogate that is robust, interpretable, and modular? 
+
+This paper provides one answer for a broad and practically important class of problems: spatiotempo-ral PDEs that admit a meaningful decomposition into constituent physical mechanisms , for example, advection–diffusion–reaction equation, shallow-water equation, Navier–Stokes equation, and many multi-physics systems with advective, viscous, and forcing splits. Traditionally, such systems have been modeled incrementally: a modeler starts with known or postulated physical mechanisms to compose processes that explains data; when the composition fails to explain the data, modelers use the pattern of failure to identify, hypothesize, or discover the missing mechanism. Monolithic neural operators discard this workflow: they learn a single black-box map from paired data, and when they fail under distribution shift, they provide little guidance on why or what to fix .
+
+The myth of expensive numerical solvers. A common motivation for monolithic surrogates is that numerical PDE solvers are slow. But this conflates the cost of the full coupled solver with the cost of its constituent processes . The full solver is expensive because it resolves the non-commutative interaction of multiple mechanisms at fine scales. By contrast, individual process solvers—a spectral diffusion step, an upwind advection scheme, an explicit reaction update—benefit from decades of algorithmic and hardware optimization, and often run faster than a neural operator forward pass at comparable resolution. The bottleneck is not the primitives; it is knowing how to compose them. 
+
+1.1 Scientific Machine Learning Regimes 
+
+These observations motivate the central thesis: encoding a PDE’s process decomposition as a structural prior—and learning only the composition policy—yields surrogates that are more robust under shift, more interpretable, and more modular for transfer than monolithic alternatives. HyCOP is designed to address two distinct SciML needs.  
+
+> Compose
+> Diagnose Enrich
+> error localizes
+> add primitive or closure
+> relearn policy
+
+Figure 1: Compose–diagnose– enrich. HyCOP’s workflow for incomplete or hybrid physics (§5.2). 
+
+Regime A: surrogate fitting (physics is known). When the governing equations are fully specified, the scientist wants a fast surrogate for downstream tasks that remains accurate as initial con-ditions, boundary conditions, parameters, or resolution shift at test time. HyCOP encodes each known process as a dictionary primi-tive and learns only the composition policy ( ∼50–100 parameters), yielding short programs adapted to each query’s physical regime. Because each primitive generalizes independently, the composition degrades gracefully under shift. For example, a HyCOP policy trained on smooth shallow-water equations with periodic bound-aries transfers zero-shot to dam-break shocks, wall boundaries, discontinuities, and parameter ranges never seen in training, out-performing monolithic baselines by 10 ×. Swapping the boundary primitive for a wall-boundary module, without retraining, yields a further 4× improvement (§5.1). 
+
+Regime B: adaptation and discovery (physics is incomplete or heterogeneous). When the process decomposition is only partially known, or when components come from different sources, HyCOP supports a compose–diagnose–enrich loop (Figure 1). We demonstrate two complementary use cases on the same AD →ADR benchmark: (a) Unknown missing physics. A scientist models advection–diffusion (AD) but encounters ADR data. Composing the AD dictionary produces structured failure: errors concentrate where reaction dominates. A residual closure (UNO) trained on the discrepancy is added to the dictionary, and relearning only the policy recovers accuracy while revealing where the closure activates. (b) Known missing physics, heterogeneous primitives. A lab already has a pretrained AD surrogate, and new data reveals missing reaction that is well characterized. HyCOP composes the pretrained AD surrogate (learned primitive) with a textbook reaction solver (numerical primitive), learning a policy over this hybrid dictionary without retraining either component. Both paths arrive at a hybrid dictionary—numerical and learned components orchestrated by a small policy—but from different scientific starting points. This is why “Hybrid” appears in the title. 2Figure 2: HyCOP at a glance. (a) A small learned policy πθ (∼50–100 parameters) maps a query 
+
+x = ( u0, μ, T ) to a program of (primitive, duration) pairs from dictionary D, composed over [0 , T ]
+
+to produce ˆu(T ); programs adapt to the regime (walkthrough in §3.1). (b) Each primitive can be numerical, learned, or both, enabling hybrid dictionaries (§5.2.1). (c) πθ smoothly reallocates time with regime numbers, consistent with dominant-process physics. (d) The framework applies across PDE systems (coverage: Table 6; results: §5, Appendix C). Monolithic neural operators are therefore not replaced by this framework, but absorbed into it: as expensive constituent processes in Regime A, or as learned primitives modeling missing physics in Regime B. HyCOP orchestrates heterogeneous building blocks rather than competing with them. 
+
+Our contributions (overview in Figure 2). 
+
+1. Framework. We introduce HyCOP, a modular framework that learns PDE solution operators as query-conditioned compositions of reusable primitives—numerical, neural, or learned closures— supporting hybrid dictionaries and multi-time prediction without autoregressive rollout (§3). 2. Theory. We introduce compositional operator flows as a new hypothesis class and provide the first learning-theoretic analysis of learned query-conditioned compositions, including an error decomposition that separates splitting error from primitive error and doubles as a diagnostic (§4). 3. Experiments. Across five benchmarks including 2D Navier–Stokes, HyCOP delivers order-of-magnitude OOD improvements over state-of-the-art monolithic baselines, with more than 25 ×
+
+fewer training forward passes and over 10 × shorter wall-clock training time (§5). 4. Modularity. HyCOP supports zero-shot adaptation through dictionary updates: on the dam-break experiment, the learned policy alone handles OOD shock initial conditions and a 100 × larger grid, while swapping the boundary primitive resolves the remaining boundary mismatch. For missing physics (AD →ADR), learned residuals and hybrid numerical–neural dictionaries capture the absent reaction mechanism without retraining existing primitives (§5, §6). 
+
+## 2 Background and Positioning 
+
+Operator splitting. When a PDE generator decomposes as F = Pni=1 Fi, operator splitting approximates the coupled flow etF by composing simpler sub-flows. Lie–Trotter [Trotter, 1959] gives first-order accuracy; Strang [Strang, 1968] second-order; higher-order schemes also exist [Suzuki, 1990, Hairer et al., 2006]. The error is governed by commutators [Fi, Fj ], but the schedule is fixed 
+
+a priori and cannot adapt to each query. Neural operators. Neural operators learn monolithic maps between function spaces, including FNO [Li et al., 2021], DeepONet [Lu et al., 2021], Loc. Int. Diff. FNO [Liu-Schiaffini et al., 2024], CNO [Raoni´ c et al., 2023], PINO [Li et al., 2024], PDE-Refiner [Lippe et al., 2023], and Poseidon [Herde et al., 2024]. These methods are powerful in distribution, but under shift the learned map degrades globally and the architecture does not localize failure to a specific process. Related approaches such as operator inference [Kramer et al., 2024], PINNs [Raissi et al., 2019], GP/kernel surrogates [Chen et al., 2021, Batlle et al., 2024], and Koopman methods [Bevanda et al., 2021] address adjacent goals, but none learns an explicit, query-conditioned composition over reusable process primitives. The gap. Classical splitting encodes process structure but does not learn from data; neural operators learn from data but discard process 3structure. HyCOP bridges this gap by learning a query-conditioned sequential composition—which process to apply and for how long—preserving the physics of each sub-flow rather than using fixed schedules or weighted blends. Concurrent work. Recent papers validate compositional structure but keep the schedule fixed: Serrano et al. [Serrano et al., 2026] compose DISCO [Morel et al., 2025] operators via fixed Strang splitting; LegONet [Zhang et al., 2026] composes spectral blocks with fixed Strang and a related error decomposition; Gopakumar et al. [Gopakumar et al., 2026] learn physical operators under a fixed schedule; and Koch et al. [Koch et al., 2024] apply splitting to neural DAEs with structurally fixed decompositions. HyCOP differs in that the learned object is the composition itself : it learns what to compose, for how long , and conditioned on the regime .2
+
+Positioning. Table 4 contrasts the three paradigms; the capability unique to HyCOP among learned surrogates is process-level failure diagnosis .
+
+## 3 HyCOP: Hybrid Composition Operators 
+
+We introduce HyCOP through a worked example (§3.1), then present the general framework (§3.2). 
+
+3.1 A Worked Example: Advection–Diffusion–Reaction 
+
+Figure 2a illustrates HyCOP on the 2D advection–diffusion–reaction equation ∂tu + c · ∇ u =
+
+D ∆u+r u (1 −u) with advection velocity c, diffusivity D, and reaction rate r. The dictionary contains three primitives— Oadv , Odiff , Oreact —each implemented numerically, by a learned surrogate, or a mix of both (Figure 2b). Each can be evaluated for any duration τ > 0; none solves the coupled problem alone. Given u0, |c|=2 .0, D=0 .1, r=1 .0, and query time t=0 .5, the policy πθ maps dimensionless features (Péclet number, Damköhler number, variance, gradient variance) to 
+
+[Oadv , τ =0 .20] 
+
+| {z }
+
+> step 1
+
+→ [Odiff , τ =0 .06] 
+
+| {z }
+
+> step 2
+
+→ [Oadv , τ =0 .16] 
+
+| {z }
+
+> step 3
+
+→ [Oreact , τ =0 .08] 
+
+| {z }
+
+> step 4
+
+.
+
+The durations sum to t=0 .5, so the program allocates prediction time across processes rather than advancing with a fixed step. Execution composes the four sub-flows to produce u(0 .5) . When Pe increases at test time, the policy reallocates time toward advection; each primitive remains valid, so the composition adapts where a monolithic network cannot. If the dictionary is incomplete—e.g., the true system includes a process absent from the dictionary—HyCOP’s errors localize where the missing process dominates, enabling the compose–diagnose–enrich loop described in §1 and demonstrated in §5.2.1. 
+
+3.2 General Framework: Training and Inference Setup and query-conditioned programs. We consider ∂tu = F(u, μ ), u(0)= u0, on Ω with bound-ary condition b. For a query x=( μ, u 0, b, Ω) and time t, the solution operator is S(t; x)=Φ F 
+
+> t
+
+(u0).When F ≈ Pnj=1 Fj , HyCOP collects implemented sub-flows into a dictionary D={ bO1, . . . , bOn},where each primitive may be a numerical sub-solver, a neural operator, or a learned closure. The policy πθ predicts a program (j1, τ 1), . . . , (jk, τ k) and evaluates 
+
+bS(t; x) = bΨθ (x, t ) := bΦ(jk ) 
+
+> τk
+
+◦ · · · ◦ bΦ(j1) 
+
+> τ1
+
+(u0). (1) HyCOP is therefore a learned integrator family : a policy-selected composition of flows, not a weighted blend. Multi-time queries are answered without autoregressive rollout. Dictionary specifica-tions and policy sizes appear in Table 7 (Appendix C). 
+
+Training objective. We minimize the expected prediction error 
+
+J(θ) := E(x,t )∼ρ
+
+L(x, t ; θ), L(x, t ; θ) = u(t; x) − bΨθ (x, t ) L2 , (2) where reference targets u(t; x) come from a trusted solver. The policy conditions on (x, t ) and scale-free features f (x)—dimensionless regime numbers (Péclet, Damköhler, Froude) and coarse state statistics—rather than raw grid values, promoting resolution-invariant scheduling (§6). 
+
+> 2GEPS [Kassaï Koupaï et al., 2024], VENICE [Wilhelm and Portegies Zwart, 2024], HINTS [Zhang et al., 2024], and scale-consistent training [Li et al., 2025] pursue complementary directions.
+
+4Algorithm 1 Training HyCOP with Evolution Strategies (ES) 
+
+Inputs: dictionary D={O 1, . . . , On}; query distribution ρ over (x, t ); policy πθ ; ES settings (M, σ, η, λ ).
+
+Outputs: trained parameters θ⋆; at inference, πθ⋆ (x, t ) emits per-step primitive logits zr , durations 
+
+τr =softplus( ar ), and program length k — together prescribing which Oj ∈ D to apply, for how long, and in what order.  
+
+> 1:
+
+for generation = 1 , 2, . . . do  
+
+> 2:
+
+Sample minibatch {(xb, t b)}Bb=1 ∼ ρ; sample ϵi ∼ N (0 , I ) for i=1 , . . . , M  
+
+> 3:
+
+L± 
+
+> i
+
+← 1
+
+> B
+
+PBb=1 L xb, t b; θ ± σϵ i
+
+ // L runs bΨθ from Eq. (1)  
+
+> 4:
+
+{w+ 
+
+> i
+
+, w − 
+
+> i
+
+}Mi=1 ← rank -shape( {L+ 
+
+> i
+
+, L − 
+
+> i
+
+}); g ← 12M σ 
+
+PMi=1 (w+ 
+
+> i
+
+− w− 
+
+> i
+
+) ϵi 
+
+> 5:
+
+θ ← (1 − λ) ( θ − η g ) // ES step with weight decay  
+
+> 6:
+
+end for  
+
+> 7:
+
+return θ⋆ ← θ
+
+Policy and optimization. At each program position r ∈ { 1, . . . , K max }, the policy outputs (i) logits 
+
+zr ∈ Rn selecting a primitive via σr = softmax( zr ), (ii) a positive duration τr = softplus( ar ), and (iii) an effective program length k ∈ [2 , K max ]. We train with Evolution Strategies (ES) [Salimans et al., 2017] because θ 7 → L (x, t ; θ) is generally non-differentiable when primitives are legacy solvers or other black-box modules. ES is practical here because the policy is low-dimensional ( ∼50– 100 parameters) and population rollouts parallelize trivially. The same hyperparameters ( M =500 ,
+
+σ=0 .02 , 200 generations) are used across all benchmarks without per-problem tuning. Algorithm 1 and further details are in Appendix B; Figure 5 illustrates the pipeline. 
+
+What HyCOP is not. For a query x and dictionary D, HyCOP produces an operator bΨθ (x, ·): u0 7 →
+
+ˆu(t) via Eq. (1) —not a mixture-of-experts: MoE blends outputs ( ˆu= P gifi(u0)), HyCOP composes 
+
+flows sequentially, so order matters and durations are physical integration times. It is not autore-gressive rollout: programs operate at the operator level over learned durations rather than fixed-∆t
+
+marching. And it is not fixed splitting: HyCOP learns the schedule from data, conditioned on regime features, whereas concurrent work [Serrano et al., 2026, Zhang et al., 2026] uses fixed Strang. 
+
+## 4 A Learning Theory for Compositional Operator Flows 
+
+Neural operator theory gives universal approximation results for monolithic maps [Kovachki et al., 2023, Lu et al., 2021]. Classical splitting theory analyzes fixed schedules [Hairer et al., 2006, Strang, 1968]. Neither addresses a learned, query-conditioned composition of approximate sub-flows—a distinct regime where the schedule is not fixed and the hypothesis class is not unstructured. We develop the first learning-theoretic analysis of compositional operator flows as a hypothesis class for PDE surrogates. 
+
+Composite flows as a hypothesis class 
+
+Consider a stable split system (Definition A.1, Appendix A): ∂tu=F(u, μ ) with F= Pni=1 Fi, each sub-problem well-posed. A k-step composite flow is Ψ(k)=Φ (jk ) 
+
+> τk
+
+◦ · · · ◦ Φ(j1) 
+
+> τ1
+
+; let C= S 
+
+> k≥1
+
+Ck be the class of all finite composite flows, and bC the corresponding class with implemented primitives. Unlike the hypothesis classes of FNO or DeepONet which are general continuous operators without process structure, HyCOP’s hypothesis class C is restricted to sequential compositions of process-specific sub-flows, making every element interpretable and modular. C is dense in the space of PDE solution operators on compact sets (Theorem A.7, Appendix A): no entanglement of processes is needed. The more consequential results, a structured error decomposition and policy existence, follow. The overall theory roadmap is summarized in Figure 3. 
+
+4.1 Structured error decomposition 
+
+When exact sub-flows are replaced by implemented primitives, the error separates: 
+
+∥u(t)− bΨθ ∥
+
+| {z }
+
+> total
+
+≤ ∥ u(t)−Ψθ ∥
+
+| {z }
+
+> splitting err. (policy)
+
++ ∥Ψθ − bΨθ ∥
+
+| {z }
+
+> primitive err. (modules)
+
+, (3) 5Thm. 4.3: Universality  
+
+> with structure
+> Thm. A.7: Expressivity
+> Lie algebra / comm. bounds
+> Thm. 4.1: Error decomp.
+> splitting + primitive
+> Thm. 4.2: Policy existence
+> ε-optimal θ⋆
+
+Figure 3: Expressivity (Thm. A.7) and error decomposition (Thm. 4.1) provide the approximation-theoretic foundation; policy existence (Thm. 4.2) ensures learnability; together they yield universality with structure (Thm. 4.3) within the compositional class bC.where Ψθ uses exact sub-flows and bΨθ uses implementations. 
+
+Theorem 4.1 (Error decomposition) . Under regularity/stability assumptions (Appendix A), split-ting error is O(hp) for order-p schedules (constant depends on [Fi, Fj ]); primitive error satisfies 
+
+∥Ψθ − bΨθ ∥L2 ≤ Csol e¯ωT (P 
+
+> j
+
+τ q+1  
+
+> j
+
+)∥u0∥Hs with q the sub-solver order. Both terms admit practical estimators (Appendix A). 
+
+Under shift, each sub-flow remains well-posed, so primitive error is controlled independently of the regime; the policy adapts the schedule. When a mechanism is missing, a dictionary mismatch 
+
+term prepends the bound, yielding a three-term decomposition (mismatch + splitting + primitive) where each term maps to a distinct intervention: enrich the dictionary, refine the policy, or improve a module. This is the theoretical basis for the compose–diagnose–enrich loop (§1). 
+
+4.2 Near-optimal policies and universality with structure Theorem 4.2 (ε-optimal policy) . Let Λ be compact, Θ a compact policy class (programs up to 
+
+Kmax steps), and assume primitive stability. Then J(θ)= E[L(x, t ; θ)] attains its infimum on Θ; an 
+
+ε-optimal θ⋆ exists; and x7→ θ⋆(x) can be approximated by a neural network (Appendix A). 
+
+Combining Theorem A.7 (Appendix), Theorem 4.1, and Theorem 4.2: 
+
+Theorem 4.3 (Universality for compositional surrogates) . Under the above conditions, for any ε> 0
+
+and compact Λ, ∃ neural policy πϕ with sup x∈Λ ∥u(t; x)− bΨπϕ(x)(x, t )∥L2 <ε .
+
+Universality with structure. This is not a corollary of standard universality, which guarantees only that some black-box operator approximates the map. Theorem 4.3 says universality holds within bC,where every step has physical meaning and errors decompose as in (3) —universality with built-in modularity, interpretability, and process-level diagnostics. LegONet [Zhang et al., 2026] has a related decomposition for fixed Strang; our results are the first for non-fixed, learned, query-conditioned policies. 
+
+## 5 Experiments 
+
+The theory predicts graceful OOD degradation, successful transfer via dictionary updates, and inter-pretable programs. We test these predictions across two regimes mirroring the scientific workflows introduced in §1. 
+
+Setup. We benchmark on 2D compressible Navier–Stokes (NS, PDEBench [Takamoto et al., 2022]), 2D shallow-water equations (SWE), and 2D advection–diffusion–reaction (ADR, Fisher–KPP). Baselines include FNO [Li et al., 2021], DeepONet [Lu et al., 2021], Loc. Int. Diff. FNO [Liu-Schiaffini et al., 2024], U-Net [Ronneberger et al., 2015], PINO [Li et al., 2024], Poseidon [Herde et al., 2024], and classical Strang splitting on the same primitives as HyCOP. We report HyCOP in two dictionary configurations: HyCOP, with an all-numerical primitive dictionary, and HyCOP-Hyb, in which one or more primitives are pretrained FNO surrogates with FiLM [Perez et al., 2018] conditioning on query time and the remaining primitives are numerical. HyCOP-Hyb appears on the NS benchmark (Table 1a) and in the Regime B adaptation experiments (§5.2); all other results use the all-numerical HyCOP. All methods train on the same data; HyCOP uses identical ES hyperparameters (M =500 , σ=0 .02 , 200 generations) for all from-scratch training across benchmarks, without per-problem tuning. Adaptation experiments (§5.2) use shorter ES runs from a warm-started policy; 6Table 1: Regime A: Surrogate fitting (known physics). Relative L2 error ( ↓) unless noted. 
+
+> †
+
+PDEBench-reported numbers. HyCOP uses an all-numerical primitive dictionary throughout; HyCOP-Hyb (panel a) uses a mixed dictionary of numerical and pretrained learned primitives (NS setup: Appendix C.3.3). Baseline training details: Appendix C. All models trained on the same data; HyCOP uses identical ES hyperparameters ( M =500 , σ=0 .02 , 200 generations) across all benchmarks. 
+
+(a) 2D Compressible NS   
+
+> (PDEBench, T=0 .05 ; nRMSE / cRMSE)
+
+(b) Fixed-time: 2D SWE and 2D ADR                                          
+
+> Method nRMSE cRMSE U-Net †5.10 ×10 03.20 ×10 −2
+> PINO 6.34 ×10 −11.37 ×10 0
+> FNO †3.60 ×10 −13.20 ×10 −3
+> DeepONet 7.91 ×10 −24.76 ×10 −2
+> Strang 7.56 ×10 −21.59 ×10 −8
+> HyCOP-Hyb 7.97 ×10 −21.59 ×10 −8
+> HyCOP 4.04 ×10 −21.59 ×10 −8
+> 2D SWE 2D ADR Method ID OOD ID OOD DeepONet 3.89 ×10 −15.61 ×10 −11.58 ×10 −12.82 ×10 −1
+> FNO 1.19 ×10 −13.80 ×10 −18.42 ×10 −22.60 ×10 −1
+> PINO 1.17 ×10 −13.83 ×10 −18.42 ×10 −22.36 ×10 −1
+> Loc. Int. Diff. FNO 7.49 ×10 −23.54 ×10 −13.15 ×10 −21.89 ×10 −1
+> HyCOP 2.40 ×10 −25.00 ×10 −22.10 ×10 −22.87 ×10 −2
+
+(c) Long-horizon: 2D SWE (d) Long-horizon: 2D ADR                                               
+
+> 5-step 20-step Method ID OOD ID OOD U-Net 1.04 ×10 05.92 ×10 −14.20 ×10 01.20 ×10 0
+> LIDFNO 4.95 ×10 −16.93 ×10 −15.52 ×10 01.44 ×10 0
+> Poseidon 3.47 ×10 −16.54 ×10 −18.42 ×10 −19.35 ×10 −1
+> AR-LIDFNO 1.72 ×10 −15.33 ×10 −14.86 ×10 −17.55 ×10 −1
+> HyCOP 1.91 ×10 −24.54 ×10 −26.94 ×10 −21.21 ×10 −1
+> 5-step 20-step Method ID OOD ID OOD U-Net 1.70 ×10 −15.23 ×10 −12.30 ×10 −11.07 ×10 0
+> LIDFNO 7.78 ×10 −25.65 ×10 −11.51 ×10 −11.30 ×10 0
+> AR-LIDFNO 8.24 ×10 −23.97 ×10 −11.02 ×10 −15.72 ×10 −1
+> HyCOP 1.68 ×10 −22.12 ×10 −21.96 ×10 −23.78 ×10 −2
+
+details in Appendix C.5. Full PDE specifications, parameter ranges, and OOD definitions are in Appendix C; additional 1D benchmark results are in Appendix C.2. Fairness. All methods train on the same data distribution and sample count. HyCOP is trained with variable query time T ;fixed-time baselines are evaluated at the matching target time; autoregressive baselines use free rollout. Primitives have zero learnable parameters (numerical variant); HyCOP-Hyb’s FNO-FiLM primitives are pretrained on single-process data and frozen. 
+
+5.1 Regime A: Surrogate Fitting 
+
+When the physics is fully known, HyCOP learns compositional programs that generalize across parameter regimes, initial conditions, boundary conditions, and resolutions. 
+
+5.1.1 2D Compressible Navier–Stokes (PDEBench) 
+
+We evaluate single-step prediction on the PDEBench 2D compressible NS benchmark ( M =0 .1,
+
+η=ζ=0 .1, T =0 .05 ), predicting density, velocity (Vx, V y ), and pressure from initial conditions. HyCOP’s dictionary consists of an RK4 Euler advection primitive and a spectral viscous diffusion primitive—both textbook routines with zero learnable parameters. Table 1 reports results. HyCOP achieves nRMSE 4.04 × 10 −2, outperforming Strang splitting by 47%, DeepONet by 49%, FNO by 89%, and PINO by 94%. The improvement over Strang is the cleanest test of our central claim: same primitives, same dictionary, different schedule—the learned composition policy accounts for the entire gap. Conservation error (cRMSE) is at machine precision (1.59 × 10 −8) for both HyCOP and Strang, inherited directly from the numerical primitives. No monolithic baseline provides this guarantee; DeepONet’s cRMSE is six orders of magnitude worse. 
+
+5.1.2 2D Shallow-Water Equations: OOD and Transfer 
+
+PDEBench does not support controlled OOD evaluation (parameter extrapolation, long-horizon rollout, boundary shift). We design a 2D SWE benchmark with explicit OOD splits in physical parameters and initial conditions (details in Appendix C). 
+
+Fixed-time evaluation. Table 1 (panel b) reports relative L2 error at a single query time. HyCOP achieves order-of-magnitude OOD improvements: 5.00 × 10 −2 versus 3.54 –3.80 × 10 −1 for the 7Figure 4: Dam-break transfer (zero-shot). Left: reference SWE height surface with a highlighted cross-section. Right: 1D slice at y = 50 m comparing baselines vs. HyCOP. Swapping only the boundary primitive (periodic → wall) yields a sharp improvement and resolves the shock region (gray box), indicating boundary physics as the dominant shift. Table 2: SWE → dam-break transfer (zero-shot). Relative L2 error ( ↓) for height h, with inference time per sample. All models trained only on smooth SWE with periodic boundaries. Swapping the boundary primitive (periodic → wall) requires no retraining.              
+
+> AR-Loc. Int. Diff. FNO Poseidon HyCOP (periodic) HyCOP (wall swap)
+> Rel. L2(h)3.84 ×10 −14.62 ×10 −13.82 ×10 −29.92 ×10 −3
+> Time (s) 0.345 3.391 1.397 1.360
+
+best monolithic baseline on SWE. Full metric breakdown (fRMSE bands, RMSE, MaxErr, bRMSE, cRMSE) and qualitative comparisons appear in Appendix C.3.2. 
+
+Long-horizon rollout. Table 1 (panel c) shows error at 5-step and 20-step horizons on SWE. Autoregressive baselines accumulate error rapidly, with most exceeding Rel . L 2 > 1.0 at 20 steps OOD—worse than a constant predictor. HyCOP remains stable because its programs compose at the operator level rather than marching one small step at a time. Per-horizon trajectory metrics and qualitative rollouts at 1/5/10 /20 steps are in Appendix C.4.2. 
+
+Dam-break transfer. The source task is 2D SWE with periodic boundaries and smooth ICs; the target is a dam-break with solid-wall boundaries and shock discontinuities—never seen in training. Table 2 and Figure 4 reveal a progressive story. HyCOP with periodic primitives already outperforms all baselines zero-shot ( 10 ×); the policy alone handles the OOD initial conditions and a 100 × larger grid. Swapping the boundary primitive for a wall-boundary module—without any dam-break training data—drops error by another 4×, demonstrating that boundary physics is the dominant residual shift and that modular transfer resolves it. 
+
+Computational cost. HyCOP achieves these results with 5×10 5 training forward passes— 25 × fewer than U-Net/AR baselines—and over 10 × shorter wall-clock training time. At inference, HyCOP is 
+
+2× faster than Poseidon at 20-step horizons (Table 5). 
+
+5.1.3 2D Advection–Diffusion–Reaction 
+
+We run the same fixed-time and long-horizon experiments on 2D advection–diffusion–reaction (Fisher–KPP); HyCOP shows the same OOD-robustness pattern with comparable order-of-magnitude improvements (Table 1, panels b and d). Full setup, metric breakdown, qualitative comparisons, and trajectory rollouts are in Appendices C.3.1 and C.4.1. 
+
+5.2 Regime B: Adaptation and Discovery 
+
+When the physics is incomplete or components come from different sources, HyCOP’s compositional structure enables systematic model refinement. We demonstrate both paths introduced in §1 on the AD →ADR benchmark. 8Table 3: Regime B: Adaptation and discovery on 2D ADR. Relative L2 error ( ↓). Setup details for all configurations in Appendix C.5. Top : monolithic baselines trained end-to-end on full ADR data, and HyCOP with the complete numerical dictionary (Regime A reference). Middle : two adaptation paths from incomplete or heterogeneous dictionaries—neither retrains any existing primitive; only the small policy ( ∼50–100 parameters) is (re)learned. Bottom : ablation replacing all numerical primitives with per-process FNOs.                             
+
+> Method Dictionary ID OOD
+> Baselines trained on full ADR data
+> DeepONet —1.58 ×10 −12.82 ×10 −1
+> FNO —8.42 ×10 −22.60 ×10 −1
+> PINO —8.42 ×10 −22.36 ×10 −1
+> Loc. Int. Diff. FNO —3.15 ×10 −21.89 ×10 −1
+> HyCOP {Adv, Diff, React} 2.10 ×10 −22.87 ×10 −2
+> Missing physics  Path (a): compose–diagnose–enrich (unknown missing physics)
+> HyCOP (AD pretrain) {Adv, Diff} 1.81 ×10 −1
+> HyCOP + residual {Adv, Diff, Resid.} 4.42 ×10 −2
+> Path (b): hybrid dictionary (known missing physics)
+> HyCOP-Hyb {FNO-AD, React} 3.77 ×10 −21.36 ×10 −1
+> Ablation: fully learned primitives (per-process FNOs)
+> HyCOP-Learned {FNO-Adv, FNO-Diff, FNO-React} 2.38 ×10 −23.90 ×10 −1
+
+5.2.1 Two Paths to a Hybrid Dictionary 
+
+The source task is 2D advection–diffusion (AD); the target is ADR with Fisher–KPP reaction. We compare two scientific workflows arriving at hybrid dictionaries: 
+
+Path (a): Unknown missing physics (compose–diagnose–enrich). The scientist starts with an AD dictionary {O adv , Odiff } and observes structured failure on ADR data: errors concentrate where reaction dominates, while advection/diffusion regions remain accurate. A residual closure (UNO, trained on 120 ADR trajectories) is added as Ores , and only the policy is relearned over the enriched dictionary. Error drops from 0.181 to 0.044 (Table 3), and the resulting programs invoke the residual precisely in high-reaction regions (Figure 20). 
+
+Path (b): Known missing physics, heterogeneous primitives. A lab already has a pretrained FNO-FiLM surrogate for AD dynamics (trained on AD data, frozen). The missing reaction mechanism is well-characterized, so a textbook numerical reaction solver is added. HyCOP learns a two-operator policy over the hybrid dictionary {FNO-AD , Onum react }—no retraining of either component. Table 3 reveals a diagnostic gradient. HyCOP (all numerical, Rel. L2 OOD = 2 .87 × 10 −2) barely degrades because every primitive generalizes exactly; the only OOD vulnerability is the policy schedule. HyCOP-Hyb (Rel. L2 OOD = 1 .36 × 10 −1) degrades more because the FNO-FiLM AD primitive does not generalize as robustly—precisely the primitive-error term in the decomposition (3) .Yet HyCOP-Hyb still outperforms Loc. Int. Diff. FNO ( 1.89 × 10 −1), a monolithic model trained end-to-end on the full ADR system. The error decomposition serves as a diagnostic: the scientist can identify the FNO-FiLM as the limiting component and decide whether to replace it with a numerical primitive (recovering HyCOP’s robustness) or invest in a more robust learned surrogate. Both paths arrive at hybrid dictionaries—numerical and learned components orchestrated by a small policy—from different scientific starting points. Neither requires retraining any existing primitive; only the small policy ( ∼50–100 parameters) is (re)learned. 
+
+## 6 Ablations and Analysis 
+
+We systematically test each component of HyCOP (Table 5). Dictionary robustness. Adding a redundant reaction primitive to the SWE dictionary does not degrade accuracy: the policy suppresses it to 3.5% time allocation ( Rel . L 2 = 2 .30 × 10 −2 vs. 2.40 × 10 −2 with the correct dictionary). When reaction is missing from the AD dictionary and the target is ADR, zero-shot error is 0.181 ;dictionary enrichment recovers to 0.044 (§5.2.1). ES sensitivity. A grid sweep over population size 
+
+M ∈ { 100 , 250 , 500 } and noise σ ∈ { 0.01 , 0.02 , 0.05 } on 2D SWE shows a broad plateau; even 9M =100 outperforms all monolithic baselines OOD ( 3.5 × 10 −2 vs. > 3.5 × 10 −1). Resolution transfer. A policy trained at 32 ×32 transfers zero-shot to 128 ×128 on 2D SWE with modest degradation ( 2.40 → 3.37 × 10 −2); the policy conditions on dimensionless features, so only primitive cost scales with resolution. Feature ablation. Conditioning on dimensionless regime features (Péclet, variance, gradient variance) reduces OOD error by 32% relative to raw IC inputs, confirming their role in regime-aware scheduling. Fully Learned primitives. Replacing all numerical primitives with per-process FNOs on 2D ADR isolates the primitive-error term of the error decomposition (§4): OOD error tracks primitive quality as the theory predicts (Table 3), validating the decomposition as a diagnostic. Chaotic validation. On the chaotic Kuramoto–Sivashinsky equation—where our stable-split-system assumptions may not hold—HyCOP maintains low spectral error and KL divergence of the invariant measure across ID and OOD settings (Table 5, panel e; Appendix C.6). 
+
+Policy interpretation. On 2D ADR, reaction-primitive allocation increases monotonically with Damköhler number while advection allocation tracks Péclet, consistent with dominant-process physics (Figure 2c). 
+
+## 7 Discussion 
+
+When to use HyCOP. HyCOP is designed for structured PDEs where a natural process decomposi-tion exists—advection–diffusion–reaction, shallow-water, Navier–Stokes, and many multi-physics systems. For PDEs with no natural decomposition, monolithic surrogates remain the right tool. When partial knowledge exists, hybrid dictionaries allow the framework to integrate whatever is available—numerical solvers for well-characterized processes, pretrained surrogates for expensive or poorly resolved ones, learned closures for unknown mechanisms. Limitations. The primitive dictionary requires domain knowledge to specify, though dictionary robustness (§6) shows the frame-work tolerates redundant or missing entries. Current 2D experiments use resolutions up to 128 ×128 
+
+(zero-shot from 32 ×32 ); scalability to production resolutions is an engineering question—the policy is resolution-agnostic and only primitive costs scale with grid size. HyCOP-Hyb’s OOD degradation (§5.2.1) shows that learned primitives are the framework’s weakest link under shift; improving their robustness is an active research direction. Broader significance. Scientific computing has always been compositional—finite-element assembly, climate-model coupling, multi-physics splitting—and HyCOP provides a learning-theoretic foundation for this practice with formal guarantees on the resulting error. Recent V&V frameworks [Jakeman et al., 2026] recognize hybrid SciML models as a first-class category; HyCOP provides one concrete instantiation with built-in diagnostics via the error decomposition. Future work. Three directions: (1) fully learned primitive dictionaries removing the need for numerical solvers, with FiLM-conditioned or DeepONet-factored architectures for time-queried primitives; (2) application to climate/weather foundation models as compositional backbones, where each component (radiation, convection, dynamics) is a dictionary entry; (3) con-nections to program synthesis—HyCOP’s programs are discrete compositions amenable to symbolic search, potentially enabling automated discovery of splitting schemes. 
+
+## References 
+
+Robert A. Adams and John J. F. Fournier. Sobolev Spaces . Academic Press, 2nd edition, 2003. Igor A. Baratta, Joseph P. Dean, Jørgen S. Dokken, Michal Habera, Jack S. Hale, Chris N. Richardson, Marie E. Rognes, Matthew W. Scroggs, Nathan Sime, and Garth N. Wells. DOLFINx: The next generation FEniCS problem solving environment, 2023. Preprint. Pau Batlle, Matthieu Darcy, Bamdad Hosseini, and Houman Owhadi. Kernel methods are competitive for operator learning. Journal of Computational Physics , 496:112549, 2024. doi: 10.1016/j.jcp. 2023.112549. Claude Berge. Topological Spaces . Oliver and Boyd, 1963. Petar Bevanda, Stefan Sosnowski, and Sandra Hirche. Koopman operator dynamical mod-els: Learning, analysis and control. Annual Reviews in Control , 52:197–212, 2021. doi: 10.1016/j.arcontrol.2021.09.002. Sergio Blanes, Fernando Casas, and Ander Murua. Splitting methods for differential equations. Acta Numerica , 33:1–161, 2024. 10 Yifan Chen, Bamdad Hosseini, Houman Owhadi, and Andrew M. Stuart. Solving and learning nonlinear PDEs with Gaussian processes. Journal of Computational Physics , 447:110668, 2021. doi: 10.1016/j.jcp.2021.110668. George Cybenko. Approximation by superpositions of a sigmoidal function. Mathematics of Control, Signals and Systems , 2(4):303–314, 1989. Clint Dawson, Mark Loveland, Benjamin Pachev, Jennifer Proft, and Eirik Valseth. SWEMniCS: a software toolbox for modeling coastal ocean circulation, storm surges, inland, and compound flooding. npj Natural Hazards , 1(1):44, 2024. Vignesh Gopakumar, Ander Gray, Daniel Giles, Lorenzo Zanisi, Matt J. Kusner, Timo Betcke, Stanislas Pamela, and Marc Peter Deisenroth. Learning physical operators using neural operators. 
+
+arXiv preprint arXiv:2602.23113 , 2026. Ernst Hairer, Christian Lubich, and Gerhard Wanner. Geometric Numerical Integration . Springer, 2nd edition, 2006. Maximilian Herde, Bogdan Raoni´ c, Tobias Rohner, Roger Käppeli, Roberto Molinaro, Emmanuel de Bézenac, and Siddhartha Mishra. Poseidon: Efficient foundation models for PDEs. In Advances in Neural Information Processing Systems (NeurIPS) , 2024. URL https://arxiv.org/abs/ 2405.19101 .Kurt Hornik, Maxwell Stinchcombe, and Halbert White. Multilayer feedforward networks are universal approximators. Neural Networks , 2(5):359–366, 1989. Tobias Jahnke and Christian Lubich. Error bounds for exponential operator splittings. BIT Numerical Mathematics , 40(4):735–744, 2000. John D. Jakeman, Lorena A. Barba, Joaquim R. R. A. Martins, and Thomas O’Leary-Roseberry. Verification and validation for trustworthy scientific machine learning. Machine Learning: Science and Technology , 7(2):025055, 2026. doi: 10.1088/2632-2153/ae59ec. Armand Kassaï Koupaï, Jorge Mifsut Benet, Yuan Yin, Jean-Noël Vittaut, and Patrick Gallinari. GEPS: Boosting generalization in parametric PDE neural solvers through adaptive conditioning. 
+
+arXiv preprint arXiv:2410.23889 , 2024. James Koch, Madelyn Shapiro, Himanshu Sharma, Draguna Vrabie, and Ján Drgoˇ na. Learning neural differential algebraic equations via operator splitting. arXiv preprint arXiv:2403.12938 , 2024. Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to PDEs. Journal of Machine Learning Research , 24(89):1–97, 2023. URL 
+
+https://www.jmlr.org/papers/v24/21-1524.html .Boris Kramer, Benjamin Peherstorfer, and Karen E. Willcox. Learning nonlinear reduced models from data with operator inference. Annual Review of Fluid Mechanics , 56:521–548, 2024. doi: 10.1146/annurev-fluid-121021-025220. Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. In International Conference on Learning Representations (ICLR) , 2021. URL https://arxiv. org/abs/2010.08895 .Zongyi Li, Hongkai Zheng, Nikola Kovachki, David Jin, Haoxuan Chen, Burigede Liu, Kamyar Azizzadenesheli, and Anima Anandkumar. Physics-informed neural operator for learning partial differential equations. ACM/IMS Journal of Data Science , 1(3):9:1–9:27, 2024. doi: 10.1145/ 3648506. Earlier version available as arXiv:2111.03794. Zongyi Li, Samuel Lanthaler, Catherine Deng, Michael Chen, Yixuan Wang, Kamyar Azizzadenesheli, and Anima Anandkumar. Scale-consistent learning for partial differential equations, 2025. URL 
+
+https://arxiv.org/abs/2507.18813 .11 Phillip Lippe, Bastiaan S. Veeling, Paris Perdikaris, Richard E. Turner, and Johannes Brandstetter. PDE-Refiner: Achieving accurate long rollouts with neural PDE solvers. In Advances in Neural Information Processing Systems (NeurIPS) , 2023. Miguel Liu-Schiaffini, Julius Berner, Boris Bonev, Thorsten Kurth, Kamyar Azizzadenesheli, and Anima Anandkumar. Neural operators with localized integral and differential kernels. In Proceedings of the 41st International Conference on Machine Learning (ICML) , volume 235 of Proceedings of Machine Learning Research , pages 32576–32594. PMLR, 2024. URL 
+
+https://proceedings.mlr.press/v235/liu-schiaffini24a.html .Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. 
+
+Nature Machine Intelligence , 3(3):218–229, 2021. doi: 10.1038/s42256-021-00302-5. Robert I. McLachlan and G. Reinout W. Quispel. Splitting methods. Acta Numerica , 11:341–434, 2002. Ernest Michael. Continuous selections. I. Annals of Mathematics , 63(2):361–382, 1956. Rudy Morel, Jiequn Han, and Edouard Oyallon. DISCO: Learning to discover an evolution operator for multi-physics-agnostic prediction. In Proceedings of the 42nd International Conference on Machine Learning (ICML) , 2025. Ethan Perez, Florian Strub, Harm de Vries, Vincent Dumoulin, and Aaron Courville. FiLM: Vi-sual reasoning with a general conditioning layer. In Proceedings of the Thirty-Second AAAI Conference on Artificial Intelligence and Thirtieth Innovative Applications of Artificial Intelli-gence Conference and Eighth AAAI Symposium on Educational Advances in Artificial Intelligence ,AAAI’18/IAAI’18/EAAI’18. AAAI Press, 2018. ISBN 978-1-57735-800-8. Md Ashiqur Rahman, Zachary E. Ross, and Kamyar Azizzadenesheli. U-NO: U-shaped neural operators. Transactions on Machine Learning Research , 2023. ISSN 2835-8856. URL https: //openreview.net/forum?id=j3oQF9coJd .Maziar Raissi, Paris Perdikaris, and George E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. doi: 10.1016/j.jcp. 2018.10.045. Bogdan Raoni´ c, Roberto Molinaro, Tim De Ryck, Tobias Rohner, Francesca Bartolucci, Rima Alaifari, Siddhartha Mishra, and Emmanuel de Bézenac. Convolutional neural operators for robust and accurate learning of PDEs. In Advances in Neural Information Processing Systems (NeurIPS) ,2023. URL https://arxiv.org/abs/2302.01178 .Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-Net: Convolutional networks for biomedical image segmentation. In Medical Image Computing and Computer-Assisted Intervention – MICCAI 2015 , volume 9351 of Lecture Notes in Computer Science , pages 234–241. Springer, 2015. doi: 10.1007/978-3-319-24574-4_28. Tim Salimans, Jonathan Ho, Xi Chen, Szymon Sidor, and Ilya Sutskever. Evolution strategies as a scalable alternative to reinforcement learning. arXiv preprint arXiv:1703.03864 , 2017. Louis Serrano, Jiequn Han, Edouard Oyallon, Shirley Ho, and Rudy Morel. Test-time generalization for physics through neural operator splitting. arXiv preprint arXiv:2602.00884 , 2026. Anand Pratap Singh, Karthikeyan Duraisamy, and Ze Jia Zhang. Augmentation of turbulence models using field inversion and machine learning. In 55th AIAA Aerospace Sciences Meeting , 2017. doi: 10.2514/6.2017-0993. Gilbert Strang. On the construction and comparison of difference schemes. SIAM journal on numerical analysis , 5(3):506–517, 1968. Masuo Suzuki. Fractal decomposition of exponential operators with applications to many-body theories and Monte Carlo simulations. Physics Letters A , 146(6):319–323, 1990. doi: 10.1016/ 0375-9601(90)90962-N. 12 Makoto Takamoto, Timothy Praditia, Raphael Leiteritz, Dan MacKinlay, Francesco Alesiani, Dirk Pflüger, and Mathias Niepert. PDEBENCH: An extensive benchmark for scientific machine learning. In Advances in Neural Information Processing Systems (NeurIPS) Track on Datasets and Benchmarks , 2022. URL https://arxiv.org/abs/2210.07182 .Mechthild Thalhammer. High-order exponential operator splitting methods for time-dependent Schrödinger equations. SIAM Journal on Numerical Analysis , 46(4):2022–2038, 2008. Alasdair Tran, Alexander Mathews, Lexing Xie, and Cheng Soon Ong. Factorized Fourier neural operators. In International Conference on Learning Representations (ICLR) , 2023. URL https: //openreview.net/forum?id=tmIiMPl4IPa .Hale F Trotter. On the product of semi-groups of operators. Proceedings of the American Mathemati-cal Society , 10(4):545–551, 1959. Maite J. C. Wilhelm and Simon Portegies Zwart. VENICE: A multi-scale operator-splitting algorithm for multi-physics simulations. Astronomy & Astrophysics , 691:A71, 2024. doi: 10.1051/0004-6361/ 202348614. Enrui Zhang, Adar Kahana, Alena Kopaniˇ cáková, Eli Turkel, Rishikesh Ranade, Jay Pathak, and George Em Karniadakis. Blending neural operators and relaxation methods in PDE numerical solvers. Nature Machine Intelligence , 6(11):1303–1313, 2024. doi: 10.1038/s42256-024-00910-x. Jiahao Zhang, Yueqi Wang, and Guang Lin. LegONet: Plug-and-play structure-preserving neural operator blocks for compositional PDE learning. arXiv preprint arXiv:2603.07882 , 2026. 13 Table 4: Positioning. †Depends on whether the fixed schedule suits the target regime.                         
+
+> Classical splitting Neural operators HyCOP
+> Composition Fixed schedule None (monolithic) Learned policy
+> Regime adaptivity None Learned weights Conditioned πθ
+> Dictionary type Numerical only Learned only Hybrid (any)
+> Process interpretability Full None Full (programs)
+> Failure diagnosis Manual None Process-level
+> Modular transfer Manual Retrain Dict. swap/enrich
+> OOD robustness Regime-dep. †Limited Strong
+
+## A Theory & Proofs 
+
+In this appendix we state assumptions and prove the guarantees used in the main text. Under standard well-posedness and splitting regularity conditions, (i) finite compositions of (sub)flows are expressive enough to approximate the solution operator on compact query sets, and (ii) HyCOP error decomposes into composition (splitting) error plus primitive-implementation error. We do not develop new splitting theory; we adapt classical tools to our hypothesis class. 
+
+A.1 Function spaces 
+
+We work on the d-dimensional torus Ω = Td = ( R/Z)d with periodic boundary conditions. The main function spaces are: • L2(Ω) : square-integrable functions with norm: 
+
+∥u∥L2 =
+
+Z 
+
+> Ω
+
+|u(x)|2 dx 
+
+1/2
+
+.
+
+• Hs(Ω) : Sobolev space of order s ≥ 0 with Fourier norm: 
+
+∥u∥Hs =
+
+ X
+
+> k∈Zd
+
+(1 + |k|2)s|ˆuk|2
+
+
+
+> 1/2
+
+,
+
+where ˆuk denotes the Fourier coefficient of u at mode k.• C([0 , T ]; X): continuous functions from [0 , T ] to a Banach space X.For s > s ′, we have the continuous embedding Hs(Ω) ,→ Hs′
+
+(Ω) [Adams and Fournier, 2003]. Intuitively, higher s corresponds to more spatial regularity of the solution. 
+
+A.2 Assumptions 
+
+We first formalize the class of PDEs and splits we study. 
+
+Definition A.1 (Stable Split System) . Consider the parameterized PDE: 
+
+∂u ∂t = F(u, μ ),
+
+defined on Td with initial condition u(0 , ·) = u0(·). Suppose that the differential operator F
+
+decomposes into atomic operators: 
+
+F =
+
+> n
+
+X
+
+> i=1
+
+Fi,
+
+and that for each t ∈ [0 , T ] and parameter μ, the solution u(t, μ ) ∈ Hs(Ω) varies continuously with respect to t and μ. We say this is a stable split system if: (A1) (Well-posedness) For u0 ∈ Hs(Ω) with s ≥ s0, the full equation admits a unique solution: 
+
+u ∈ C([0 , T ]; Hs(Ω)) .
+
+14 (A2) (Sub-problem well-posedness) Each sub-problem: 
+
+∂v ∂t = Fi(v, μ ),
+
+is well-posed on [0 , T ] for every 1 ≤ i ≤ n.(A3) (Regularity preservation) If v0 ∈ Hs(Ω) , then Φ(i) 
+
+> τ
+
+(v0) ∈ Hs(Ω) for any τ ∈ (0 , T ), where 
+
+Φ(i) 
+
+> τ
+
+is the flow map generated by Fi.Assumptions (A1)–(A3) say that the full PDE and each of its atomic components are classically well-posed and do not destroy Sobolev regularity over the time horizon of interest. We next collect regularity assumptions needed to control splitting errors. 
+
+Assumption A.2 (Regularity for error analysis) . We assume: (R1) (Commutator bounds) For s ≥ s1,
+
+∥[Fi, Fj ]( u)∥L2 ≤ Cij ∥u∥Hs ,
+
+for all i, j and all u ∈ Hs, with constants Cij independent of u.(R2) (Stability of exact flows) There exists ω > 0 such that for all |t| ≤ T ,
+
+∥Φ(i) 
+
+> t
+
+(u)∥Hs ≤ eω|t|∥u∥Hs ,
+
+for every i.(R3) (Higher commutators) Nested commutators up to depth p map Hsp → L2 boundedly. Here the commutator is: 
+
+[Fi, Fj ]( u) = DFj (u)[ Fi(u)] − DFi(u)[ Fj (u)] .
+
+These assumptions are standard in the analysis of splitting methods [Hairer et al., 2006, Jahnke and Lubich, 2000]. 
+
+Remark A.3 (Regularity versus order) . The Sobolev index sp required for order-p splitting increases with p. Typical values are s2 ≈ s0 + 2 for Strang splitting and s4 ≈ s0 + 4 for fourth-order methods [Jahnke and Lubich, 2000, Thalhammer, 2008]. Intuitively, higher-order schemes require more derivatives to be controlled in the commutator expansions. We also need assumptions on the approximate sub-flows used as primitives. 
+
+Assumption A.4 (Primitive-implementation requirements) . Let bΦ(i) 
+
+> t
+
+be an implemented primitive approximating the exact subflow Φ(i) 
+
+> t
+
+. Assume: (S1) (Local accuracy) ∥bΦ(i) 
+
+> h
+
+(v) − Φ(i) 
+
+> h
+
+(v)∥ ≤ δihq+1 ∥v∥Hs for all v ∈ Hs.(S2) (Lipschitz stability) ∥bΦ(i) 
+
+> t
+
+(u) − bΦ(i) 
+
+> t
+
+(v)∥Hs ≤ e˜ω|t|∥u − v∥Hs for |t| ≤ T .
+
+Remark A.5 . Assumption A.4 (S2) is automatically satisfied by classical stable time-stepping schemes (e.g., A-stable Runge–Kutta, spectral methods) under appropriate CFL conditions. When neural operators serve as sub-solvers, stability must be enforced by architectural and training choices (e.g., spectral normalization, contractive updates). 
+
+A.3 Existence of a finite split sequence 
+
+As a first step, we establish an existence result that justifies restricting attention to finite-step compo-sitions and allows us to define a concrete search space and hypothesis class. Suppose we are given primitive operators O1, . . . , On acting on a suitable Sobolev space Hs (see Appendix for details). Let Fi and Φ(i) 
+
+> τ
+
+denote the corresponding differential operator and flow map of the ith primitive. 15 Definition A.6 (Finite composite flows) . For k ≥ 1, a k-step composite flow is 
+
+Ψ(k) = Φ (jk ) 
+
+> τk
+
+◦ · · · ◦ Φ(j1) 
+
+> τ1
+
+, jr ∈ { 1, . . . , n }, τ r ∈ R.
+
+Let Ck be the set of all such maps and C = S 
+
+> k≥0
+
+Ck. Replacing Φ(i) by implemented primitives bΦ(i)
+
+defines bC.Our first result shows that the hypothesis class of HyCOP, which consists of finite composite flows built from primitives Oi, is dense (in L2) in the space of solution operators for stable split systems (Definition A.1) on compact input sets. 
+
+Theorem A.7 (Expressivity of finite composite flows) . Let Λ denote a compact subset of the parameter–initial–boundary space, and let t ∈ [0 , T ]. Suppose that for each x ∈ Λ the PDE: 
+
+∂u ∂t = F(u, μ ),
+
+with input x = ( μ, u 0, b, Ω) defines a stable split system in the sense of Definition A.1, and that the differential operator admits a decomposition F = F1 + · · · + Fn. Then, for any ε > 0 there exists a finite composite flow operator Ψ ∈ C such that: 
+
+sup 
+
+> x∈Λ
+
+u(t; x) − Ψ( x, t ) L2 < ε, 
+
+where u(t; x) denotes the exact solution at time t for input x.
+
+A.4 Definitions 
+
+We recall the parameterization of splitting strategies and the loss functional. 
+
+Definition A.8 (Splitting strategy) . A splitting strategy of maximum depth Kmax is: 
+
+θ = ( k, (i1, . . . , i k), (τ1, . . . , τ k)) ∈ Θ,
+
+specifying the composition length k ≤ Kmax , operator indices ij ∈ { 1, . . . , n }, and time durations 
+
+τj > 0. The space Θ embeds into RKmax (n+1)+1 via the continuous relaxation: 
+
+ι : θ 7 →
+
+
+
+k, {σj }Kmax  
+
+> j=1
+
+, {τj }Kmax 
+
+> j=1
+
+
+
+,
+
+where each σj ∈ ∆n−1 ⊂ Rn is a probability distribution over operators (e.g., via a softmax 
+
+σjl = ezjl / P 
+
+> ℓ
+
+ezjℓ ). Discrete operator selection can be recovered by ij = arg max l σjl .We allow τ ∈ R in C for algebraic convenience; HyCOP strategies restrict to τj > 0.
+
+Remark A.9 (Operator algebra viewpoint) . The space C of finite composite flows generated by the primitives forms a monoid under composition. A neural network outputting elements of Θ therefore acts as a policy that selects an element of this operator algebra, synthesizing algorithms from primitive sub-flows { ˜Φ(i) 
+
+> τ
+
+}.
+
+Definition A.10 (Loss) . For a query (x, t ) with x = ( μ, u 0, b, Ω) and a program θ,
+
+L(x, t ; θ) = ∥S (t; x) − bΨθ (x, t )∥L2 , bΨθ (x, t ) = bΦ(ik ) 
+
+> τk
+
+◦ · · · ◦ bΦ(i1) 
+
+> τ1
+
+(u0).
+
+A.5 Lie derivative formalism 
+
+We briefly recall the Lie-derivative formalism that linearizes the flow at the level of observables. This is classical in geometric numerical integration [Hairer et al., 2006, Blanes et al., 2024]. 
+
+Definition A.11 (Lie derivative) . Let F be a (possibly nonlinear) vector field on a Banach space X,with flow Φ(F) 
+
+> t
+
+. For a smooth observable g : X → R, the Lie derivative LF acts by: 
+
+(LF g)( u) = Dg (u)[ F(u)] = ddt t=0 
+
+g(Φ (F) 
+
+> t
+
+(u)) .
+
+16 Proposition A.12 (Lie transformation) . For smooth observables g and regular initial data u,
+
+g(Φ (F) 
+
+> t
+
+(u)) =  etLF g (u),
+
+where the exponential is the strongly convergent series, 
+
+etLF =
+
+> ∞
+
+X
+
+> k=0
+
+tk
+
+k! Lk 
+
+> F
+
+.
+
+Proof. Fix u and define ψ(t) = g(Φ (F) 
+
+> t
+
+(u)) . By the chain rule, 
+
+dψ dt = Dg (Φ (F) 
+
+> t
+
+(u))[ F(Φ (F) 
+
+> t
+
+(u))] = ( LF g)(Φ (F) 
+
+> t
+
+(u)) .
+
+Viewed as a function of t, this is the linear ODE: 
+
+ddt ψ(t) = ( LF ψ)( t), ψ(0) = g(u),
+
+whose solution is ψ(t) = etLF g(u) by the usual exponential representation of linear flows. 
+
+Remark A.13 (Linearization principle) . Even when F is nonlinear on state space X, the Lie derivative 
+
+LF is a linear operator on observables. This is the key reason why Baker–Campbell–Hausdorff (BCH) analysis of splitting methods for nonlinear PDEs mirrors the linear case [Blanes et al., 2024, McLachlan and Quispel, 2002]. 
+
+Definition A.14 (Lie bracket) . The Lie bracket [F, G] of vector fields satisfies: 
+
+L[F,G] = [ LF , LG ] = LF LG − L G LF .
+
+Explicitly [Hairer et al., 2006], 
+
+[F, G]( u) = DG(u)[ F(u)] − DF(u)[ G(u)] .
+
+A.6 Proof of Theorem A.7 (Expressivity of finite composite flows) 
+
+We sketch the proof of the existence theorem using the Lie–Trotter product formula. Recall that 
+
+F = Pni=1 Fi and denote by Φ(F) 
+
+> t
+
+the exact flow of the full PDE. For N ∈ N, define the N -fold Lie–Trotter composition: 
+
+ΨN =
+
+
+
+Φ(n) 
+
+> T /N
+
+◦ Φ(n−1)  
+
+> T /N
+
+◦ · · · ◦ Φ(1) 
+
+> T /N
+
+N
+
+∈ C N n .
+
+The theorem asserts that ΨN converges to the exact flow as N → ∞ , uniformly over inputs in a compact set. 
+
+Step 1: Local error. For a small step h = T /N , the BCH formula [Hairer et al., 2006] applied at the level of Lie derivatives gives: 
+
+ehLFn · · · ehLF1 = exp 
+
+h
+
+> n
+
+X
+
+> i=1
+
+LFi + h2
+
+2
+
+X
+
+> i<j
+
+[LFi , LFj ] + O(h3)
+
+ .
+
+By Assumption A.2 (R1), the commutator term is bounded, and standard splitting analysis [Blanes et al., 2024] yields the one-step local error bound: 
+
+∥Φ(F) 
+
+> h
+
+(v) − Φ(n) 
+
+> h
+
+◦ · · · ◦ Φ(1)  
+
+> h
+
+(v)∥L2 ≤ Ch 2∥v∥Hs1 ,
+
+for a constant C independent of v.
+
+Step 2: Global error. Using the telescoping argument known as Lady Windermere’s fan [Hairer et al., 2006] together with stability (R2), we obtain: 
+
+∥Φ(F) 
+
+> T
+
+(u0) − ΨN (u0)∥L2 ≤ N · eωT · Ch 2 · sup  
+
+> t∈[0 ,T ]
+
+∥u(t)∥Hs1 = O(h) = O 1/N .
+
+In other words, the Lie–Trotter scheme is first-order accurate globally. 17 Step 3: Uniformity and conclusion. Given ε > 0, choose N large enough that the global error is less than ε for all admissible initial data u0 and parameters μ in a compact set Λ; this is possible because the constants above can be chosen uniformly on compact parameter sets for a stable split system. Then ΨN ∈ C satisfies the desired approximation property, which completes the proof. 
+
+Corollary A.15 (Error rate for higher-order splittings) . Order-p splitting schemes (e.g., Strang, Yoshida) achieve global error O(hp) with h = T /N [Hairer et al., 2006, McLachlan and Quispel, 2002]. Classical examples include Strang splitting ( p = 2 ) and Yoshida’s fourth-order composition (p = 4 ). 
+
+A.7 Error decomposition for approximate sub-flows 
+
+We now incorporate the fact that HyCOP uses approximate sub-flows bΦ(i). We suppress the fixed time t to make the notations more compact. 
+
+Theorem A.16 (Error decomposition) . Let Assumptions A.2–A.4 hold. For a strategy θ with k
+
+compositions and step sizes {τj }, the total error decomposes as: 
+
+∥S (x) − bΨθ (x)∥L2 ≤ ∥S (x) − Ψθ (x)∥L2
+
+| {z }
+
+> splitting error
+
++ ∥Ψθ (x) − bΨθ (x)∥L2
+
+| {z }
+
+> sub-solver error
+
+,
+
+where Ψθ = Φ (ik ) 
+
+> τk
+
+◦ · · · ◦ Φ(i1) 
+
+> τ1
+
+is the exact composite flow. Moreover, the sub-solver error satisfies: 
+
+∥Ψθ (x) − bΨθ (x)∥L2 ≤ Csol e¯ωT 
+
+
+
+> k
+
+X
+
+> j=1
+
+τ q+1 
+
+> j
+
+ ∥u0∥Hs ,
+
+where ¯ω = max( ω, ˜ω) and Csol = max i δi.Proof. The decomposition itself is just the triangle inequality. To bound the sub-solver term, we compare the exact and approximate compositions step by step. Define intermediate compositions in which we gradually replace approximate sub-flows with exact ones: 
+
+w(j) = Φ (ik ) 
+
+> τk
+
+◦ · · · ◦ Φ(ij+1 ) 
+
+> τj+1
+
+◦ Φ(ij ) 
+
+> τj
+
+◦ bΦ(ij−1) 
+
+> τj−1
+
+◦ · · · ◦ bΦ(i1) 
+
+> τ1
+
+(u0),
+
+so that w(0) = bΨθ (u0) (all approximate) and w(k) = Ψ θ (u0) (all exact). Then, 
+
+Ψθ (u0) − bΨθ (u0) = 
+
+> k
+
+X
+
+> j=1
+
+ w(j) − w(j−1) .
+
+Let tj = Pjl=1 τl be the cumulative time after j steps, and define the intermediate state: 
+
+˜vj−1 = bΦ(ij−1) 
+
+> τj−1
+
+◦ · · · ◦ bΦ(i1) 
+
+> τ1
+
+(u0).
+
+Each difference term can be written as: 
+
+w(j) − w(j−1) = Φ (ik ) 
+
+> τk
+
+◦ · · · ◦ Φ(ij+1 )
+
+> τj+1
+
+
+
+Φ(ij ) 
+
+> τj
+
+(˜ vj−1) − bΦ(ij ) 
+
+> τj
+
+(˜ vj−1)
+
+
+
+.
+
+We now apply three estimates: 
+
+(i) Stability of exact flows (R2). The outer composition of exact flows from step j + 1 to k satisfies: 
+
+∥Φ(ik ) 
+
+> τk
+
+◦ · · · ◦ Φ(ij+1 ) 
+
+> τj+1
+
+(a) − Φ(ik ) 
+
+> τk
+
+◦ · · · ◦ Φ(ij+1 ) 
+
+> τj+1
+
+(b)∥L2 ≤ eω(T −tj )∥a − b∥L2 .
+
+(ii) Accuracy of approximate sub-flows (S1). The local solver error at step j satisfies: 
+
+∥Φ(ij ) 
+
+> τj
+
+(˜ vj−1) − bΦ(ij ) 
+
+> τj
+
+(˜ vj−1)∥L2 ≤ δij τ q+1  
+
+> j
+
+∥˜vj−1∥Hs .
+
+(iii) Stability of approximate sub-flows (S2). Iterating Assumption A.4 (S2) yields: 
+
+∥˜vj−1∥Hs ≤ e˜ωt j−1 ∥u0∥Hs .
+
+18 Combining (i)–(iii), each term in the telescoping sum is bounded by: 
+
+∥w(j) − w(j−1) ∥L2 ≤ δij τ q+1  
+
+> j
+
+eω(T −tj )+˜ ωt j−1 ∥u0∥Hs .
+
+Since ω(T − tj ) + ˜ ωt j−1 ≤ ¯ωT with ¯ω = max( ω, ˜ω) and δij ≤ Csol = max i δi, we obtain: 
+
+∥Ψθ (u0) − bΨθ (u0)∥L2 ≤
+
+> k
+
+X
+
+> j=1
+
+∥w(j) − w(j−1) ∥L2 ≤ Csol e¯ωT 
+
+
+
+> k
+
+X
+
+> j=1
+
+τ q+1 
+
+> j
+
+ ∥u0∥Hs ,
+
+which is the desired bound. 
+
+Corollary A.17 (Total error rate) . For an order-p splitting scheme with uniform step size h = T /N 
+
+and order-q sub-solvers, 
+
+∥S (x) − bΨN (x)∥L2 ≤ Csplit hp + Csol hq .
+
+When q ≥ p, the splitting error dominates and the total error is O(hp).Remark A.18 (Interpretation) . Theorem A.7 guarantees that the ideal splitting error (first term) can be made arbitrarily small by choosing appropriate compositions of exact sub-flows. Theorem A.16 shows how this ideal error is perturbed when sub-flows are replaced by approximate primitives. Together, they justify using finite composite flows of primitives as a universal function class for surrogate solution operators. 
+
+A.8 Proof of Theorem 4.2 (Existence of ε-optimal policy) 
+
+We now justify the existence of an ε-optimal splitting policy and its approximation by a neural network. 
+
+Part 1: Continuity of L. Under the assumptions above, the mapping 
+
+(x, θ ) 7 → bΨθ (x)
+
+is continuous in both arguments: continuity in {τj } and operator weights follows from continuous dependence of flows on time parameters and the softmax relaxation in Definition A.8; continuity in x ∈ Λ follows from uniform well-posedness and stability of the flows. Since the L2 norm is continuous, L(x, θ ) is continuous on Λ × Θ.
+
+Part 2: Existence of an ε-optimal selection. We restrict attention to a compact subset ¯Θ ⊂ Θ
+
+where |τj | ∈ [τmin , τ max ] for fixed 0 < τ min < τ max < ∞ and k ≤ Kmax . Intuitively, extremely small or large time steps are either redundant or unstable and can be excluded without loss of optimality. For each x ∈ Λ, consider the ε-sublevel set: 
+
+Θ∗ 
+
+> ε
+
+(x) = 
+
+n
+
+θ ∈ ¯Θ : L(x, θ ) ≤ inf  
+
+> θ′∈¯Θ
+
+L(x, θ ′) + ε
+
+o
+
+.
+
+By compactness of ¯Θ and continuity of L, the infimum is attained and each Θ∗ 
+
+> ε
+
+(x) is non-empty and closed. Berge’s maximum theorem [Berge, 1963] implies that the argmin correspondence 
+
+x 7 → arg min θ L(x, θ ) is upper hemicontinuous with compact values, and standard perturbation arguments show that the ε-argmin correspondence x 7 → Θ∗ 
+
+> ε
+
+(x) inherits these properties. In particular, for fixed ε > 0, there exists a selection θ∗ 
+
+> ε
+
+(x) that is Borel-measurable and ε-optimal for each x.When we additionally view ¯Θ through the continuous relaxation ι( ¯Θ) ⊂ RKmax (n+1)+1 , we can apply approximate selection results (see, e.g., [Michael, 1956]) to obtain a continuous selection that is ε-optimal up to an arbitrarily small slack. For the purposes of this paper, we assume the existence of such a continuous ε-optimal policy θ∗ 
+
+> ε
+
+: Λ → ¯Θ.19 Part 3: Neural representation. Since Λ is compact and θ∗ 
+
+> ε
+
+is continuous, it is uniformly continuous. By the Universal Approximation Theorem [Cybenko, 1989, Hornik et al., 1989], there exists a feedforward neural network πϕ : Λ → ¯Θ such that: 
+
+sup 
+
+> x∈Λ
+
+∥πϕ(x) − θ∗ 
+
+> ε
+
+(x)∥ < δ 
+
+for any prescribed δ > 0. By continuity of L(x, θ ) in θ, choosing δ sufficiently small ensures that πϕ
+
+is also ε-optimal (up to an arbitrarily small slack). This yields the desired learnable policy family. 
+
+Remark A.19 (Why ε-optimality?) . We work with near-optimal rather than exactly optimal strategies because exact minimizers may jump discontinuously as x varies (e.g., when multiple compositions tie). Allowing an ε margin ensures that we can select policies that vary smoothly with x, which is crucial for approximation by neural networks. 
+
+Remark A.20 (Training via Evolution Strategies) . In practice, we do not solve the selection problem analytically. Instead, we parameterize πϕ as a neural network and minimize Ex∼ρ[L(x, π ϕ(x))] via Evolution Strategies [Salimans et al., 2017]. Since bΨθ may involve non-differentiable black-box solvers, ES provides gradient estimates of the form: 
+
+∇ϕE[L] ≈ 1
+
+σ Eϵ∼N (0 ,I )
+
+ϵ · L (x, π ϕ+σϵ (x)) ,
+
+which are compatible with our compositional setting. 
+
+A.9 Proof of Theorem 4.3 (Universal approximation for fitting) 
+
+Finally, we combine the previous results to obtain the universal approximation theorem for the surrogate fitting regime. By Theorem A.7, for any ε1 > 0, there exists an exact composite flow Ψ ∈ C such that the splitting error satisfies: 
+
+sup 
+
+> x∈Λ
+
+∥S (x) − Ψ( x)∥L2 < ε 1.
+
+By Theorem A.16, if approximate sub-flows satisfy Assumption A.4 with order q and step sizes {τj }
+
+small enough, the sub-solver error satisfies: 
+
+sup 
+
+> x∈Λ
+
+∥Ψ( x) − bΨ( x)∥L2 < ε 2.
+
+By the triangle inequality, the total error satisfies: 
+
+sup 
+
+> x∈Λ
+
+∥S (x) − bΨ( x)∥L2 ≤ ε1 + ε2.
+
+Given any target ε > 0, choose ε1 = ε2 = ε/ 2 and appropriate compositions and step sizes to achieve these bounds. By Theorem 4.2, there exists a learnable policy θ∗ corresponding to such a composition, and this policy can be approximated to arbitrary precision by a feedforward neural network. This yields the universal approximation statement for the surrogate fitting regime. 
+
+Remark A.21 (Practical implications) . For Evolution Strategies with classical numerical sub-solvers (e.g., RK4, spectral methods), Assumption A.4 is typically satisfied with high order q, so the dominant limitation is the splitting error. When neural operators serve as sub-solvers, the stability condition (S2) becomes the main design constraint. 
+
+Remark A.22 (Structure preservation) . If a structural property P (e.g., positivity, conservation of mass) is preserved by each sub-flow Φ(i) 
+
+> t
+
+and under composition, then any Ψ ∈ C exactly preserves 
+
+P. With numerical sub-solvers, P is preserved up to the solver accuracy. HyCOP therefore inherits any invariants preserved at the level of primitives. 
+
+A.10 Generalization under distributional shift 
+
+The preceding results establish that finite composite flows of primitives can approximate the solution operator uniformly on compact sets, and that the practical error decomposes into a splitting error plus a sub-solver error. We now show how these properties can be leveraged to obtain simple generalization guarantees under covariate shift , i.e., when the distribution of inputs (initial conditions, parameters, boundary conditions) changes between training and test. 20 Setup. Recall that inputs take the form: 
+
+x = ( μ, u 0, b, Ω) ∈ Λ, t ∈ T 
+
+and that we assume Λ is compact (e.g., parameters, initial conditions, and boundary data lie in bounded subsets of suitable Banach spaces). We equip Λ with a metric dΛ that reflects the natural distances between inputs (e.g., an L2 or Hs metric on u0 and b, and Euclidean distance on μ). Let ρ
+
+denote the training distribution on Λ, and ρ′ a test distribution that may differ from ρ (e.g., due to shifted initial conditions or parameter ranges). We make explicit the Lipschitz continuity of the solution operator and the HyCOP surrogate with respect to inputs. To make notations compact we suppress the time t in the following. 
+
+Assumption A.23 (Lipschitz dependence on inputs) . Under the stable split system assumptions, there exist constants LS , L HyCOP > 0 such that, for all x, x ′ ∈ Λ,
+
+∥S (x) − S (x′)∥L2 ≤ LS dΛ(x, x ′),
+
+∥ bΨθ (x) − bΨθ (x′)∥L2 ≤ LHyCOP dΛ(x, x ′),
+
+for any fixed strategy θ.
+
+Remark A.24 . Assumption A.23 is a standard consequence of well-posedness and stability for the full PDE and for the approximate flows. In particular, the stability bounds (R2) and (S2) together imply that perturbing (μ, u 0, b, Ω) at t = 0 produces changes in u(t) and bΨθ (x) that are at most exponentially amplified in time, uniformly over t ∈ [0 , T ]. On a compact parameter set Λ, this yields finite Lipschitz constants LS , L HyCOP .Under Assumption A.23, the loss L(x, θ ) is Lipschitz in x as well. 
+
+Lemma A.25 (Lipschitz loss) . For any fixed θ, the loss: 
+
+L(x, θ ) = ∥S (x) − bΨθ (x)∥L2 ,
+
+satisfies: 
+
+|L (x, θ ) − L (x′, θ )| ≤ Ltot dΛ(x, x ′),
+
+for all x, x ′ ∈ Λ, where Ltot = LS + LHyCOP .Proof. By the reverse triangle inequality, 
+
+|L (x, θ ) − L (x′, θ )| = ∥S (x) − bΨθ (x)∥L2 − ∥S (x′) − bΨθ (x′)∥L2
+
+≤ ∥  S(x) − bΨθ (x) −  S(x′) − bΨθ (x′)∥L2
+
+≤ ∥S (x) − S (x′)∥L2 + ∥ bΨθ (x) − bΨθ (x′)∥L2
+
+≤  LS + LHyCOP 
+
+ dΛ(x, x ′),
+
+which gives the desired bound. We can now relate the expected loss under two different input distributions via a Wasserstein distance. 
+
+Definition A.26 (Wasserstein-1 distance) . Let P(Λ) denote the set of probability measures on 
+
+(Λ , d Λ). The Wasserstein-1 distance between ρ, ρ ′ ∈ P (Λ) is: 
+
+W1(ρ, ρ ′) = inf 
+
+> γ∈Π( ρ,ρ ′)
+
+Z
+
+> Λ×Λ
+
+dΛ(x, x ′) dγ (x, x ′),
+
+where Π( ρ, ρ ′) is the set of couplings of ρ and ρ′.
+
+Theorem A.27 (Generalization under covariate shift) . Let Assumption A.23 hold, and fix a strategy θ.Then, for any two distributions ρ, ρ ′ on Λ,
+
+|Ex∼ρ′ [L(x, θ )] − Ex∼ρ[L(x, θ )] | ≤ Ltot W1(ρ, ρ ′),
+
+where Ltot = LS + LHyCOP .
+
+21 Proof. By Lemma A.25, the loss L(·, θ ) is Ltot -Lipschitz on (Λ , d Λ). By the Kantorovich–Rubinstein duality for W1, for any L-Lipschitz function f we have: 
+
+|Eρ′ [f ] − Eρ[f ]| ≤ L W 1(ρ, ρ ′).
+
+Applying this with f (x) = L(x, θ ) and L = Ltot gives the result. 
+
+Remark A.28 (Interpretation for PDE inputs) . If ρ represents a distribution over initial conditions, parameters, and boundary conditions used during training, and ρ′ is a test distribution that shifts these (e.g., new initial condition statistics, modified parameter ranges), then Theorem A.27 quantifies how much the expected surrogate error can deteriorate under this shift. If the shift is small in W1 (for example, small perturbations in initial conditions in Hs), the increase in expected error is at most linear in the size of the shift. 
+
+Remark A.29 (Combining with uniform approximation) . In the ideal surrogate fitting regime of Theorem 4.3, HyCOP achieves a uniform bound: 
+
+sup 
+
+> x∈Λ
+
+L(x, θ ∗) ≤ ε. 
+
+In that case, any distributional shift supported in Λ satisfies: 
+
+Ex∼ρ′ [L(x, θ ∗)] ≤ ε, 
+
+so generalization is automatic and independent of W1(ρ, ρ ′). The more interesting regime is when we only know that the expected training error Ex∼ρ[L(x, θ )] is small; Theorem A.27 then quantifies how far we can move in input space before the expected test error deteriorates. 
+
+Remark A.30 (From population to finite-sample generalization) . Theorem A.27 is a distributional 
+
+statement: it bounds the gap between population risks under ρ and ρ′. Standard statistical learning tools (e.g., Rademacher complexity or covering number bounds for the family {L (·, π ϕ(·)) }) can be combined with this result to control three gaps: 
+
+Eρ′ [L] − Eρ[L]
+
+| {z }
+
+> distribution shift
+
++ Eρ[L] − EˆρN [L]
+
+| {z }
+
+> finite-sample generalization
+
++ EˆρN [L] − EˆρN [ bL]
+
+| {z }
+
+> optimization
+
+,
+
+where ˆρN is the empirical training distribution and bL is the loss of the learned policy. We leave a full statistical learning theory for HyCOP to future work, but Theorem A.27 shows that covariate shift enters the picture through a simple and interpretable Wasserstein term. 
+
+## B HyCOP Training Details 
+
+B.1 Policy inputs and outputs 
+
+The policy conditions on the PDE query x = ( μ, u 0, b, Ω) , the query time t, and a compact feature vector f (x) ∈ Rm capturing regime information and coarse state statistics: 
+
+˜x = ( x, t, f (x)) , f (x) = fphys (x), f stats (u0).
+
+These summaries combine dimensionless regime indicators (e.g., Péclet, Damköhler) with scale-free state statistics (e.g., coefficient of variation of u0 and its gradients), helping the policy allocate time across primitives. Specific feature definitions for each PDE system are given in Appendix C. Given ˜x = ( x, t, f (x)) , the policy predicts a k-step program: operator choices and positive durations 
+
+τr > 0 (parameterized via softplus to ensure positivity). Operator selection is categorical at test time and trained via a softmax relaxation. 
+
+B.2 Evolution Strategies training 
+
+We optimize policy parameters with Evolution Strategies (ES), treating program execution as a black box. While ES is a zeroth-order method, it is not naive random search: the update rule provides an unbiased estimate of ∇θ J(θ) in expectation. Each generation samples ϵi ∼ N (0 , I ) and evaluates antithetic losses L(θ ± σϵ i); this symmetric evaluation halves gradient variance compared to one-sided sampling. We then apply rank-based fitness shaping, which replaces raw losses with their ranks 22 Query                     
+
+> x= ( u0, μ, b, Ω,T)Features f(x)
+> Pe/Da/Fr, variances, T, . . .
+> Policy πθ
+> program (i1, τ 1), . . . , (ik, τ k)
+> Compose & execute
+> bΦ( x;πθ)
+> Prediction
+> {u(t)}t∈T
+> extract cond.
+> fitness shaping
+> rank transform
+> evaluate fitness
+> run composite loss L
+> antithetic sampling
+> θ±σϵ
+> ES gradient
+> estimate
+> parameter update
+> iterate
+
+Figure 5: HyCOP training with Evolution Strategies (ES). HyCOP conditions the policy on low-dimensional physics-based features f (x) (e.g., Péclet/Damköhler/Froude numbers and state statistics) to predict a split program (primitive choices and durations). We optimize policy parameters via ES using black-box evaluations of the composed operator loss. before computing updates, making optimization robust to outliers and invariant to loss scaling. The parameter update is 
+
+g = 12M σ 
+
+> M
+
+X
+
+> i=1
+
+ w+ 
+
+> i
+
+− w−
+
+> i
+
+ϵi, θ ← θ − ηg. 
+
+Together, these variance-reduction techniques enable stable training despite non-differentiable primi-tive evaluations. ES is compatible with hybrid dictionaries (numerical and learned primitives) and supports transfer by freezing selected primitives while updating only the policy and/or added residual modules. (Fig. 5) 
+
+## C Experimental configurations and results 
+
+We summarize PDE definitions, data distributions, train/test splits (ID and OOD), conditioning, and hyperparameters. 
+
+Common setup. Unless stated otherwise, we use periodic boundaries. HyCOP predicts (i) primitive choices, (ii) normalized time allocations across sub-steps, and (iii) an adaptive program length (k ∈ [3 , 18] ). We train HyCOP with Evolution Strategies (ES) [Salimans et al., 2017] (population 500, σ = 0 .02 , lr 5×10 −3, wd 10 −3, antithetic sampling, rank-based shaping) for 200 generations. FNO/Loc. Int. Diff. FNO follow PDEBench [Takamoto et al., 2022] and are trained with Adam (lr 
+
+10 −3) for 500 epochs [Li et al., 2021, Herde et al., 2024]. DeepONet [Lu et al., 2021] and PINO [Li et al., 2024] share the same Adam optimizer (lr 10 −3, weight decay 10 −4) and 500-epoch budget as FNO. DeepONet uses an unstacked branch–trunk architecture with p=128 basis coefficients per output channel and hidden width 256: a CNN branch encodes the initial state, and an MLP trunk encodes query coordinates (x, y ). PINO uses the same FNO backbone as our FNO baseline; we follow the two-phase schedule of Li et al. [2024], where the first half of training uses data loss only and the second half adds a PDE-residual loss evaluated on the training grid. All 1D systems use N = 64 ;our 2D SWE and ADR benchmarks use 32 × 32 with 10,000 training trajectories. The PDEBench 2D compressible Navier–Stokes dataset is used at its native 128 × 128 resolution [Takamoto et al., 2022]. When HyCOP is trained with variable query time, fixed-time baselines are evaluated at the same target time. 
+
+Time conditioning. HyCOP is trained with variable query time when the task involves time querying; fixed-time baselines (FNO/Loc. Int. Diff. FNO) are trained/evaluated at the reported target time. 
+
+Metrics. Given prediction ˆu and reference u on a grid with N points (or NxNy in 2D), we report RMSE(ˆ u, u ) = 
+
+q 1
+
+> N
+
+P 
+
+> p
+
+∥ˆu(p) − u(p)∥22 and relative L2 error Rel L2(ˆ u, u ) = ∥ˆu−u∥2 
+
+> ∥u∥2
+
+,where ∥ · ∥ 2 denotes the discrete ℓ2 norm over grid points and state channels. We also report 
+
+MaxErr = max p ∥ˆu(p) − u(p)∥2.
+
+Spectral error by bands (fRMSE). Let ˆu(k) denote the 2D discrete Fourier transform of u, and let 
+
+|k| =
+
+q
+
+k2 
+
+> x
+
++ k2 
+
+> y
+
+be the radial wavenumber (normalized so that Nyquist corresponds to |k| = 0 .5). We 23 Table 5: Ablations and analysis. All methods train on the same data; HyCOP uses identical ES hyperparameters ( M =500 , σ=0 .02 , 200 generations) for all main benchmarks without per-problem tuning. Benchmark-specific details in Appendix text. Adaptation experiments (§5.2), which use only 120 ADR samples, train with a smaller ES budget; details in Appendix C.5. 
+
+(a) Conditioning features: dimensionless vs. raw IC inputs (1D SWE) ID OOD Features Dims Rel. L2 RMSE Max Err Rel. L2 RMSE Max Err Raw IC 129 2.79 ×10 −2 4.27 ×10 −2 1.21 ×10 0 4.54 ×10 −2 8.09 ×10 −2 1.04 ×10 0
+
+Dimensionless 4 2.97 ×10 −2 5.27 ×10 −2 4.66 ×10 −1 3.07 ×10 −2 5.27 ×10 −2 4.66 ×10 −1
+
+OOD improvement 32% 35% 55% 
+
+(b) ES hyperparameter sensitivity (2D SWE, Rel. L2 ↓, 200 generations) 
+
+M σ=0 .005 σ=0 .01 σ=0 .02 σ=0 .05 σ=0 .1
+
+100 0.274 0.065 0.035 0.308 0.488 250 0.125 0.102 0.031 0.155 0.206 500 0.052 0.026 0.028 ⋆ 0.392 0.612       
+
+> ⋆Paper default. Even M=100 outperforms all monolithic baselines OOD ( >3.5×10 −1).
+
+(c) Zero-shot resolution transfer (2D SWE, T =0 .3; policy trained at 32 ×32 )Resolution Rel. L2 RMSE Max Err Time (s/sample) 
+
+32 ×32 (trained) 2.40 ×10 −2 1.03 ×10 −2 1.90 ×10 −1 0.126 
+
+128 ×128 (zero-shot) 3.37 ×10 −2 2.06 ×10 −2 6.89 ×10 −1 0.645 
+
+(d) Dictionary robustness (2D SWE / AD →ADR) Experiment Dictionary Rel. L2 Notes 
+
+Redundant primitive (2D SWE): 
+
+Correct dict. {Adv, Grav} 2.40 ×10 −2 —+ dummy reaction {Adv, Grav, React dummy } 2.30 ×10 −2 React dummy : 3.5% time 
+
+Missing primitive (AD →ADR): 
+
+AD zero-shot on ADR {Adv, Diff} 1.81 ×10 −1 errors localize to reaction + UNO residual {Adv, Diff, Resid.} 4.42 ×10 −2 policy relearned only 
+
+(e) Chaotic validation: 1D Kuramoto–Sivashinsky (trained: W ∈[24 , 40] , T ∈[5 , 8] )ID OOD ( W ∈[40 , 50] , T ∈[8 , 20] )Method SE ( ↓) KL ( ↓) SE ( ↓) KL ( ↓)HyCOP 9.74 ×10 −2 4.72 ×10 −2 5.75 ×10 −2 4.95 ×10 −2
+
+(f) Computational cost (2D SWE) Training Inference time per sample (s) Model Fwd. passes 1-step 5-step 10-step 20-step U-Net 1.33 ×10 7 0.042 0.026 0.049 0.100 AR-Loc. Int. Diff. FNO 1.33 ×10 7 0.173 0.258 0.289 0.327 Poseidon (fine-tune) 4.86 ×10 5 0.134 0.714 1.331 2.667 HyCOP 5.00 ×10 5 0.680 1.005 1.205 1.341 
+
+24 Table 6: Benchmark coverage and validation tests.                                              
+
+> System Nonlinear Multiphysics Multiscale Chaotic Long-time
+> (Benchmarked)
+> 1D Advection–Diffusion (AD) –✓✓–✓
+> 1D Viscous Burgers ✓–✓–✓
+> 1D Shallow Water (smooth ICs) ✓✓✓–✓
+> 2D ADR (Fisher–KPP) ✓✓✓–✓
+> 2D SWE (smooth / vortices) ✓✓✓–✓
+> 2D Compressible Navier–Stokes ✓✓✓–✓
+> Dam-break SWE (transfer) ✓✓✓–✓
+> (Validated)
+> 1D Kuramoto–Sivashinsky (KS) ✓–✓✓✓
+
+partition wavenumbers into disjoint bands: Klow = {k : |k| < 0.1}, Kmid = {k : 0 .1 ≤ | k| < 0.3},
+
+Khigh = {k : |k| ≥ 0.3}. Define 
+
+fRMSE K(ˆ u, u ) = 
+
+s 1
+
+|K| 
+
+X
+
+> k∈K
+
+ˆupred (k) − ˆuref (k) 2,
+
+and report fRMSE low/mid/high for each band. 
+
+Boundary RMSE (bRMSE). For problems with non-periodic boundaries, let B ⊂ Ωh denote the boundary band (the outermost 5% of grid cells on each side). Define 
+
+bRMSE(ˆ u, u ) = 
+
+s 1
+
+|B| 
+
+X
+
+> p∈B
+
+∥ˆu(p) − u(p)∥22.
+
+For periodic-boundary benchmarks, bRMSE is reported only when a boundary module is present (e.g., wall-transfer). 
+
+Constraint RMSE (cRMSE). Let C(u) ∈ Rr denote diagnostic constraints/invariants (e.g., total mass R h dxdy for SWE). We report 
+
+cRMSE(ˆ u, u ) = 
+
+vuut 1
+
+r
+
+> r
+
+X
+
+> j=1
+
+ Cj (ˆ u) − Cj (u)2.
+
+When the PDE does not admit the corresponding invariant (e.g., Fisher–KPP reactions), cRMSE is not applicable. We compute fRMSE on Fourier magnitudes (not phases) and average over wavenumbers in each band, so values can be small when spectra agree even if pointwise phases differ. 
+
+C.1 Benchmark coverage 
+
+HyCOP is evaluated on PDE families spanning linear/nonlinear dynamics, stiffness, multi-physics cou-pling, discontinuities, and long-horizon behavior. We use “stiff” for regimes where diffusive/source terms impose shorter time scales than advection, and “multiscale” for solutions with energy across multiple spatial frequencies and/or sharp localized gradients over the evaluation horizon. 
+
+Regime notes. ADR varies Péclet and Damköhler numbers through (cx, c y , D x, D y , r ), producing sharp fronts and reaction-dominated transients in parts of OOD. SWE OOD includes extreme-Froude/transcritical configurations that induce steep gradients, wave interactions, and shock-like features; dam-break transfer further stresses discontinuities and boundary reflections. 25 Table 7: Dictionary and policy size. Primitives are single-process routines; For AD →ADR transfer, we report two complementary adaptation tracks (Path (a): numerical AD primitives + learned residual; Path (b): pretrained AD + numerical reaction), and a fully-learned ablation where every primitive is a per-process learned surrogate.                                   
+
+> Benchmark Dictionary DnPolicy params 1D Advection–Diffusion {Adv., Diff.} 2∼50
+> 1D Viscous Burgers {Nonlin. adv., Visc. diff.} 2∼50
+> 1D Shallow Water {Wave/adv., Gravity} 2∼50
+> 1D Kuramoto–Sivashinsky {Linear, Nonlinear} 2∼50
+> 2D ADR (Fisher–KPP) {Adv., Diff., Reaction} 3∼73
+> 2D Shallow Water {Wave/adv., Gravity} 2∼50
+> 2D Compressible Navier–Stokes {Euler adv., Viscous diff.} 2∼50
+> AD →ADR transfer, Path (a) {Adv., Diff., Learned resid.} 3∼73
+> AD →ADR transfer, Path (b) {Learned AD, Reaction} 2∼50
+> Ablation: fully learned ADR {Learned Adv, Learned Diff, Learned Reaction} 3∼73
+
+C.2 1D Systems C.2.1 Advection–Diffusion 
+
+We consider the 1D advection–diffusion equation on x ∈ [0 , 10] ,
+
+∂u ∂t + c ∂u ∂x = D ∂2u∂x 2 , (4) with the canonical split into advection and diffusion primitives. 
+
+Data generation. Training trajectories are generated with advection speed c ∈ [0 .5, 3.0] and diffusion coefficient D ∈ [0 .01 , 0.5] . Initial conditions are sampled from five families: Gaussian pulses, step functions, sinusoidal waves, multi-Gaussian superpositions, and random low-frequency Fourier series. We generate 10,000 training samples and evaluate on held-out ID test data at a fixed target time T = 0 .5.
+
+OOD evaluation. OOD test cases extrapolate both parameters ( c ∈ [0 .1, 0.5] ∪ [3 .0, 5.0] , D ∈
+
+[0 .001 , 0.01] ∪ [0 .5, 1.0] ) and initial conditions (very narrow/wide Gaussians, higher-frequency oscillations, and multi-step profiles). 
+
+Model inputs and conditioning. HyCOP is trained with a variable target time T ∈ [0 .1, 1.0] and evaluated by querying T = 0 .5. FNO and Loc. Int. Diff. FNO are trained and evaluated at the same fixed target time T = 0 .5. The HyCOP policy network uses four physics-inspired features: a local Péclet number, concentration variance, gradient variance, and T . FNO and Loc. Int. Diff. FNO use input channels for u0, the spatial grid, and normalized parameters (c, D ).
+
+Figure 6: 1D advection–diffusion (ID): qualitative comparison at T = 0 .5.26 Figure 7: 1D advection–diffusion (OOD): extrapolation in (c, D ) and IC family at T = 0 .5.
+
+C.2.2 Shallow Water Equations 
+
+We consider the 1D shallow water equations: 
+
+∂h ∂t + ∂(hu )
+
+∂x = 0 , ∂(hu )
+
+∂t + ∂∂x 
+
+
+
+hu 2 + 12 gh 2
+
+
+
+= 0 , (5) on [0 , 10] , where h is the water height, u is the velocity, and g is gravitational acceleration. We use an operator split into (i) advection and (ii) gravity-wave primitives. Training samples use g ∈ [9 .0, 11 .0] and five initial-condition classes: Gaussian wave perturbations, smoothed dam-break profiles (tanh transitions), smooth Fourier superpositions, smoothed step transitions, and rarefaction waves (10,000 samples total). HyCOP is trained with variable target time 
+
+T ∈ [0 .15 , 0.4] , while FNO and Loc. Int. Diff. FNO use fixed T = 0 .3. All methods are evaluated on the same fixed-time test set at T = 0 .3. OOD tests extrapolate in gravity ( g ∈ [7 .0, 9.0] ∪ [11 .0, 13 .0] )and initial conditions (extreme Froude numbers, transcritical flows, hydraulic jumps, and high-frequency standing waves). The HyCOP policy network uses four physics-based features: maximum Froude number, height variance, momentum variance, and T . FNO and Loc. Int. Diff. FNO input channels encode (h0, hu 0),the spatial grid, and normalized gravity g.
+
+Figure 8: 1D SWE qualitative example (ID). 
+
+Figure 9: 1D SWE qualitative example (OOD). 
+
+C.2.3 Viscous Burgers 
+
+We consider the 1D viscous Burgers equation on x ∈ [0 , 2] ,
+
+∂u ∂t + u ∂u ∂x = ν ∂2u∂x 2 , (6) with the canonical split into nonlinear advection and viscous diffusion primitives. 
+
+Data generation. Training trajectories are generated with viscosity ν ∈ [0 .005 , 0.1] . Initial conditions are sampled from six families: step functions, sinusoidal waves, Gaussian pulses, sawtooth waves, smooth tanh transitions, and random low-frequency Fourier series. We generate 10,000 training samples and evaluate on held-out ID test data at a fixed target time T = 0 .5.27 OOD evaluation. OOD test cases extrapolate viscosity ( ν ∈ [0 .002 , 0.005] ∪ [0 .1, 0.2] ) and initial conditions (sharper/smoother transitions, larger amplitudes, multiple steps, and higher-frequency oscillations). 
+
+Model inputs and conditioning. HyCOP is trained with variable target time T and evaluated by querying T = 0 .5. FNO and Loc. Int. Diff. FNO are trained and evaluated at the same fixed target time T = 0 .5. The HyCOP policy network uses four physics-inspired features: a Reynolds-number proxy, gradient strength, velocity amplitude, and T . FNO and Loc. Int. Diff. FNO use input channels for u0, the spatial grid, and normalized viscosity ν.
+
+Figure 10: 1D viscous Burgers (ID): qualitative comparison at T = 0 .5.
+
+Figure 11: 1D viscous Burgers (OOD): extrapolation in ν and IC family at T = 0 .5.
+
+C.3 2D Systems (Fixed-Time Inference) C.3.1 Advection–Diffusion–Reaction (Fisher–KPP) 
+
+We consider the 2D advection–diffusion–reaction (ADR) equation with Fisher–KPP kinetics, 
+
+∂u ∂t + cx
+
+∂u ∂x + cy
+
+∂u ∂y = Dx
+
+∂2u∂x 2 + Dy
+
+∂2u∂y 2 + ru (1 − u), (7) on Ω = [0 , 1] 2. We use an operator split into advection, diffusion, and reaction primitives. 
+
+Data generation & Training. Training samples use cx, c y ∈ [0 .2, 1.5] , Dx, D y ∈ [0 .05 , 0.2] , and 
+
+r ∈ [0 .1, 1.0] . Initial conditions are drawn from six classes: Gaussian pulses, smoothed step functions, ring patterns, diagonal stripes, multi-Gaussian superpositions, and smooth sigmoidal transitions. HyCOP is trained with variable target time T ∈ [0 .1, 0.35] , baselines use fixed T = 0 .2; all methods are evaluated on the same fixed-time test set at T = 0 .2. The HyCOP policy network uses seven physics-based features: Péclet numbers in x and y, Damköhler number, concentration variance, gradient variance in x and y, and T . FNO, Loc. Int. Diff. FNO, and PINO share input channels: 
+
+u0, spatial grids, and normalized parameters (cx, c y , D x, D y , r ). PINO evaluates the ADR residual 
+
+∂tu + cx∂xu + cy ∂y u − Dx∂xx u − Dy ∂yy u − r u (1 − u) via central differences on the training grid, with ∂tu approximated by (u(T )−u0)/T . DeepONet encodes u0 through its CNN branch and the normalized parameters through the branch MLP head. 
+
+OOD evaluation. OOD tests extrapolate in parameters ( cx, c y ∈ [0 .1, 0.2] ∪ [1 .5, 2.5] , Dx, D y ∈
+
+[0 .01 , 0.05] ∪[0 .2, 0.4] , r ∈ [0 .05 , 0.1] ∪[1 .0, 2.5] ) and initial conditions (very narrow/wide Gaussians, near-saturation/extinction states, high-frequency patterns, and sharp fronts). Across these ranges, ADR spans regimes where advection competes with diffusion (via Péclet variation) and reaction competes with transport (via Damköhler variation), yielding sharp traveling fronts and reaction-dominated transients, particularly in OOD. 28 Table 8: 1D benchmark results. All entries are reported on the respective 1D test sets. “Loc. Int. Diff. FNO” is abbreviated as “LIDFNO” for space. HyCOP uses numerical primitives throughout. 
+
+(a) 1D Advection–Diffusion 
+
+Rel. L2 fRMSE low fRMSE mid fRMSE high RMSE Max Err bRMSE cRMSE 
+
+In-distribution 
+
+FNO 1.59 ×10 −2 1.73 ×10 −1 1.01 ×10 −1 1.70 ×10 −2 2.14 ×10 −2 5.02 ×10 −1 2.99 ×10 −2 3.55 ×10 −3
+
+LIDFNO 1.34 ×10 −2 1.57 ×10 −1 8.20 ×10 −2 1.28 ×10 −2 1.80 ×10 −2 5.30 ×10 −1 2.42 ×10 −2 2.82 ×10 −3
+
+HyCOP 2.97 ×10 −2 4.56 ×10 −1 3.02 ×10 −2 1.58 ×10 −3 3.32 ×10 −2 4.16 ×10 −1 3.03 ×10 −2 4.56 ×10 −8
+
+Out-of-distribution 
+
+FNO 3.43 ×10 −1 3.83 ×10 0 2.14 ×10 0 8.60 ×10 −1 4.92 ×10 −1 7.97 ×10 0 4.63 ×10 −1 1.91 ×10 −1
+
+LIDFNO 3.33 ×10 −1 3.41 ×10 0 2.15 ×10 0 8.48 ×10 −1 4.59 ×10 −1 8.01 ×10 0 4.30 ×10 −1 1.07 ×10 −1
+
+HyCOP 9.06 ×10 −2 4.73 ×10 −1 9.82 ×10 −1 2.84 ×10 −1 1.99 ×10 −1 1.79 ×10 0 1.87 ×10 −1 1.04 ×10 −7
+
+(b) 1D Viscous Burgers 
+
+Rel. L2 fRMSE low fRMSE mid fRMSE high RMSE Max Err bRMSE cRMSE 
+
+In-distribution 
+
+FNO 2.52 ×10 −2 2.59 ×10 −1 7.87 ×10 −2 1.53 ×10 −2 2.59 ×10 −2 1.29 ×10 0 2.59 ×10 −2 6.41 ×10 −3
+
+LIDFNO 1.83 ×10 −2 1.82 ×10 −1 7.51 ×10 −2 1.29 ×10 −2 2.10 ×10 −2 1.12 ×10 0 2.10 ×10 −2 3.72 ×10 −3
+
+HyCOP 2.05 ×10 −3 2.44 ×10 −2 4.16 ×10 −3 1.10 ×10 −3 2.13 ×10 −3 1.19 ×10 −1 2.21 ×10 −3 2.90 ×10 −8
+
+Out-of-distribution 
+
+FNO 1.87 ×10 −1 2.32 ×10 0 1.25 ×10 0 4.38 ×10 −1 2.67 ×10 −1 7.55 ×10 0 3.06 ×10 −1 2.88 ×10 −2
+
+LIDFNO 1.77 ×10 −1 2.18 ×10 0 1.24 ×10 0 4.37 ×10 −1 2.60 ×10 −1 8.09 ×10 0 3.06 ×10 −1 3.27 ×10 −2
+
+HyCOP 9.61 ×10 −3 7.30 ×10 −2 1.08 ×10 −1 7.66 ×10 −2 2.79 ×10 −2 1.18 ×10 0 3.11 ×10 −2 5.35 ×10 −8
+
+(c) 1D Shallow-Water Equations 
+
+Rel. L2 fRMSE low fRMSE mid fRMSE high RMSE Max Err bRMSE cRMSE 
+
+In-distribution 
+
+FNO 4.32 ×10 −2 2.01 ×10 −1 2.12 ×10 −1 1.35 ×10 −1 4.64 ×10 −2 7.51 ×10 −1 7.29 ×10 −2 5.56 ×10 −3
+
+LIDFNO 3.05 ×10 −2 1.16 ×10 −1 1.19 ×10 −1 1.14 ×10 −1 3.66 ×10 −2 7.72 ×10 −1 3.09 ×10 −2 3.16 ×10 −3
+
+HyCOP 2.81 ×10 −2 2.33 ×10 −1 9.02 ×10 −2 3.02 ×10 −2 4.49 ×10 −2 1.04 ×10 0 5.51 ×10 −2 4.29 ×10 −8
+
+Out-of-distribution 
+
+FNO 1.86 ×10 −1 1.26 ×10 0 5.96 ×10 −1 1.53 ×10 −1 3.58 ×10 −1 5.29 ×10 0 3.16 ×10 −1 1.06 ×10 −1
+
+LIDFNO 1.54 ×10 −1 7.05 ×10 −1 4.73 ×10 −1 1.38 ×10 −1 3.09 ×10 −1 3.88 ×10 0 2.39 ×10 −1 7.83 ×10 −2
+
+HyCOP 3.07 ×10 −2 1.73 ×10 −1 1.18 ×10 −1 2.43 ×10 −2 5.27 ×10 −2 4.66 ×10 −1 4.68 ×10 −2 3.62 ×10 −8
+
+Figure 12: 2D ADR qualitative example (ID). 
+
+Figure 13: 2D ADR qualitative example (OOD). 
+
+Note: cRMSE is not applicable for ADR (no conserved mass constraint under Fisher–KPP kinetics). 29 Table 9: 2D ADR test-set metrics (ID).                                                                                                                           
+
+> MODEL REL .L2FRMSE LOW FRMSE MID FRMSE HIGH RMSE MAX ERROR BRMSE CRMSE DEEP ON ET 1.58 ·10 −18.49 ·10 03.35 ·10 −11.19 ·10 −15.95 ·10 −24.55 ·10 −16.35 ·10 −2—FNO 8.42 ·10 −24.46 ·10 06.41 ·10 −22.69 ·10 −23.28 ·10 −22.94 ·10 −13.21 ·10 −2—PINO 8.42 ·10 −24.47 ·10 05.33 ·10 −22.39 ·10 −23.29 ·10 −22.95 ·10 −13.20 ·10 −2—LOC . I NT . D IFF . FNO 3.15 ·10 −21.63 ·10 01.03 ·10 −12.03 ·10 −21.22 ·10 −21.37 ·10 −11.25 ·10 −2—
+> HYCOP ( OURS )2.10 ·10 −21.12 ·10 01.30 ·10 −43.80 ·10 −78.34 ·10 −35.91 ·10 −28.17 ·10 −3—
+
+Table 10: 2D ADR test-set metrics (OOD).                                                                                                                           
+
+> MODEL REL .L2FRMSE LOW FRMSE MID FRMSE HIGH RMSE MAX ERROR BRMSE CRMSE DEEP ON ET 2.82 ·10 −11.34 ·10 13.90 ·10 −11.21 ·10 −11.12 ·10 −17.79 ·10 −11.02 ·10 −1—FNO 2.60 ·10 −11.20 ·10 11.46 ·10 −17.00 ·10 −29.58 ·10 −26.89 ·10 −19.05 ·10 −2—PINO 2.35 ·10 −11.18 ·10 11.31 ·10 −15.99 ·10 −29.59 ·10 −26.95 ·10 −19.08 ·10 −2—LOC . I NT . D IFF . FNO 1.89 ·10 −19.66 ·10 02.45 ·10 −17.23 ·10 −27.86 ·10 −26.56 ·10 −17.81 ·10 −2—
+> HYCOP ( OURS )2.87 ·10 −21.56 ·10 02.48 ·10 −23.34 ·10 −41.87 ·10 −23.48 ·10 −11.88 ·10 −2—
+
+C.3.2 Shallow Water Equations 
+
+We consider the 2D shallow water equations on Ω = [0 , 10] 2,
+
+∂h ∂t + ∂(hu )
+
+∂x + ∂(hv )
+
+∂y = 0 , (8) 
+
+∂(hu )
+
+∂t + ∂∂x 
+
+
+
+hu 2 + 12 gh 2
+
+
+
++ ∂(huv )
+
+∂y = 0 , (9) 
+
+∂(hv )
+
+∂t + ∂(huv )
+
+∂x + ∂∂y 
+
+
+
+hv 2 + 12 gh 2
+
+
+
+= 0 , (10) where h is water depth, (u, v ) is velocity, and g is gravitational acceleration. We use a canonical split into (i) advective transport and (ii) gravity-wave (pressure) forcing primitives. 
+
+Data generation & training. Training samples use g ∈ [9 .0, 11 .0] with six initial-condition fami-lies: Gaussian wave perturbations, smoothed dam-break profiles (vertical and horizontal), smooth Fourier superpositions, smoothed oblique transitions, vortex patterns, and radial dam-break config-urations. HyCOP is trained with variable target time T ∈ [0 .15 , 0.4] , baselines are trained at fixed 
+
+T = 0 .3. For fair comparison, all methods are evaluated on the same fixed-time test set at T = 0 .3.The HyCOP policy network uses six physics-based features: maximum Froude numbers in x and y,height variance, x-momentum variance, y-momentum variance, and T . FNO, Loc. Int. Diff. FNO, and PINO share input channels: (h0, hu 0, hv 0), spatial grids, and normalized gravity g. PINO evaluates the SWE residuals (mass and x-/ y-momentum conservation) via central differences with periodic boundaries, with ∂tu approximated by (u(T )−u0)/T . DeepONet encodes the three initial-state channels through its CNN branch and normalized g through the branch MLP head. 
+
+OOD evaluation. OOD tests extrapolate in gravity ( g ∈ [7 .0, 9.0] ∪ [11 .0, 13 .0] ) and initial conditions, including extreme Froude regimes, transcritical flows, high-frequency standing waves, strong vortices, and extreme radial dam-break configurations. These OOD regimes include near-critical/transcritical configurations (large or spatially varying Froude) that amplify nonlinear wave interactions, steep gradients, and boundary reflections, stressing long-horizon stability. 30 Figure 14: 2D SWE qualitative example (ID). 
+
+Figure 15: 2D SWE qualitative example (OOD). Table 11: 2D SWE test-set metrics (ID). 
+
+MODEL REL . L2 FRMSE LOW FRMSE MID FRMSE HIGH RMSE MAX ERROR BRMSE CRMSE DEEP ON ET 3.89 · 10 −1 3.95 · 10 0 1.10 · 10 0 3.82 · 10 −1 6.47 · 10 −2 1.38 · 10 0 7.23 · 10 −2 3.62 · 10 −3
+
+FNO 1.19 · 10 −1 1.33 · 10 0 6.57 · 10 −1 3.69 · 10 −1 2.86 · 10 −2 5.80 · 10 −1 3.86 · 10 −2 3.50 · 10 −3
+
+PINO 1.17 · 10 −1 1.33 · 10 0 6.49 · 10 −1 3.70 · 10 −1 2.86 · 10 −2 5.58 · 10 −1 3.82 · 10 −2 3.68 · 10 −3
+
+LOC . I NT . D IFF . FNO 7.49 · 10 −2 6.57 · 10 −1 1.77 · 10 −1 8.61 · 10 −2 1.25 · 10 −2 4.26 · 10 −1 1.48 · 10 −2 2.51 · 10 −3
+
+HYCOP ( OURS ) 2.40 · 10 −2 7.23 · 10 −1 1.02 · 10 −1 2.66 · 10 −2 1.03 · 10 −2 1.90 · 10 −1 1.69 · 10 −2 2.16 · 10 −8
+
+Table 12: 2D SWE test-set metrics (OOD). 
+
+MODEL REL . L2 FRMSE LOW FRMSE MID FRMSE HIGH RMSE MAX ERROR BRMSE CRMSE DEEP ON ET 5.61 · 10 −1 3.10 · 10 1 3.35 · 10 0 5.67 · 10 −1 5.52 · 10 −1 4.32 · 10 0 4.55 · 10 −1 2.27 · 10 −1
+
+FNO 3.80 · 10 −1 1.69 · 10 1 3.03 · 10 0 5.38 · 10 −1 4.15 · 10 −1 3.99 · 10 0 3.60 · 10 −1 2.27 · 10 −1
+
+PINO 3.83 · 10 −1 1.77 · 10 1 3.01 · 10 0 5.48 · 10 −1 4.18 · 10 −1 3.97 · 10 0 3.65 · 10 −1 2.37 · 10 −1
+
+LOC . I NT . D IFF . FNO 3.54 · 10 −1 2.22 · 10 1 1.78 · 10 0 3.76 · 10 −1 3.53 · 10 −1 3.46 · 10 0 3.16 · 10 −1 1.79 · 10 −1
+
+HYCOP ( OURS ) 5.00 · 10 −2 1.25 · 10 0 3.17 · 10 −1 5.54 · 10 −2 5.00 · 10 −2 3.46 · 10 −1 4.35 · 10 −2 3.03 · 10 −8
+
+C.3.3 Compressible Navier–Stokes (PDEBench) 
+
+We evaluate single-step prediction on the 2D compressible Navier–Stokes benchmark from PDEBench [Takamoto et al., 2022] at Mach M =0 .1 and dynamic/bulk viscosity η=ζ=0 .1. The task is to predict density, velocity (Vx, V y ), and pressure at T =0 .05 from the initial state. Data is used as released by PDEBench; we do not regenerate trajectories. 
+
+Data and splits. We use the PDEBench 2D compressible Navier–Stokes dataset at resolution 
+
+128 × 128 with the train/test split provided by Takamoto et al. [2022]. All methods train on the same data and are evaluated on the same held-out set. No OOD extrapolation is performed on NS: PDEBench does not provide controlled OOD splits (parameter extrapolation, long-horizon rollout, boundary shift), which is why we designed the SWE and ADR benchmarks. 
+
+HyCOP dictionaries. HyCOP uses a two-primitive dictionary corresponding to the advective and viscous sub-flows of the compressible NS system: 
+
+DNS = {O adv , Odiff },
+
+where Oadv advances the inviscid Euler flux via a fourth-order Runge–Kutta (RK4) step and Odiff 
+
+advances the viscous diffusion term in Fourier space. Both primitives are textbook routines with zero learnable parameters. We report two configurations: 31 • HyCOP. Both primitives are numerical (RK4 advection + spectral diffusion). The only learnable component is the ∼50-parameter policy. • HyCOP-Hyb. The advective primitive is replaced by a time-queried FNO-FiLM surrogate (see C.5.2) pretrained on single-process advection data and frozen; the diffusion primitive remains numerical. HyCOP’s policy uses the same physics-based features as our other 2D benchmarks (regime indicators and state statistics). 
+
+Strang baseline. Strang splitting uses the same two primitives as HyCOP with a fixed Strang schedule: Oτ / 2diff ◦ O τ 
+
+> adv
+
+◦ O τ / 2diff . This isolates the effect of the learned schedule: any performance gap between HyCOP and Strang is attributable entirely to the composition policy, since primitives and dictionary are identical. 
+
+Monolithic baselines. DeepONet [Lu et al., 2021] and PINO [Li et al., 2024] follow the com-mon setup (Section C): shared Adam optimizer, 500-epoch budget, and the DeepONet and PINO architectural choices described there. DeepONet’s branch encodes the four-channel initial state 
+
+(ρ0, V x, 0, V y, 0, p 0); the trunk encodes query coordinates (x, y ). PINO reuses the FNO backbone and augments the data loss with the compressible NS residual (continuity, momentum, and energy) via central differences with periodic boundaries, with ∂t approximated by (u(T )−u0)/T . FNO and U-Net numbers in Table 1(a) are PDEBench-reported [Takamoto et al., 2022]; we do not retrain these models. 
+
+Metrics. Following PDEBench conventions, we report nRMSE and cRMSE. nRMSE is computed per-channel and averaged across channels; cRMSE measures conservation error via channel-wise diagnostic integrals ( R ρ dx dy for mass, and the corresponding momentum integrals). Both HyCOP variants and Strang inherit cRMSE at machine precision from the numerical primitives; monolithic baselines have no such guarantee. 
+
+C.4 2D Systems (Trajectory) 
+
+Trajectory experiments evaluate long-horizon prediction on the same in-distribution (ID) and out-of-distribution (OOD) splits as the fixed-time setting; see Sections C.3.1 and C.3.2 for parameter ranges and OOD construction. We report errors at rollout horizons of 1, 5, 10, and 20 steps. 
+
+C.4.1 Advection–Diffusion–Reaction 
+
+We use the same 2D ADR system as in Section C.3.1. Trajectories are generated by integrating the reference solver from t = 0 to Tfinal = 0 .4 with step size ∆t = 0 .02 , yielding 21 snapshots per trajectory. We generate 10,000 trajectories total. 
+
+HyCOP (non-autoregressive multi-time querying). HyCOP uses the same policy architecture and feature configuration as in the fixed-time experiments (Section C.3.1). Given (u0, μ ) and a query time (or set of times) T , the policy outputs a split program and time ratios, and the resulting composite operator is evaluated once to produce u(T ). Thus HyCOP does not require step-by-step rollout. 
+
+Autoregressive baselines. Loc. Int. Diff. FNO [Liu-Schiaffini et al., 2024] is trained for single-step prediction at fixed ∆t = 0 .02 and rolled out autoregressively at test time. Inputs include u(t),spatial grids, and normalized parameters (8 channels total), and the network predicts u(t + ∆ t); the architecture matches Section C.3.1. For AR-Loc. Int. Diff. FNO we follow the autoregressive training protocol of Tran et al. [2023]: teacher forcing with ground-truth inputs, small Gaussian noise injection ( σ = 0 .001 ) for robustness, cosine learning-rate decay, batch size 32, and 100 epochs. U-Net [Ronneberger et al., 2015] serves as a convolutional sequence baseline. We use a standard encoder–decoder with skip connections (4 pooling levels, initial width 16), the same 8-channel inputs as Loc. Int. Diff. FNO, and the same autoregressive training protocol (teacher forcing, noise 
+
+σ = 0 .001 , cosine decay, 100 epochs). 32 Figure 16: 2D ADR trajectory (ID). Example long-horizon prediction at horizons of 1/5/10/20 steps for the 2D ADR system (Section C.4.1). 
+
+Figure 17: 2D ADR trajectory (OOD). Same visualization as Figure 16 on OOD initial condi-tions/parameters (see Section C.3.1). Table 13: 2D ADR multi-step trajectory error (ID). Relative L2 and RMSE at horizons of 1/5/10/20 steps. Autoregressive models are rolled out; HyCOP answers each horizon via direct time querying (non-autoregressive). 
+
+MODEL 1 STEP 5 STEPS 10 STEPS 20 STEPS 
+
+REL . L2 RMSE REL . L2 RMSE REL . L2 RMSE REL . L2 RMSE U-N ET 9.42 · 10 −2 3.59 · 10 −2 1.70 · 10 −1 5.85 · 10 −2 2.09 · 10 −1 6.82 · 10 −2 2.30 · 10 −1 7.38 · 10 −2
+
+LOC . I NT . D IFF . FNO 2.87 · 10 −2 1.03 · 10 −2 7.78 · 10 −2 2.48 · 10 −2 1.11 · 10 −1 3.44 · 10 −2 1.51 · 10 −1 4.85 · 10 −2
+
+AR-L OC . I NT . D IFF . FNO 3.86 · 10 −2 1.38 · 10 −2 8.24 · 10 −2 2.57 · 10 −2 1.02 · 10 −1 3.15 · 10 −2 1.02 · 10 −1 3.30 · 10 −2
+
+HYCOP ( OURS ) 6.02 · 10 −3 2.15 · 10 −3 1.68 · 10 −2 5.42 · 10 −3 2.10 · 10 −2 6.65 · 10 −3 1.96 · 10 −2 6.42 · 10 −3
+
+33 Figure 18: 2D SWE trajectory (ID). Example long-horizon prediction at horizons of 1/5/10/20 steps for the 2D SWE system (Section C.4.2). Table 14: 2D ADR multi-step trajectory error (OOD). Same protocol as Table 13 evaluated on OOD parameter/IC shifts.                                                                                                                    
+
+> MODEL 1STEP 5STEPS 10 STEPS 20 STEPS
+> REL .L2RMSE REL .L2RMSE REL .L2RMSE REL .L2RMSE U-N ET 1.83 ·10 −15.05 ·10 −25.23 ·10 −19.38 ·10 −27.91 ·10 −11.20 ·10 −11.07 ·10 01.45 ·10 −1
+> LOC . I NT . D IFF . FNO 1.56 ·10 −13.09 ·10 −25.65 ·10 −17.88 ·10 −29.17 ·10 −11.26 ·10 −11.30 ·10 02.08 ·10 −1
+> AR-L OC . I NT . D IFF . FNO 1.49 ·10 −13.48 ·10 −23.97 ·10 −16.77 ·10 −25.23 ·10 −18.24 ·10 −25.72 ·10 −18.58 ·10 −2
+> HYCOP ( OURS )8.29 ·10 −32.79 ·10 −32.12 ·10 −26.66 ·10 −32.87 ·10 −29.29 ·10 −33.78 ·10 −21.28 ·10 −2
+
+C.4.2 Shallow Water Equations Data generation & HyCOP. We use the same 2D SWE system as in Section C.3.2 with identical parameter ranges and initial-condition classes. Trajectories are generated by solving the reference PDE from t = 0 to Tfinal = 1 .0 with time step ∆t = 0 .05 , yielding 21 snapshots per trajectory; we generate 10,000 trajectories total. HyCOP uses the same policy-network configuration and feature set as in the fixed-time experiments (Section C.3.2). Importantly, HyCOP does not rely on autoregressive rollout: given (u0, μ ) and a target time (or set of times), the learned policy outputs a composite program that maps directly to u(T ) in a single evaluation. 
+
+Baselines. Loc. Int. Diff. FNO [Liu-Schiaffini et al., 2024] is trained for single-step prediction with fixed ∆t = 0 .05 . The model takes 6 input channels ( (h0, (hu )0, (hv )0), two spatial-grid channels, and normalized g) and predicts the next-step state; architecture follows Section C.3.2. Trajectory inference is obtained via autoregressive rollout. For AR-Loc. Int. Diff. FNO, we follow Tran et al. [2023]: teacher forcing under a Markov (single-step) assumption, Gaussian noise injection (σ = 0 .001 ), cosine learning-rate decay, batch size 32, and 100 training epochs. U-Net [Ronneberger et al., 2015] is trained with the same autoregressive protocol, using a standard 4-level encoder–decoder with skip connections and initial channel width 16. Poseidon-B [Herde et al., 2024] is included only for SWE trajectories: we fine-tune the pretrained Poseidon-B backbone (157M parameters) on 128 in-distribution trajectories using the protocol of Herde et al. [2024] (backbone LR 5 × 10 −5,embedding/time-embedding LR 5 × 10 −4, weight decay 10 −6, cosine scheduler, batch size 40, gradient clipping at 5.0, early stopping with patience 200 epochs). 34 Figure 19: 2D SWE trajectory (OOD). Same visualization as Figure 18 on OOD parameter/IC shifts (see Section C.3.2). Table 15: 2D SWE multi-step trajectory error (ID). Relative L2 and RMSE at horizons of 1/5/10/20 steps. Autoregressive models are rolled out; HyCOP answers each horizon via direct time querying (non-autoregressive). 
+
+MODEL 1 STEP 5 STEPS 10 STEPS 20 STEPS 
+
+REL . L2 RMSE REL . L2 RMSE REL . L2 RMSE REL . L2 RMSE U-N ET 2.75 · 10 −1 2.25 · 10 −2 1.04 · 10 0 7.87 · 10 −2 2.28 · 10 0 1.46 · 10 −1 4.20 · 10 0 2.78 · 10 −1
+
+LOC . I NT . D IFF . FNO 9.01 · 10 −2 6.64 · 10 −3 4.95 · 10 −1 6.26 · 10 −2 1.37 · 10 0 1.22 · 10 −1 5.52 · 10 0 2.26 · 10 −1
+
+POSEIDON 9.51 · 10 −2 1.13 · 10 −2 3.47 · 10 −1 2.92 · 10 −2 6.07 · 10 −1 4.91 · 10 −2 8.42 · 10 −1 7.37 · 10 −2
+
+AR-L OC . I NT . D IFF . FNO 6.66 · 10 −2 6.51 · 10 −3 1.72 · 10 −1 2.66 · 10 −2 2.84 · 10 −1 4.80 · 10 −2 4.86 · 10 −1 8.39 · 10 −2
+
+HYCOP ( OURS ) 7.12 · 10 −3 8.65 · 10 −4 1.91 · 10 −2 6.37 · 10 −3 4.06 · 10 −2 1.03 · 10 −2 6.94 · 10 −2 1.26 · 10 −2
+
+Table 16: 2D SWE multi-step trajectory error (OOD). Same protocol as Table 15 evaluated on OOD parameter/IC shifts. 
+
+MODEL 1 STEP 5 STEPS 10 STEPS 20 STEPS 
+
+REL . L2 RMSE REL . L2 RMSE REL . L2 RMSE REL . L2 RMSE U-N ET 2.59 · 10 −1 2.16 · 10 −1 5.92 · 10 −1 5.35 · 10 −1 9.21 · 10 −1 6.73 · 10 −1 1.20 · 10 0 8.51 · 10 −1
+
+LOC . I NT . D IFF . FNO 3.10 · 10 −1 1.55 · 10 −1 6.93 · 10 −1 5.03 · 10 −1 1.32 · 10 0 6.93 · 10 −1 1.44 · 10 0 9.40 · 10 −1
+
+POSEIDON 4.01 · 10 −1 3.37 · 10 −1 6.54 · 10 −1 6.14 · 10 −1 7.78 · 10 −1 6.96 · 10 −1 9.35 · 10 −1 8.01 · 10 −1
+
+AR-L OC . I NT . D IFF . FNO 2.72 · 10 −1 1.49 · 10 −1 5.33 · 10 −1 4.34 · 10 −1 7.89 · 10 −1 5.23 · 10 −1 7.55 · 10 −1 6.23 · 10 −1
+
+HYCOP ( OURS ) 1.01 · 10 −2 4.84 · 10 −3 4.54 · 10 −2 2.83 · 10 −2 8.30 · 10 −2 4.20 · 10 −2 1.21 · 10 −1 7.80 · 10 −2
+
+Dam Break Transfer For the SWE test cases, the trusted solver for data generation is SWEM-niCS Dawson et al. [2024]. SWEMniCS solves the 2D SWE using finite element methods in space, and implicit finite differences in time. The solver is based on the FEniCS framework Baratta et al. [2023] and includes a test suite of predefined physically relevant cases. 
+
+C.5 AD →ADR adaptation: three configurations 
+
+This experiment tests whether HyCOP can adapt when the target data contain physics absent during pretraining. We consider transfer from advection–diffusion (AD) to advection–diffusion–reaction (ADR), where the reaction mechanism is either unknown (Path (a)) or known but lives alongside a pretrained AD surrogate (Path (b)). We additionally include a fully-learned ablation that replaces every numerical primitive with a per-process FNO-FiLM surrogate. 
+
+Source and target systems. The source AD system is: 
+
+∂u ∂t + cx
+
+∂u ∂x + cy
+
+∂u ∂y = Dx
+
+∂2u∂x 2 + Dy
+
+∂2u∂y 2 , (11) 35 and the target ADR system Ptarget augments AD with an additional term: 
+
+∂u ∂t + cx
+
+∂u ∂x + cy
+
+∂u ∂y = Dx
+
+∂2u∂x 2 + Dy
+
+∂2u∂y 2 + G(u), (12) where in our benchmark G(u) = ru (1 − u). In Path (a), G is treated as unknown and learned only through black-box simulator queries; in Path (b), G is known and instantiated as a textbook numerical reaction solver. Parameter ranges and OOD splits follow Section C.3.1. 
+
+C.5.1 Path (a): Compose–diagnose–enrich with a learned residual Pretraining on AD. We pretrain HyCOP, Loc. Int. Diff. FNO, and U-Net on 10,000 AD pair-data samples with cx, c y ∈ [0 .2, 1.5] , Dx, D y ∈ [0 .05 , 0.2] , and target time T = 0 .2. Training configurations follow Sections C.3.1 and C.4.1. HyCOP learns a split program over two primitives corresponding to advection ( A) and diffusion ( D). Table 17: Zero-Shot Pretrained AD Inference Performance on ADR                                 
+
+> MODEL REL .L2RMSE MAX ERROR
+> U-N ET 1.81 ·10 −17.41 ·10 −21.76 ·10 −1
+> LOC . I NT . D IFF . FNO 1.86 ·10 −17.61 ·10 −21.60 ·10 −1
+> HYCOP ( PRETRAIN )1.81 ·10 −17.42 ·10 −21.05 ·10 −1
+
+Dictionary enrichment via a black-box residual operator. To enable transfer, we augment the AD dictionary with a third primitive intended to capture the missing physics. We assume access to queries of both a simplified simulator (AD) and a target simulator (ADR) from the same input state. Using a small step size ∆t = 0 .01 , we estimate the instantaneous residual rate via a first-order finite difference: 
+
+R(u) ≈ uADR (∆ t; u) − uAD (∆ t; u)∆t . (13) For sufficiently small ∆t, this approximates the additive drift contribution of the unknown term G(u).We train a U-NO [Rahman et al., 2023] to learn the map u 7 → R (u) from state u alone (single input channel), using states sampled from 120 ADR trajectories. The U-NO uses hidden width 32, 4 Fourier modes, and 4 layers. After training, the U-NO parameters are frozen and treated as a residual primitive RUNO .
+
+HyCOP adaptation with a frozen residual primitive. We extend the HyCOP policy from two operators (A, D) to three operators (A, D, RUNO ) by replacing sigmoid selection with a 3-way softmax. We initialize the feature extractor, time-ratio head, and length head from AD pretraining, and adapt only the policy parameters. Fine-tuning uses 120 ADR samples with ES (population size 50, noise std. 0.03, learning rate 0.005, weight decay 0.001) for 20 generations. We evaluate (i) zero-shot AD-pretrained models and (ii) enriched-and-adapted HyCOP on 120 held-out ADR test samples. 
+
+C.5.2 Path (b): Hybrid dictionary with a pretrained FNO-FiLM surrogate 
+
+Path (b) models the scenario where a lab already possesses a pretrained surrogate for one sub-process and knows the missing sub-process analytically. HyCOP composes a learned primitive with a numerical primitive through a small policy—neither is retrained. 
+
+FNO-FiLM primitives. All learned primitives in this paper use the same FNO backbone as our FNO baseline (identical width, depth, and Fourier-mode count; see Section C for the per-benchmark dimensions), augmented with FiLM conditioning [Perez et al., 2018] on the query time τ . FiLM applies a feature-wise affine modulation γ(τ ) ⊙ h + β(τ ) at each layer, where γ, β are produced by a small 2-layer MLP (hidden size 64) from the scalar τ . This lets a single FNO answer time-queried forward passes bΦ(i) 
+
+> τ
+
+(u) for a continuous range of durations τ rather than being tied to a fixed step, which is what HyCOP’s variable-duration programs require. 36 Input ( u)      
+
+> Reference HyCOP (pretrain AD)
+> L2err = 0 .253
+> HyCOP (+ residual)
+> L2err = 0 .061
+> Reaction intensity (%) Error reduction (%)
+
+Figure 20: AD →ADR via dictionary enrichment (single illustrative sample). HyCOP pretrained on advection–diffusion (AD) misses reaction-driven changes in ADR. Adding a residual primitive and relearning the policy localizes corrections to regions with high reaction intensity, reducing error. Per-sample L2 values shown; test-set averages are reported in Table 3. 
+
+Pretraining the FNO-FiLM AD surrogate. We pretrain a single FNO-FiLM on AD data with parameters cx, c y ∈ [0 .2, 1.5] , Dx, D y ∈ [0 .05 , 0.2] and variable target time T ∈ [0 .02 , 0.2] (10,000 trajectories). Training uses the common setup optimizer (Section C). After pretraining, all FNO-FiLM parameters are frozen; only the policy is learned downstream. 
+
+Reaction primitive. The numerical reaction primitive implements Onum react (u; τ ) by solving ˙v =
+
+rv (1 − v) pointwise for duration τ via an explicit RK4 step. It has zero learnable parameters. 
+
+HyCOP-Hyb adaptation. We train a 2-operator policy over the hybrid dictionary 
+
+{FNO-AD , Onum react } on 120 ADR samples from scratch (no AD policy warm-start, since the dic-tionary differs structurally from Path (a)). ES settings match Path (a): population size 50, noise std. 0.03, learning rate 0.005, weight decay 0.001, 20 generations. Neither the FNO-FiLM nor the reaction primitive is updated; only the ∼50-parameter policy is learned. Evaluation uses the same 120 held-out ADR test samples as Path (a). 
+
+C.5.3 Ablation: fully learned primitive dictionary 
+
+To stress-test the primitive-error term of the error decomposition (§4), we replace every numerical primitive with a per-process FNO-FiLM surrogate: 
+
+DLearned = {FNO-Adv , FNO-Diff , FNO-React }.
+
+Per-process pretraining. Each primitive is a separate FNO-FiLM (same backbone as in C.5.2) trained on single-process data for its own mechanism: • FNO-Adv on pure advection trajectories ( Dx=Dy =0 , r=0 ), cx, c y ∈ [0 .2, 1.5] .• FNO-Diff on pure diffusion trajectories ( cx=cy =0 , r=0 ), Dx, D y ∈ [0 .05 , 0.2] .• FNO-React on pure reaction trajectories ( cx=cy =Dx=Dy =0 ), r ∈ [0 .1, 1.0] .Each surrogate uses 10,000 single-process trajectories with variable target time T ∈ [0 .02 , 0.2] and the common-setup optimizer (Section C). All three surrogates are frozen after pretraining. 
+
+HyCOP-Learned adaptation. We train a 3-operator policy over DLearned on the same 120 ADR samples used for Path (a) and Path (b), with identical ES settings. Only the ∼73-parameter policy is 37 Figure 21: 1D KS (ID). HyCOP reproduces the spatiotemporal structure (top), energy spectrum (bottom-left), and long-time state distribution (bottom-right) within the training regime ( W ∈ [24 , 40] ,
+
+T ∈ [5 , 8] ). learned. This isolates the primitive-error term: the policy space is identical to HyCOP on ADR, so any gap traces to primitive quality, not to compositional structure. 
+
+C.6 HyCOP on chaotic/multiscale PDEs 
+
+We use KS as a stress test to verify that the learned splitting policy remains stable and reproduces correct long-time statistics under simultaneous domain and horizon shift. KS exhibits spatiotemporal chaos whose intensity grows with domain width W (more unstable modes); the stability constants in Definition A.1 depend on W and uniform bounds may not hold across all domain sizes. Moreover, chaotic dynamics cause pointwise errors to grow exponentially (Lyapunov divergence), making the error bounds in Theorem 4.3 uninformative at long times. We include KS as an empirical validation that HyCOP’s learned splitting remains effective in this regime. 
+
+C.6.1 Kuramoto–Sivashinsky (1D) 
+
+We consider KS on x ∈ [0 , 2πW ]:
+
+ut + uu x + uxx + uxxxx = 0 ,
+
+which exhibits spatiotemporal chaos for large W .
+
+Data generation. We generate 10,000 trajectories with an ETDRK4 pseudospectral solver (Kassam– Trefethen contour integration), using N = 128 and ∆t = 0 .02 . Training samples W ∼ Unif[24 , 40] 
+
+and query times T ∼ Unif[5 , 8] . Initial conditions are (i) two-mode sinusoids with random phases/amplitudes and (ii) low-frequency random Fourier series; all are mean-subtracted. 
+
+Dictionary. We use the canonical split 
+
+DKS = {O lin , Onl }, Olin (u) = −uxx − uxxxx , Onl (u) = − 12 (u2)x.
+
+Olin is exact in Fourier space via ˆu(t + ∆ t) = e(k2−k4)∆ t ˆu(t); Onl uses SSPRK3 with 3/2-rule dealiasing and CFL-based substepping. 
+
+Metrics and OOD. Pointwise errors diverge in chaotic systems, so we evaluate attractor-level statistics: spectrum error (SE) in the time-averaged log-energy spectrum and KL divergence between long-time state distributions (excluding the first 10% as transient). OOD shifts extrapolate domain and horizon: W ∈ [40 , 50] , T ∈ [8 , 20] , and the combined OOD-WT setting. HyCOP achieves low SE and KL across shifts (Table 5, panel (e), and Figures 21–24), indicating stable learned splitting that preserves the chaotic attractor under individual and combined domain/horizon extrapolation. 38 Figure 22: 1D KS (OOD: domain shift). HyCOP generalizes to W = 50 (1.25 × training maximum) while preserving attractor statistics. 
+
+Figure 23: 1D KS (OOD: horizon shift). HyCOP generalizes to T = 20 (2.5× training maximum) while maintaining stable energy spectrum and state distribution. 
+
+Figure 24: 1D KS (OOD: combined domain–horizon shift). HyCOP generalizes to the joint extrapolation ( W = 50 , T = 20 ) while preserving attractor statistics: spatiotemporal structure (top), energy spectrum (bottom-left), and long-time state distribution (bottom-right). Pointwise errors are uninformative under Lyapunov divergence; HyCOP matches the reference solver at the level of invariant statistics. 39
