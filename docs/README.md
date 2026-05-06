@@ -6,74 +6,64 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-05
-- 运行时间：2026-05-05 20:46:21 UTC
+- 最新运行日期：2026-05-06
+- 运行时间：2026-05-06 20:25:26 UTC
 - 运行状态：成功
-- 本次总论文数：17
+- 本次总论文数：14
 - 精读区：6
-- 速读区：11
+- 速读区：8
 
 ### 今日简报（AI）
-- 今日共生成 17 篇推荐（精读 6 篇，速读 11 篇）
-- 精读：《Alikhanov-XfPINNs: Adaptive Physics-Informed Learning for Nonlinear Fractional PDEs on Nonuniform Meshes》（10.0/10）, 《Chebyshev-Augmented One-Shot Transfer Learning for PINNs on Nonlinear Differential Equations》（10.0/10）
-- 速读：《Intern-Atlas: A Methodological Evolution Graph as Research Infrastructure for AI Scientists》（8.0/10）, 《Differentiable Multiphysics Co-Optimization via Implicit Neural Representations: A Transient Hamburger-Cooking Benchmark》（8.0/10）, 《Two-scale Neural Networks for Singularly Perturbed Dynamical Systems with Multiple Parameters》（8.0/10）
-- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202605/05/README](/202605/05/README)
+今日深度研读 14 篇论文，聚焦物理信息神经网络（PINNs）的理论突破与神经 PDE 模拟的范式创新。
+满分论文揭示了随机测试函数在 $H^{-1}$ 范数下的等价性，而后验优先模拟则实现了从单一场推断隐藏状态的跨越。
+推荐关注 Agent 驱动的运筹优化与复杂域符号回归，探索 AI 在工业钻井及生产建模中的实战潜力。
+- 详情：[/202605/06/README](/202605/06/README)
 
 ### 精读区论文标签
-1. [Alikhanov-XfPINNs: Adaptive Physics-Informed Learning for Nonlinear Fractional PDEs on Nonuniform Meshes](/202605/05/2605.01305v1-alikhanov-xfpinns-adaptive-physics-informed-learning-for-nonlinear-fractional-pdes-on-nonuniform-meshes)  
+1. [Random test functions, $H^{-1}$ norm equivalence, and stochastic variational physics-informed neural networks](/202605/06/2605.03542v1-random-test-functions-h-1-norm-equivalence-and-stochastic-variational-physics-informed-neural-networks)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：用于非均匀网格上非线性分数阶PDE的PINN
-2. [Chebyshev-Augmented One-Shot Transfer Learning for PINNs on Nonlinear Differential Equations](/202605/05/2605.01634v1-chebyshev-augmented-one-shot-transfer-learning-for-pinns-on-nonlinear-differential-equations)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：非线性方程PINN的一次性迁移学习
-3. [Beyond Data-Physics Consistency: A Cross-Correlated Physics-Informed Neural Network for Robust Inverse Scattering](/202605/05/2605.01851v1-beyond-data-physics-consistency-a-cross-correlated-physics-informed-neural-network-for-robust-inverse-scattering)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：用于求解逆散射中麦克斯韦方程组的互相关PINN
-4. [Physics-Informed Neural Learning for State Reconstruction and Parameter Identification in Coupled Greenhouse Climate Dynamics](/202605/05/2605.02524v1-physics-informed-neural-learning-for-state-reconstruction-and-parameter-identification-in-coupled-greenhouse-climate-dynamics)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：用于气候动力学的物理信息神经网络
-5. [Towards Multi-Agent Autonomous Reasoning in Hydrodynamics](/202605/05/2605.01102v1-towards-multi-agent-autonomous-reasoning-in-hydrodynamics)  
+   evidence：用于PDE的随机变分物理信息神经网络
+2. [Posterior-First Neural PDE Simulation: Inferring Hidden Problem State from a Single Field](/202605/06/2605.03247v1-posterior-first-neural-pde-simulation-inferring-hidden-problem-state-from-a-single-field)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：流体力学中的多智能体自主推理
-6. [Variational Matrix-Learning Fourier Networks for Parametric Multiphysics Surrogates](/202605/05/2605.02280v1-variational-matrix-learning-fourier-networks-for-parametric-multiphysics-surrogates)  
+   evidence：神经PDE模拟与推断隐藏问题状态
+3. [GRIFDIR: Graph Resolution-Invariant FEM Diffusion Models in Function Spaces over Irregular Domains](/202605/06/2605.03497v1-grifdir-graph-resolution-invariant-fem-diffusion-models-in-function-spaces-over-irregular-domains)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：PDE主导的多物理场问题的神经网络代理模型
+   evidence：在不规则区域使用有限元和神经算子的函数空间扩散模型
+4. [Meta-Inverse Physics-Informed Neural Networks for High-Dimensional Ordinary Differential Equations](/202605/06/2605.03511v1-meta-inverse-physics-informed-neural-networks-for-high-dimensional-ordinary-differential-equations)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：用于高维ODE的元逆物理信息神经网络
+5. [Programmatic Context Augmentation for LLM-based Symbolic Regression](/202605/06/2605.03101v1-programmatic-context-augmentation-for-llm-based-symbolic-regression)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：基于大模型的符号回归用于科学发现
+6. [Automated Large-scale CVRP Solver Design via LLM-assisted Flexible MCTS](/202605/06/2605.03339v1-automated-large-scale-cvrp-solver-design-via-llm-assisted-flexible-mcts)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：用于自动设计高性能求解器和算法的LLM辅助框架
 
 ### 速读区论文标签
-1. [Intern-Atlas: A Methodological Evolution Graph as Research Infrastructure for AI Scientists](/202605/05/2604.28158v2-intern-atlas-a-methodological-evolution-graph-as-research-infrastructure-for-ai-scientists)  
+1. [Complex Equation Learner: Rational Symbolic Regression with Gradient Descent in Complex Domain](/202605/06/2605.03841v1-complex-equation-learner-rational-symbolic-regression-with-gradient-descent-in-complex-domain)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：面向AI科学家和研究智能体的方法论演化图谱
-2. [Differentiable Multiphysics Co-Optimization via Implicit Neural Representations: A Transient Hamburger-Cooking Benchmark](/202605/05/2605.01040v1-differentiable-multiphysics-co-optimization-via-implicit-neural-representations-a-transient-hamburger-cooking-benchmark)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：用于多物理场协同优化和欧拉求解器的隐式神经表示
-3. [Two-scale Neural Networks for Singularly Perturbed Dynamical Systems with Multiple Parameters](/202605/05/2605.02799v1-two-scale-neural-networks-for-singularly-perturbed-dynamical-systems-with-multiple-parameters)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：用于奇异摄动动力系统的神经网络
-4. [FlowBot: Inducing LLM Workflows with Bilevel Optimization and Textual Gradients](/202605/05/2604.26258v2-flowbot-inducing-llm-workflows-with-bilevel-optimization-and-textual-gradients)  
+   evidence：符号回归用于从数据中发现可解释的方程
+2. [ORPilot: A Production-Oriented Agentic LLM-for-OR Tool for Optimization Modeling](/202605/06/2605.02728v1-orpilot-a-production-oriented-agentic-llm-for-or-tool-for-optimization-modeling)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：自动诱导基于大语言模型的智能体和工作流
-5. [SciResearcher: Scaling Deep Research Agents for Frontier Scientific Reasoning](/202605/05/2605.01489v1-sciresearcher-scaling-deep-research-agents-for-frontier-scientific-reasoning)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：用于前沿科学推理的自动化智能体框架
-6. [NORA: A Harness-Engineered Autonomous Research Agent for End-to-End Spatial Data Science](/202605/05/2605.02092v1-nora-a-harness-engineered-autonomous-research-agent-for-end-to-end-spatial-data-science)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：用于科学研究工作流的自主研究智能体
-7. [KANs need curvature: penalties for compositional smoothness](/202605/05/2605.02190v1-kans-need-curvature-penalties-for-compositional-smoothness)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：科学机器学习中Kolmogorov-Arnold网络的曲率惩罚
-8. [From Experimental Limits to Physical Insight: A Retrieval-Augmented Multi-Agent Framework for Interpreting Searches Beyond the Standard Model](/202605/05/2605.02491v1-from-experimental-limits-to-physical-insight-a-retrieval-augmented-multi-agent-framework-for-interpreting-searches-beyond-the-standard-model)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：用于物理文献探索和解释的多智能体AI框架
-9. [On the Trainability of Masked Diffusion Language Models via Blockwise Locality](/202605/05/2604.24832v1-on-the-trainability-of-masked-diffusion-language-models-via-blockwise-locality)  
+   evidence：用于优化建模和算法发现的智能体AI系统
+3. [TADI: Tool-Augmented Drilling Intelligence via Agentic LLM Orchestration over Heterogeneous Wellsite Data](/202605/06/2605.00060v1-tadi-tool-augmented-drilling-intelligence-via-agentic-llm-orchestration-over-heterogeneous-wellsite-data)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于结构化生成和算法任务的掩码扩散语言模型
-10. [Evaluating the Architectural Reasoning Capabilities of LLM Provers via the Obfuscated Natural Number Game](/202605/05/2605.00677v1-evaluating-the-architectural-reasoning-capabilities-of-llm-provers-via-the-obfuscated-natural-number-game)  
+   evidence：用于分析异构科学和运营数据的智能体LLM编排
+4. [M-CaStLe: Uncovering Local Causal Structures in Multivariate Space-Time Gridded Data](/202605/06/2605.00398v1-m-castle-uncovering-local-causal-structures-in-multivariate-space-time-gridded-data)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于自动定理发现的大模型推理
-11. [Lifting Traces to Logic: Programmatic Skill Induction with Neuro-Symbolic Learning for Long-Horizon Agentic Tasks](/202605/05/2605.01293v1-lifting-traces-to-logic-programmatic-skill-induction-with-neuro-symbolic-learning-for-long-horizon-agentic-tasks)  
+   evidence：时空网格数据中的因果结构发现
+5. [AAFLOW: Scalable Patterns for Agentic AI Workflows](/202605/06/2605.02162v1-aaflow-scalable-patterns-for-agentic-ai-workflows)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于智能体任务和算法发现的神经符号技能归纳
+   evidence：智能体AI工作流的可扩展模式与分布式运行时
+6. [ARIADNE: Agentic Reward-Informed Adaptive Decision Exploration via Blackboard-Driven MCTS for Competitive Program Generation](/202605/06/2605.02431v1-ariadne-agentic-reward-informed-adaptive-decision-exploration-via-blackboard-driven-mcts-for-competitive-program-generation)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：使用MCTS和大模型自动生成程序和算法
+7. [Reinforcement Learning for LLM-based Multi-Agent Systems through Orchestration Traces](/202605/06/2605.02801v1-reinforcement-learning-for-llm-based-multi-agent-systems-through-orchestration-traces)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：基于大模型的多智能体编排强化学习
+8. [Learning Correct Behavior from Examples: Validating Sequential Execution in Autonomous Agents](/202605/06/2605.03159v1-learning-correct-behavior-from-examples-validating-sequential-execution-in-autonomous-agents)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：利用LLM语义理解验证自主智能体的顺序执行行为
 
 
 <div class="dpr-home-promo-card">

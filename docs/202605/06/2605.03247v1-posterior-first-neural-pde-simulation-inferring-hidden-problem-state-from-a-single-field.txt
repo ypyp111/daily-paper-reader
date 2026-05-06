@@ -1,0 +1,1069 @@
+Title: Posterior-First Neural PDE Simulation: Inferring Hidden Problem State from a Single Field
+
+URL Source: https://arxiv.org/pdf/2605.03247v1
+
+Published Time: Wed, 06 May 2026 00:20:40 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# Posterior-First Neural PDE Simulation: Inferring Hidden Problem State from a Single Field 
+
+Wenshuo Wang 1, Fan Zhang 2,3∗ 
+
+> 1
+
+School of Future Technology, South China University of Technology, China  
+
+> 2
+
+State Key Laboratory of Ocean Sensing & Ocean College, Zhejiang University, China  
+
+> 3
+
+Kavli Institute for Astrophysics and Space Research, Massachusetts Institute of Technology, USA 
+
+202364870251@mail.scut.edu.cn , f.zhang@zju.edu.cn 
+
+# Abstract 
+
+Neural PDE simulators often receive only a single observed field at deployment. In this setting, a field-to-future predictor can collapse distinct latent problem states into the same deterministic interface, losing the ambiguity needed for reliable rollout and downstream decisions. We propose posterior-first neural PDE simulation :first infer a posterior over the minimal task-sufficient problem state, then condition prediction on that posterior. The resulting theory connects the object, the learning target, and the failure mode: Bayes downstream values factor through this posterior, refinement labels make it learnable by proper scoring rules, and deterministic collapse incurs an ambiguity barrier whenever the true posterior is non-Dirac. Synthetic exact-ambiguity experiments show that point-versus-posterior gaps track the predicted barrier. On metadata-hidden PDEBench tasks, posterior recovery reduces pooled rollout nRMSE from 0.175 to 0.132, closing 59.4% of the direct-to-oracle gap. These results suggest that single-observation neural PDE simulation should be posterior-first rather than monolithic field-to-future prediction. 
+
+# 1 Introduction 
+
+Across science and engineering, many central problems in forecasting, design, and control require fast simulation of systems governed by partial differential equations. Neural PDE simulators have therefore become an important surrogate modeling paradigm, because they can amortize the cost of repeated numerical solves [ 1– 3 ]. We focus on the single-observation regime, where the simulator receives one field and must predict what happens next. This regime matters because a single observed field is often the practical input available at deployment, while the simulator is still expected to support long-horizon prediction and other downstream scientific use. But this regime is fundamentally difficult. One field need not uniquely determine the future, because hidden state, coefficients, operators, boundary conditions, or memory may remain unresolved [4, 5, 15, 6]. Existing neural PDE simulators differ in what they receive at inference time and how they handle hidden problem-state information before prediction. Some treat simulation as direct prediction from the visible field [ 1 –3]; others reduce the difficulty with extra problem information or richer context, such as equations, coefficients, boundary conditions, or short trajectories [ 7 –11 ]; and a related line explicitly recovers hidden state, parameters, operators, or memory before prediction [ 12 – 14 , 16 ]. Yet single-observation simulation still lacks a principled reusable intermediate object. The missing problem state is usually left implicit, bypassed with extra information, or only partially recovered. As a result, ambiguity unresolved by one field is not preserved for downstream prediction or decision. 
+
+> ∗Corresponding author. Preprint.
+> arXiv:2605.03247v1 [cs.LG] 5 May 2026
+
+We address this gap with posterior-first neural PDE simulation :
+
+xt 7 −→ qϕ (zt | xt) 7 −→ pψ (y | zt) .
+
+Here xt is the observed field at inference time, qϕ (zt | xt) is a posterior over latent problem states compatible with that field rather than a deterministic point estimate, and pψ (y | zt) denotes downstream prediction conditioned on such a state. This factorization makes explicit what single-observation simulation must do under ambiguity: first infer which hidden problem states remain plausible from the visible field, then evolve or answer downstream queries conditional on that uncer-tainty. Concretely, in Section 3 we define the latent problem state and the posterior-first factorization. We then show in Section 4 that the Bayes-optimal reusable intermediate object is a posterior, that this posterior is exactly learnable with proper scoring rules, and that deterministic point latents face an explicit ambiguity barrier. To make this formulation concrete, we instantiate in Section 5 a minimal posterior-first simulator that infers a structured problem-state posterior and conditions evolution on it through a matched rollout backbone and a theorem-facing training objective. Across the two empirical layers in Section 6, posterior-first models consistently outperform matched direct-rollout baselines, capacity-matched controls, and literature alternatives. Specifically, on the theorem-facing synthetic benchmark, they close most of the direct-to-oracle gap under controlled ambiguity. On the public PDEBench layer, they improve rollout error on every family, reducing the pooled public nRMSE from 0.175 to 0.132 while closing about 60% of the hidden-metadata oracle gap. These results support our core claim: single-observation neural PDE simulation should be posterior-first rather than a monolithic field-to-future map. In Section 7 we explain why this matters: making pre-rollout problem-state recovery explicit changes not only how neural simulators are built, but also what scientific surrogate models should be optimized and evaluated for. 
+
+# 2 Related Work 
+
+2.1 Types of Inputs to Neural Simulators 
+
+Research on neural PDE simulation can be classified by the inputs available to the simulator at inference time. A first class uses the observed field itself as the input and learns either a solution operator or a rollout map directly from fields or coordinates. FNO and DeepONet are canonical examples of this regime [ 1, 2]. PDE-Refiner is a representative long-horizon rollout model in the same setting [ 3]. A second class gives the simulator structured problem information in addition to the field. This information can include symbolic equations, coefficients, boundary conditions, geometry, or multimodal operator descriptions. Unisolver and PROSE exemplify this explicit-condition regime [7, 8]. A third class gives the simulator richer context before or during prediction. This context can take the form of short trajectories, contextual examples, or prompts from related dynamics. ICON, DISCO, and Zebra are representative methods in this class [9–11]. Taken together, these lines of work still leave single-observation simulation without a principled reusable intermediate object: direct-rollout methods leave the missing problem state implicit, whereas methods that avoid this difficulty do so by supplying extra information from outside the observation itself. Conceptually related is amortized simulation-based inference, which learns posteriors for inverse problems rather than reusable simulator interfaces [ 26 , 27 , 25 ]. Our work addresses this missing object directly with a posterior-first formulation of neural PDE simulation. This matters because it replaces an architecture-level modeling habit with a general principle for how scientific simulators should be built, reasoned about, and evaluated. This matters because it turns unresolved problem-state ambiguity into an explicit reusable simulator interface, rather than leaving it hidden inside end-to-end rollout or bypassing it with extra inputs. 
+
+2.2 Problem-State Recovery Methods and What They Recover 
+
+Among methods that recover missing information before prediction, prior work falls into four broad groups: reconstructing hidden field state from partial observations [ 12 , 13 ], identifying equations, parameters, coefficients, or source terms [ 14 , 15 ], inferring operator or dynamics representations from richer context [ 9– 11 ], and treating memory as part of the latent state [ 16 ]. Taken together, these methods remain partial: they recover only one slice of the hidden problem state or rely on richer context than a single observed field. As a result, ambiguity that is joint across hidden state, coefficients, operators, boundary conditions, and memory is still not exposed as a reusable object 2from one field. Our formulation instead targets a posterior over the joint task-sufficient problem state, so that unresolved ambiguity can be carried forward explicitly into downstream evolution and decision-making. 
+
+# 3 Posterior-First Problem-State Formulation 
+
+The single-observation regime is hard because one observed field need not identify hidden state, coefficients, operators, boundary conditions, or memory relevant to downstream tasks. We therefore separate the observed field from the latent world that generated it: let Wt be the complete latent world state, and let Xt = O(Wt) be the visible field under observation map O. We write xt for a realized observation. Downstream scientific uses are indexed by τ ∈ T , with target variable Y τt ;the family T may include future fields, hidden-state queries, coefficient or operator queries, and uncertainty-sensitive decisions. The reusable interface should not copy all of Wt. The full latent world is sufficient but may contain distinctions that no downstream task can ever use. We call Zt = g(Wt) task-sufficient if, after Zt is known, the remaining details of Wt do not change the law of any task target: 
+
+Y τt ⊥ Wt | Zt, τ ∈ T . (1) Sufficiency alone is still too weak, since many overly detailed states, including Wt itself, satisfy (1) .We therefore identify latent worlds that are indistinguishable to the whole task family. Let L(· | · )
+
+denote conditional law, and define 
+
+w ∼T w′ ⇐⇒ L (Y τt | Wt = w) = L(Y τt | Wt = w′) for all τ ∈ T . (2) Let Z⋆t = g⋆(Wt) be the quotient label induced by this relation. It is the minimal task-sufficient problem state: it keeps exactly the latent distinctions that can change at least one downstream law and discards the rest. Appendix A.1 gives the formal quotient construction and proves that every other task-sufficient state is a refinement of Z⋆t .Even the minimal state is not necessarily identified by one observed field. Multiple values of Z⋆t
+
+can remain compatible with the same xt. The object to infer is therefore not a point latent, but the posterior over task-sufficient problem states: 
+
+πt(· | xt) := P(Z⋆t ∈ · | Xt = xt) . (3) For any downstream target Y = Y τt , prediction factors through this posterior: 
+
+p(y | xt) = 
+
+Z
+
+p(y | z) πt(dz | xt), (4) where p(y | z) denotes the predictive law induced by state z, written in density notation. Thus the vis-ible field is first converted into uncertainty over plausible problem states, and downstream prediction is then conditional on that uncertainty. Appendix A.2 gives the measure-theoretic derivation. In benchmarks, Z⋆t is the theorem-level object but is not directly annotated. We instead observe a countable semantic refinement Ct, with Z⋆t = h(Ct), whose labels record the hidden problem-state slices available for supervision. If rt(c | xt) = P(Ct = c | Xt = xt) is the refinement posterior, then the desired task-sufficient posterior is its pushforward: 
+
+πt(z | xt) = X 
+
+> c:h(c)= z
+
+rt(c | xt). (5) Appendix A.3 formalizes this refinement bridge. Hence the core inference target is πt(· | xt),represented in experiments by a supervised refinement posterior. Single-observation neural PDE simulation should be posterior-first: problem-state posterior inference followed by conditional evolution, rather than a monolithic field-to-future map. 
+
+# 4 Why the Reusable Intermediate Object Is a Posterior 
+
+Section 3 defined the posterior over the minimal task-sufficient problem state. We now give the evidence chain for why this posterior is the reusable intermediate object: Bayes decisions depend on the observation only through it; the benchmark refinement posterior is exactly learnable with proper scoring rules; deterministic point latents face an ambiguity barrier; and posterior error controls downstream utility. Appendix B contains the full derivations. 34.1 The Correct Reusable Intermediate Object Is a Task-Sufficient Posterior 
+
+Fix a task τ ∈ T , action space Aτ , action a ∈ A τ , and task loss ℓτ (a, Y τt ). Let ρτ (a, z ) := 
+
+E[ℓτ (a, Y τt ) | Z⋆t = z]. For a realized observation xt, the conditional Bayes value satisfies 
+
+Vτ (a, x t) := E[ℓτ (a, Y τt ) | Xt = xt]= E[ρτ (a, Z ⋆t ) | Xt = xt]=
+
+Z
+
+ρτ (a, z ) πt(dz | xt). (6) Task-sufficiency gives the second line, and conditioning on πt(· | xt) gives the third. Hence Bayes actions depend on xt only through this posterior, making the reusable object posterior-valued rather than point-valued. For the benchmark refinement, the same value is obtained from rt via the pushforward in (5). 
+
+4.2 The Posterior Is Learnable and Point Latents Are Ambiguity-Limited 
+
+Let C = range( Ct), let rX (·) := rt(· | Xt) be the true refinement posterior, and let qX (·) be a predicted distribution on C. For the log score Llog (q) := E[− log qX (Ct)] , the excess risk over the Bayes risk L⋆ 
+
+> log
+
+is 
+
+Llog (q) − L ⋆ 
+
+> log
+
+= E
+
+"X
+
+> c∈C
+
+rX (c) log rX (c)
+
+qX (c)
+
+#
+
+= E[KL( rX ∥ qX )] . (7) For the multiclass Brier score LBr (q) := E[∥qX − eCt ∥22], let ec be the one-hot distribution at label c.Since E[eCt | Xt] = rX , conditioning on Xt gives the orthogonal decomposition 
+
+E∥qX − eCt ∥22 | Xt
+
+ = ∥qX − rX ∥22 + E∥rX − eCt ∥22 | Xt
+
+ .
+
+Thus, with L⋆ 
+
+> Br
+
+denoting the Bayes Brier risk, 
+
+LBr (q) − L ⋆ 
+
+> Br
+
+= E∥qX − rX ∥22
+
+ . (8) These identities show that the posterior head is an exact conditional-distribution target, not a heuristic uncertainty add-on. The same calculation explains why deterministic point latents are insufficient in genuinely ambiguous observations. A point predictor ˆc(Xt) represents a one-hot distribution. For any posterior r, ∥ec −
+
+r∥22 = 1 − 2r(c) + ∥r∥22, so the best one-hot approximation incurs 
+
+Γamb (r) := min  
+
+> c
+
+∥ec − r∥22 = 1 + ∥r∥22 − 2∥r∥∞ ≥ (1 − ∥ r∥∞)2. (9) This ambiguity penalty vanishes only for Dirac posteriors. Therefore, when one field leaves multiple problem states plausible, a point latent is separated from the posterior target by an irreducible statistical gap. 
+
+4.3 Posterior Quality Controls Simulator Utility 
+
+Posterior recovery matters because downstream value is linear in the posterior. For an ap-proximate refinement posterior qxt , define Vqτ (a, x t) := P 
+
+> c∈C
+
+ρτ (a, h (c)) qxt (c). If Bτ := sup a∈A τ ,c ∈C |ρτ (a, h (c)) | < ∞, then for every action a,
+
+Vqτ (a, x t) − V τ (a, x t) ≤ Bτ ∥qxt − rt(· | xt)∥1. (10) Let aqτ (xt) minimize the approximate value Vqτ , and let a⋆τ (xt) minimize the true value Vτ . Then 
+
+Vτ
+
+ aqτ (xt), x t
+
+ − V τ
+
+ a⋆τ (xt), x t
+
+ ≤ 2Bτ ∥qxt − rt(· | xt)∥1. (11) Proper scoring losses then translate into utility control. By Pinsker’s inequality and (7), 
+
+E[∥qX − rX ∥1] ≤
+
+q
+
+2 Llog (q) − L ⋆
+
+> log
+
+. (12) 4If C is finite, ∥v∥1 ≤ p|C|∥ v∥2 and (8) give 
+
+E[∥qX − rX ∥1] ≤
+
+q
+
+|C|  LBr (q) − L ⋆
+
+> Br
+
+. (13) Thus posterior metrics are not merely auxiliary diagnostics: they upper-bound the downstream utility gap of the simulator induced by the learned posterior. Finally, rollout-only hidden states are not generally identified as reusable objects. Suppose training uses only a restricted rollout family T0 ⊊ T . If two distinct posteriors π̸ = π′ over Z⋆t satisfy 
+
+Z
+
+ρτ (a, z ) π(dz ) = 
+
+Z
+
+ρτ (a, z ) π′(dz ) for all τ ∈ T 0, a ∈ A τ , (14) then every objective built only from T0 is indifferent between them, even though an omitted task in 
+
+T may distinguish them. A rollout hidden state can therefore be sufficient for the training rollout loss while failing as a reusable interface. Explicit posterior recovery avoids this non-identification by targeting the task-sufficient posterior itself. 
+
+# 5 A Minimal Posterior-First Simulator 
+
+We instantiate the theory with the smallest architectural change that makes the inferred posterior explicit. In experiments, zt ∈ Z is the realized label of the finite annotated semantic refinement 
+
+Ct used for supervision: its coordinates cover the hidden field state, coefficient or operator regime, boundary class, or memory class, while Z⋆t remains the theorem-level quotient and xt remains the visible rollout input. Given the observed field xt, a posterior encoder predicts 
+
+qϕ(z | xt) ≈ P(Ct = z | Xt = xt) , z ∈ Z . (15) The output is a full joint posterior rather than independent slice-wise point estimates. This countable annotated refinement is the smallest setting in which the proper-scoring identities of Section 4 can be tested directly. The rollout still uses xt as the visible initial condition; the posterior supplies the unresolved problem-state information. Ideally, prediction follows the finite mixture 
+
+X
+
+> z∈Z
+
+qϕ(z | xt)pψ (y | xt, z ),
+
+where pψ is a conditional rollout predictor. In the main experiments, we keep one matched rollout backbone and expose the posterior through the embedding summary 
+
+sϕ(xt) = X
+
+> z∈Z
+
+qϕ(z | xt)e(z), ˆy = Fψ (xt, s ϕ(xt)) . (16) Here e(z) is learned and Fψ has the same rollout family as the direct simulator baseline. This is a matched implementation of the posterior-first interface, not an exact-mixture equivalence claim. Training mirrors the decomposition: learn the posterior with a proper scoring rule and train the simulator with the same downstream losses used by the direct baselines: 
+
+min  
+
+> ϕ,ψ
+
+λpost E[S(qϕ(· | xt), z t)] + X 
+
+> τ∈T train
+
+λτ E[ℓτ (Fψ (xt, s ϕ(xt)) , Y τt )] . (17) Here S denotes the log or multiclass Brier score on zt, and the second term uses the same supervised task losses as the direct baselines. Implementation details, summary-fidelity checks, and the matched comparison protocol are in Appendix C. The simulator is minimal for the empirical test: posterior-first and direct models share the rollout family, optimization budget, and task supervision. Removing sϕ(xt) gives the field-to-future baseline, and replacing qϕ(· | xt) by a point estimate gives the point-latent control. The comparison is designed to isolate latent-state posterior recovery rather than backbone strength or richer inputs. 
+
+# 6 Empirical Evaluation 
+
+Our experiments test two claims. First, when a single field is ambiguous, posterior-valued problem-state inference should outperform point-valued or direct interfaces and approach the oracle state interface. Second, when hidden problem metadata are withheld in public PDEBench tasks, the same posterior-first mechanism should improve standard rollout under matched backbones [19]. 56.1 Experimental setup 6.1.1 Datasets and scope 
+
+We use two benchmark layers. The synthetic layer is an in-house exact-collision generator built from Gray–Scott-style reaction–diffusion rendering [ 20 , 21 ]. Each example contains one scalar field 
+
+xt ∈ R1×64 ×64 , a discrete semantic state zt ∈ Z syn , the exact posterior rX (·) = P(zt ∈ · | Xt), and task targets for future fields, operator class, coefficient value, and uncertainty. We use |Z syn | = 64 
+
+states, 40 ,000 /5,000 /5,000 train/validation/test examples, and four ambiguity regimes—near-Dirac, mid, high, and very high—formed by increasing the number of compatible semantic states in each collision class. It supports the theorem-facing experiment because the posterior and ambiguity barrier are known exactly. Full generator rules and splits are given in Appendix D.1. The public layer is a metadata-hidden protocol built on PDEBench [ 19 ]. We use four forward families: Diffusion-Reaction (DR), a 2D two-channel system with 1,000 sequences on a 128 × 128 
+
+grid; Diffusion-Sorption (DS), a 1D scalar system with 10,000 sequences on a 1,024-point grid; Shallow-Water (SW), a 2D scalar free-surface system with 1,000 sequences on a 128 × 128 grid; and Incompressible Navier–Stokes (INS), a 2D velocity-field system with 1,000 rollout segments on a 
+
+256 × 256 grid. All use 101-frame rollouts after family-specific preprocessing. Each item exposes only one field xt, while selected metadata are withheld and used as zpub  
+
+> t
+
+: regime/coefficient in DR, coefficients in DS, source or boundary in SW, and forcing or viscosity in INS. Direct baselines use only xt, posterior-first models infer q(zpub  
+
+> t
+
+| xt), and oracle controls receive the metadata. Exact taxonomies, splits, horizons, and probe definitions are reported in Appendix D.3. 
+
+6.1.2 Compared methods, backbones, and regimes 
+
+We organize the compared methods by the alternative explanation they test. In the synthetic layer, where the true posterior and oracle state are known, we use the full matched control lad-der. Direct-Point is the standard deterministic field-to-future rollout model. Direct-Dist keeps the same direct interface but predicts a heteroscedastic output distribution, testing output uncertainty alone. Direct-MTL adds auxiliary hidden-state supervision to the direct model, testing latent super-vision without a posterior interface. Direct-Large widens and deepens the direct model, testing capacity. Point-z first predicts a single semantic state ˆzt and then conditions rollout on it, while 
+
+Posterior-z predicts the full q(zt | xt) before rollout. RichContext-Posterior-z receives a 4-frame context that resolves most collisions, and Oracle-z receives the true latent problem state. Thus the synthetic ladder separates direct prediction, output uncertainty, auxiliary supervision, model capacity, point-latent inference, posterior inference, and oracle identification. Exact architectures and losses are given in Appendices C and C.3. In the public PDEBench layer, the main text keeps the comparison smaller and focused on external validity: Direct-Point , Direct-Dist , Posterior-z, and Oracle-z. This four-way ladder asks whether explicit hidden-metadata posterior recovery closes the direct-to-oracle rollout gap under matched public-benchmark conditions. Appendix D.5 adds external probabilistic baselines where their native assumptions fit the metadata-hidden task. Approximate Bayesian Neural Operators (ABNO) [ 17 ] provide an uncertainty-aware neural-operator baseline that predicts distributions with-out explicitly reconstructing hidden metadata. The invertible neural-operator baseline of Kaltenbach et al. [ 18 ] is used when the hidden metadata form a low-dimensional Bayesian inverse problem. Appendix D.6 adds two label-free probabilistic direct controls: DeepEns-Direct , a deep ensemble of matched direct predictors [ 29 ], and GateMoE-Direct , a gated mixture-of-experts direct predic-tor [ 30 ]. These external baselines test whether generic probabilistic direct modeling can replace explicit problem-state posterior recovery. For rollout backbones, we use four common neural-simulator families that cover complementary inductive biases: U-Net [ 22 ] for local convolutional encoder–decoder modeling, FNO [ 1] for spectral operator learning, ConvLSTM [ 23 ] for recurrent spatiotemporal dynamics, and Transformer [ 24 ] for attention-based temporal conditioning. Within each backbone family, all matched internal controls share the same rollout stem, optimization budget, train/validation/test split, and observation protocol. The synthetic experiments sweep ambiguity regimes and include near-Dirac, 4-frame richer-context, and operator-token Dirac controls. The public experiments pool over the selected metadata-hidden PDEBench families and all matched backbones available for each family; external probabilistic baselines are evaluated family-wise where their assumptions apply. 66.1.3 Metrics and evaluation protocol 
+
+For the synthetic benchmark, each method is trained on the synthetic training split, selected by validation task-bundle risk, and evaluated on held-out test examples from the same ambiguity regimes. The mechanism metric is the average ambiguity barrier 
+
+Γamb = 1
+
+|D test |
+
+X
+
+> i∈D test
+
+min 
+
+> z∈Z syn
+
+∥ez − ri∥22, (18) where ri(·) = P(zi = · | Xi = xi) is the exact posterior for test example i, and ez is the one-hot distribution concentrated on state z. This is the best Brier error achievable by any deterministic point latent; larger values mean that the single field leaves more problem-state ambiguity. We compare it with the observed Point gap , the excess latent-state Brier error of Point-z over Posterior-z.To measure downstream consequence, we use the normalized remaining direct-to-oracle gap on the full synthetic task bundle. Let 
+
+Rfull (m) = 1
+
+|D test |
+
+X
+
+> i∈D test
+
+X 
+
+> τ∈T syn
+
+wτ ℓτ
+
+
+
+ˆy(m) 
+
+> i,τ
+
+, y i,τ 
+
+
+
+,
+
+where m is a method, Tsyn is the synthetic task bundle, wτ are fixed task weights, and ℓτ is the task loss for target yi,τ . We report 
+
+Grem (m) := Rfull (m) − Rora full 
+
+Rdir full − Rora full 
+
+, (19) where Rdir full is the matched direct baseline risk and Rora full is the oracle-latent risk. Thus Grem = 1 
+
+matches the direct baseline, Grem = 0 matches the oracle, and lower is better. We also report future-field negative log-likelihood, 
+
+FutureNLL( m) = − 1
+
+|D test |
+
+X
+
+> i∈D test
+
+log pm(y1:8  
+
+> i
+
+| xi), (20) where y1:8  
+
+> i
+
+is the 8-step future-field target and pm is the predictive distribution of method m. Lower values indicate better calibrated future-field prediction. Target-wise hidden-query, calibration, and rollout-only metrics are reported in Appendix D.2. For the public PDEBench benchmark, each method is trained under the same single-observation protocol and evaluated by closed-loop rollout on held-out trajectories. Let Ntest be the number of test trajectories or rollout segments, Troll the rollout horizon, xi,t the ground-truth field, and ˆx(m) 
+
+> i,t
+
+the prediction of method m. We use 
+
+nRMSE( m) = 1
+
+Ntest 
+
+> Ntest
+
+X
+
+> i=1
+
+vuutPTroll  
+
+> t=1
+
+∥ˆx(m) 
+
+> i,t
+
+− xi,t ∥22
+
+PTroll  
+
+> t=1
+
+∥xi,t ∥22
+
+, (21) where ∥ · ∥ 2 is taken over all spatial locations and channels. Lower nRMSE means more accurate. We also report public oracle-gap closure: 
+
+GapClose( m) := nRMSE dir − nRMSE( m)nRMSE dir − nRMSE ora , (22) where nRMSE dir is the matched direct baseline error and nRMSE ora is the oracle-metadata error. Thus 0 means no improvement over direct prediction, 1 means the oracle gap is fully closed, and higher is better. For stratified analysis, we compute the same quantity within bins of the held-out ambiguity score a(xt), with the high-ambiguity value taken from the highest-score bin. To check whether rollout gains coincide with hidden problem-state recovery, we report the strongest metadata probe available for each family: classification accuracy for discrete metadata and R2 for continuous metadata; the pooled row averages these higher-is-better probe values across families. Posterior-stage calibration, coverage, predictive NLL, and family-wise probe variants are reported in Appendix D.5. 7Table 1: Synthetic exact-ambiguity mechanism check across ambiguity regimes and identifiability controls.                        
+
+> Regime / control E[Γ amb (rX)] Point gap gap / E[Γ amb ]
+> Near-Dirac control 0.004 0.004 1.00 Mid ambiguity 0.018 0.016 0.89 High ambiguity 0.031 0.028 0.90 Very high ambiguity 0.047 0.042 0.89 4-frame richer-context control 0.005 0.005 1.00 Operator-token Dirac control 0.003 0.003 1.00
+
+Table 2: Synthetic downstream per-formance on the full task bundle.                   
+
+> Method Future NLL Grem
+> Direct-Point 1.48 1.000
+> Direct-Dist 1.22 0.732
+> Direct-MTL 1.24 0.498
+> Direct-Large 1.20 0.598
+> Point-z1.18 0.460
+> Posterior-z1.02 0.381
+> RichContext-Posterior-z0.92 0.205
+> Oracle-z0.81 0.000
+
+6.2 Main results 6.2.1 Synthetic exact-ambiguity benchmark: mechanism and downstream closure 
+
+The synthetic benchmark is the only setting in which the exact posterior and the ambiguity barrier are known. Table 1 therefore reports the mechanism check predicted by Section 4.1, and Table 2 reports the corresponding downstream consequence on the full task bundle. Appendix D.2 gives the fuller task-bundle, ambiguity-stratified, and rollout-only views, and Appendix C.3 checks that the matched summary-conditioning interface used in the main model does not materially change the ordering. Table 1 shows that the deterministic point-versus-posterior gap is governed by the ambiguity barrier rather than by generic model capacity. As ambiguity increases from the mid to the very-high regime, the expected barrier rises from 0.018 to 0.047 and the observed point gap rises in step from 0.016 to 0.042, while the ratio between them stays concentrated at 0.89–0.90. In the near-Dirac, 4-frame, and operator-token controls, both the barrier and the observed gap collapse to 0.003–0.005. The synthetic mechanism result therefore matches the theorem in both directions: the point-latent penalty appears when a single field is ambiguous, and it disappears again when the observation becomes identifying. Table 2 shows how that mechanism translates into simulator utility. Relative to Direct-Point , a larger direct model and auxiliary hidden-target supervision reduce the remaining direct-to-oracle gap to 0.598 and 0.498, respectively, but neither matches an explicit posterior stage. The comparison is between Point-z and Posterior-z: replacing a point latent by a posterior lowers future NLL from 1.18 to 1.02 and reduces Grem from 0.460 to 0.381. The richer-context and oracle controls give the expected ceilings at 0.205 and 0.000. Appendix D.2 shows that the same ordering persists on the fuller task bundle and the rollout-only ablations (Tables 7–9). Appendix C.3 then checks the implementation approximation directly: replacing the summary interface by an explicit mixture changes synthetic Grem only from 0.381 to 0.365, while a four-sample approximation gives 0.373. Taken together, the synthetic layer supports our theorem-facing claim: when ambiguity can be controlled exactly, explicit posterior inference is the mechanism that explains the downstream gain. 
+
+6.2.2 Public PDEBench metadata-hidden oracle-gap probe 
+
+Because the public benchmark has hidden metadata but no exact posterior labels, this subsection uses three complementary probes: Figure 1 reports how direct-to-oracle gap closure changes with the held-out single-field ambiguity score a(xt). The score estimates how much oracle benefit remains under a single visible field, with diagnostics in Appendix D.4. As a(xt) rises from 0.14 to 0.89 across bins, Posterior-z closes more of the direct-to-oracle gap, increasing from 0.385 to 0.744. This gives the ambiguity-stage conclusion: posterior-first simulation helps most on public samples where more hidden problem state remains unresolved. Table 3 reports the rollout errors and direct-to-oracle gap closure under the metadata-hidden protocol. 
+
+Posterior-z lowers nRMSE in all four public families. In the All row, averaged over the public evaluation settings, nRMSE drops from 0.1747 to 0.1319, compared with the oracle reference 0.1027. This corresponds to 59.4% direct-to-oracle gap closure and 68.9% on the high-ambiguity subset. Family-wise closures are all positive, ranging from 0.573 to 0.641, so the gain is not driven by one PDE family. Appendix D.5 shows the same ordering family-by-family and backbone-by-backbone, including external probabilistic direct baselines. This gives the rollout-stage conclusion: the ambiguity-sensitive mechanism translates into robust prediction improvement. 8Table 3: Public PDEBench rollout summary under the metadata-hidden protocol. Lower nRMSE and higher GapClose are better.                                   
+
+> Family Direct nRMSE Posterior-znRMSE Oracle-znRMSE GapClose High-amb. GapClose
+> DR 0.2228 0.1690 0.1290 0.573 0.669 DS 0.0285 0.0182 0.0125 0.641 0.740 SW 0.0772 0.0532 0.0387 0.623 0.722 INS 0.3702 0.2872 0.2305 0.594 0.688 All 0.1747 0.1319 0.1027 0.594 0.689
+
+Table 4: Public PDEBench hidden-metadata probe summary. Higher is better. 
+
+Family Probe Direct probe Posterior-z probe Oracle-z upper bound 
+
+DR Acc. ↑ 0.726 0.845 0.932 DS R2↑ 0.607 0.814 0.907 SW Acc. ↑ 0.682 0.823 0.908 INS R2↑ 0.498 0.718 0.858 All Mean score ↑ 0.628 0.800 0.901 
+
+Figure 1: GapClose versus held-out single-field ambiguity score a(xt) on metadata-hidden PDEBench. Points show Posterior-z bin means; dashed lines mark Direct-Point at 0 and 
+
+Oracle-z at 1. Table 4 reports the strongest available hidden-metadata probe for each public family. In the All row, the mean probe score rises from 0.628 for the direct baseline to 0.800 for Posterior-z, approaching the oracle upper bound of 0.901. The improvement appears in every fam-ily, for both discrete metadata accuracy and continuous-metadata R2. Appendix D.5 separates discrete and con-tinuous probes and reports calibration diagnostics; Ap-pendix C.3 checks the summary-interface approximation. This gives the hidden-state conclusion: the rollout gain comes with better recovery of withheld problem-state in-formation, not only better marginal predictive uncertainty. Taken together, the public layer supports the practical half of the claim: posterior-first simulation improves standard PDEBench rollout by recovering hidden problem-state in-formation that direct single-field predictors leave implicit. 
+
+# 7 Discussion 
+
+This paper argued that single-observation neural PDE simulation should be posterior-first rather than a monolithic field-to-future map. The contribution is not another simulator head, but a change in the interface between observation and evolution: before rollout, the model should recover the distribution over plausible problem states left unresolved by the observed field. This reframes the design question from building stronger hidden states inside end-to-end predictors to inferring the latent problem state needed for evolution. It also reframes evaluation: average rollout accuracy is not enough if the simulator is wrong about the hidden physics. Posterior-first simulation makes problem-state recovery, ambiguity sensitivity, and hidden-physics correctness first-class criteria alongside rollout error. Our claim is bounded to single-observation simulation, where latent ambiguity is intrinsic and posterior recovery is most consequential. Within this scope, the main limitations are practical rather than conceptual. First, our experiments use a countable, supervised refinement C, leaving continuous hidden states and weakly supervised posterior learning outside scope; this limits the implementation, not the posterior-first factorization, which requires a calibrated posterior over the task-relevant hidden state. Second, the rollout model consumes a posterior summary rather than an explicit mixture over conditional simulators, although Appendix C.3 shows that this gap is small in our settings. Finally, as in Section 4, the posterior-to-utility bridge depends on task-family and stability assumptions. Natural extensions include variational or flow-based continuous posteriors and weak supervision. 9References 
+
+[1] Li, Z., Kovachki, N. B., Azizzadenesheli, K., Liu, B., Bhattacharya, K., Stuart, A. M., and Anandkumar, A. (2021). Fourier Neural Operator for Parametric Partial Differential Equations. In International Conference on Learning Representations .[2] Lu, L., Jin, P., Pang, G., Zhang, Z., and Karniadakis, G. E. (2021). Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence , 3, 218–229. [3] Lippe, P., Veeling, B., Perdikaris, P., Turner, R., and Brandstetter, J. (2023). PDE-Refiner: Achieving Accurate Long Rollouts with Neural PDE Solvers. Advances in Neural Information Processing Systems ,36, 67398–67433. [4] Raissi, M., Yazdani, A., and Karniadakis, G. E. (2020). Hidden fluid mechanics: Learning velocity and pressure fields from flow visualizations. Science , 367(6481), 1026–1030. [5] Raissi, M., Perdikaris, P., and Karniadakis, G. E. (2019). Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378, 686–707. [6] Buitrago Ruiz, R., Marwah, T., Gu, A., and Risteski, A. (2025). On the Benefits of Memory for Modeling Time-Dependent PDEs. In International Conference on Learning Representations .[7] Zhou, H., et al. (2025). Unisolver: PDE-Conditional Transformers Towards Universal Neural PDE Solvers. In Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 79061–79088. [8] Liu, Y., Zhang, Z., and Schaeffer, H. (2024). PROSE: Predicting Multiple Operators and Symbolic Expressions using multimodal transformers. Neural Networks , 180, 106707. [9] Yang, L., et al. (2023). In-context operator learning with data prompts for differential equation problems. 
+
+Proceedings of the National Academy of Sciences , 120(39), e2310142120. [10] Morel, R., Han, J., and Oyallon, E. (2025). DISCO: learning to DISCover an evolution Operator for multi-physics-agnostic prediction. In Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 44750–44774. [11] Serrano, L., et al. (2025). Zebra: In-Context Generative Pretraining for Solving Parametric PDEs. In 
+
+Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 53940–53988. [12] Williams, J. P., Zahn, O., and Kutz, J. N. (2024). Sensing with shallow recurrent decoder networks. 
+
+Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sciences , 480(2298), 20240054. [13] Raissi, M., Yazdani, A., and Karniadakis, G. E. (2020). Hidden fluid mechanics: Learning velocity and pressure fields from flow visualizations. Science , 367(6481), 1026–1030. [14] Raissi, M., Perdikaris, P., and Karniadakis, G. E. (2019). Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378, 686–707. [15] Raissi, M. (2018). Deep Hidden Physics Models: Deep Learning of Nonlinear Partial Differential Equations. 
+
+Journal of Machine Learning Research , 19(25), 1–24. [16] Buitrago Ruiz, R., Marwah, T., Gu, A., and Risteski, A. (2025). On the Benefits of Memory for Modeling Time-Dependent PDEs. In International Conference on Learning Representations .[17] Magnani, E., Krämer, N., Eschenhagen, R., Rosasco, L., and Hennig, P. (2025). Approximate Bayesian Neural Operators: Uncertainty Quantification for Parametric PDEs. Transactions on Machine Learning Research .[18] Kaltenbach, S., Perdikaris, P., and Koutsourelakis, P.-S. (2023). Semi-supervised invertible neural operators for Bayesian inverse problems. Computational Mechanics , 72(3), 451–470. [19] Takamoto, M., Praditia, T., Leiteritz, R., MacKinlay, D., Alesiani, F., Pflüger, D., and Niepert, M. (2022). PDEBench: An Extensive Benchmark for Scientific Machine Learning. In 36th Conference on Neural Information Processing Systems (NeurIPS 2022) Track on Datasets and Benchmarks .
+
+10 [20] Gray, P. and Scott, S. K. (1984). Autocatalytic reactions in the isothermal, continuous stirred tank reactor: Oscillations and instabilities in the system A + 2 B → 3B, B → C. Chemical Engineering Science , 39(6), 1087–1097. [21] Pearson, J. E. (1993). Complex patterns in a simple system. Science , 261(5118), 189–192. [22] Ronneberger, O., Fischer, P., and Brox, T. (2015). U-Net: Convolutional Networks for Biomedical Image Segmentation. In Medical Image Computing and Computer-Assisted Intervention , volume 9351 of Lecture Notes in Computer Science , pages 234–241. Springer. [23] Shi, X., Chen, Z., Wang, H., Yeung, D.-Y., Wong, W.-K., and Woo, W.-C. (2015). Convolutional LSTM Network: A Machine Learning Approach for Precipitation Nowcasting. In Advances in Neural Information Processing Systems , 28, 802–810. [24] Vaswani, A., et al. (2017). Attention Is All You Need. In Advances in Neural Information Processing Systems , 30. [25] Cranmer, K., Brehmer, J., and Louppe, G. (2020). The frontier of simulation-based inference. Proceedings of the National Academy of Sciences , 117(48), 30055–30062. [26] Radev, S. T., Mertens, U. K., Voss, A., Ardizzone, L., and Köthe, U. (2022). BayesFlow: Learning Complex Stochastic Models With Invertible Neural Networks. IEEE Transactions on Neural Networks and Learning Systems , 33(4), 1452–1466. [27] Tejero-Cantero, A., Boelts, J., Deistler, M., Lueckmann, J.-M., Durkan, C., Gonçalves, P. J., Greenberg, D. S., and Macke, J. H. (2020). sbi: A toolkit for simulation-based inference. Journal of Open Source Software , 5(52), 2505. [28] Lehmann, E. L. and Casella, G. (1998). Theory of Point Estimation . Springer, New York, 2nd edition. [29] Lakshminarayanan, B., Pritzel, A., and Blundell, C. (2017). Simple and Scalable Predictive Uncertainty Estimation Using Deep Ensembles. In Advances in Neural Information Processing Systems , 30. [30] Shazeer, N., Mirhoseini, A., Maziarz, K., Davis, A., Le, Q., Hinton, G., and Dean, J. (2017). Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer. In International Conference on Learning Representations .
+
+11 Contents of Appendices 
+
+A Posterior Problem-State Formulation: Detailed Derivations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 13 B Why the Reusable Intermediate Object Is a Posterior: Detailed Derivations . . . . . . . . . . . . . . . . . . . . . . . . . 14 C A Minimal Posterior-First Simulator: Detailed Specification . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 D Empirical Setup and Full Experimental Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 E Detailed Clarification of Large Language Models Usage . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 
+
+12 A Posterior Problem-State Formulation: Detailed Derivations 
+
+This appendix records the formal constructions that are intentionally kept light in Section 3. Appendix A.1 defines the latent world state, the downstream task family, and the canonical task-sufficient quotient; Appendix A.2 derives the posterior factorization of downstream prediction and decision; and Appendix A.3 shows how a countable semantic refinement induces the task-sufficient posterior used in the main text. 
+
+A.1 Latent world state, task family, and the canonical quotient 
+
+We spell out the minimal formal setup behind Section 3. Fix a probability space (Ω , F, P). Let Wt be the complete latent world state at time t, let Xt = O(Wt) be the visible field, and let T be the downstream task family. For each task τ ∈ T , let Y τt be its target variable taking values in a standard Borel space Yτ . This assumption guarantees the existence of regular conditional laws, so for each task we may write 
+
+μτ (w, ·) := P(Y τt ∈ · | Wt = w) . (23) The most direct way to encode the information in Wt that matters for the entire task family is to collect these conditional laws into one object. Define 
+
+g⋆(w) :=  μτ (w, ·)  
+
+> τ∈T
+
+, Z⋆t := g⋆(Wt). (24) Equation (24) is an explicit realization of the quotient used in the main text. Indeed, 
+
+w ∼T w′ ⇐⇒ μτ (w, ·) = μτ (w′, ·) for all τ ∈ T , (25) so g⋆ assigns the same label exactly to latent worlds that are indistinguishable to the full downstream task family. Task sufficiency is immediate from this construction. For each task τ , define the canonical kernel 
+
+Kτ
+
+ (ντ ′ )τ ′∈T , A  := ντ (A), A ⊆ Y τ measurable . (26) Substituting Z⋆t = g⋆(Wt) into (26) gives 
+
+Kτ
+
+ Z⋆t , A  = μτ (Wt, A ) = P(Y τt ∈ A | Wt) . (27) Thus every task target is conditionally determined by Z⋆t ; this is the law-based form of the task-sufficiency statement in Equation (1). The same explicit construction also proves minimality. Let St = f (Wt) be any other task-sufficient state. By definition, for each task τ there exists a kernel eKτ such that 
+
+P(Y τt ∈ A | Wt) = eKτ
+
+ St, A  for all τ ∈ T . (28) Define 
+
+h(s) :=   eKτ (s, ·)  
+
+> τ∈T
+
+. (29) Then combining (24) and (28) yields 
+
+Z⋆t = g⋆(Wt) = h(St) a.s. (30) So every task-sufficient state St factors through Z⋆t . Equivalently, St can only refine the canonical quotient; it cannot be coarser while still preserving all downstream laws. 
+
+A.2 Posterior factorization of downstream prediction and decision 
+
+Section 3 states that single-observation simulation should factorize through the posterior over Z⋆t . We now derive that statement directly from the quotient construction above. Let 
+
+πt(B | x) := P(Z⋆t ∈ B | Xt = x) (31) be the posterior on measurable subsets B of the quotient state space. Using the kernel Kτ from (26) and the tower property, every downstream predictive law satisfies 
+
+P(Y τt ∈ A | Xt) = EKτ
+
+ Z⋆t , A  | Xt
+
+ =
+
+Z
+
+Kτ (z, A ) πt(dz | Xt). (32) Equation (32) is the measure-theoretic form of the main-text factorization (4) : once the observation Xt is fixed, all downstream prediction passes through the posterior on the task-sufficient latent problem state. The same argument gives the decision-theoretic version used later in Section 4. Let ℓτ (a, y ) be a bounded measurable loss for task τ , where a ∈ A τ is a candidate decision or prediction. Define the latent-state conditional risk 
+
+ρτ (a, z ) := 
+
+Z
+
+ℓτ (a, y ) Kτ (z, dy ). (33) Then the observation-conditional risk is 
+
+Rτ (a | x) := E[ℓτ (a, Y τt ) | Xt = x] = 
+
+Z
+
+ρτ (a, z ) πt(dz | x). (34) So the visible field affects Bayes-optimal downstream decisions only through the posterior πt(· | x). This is why the main text writes single-observation simulation schematically as xt 7 → qϕ(zt | xt) 7 → pψ (y | zt) rather than as one monolithic field-to-future map. 
+
+13 A.3 Countable semantic refinements and the bridge to the benchmark posterior 
+
+The quotient Z⋆t is the right abstract object, but the benchmark exposes a more concrete structured latent label. Let Ct be a countable semantic refinement taking values in a countable set C, and suppose that 
+
+Z⋆t = h(Ct) (35) for some deterministic map h : C → Z ⋆. The refinement posterior is 
+
+rt(c | x) := P(Ct = c | Xt = x) , c ∈ C . (36) Because Z⋆t is obtained from Ct by the map h, the task-sufficient posterior is just the pushforward of rt(· | x)
+
+through h:
+
+πt(B | x) = X 
+
+> c∈C :h(c)∈B
+
+rt(c | x). (37) When the quotient state itself is represented discretely, (37) reduces to the grouped-sum identity from the main text, 
+
+πt(z | x) = X 
+
+> c:h(c)= z
+
+rt(c | x). (38) Substituting (37) into (34) gives the refinement-space version of the same factorization: 
+
+Rτ (a | x) = X
+
+> c∈C
+
+ρτ
+
+ a, h (c) rt(c | x). (39) This is the exact bridge used in the main paper. The theory can speak about the minimal reusable object Z⋆t ,while the benchmark can supervise a concrete countable posterior rt(c | x). Because C is countable, posterior recovery becomes standard conditional distribution estimation on a discrete support, which is the setting used in Section 4 to establish exact learnability with proper scoring rules. 
+
+# B Why the Reusable Intermediate Object Is a Posterior: Detailed Derivations 
+
+This appendix records the derivations underlying Section 4. Appendix B.1 derives the posterior factorization of Bayes decision value from the task-sufficient quotient introduced in Appendix A.1; Appendix B.2 proves the exact proper-scoring identities and the ambiguity barrier for deterministic point latents; and Appendix B.3 derives the utility bound and the non-identification statement for rollout-only hidden states. 
+
+B.1 Posterior factorization of Bayes decision value 
+
+Fix a task τ ∈ T , an action space Aτ , and a bounded measurable loss ℓτ (a, y ). For a realized observation x, the observation-conditional Bayes value is 
+
+Vτ (a, x ) := E[ℓτ (a, Y τt ) | Xt = x] . (40) By Appendix A.2, the predictive law of Y τt given Xt = x is obtained by integrating the task kernel against the posterior πt(· | x). Therefore 
+
+Vτ (a, x ) = 
+
+Z
+
+ℓτ (a, y ) P(Y τt ∈ dy | Xt = x) (41) 
+
+=
+
+Z
+
+ℓτ (a, y )
+
+Z 
+
+Kτ (z, dy ) πt(dz | x)
+
+
+
+(42) 
+
+=
+
+Z
+
+ρτ (a, z ) πt(dz | x), (43) where 
+
+ρτ (a, z ) := 
+
+Z
+
+ℓτ (a, y ) Kτ (z, dy ). (44) Equation (43) is the full derivation of the main-text identity (6) . It shows that once the task-sufficient posterior is fixed, the visible field has no further role in Bayes-optimal downstream decision making. When the benchmark exposes a countable refinement Ct ∈ C with Z⋆t = h(Ct), Appendix A.3 gives 
+
+πt(dz | x) = h#rt(· | x), rt(c | x) := P(Ct = c | Xt = x). (45) Substituting the pushforward into (43) yields 
+
+Vτ (a, x ) = X
+
+> c∈C
+
+ρτ
+
+ a, h (c) rt(c | x), (46) which is the benchmark-level form used in Section 4.1. 
+
+14 B.2 Exact learnability and the ambiguity barrier 
+
+Let rX (·) := rt(· | Xt) denote the true conditional refinement posterior and let qX (·) be any predicted posterior on the same countable support C. For the log score, 
+
+Llog (q) := E[− log qX (Ct)] . (47) Conditioning on Xt and expanding the expectation over Ct gives 
+
+Llog (q) = E
+
+"X
+
+> c∈C
+
+rX (c) − log qX (c)#
+
+(48) 
+
+= EH(rX ) + KL  rX ∥ qX
+
+ , (49) where H(rX ) := − P 
+
+> c
+
+rX (c) log rX (c) is the conditional entropy. Hence 
+
+Llog (q) − L ⋆ 
+
+> log
+
+= EKL  rX ∥ qX
+
+ , (50) with equality to zero iff qX = rX almost surely. This is the exact learnability claim for log loss. For the multiclass Brier score, 
+
+LBr (q) := E∥qX − δCt ∥22
+
+ . (51) Condition on Xt and use E[δCt | Xt] = rX :
+
+E∥qX − δCt ∥22 | Xt
+
+ = ∥qX − rX ∥22 + E∥rX − δCt ∥22 | Xt
+
+ . (52) Averaging over Xt yields 
+
+LBr (q) − L ⋆ 
+
+> Br
+
+= E∥qX − rX ∥22
+
+ , (53) which is the exact learnability statement for the Brier score. The same identity gives the barrier for deterministic point latents. Restrict qX to one-hot predictors eˆc(Xt). Then 
+
+∥eˆc(Xt) − rX ∥22 = 1 − 2rX
+
+ ˆc(Xt) + ∥rX ∥22. (54) For fixed rX , the minimizer is any ˆc(Xt) ∈ arg max c rX (c), giving 
+
+inf  
+
+> ˆc
+
+∥eˆc(Xt) − rX ∥22 = 1 − 2∥rX ∥∞ + ∥rX ∥22. (55) Because ∥rX ∥22 ≥ ∥ rX ∥2
+
+> ∞
+
+, we obtain 
+
+inf  
+
+> ˆc
+
+∥eˆc(Xt) − rX ∥22 ≥  1 − ∥ rX ∥∞
+
+2. (56) Taking expectations and using (53) gives the ambiguity barrier stated in Section 4.2. Whenever the posterior is diffuse, every deterministic point latent incurs irreducible excess. 
+
+B.3 Posterior quality controls downstream utility and rollout-only hidden states are not identified 
+
+Let 
+
+Rτ (a | x) := X
+
+> c∈C
+
+ρτ
+
+ a, h (c) rt(c | x) (57) be the true task value from (46), and let the approximate value induced by a learned posterior qx(·) be 
+
+Rqτ (a | x) := X
+
+> c∈C
+
+ρτ
+
+ a, h (c) qx(c). (58) If 
+
+Bτ := sup  
+
+> a∈A τ, c ∈C
+
+ρτ
+
+ a, h (c) < ∞,
+
+then 
+
+Rqτ (a | x) − Rτ (a | x) = X
+
+> c∈C
+
+ρτ
+
+ a, h (c)  qx(c) − rt(c | x) (59) 
+
+≤ Bτ
+
+X
+
+> c∈C
+
+qx(c) − rt(c | x) (60) 
+
+= Bτ ∥qx − rt(· | x)∥1. (61) This is the detailed form of the main-text bound (10). 
+
+15 Let aqτ (x) minimize Rqτ (· | x) and let a⋆τ (x) minimize Rτ (· | x). Adding and subtracting the approximate value gives 
+
+Rτ
+
+ aqτ (x) | x − Rτ
+
+ a⋆τ (x) | x (62) 
+
+=
+
+
+
+Rτ − Rqτ
+
+ aqτ (x) | x +
+
+
+
+Rqτ
+
+ aqτ (x) | x − Rqτ
+
+ a⋆τ (x) | x
+
++
+
+
+
+Rqτ − Rτ
+
+ a⋆τ (x) | x (63) 
+
+≤ 2Bτ ∥qx − rt(· | x)∥1, (64) where the middle term is nonpositive by optimality of aqτ (x) for the approximate value. Averaging (64) over Xt
+
+gives the expected downstream utility control claimed in Equation (11). The proper-scoring identities above turn this into explicit excess-risk control. From Pinsker’s inequality and (50), 
+
+E[∥qX − rX ∥1] ≤
+
+q
+
+2 EKL  rX ∥ qX
+
+ =
+
+q
+
+2 Llog (q) − L ⋆
+
+> log
+
+. (65) If C is finite, then ∥v∥1 ≤ p|C| ∥ v∥2 and (53) imply 
+
+E[∥qX − rX ∥1] ≤
+
+q
+
+|C| E[∥qX − rX ∥22] = 
+
+q
+
+|C|  LBr (q) − L ⋆
+
+> Br
+
+. (66) These are the quantitative bounds summarized by Equations (12) and (13). Finally, consider a restricted training task family T0 ⊊ T . Its Bayes signature is the collection of values 
+
+GT0 (π) := 
+
+Z 
+
+ρτ (a, z ) π(dz )
+
+ 
+
+> τ∈T 0, a ∈A τ
+
+. (67) If GT0 is not injective on the posterior family generated by the data, then there exist π̸ = π′ such that 
+
+GT0 (π) = GT0 (π′). (68) Any hidden state trained only through tasks in T0 can therefore collapse π and π′ without affecting the training objective. But because T0 is strictly smaller than the full task family, an omitted task may still separate them: 
+
+Z
+
+ρ¯τ (a, z ) π(dz )̸ =
+
+Z
+
+ρ¯τ (a, z ) π′(dz ) for some ¯τ ∈ T \ T 0. (69) This formalizes the main-text claim that rollout-only hidden states are not generally identified as reusable objects for the full downstream interface. 
+
+# C A Minimal Posterior-First Simulator: Detailed Specification 
+
+This appendix records the implementation-level specification underlying Section 5. Appendix C.1 defines the benchmark-level semantic state and posterior encoder; Appendix C.2 relates the exact posterior-mixture predictive law to the matched-backbone summary implementation; Appendix C.3 specifies the fidelity diagnostic attached to that approximation; and Appendix C.4 states the training objective and the comparison protocol that isolates the effect of the explicit posterior stage. 
+
+C.1 Benchmark-level semantic state and posterior encoder 
+
+Section 5 works with the annotated structured semantic state zt ∈ Z used in experiments. It is the benchmark-level counterpart of the countable refinement label Ct from Section 3. Each z ∈ Z indexes one joint latent problem state exposed by the benchmark, so a single label can simultaneously encode hidden field class, operator or coefficient regime, boundary class, and memory class. Because zt indexes the joint semantic state, the encoder can represent cross-slice ambiguity directly rather than collapsing it into independent per-slice predictions. Given the visible field xt, the posterior encoder outputs 
+
+qϕ(z | xt), z ∈ Z , X
+
+> z∈Z
+
+qϕ(z | xt) = 1 , (70) which is the model’s estimate of the structured semantic posterior 
+
+P(zt = z | Xt = xt).
+
+By Section 3, this benchmark posterior is the implementation-level bridge to the task-sufficient posterior over the abstract quotient Z⋆t .
+
+16 Method Posterior exposure Synthetic Public Cost 
+
+Grem ↓ NLL ↓ All nRMSE ↓ GapClose ↑ Probe ↑ Rel. ×
+
+Summary sϕ(xt) = P 
+
+> z
+
+q(z | xt)e(z) 0.381 1.02 0.1319 0.594 0.800 1.08 
+
+Explicit-Mix P 
+
+> z
+
+q(z | xt)pψ (y | xt, z ) 0.365 0.99 0.1307 0.611 0.807 5.60 
+
+MC-Sample-1 one posterior sample 0.412 1.06 0.1351 0.550 0.782 1.12 
+
+MC-Sample-4 four posterior samples 0.373 1.01 0.1312 0.604 0.803 4.30 
+
+Table 5: Fidelity diagnostic for the summary-conditioning implementation relative to explicit-mixture and sample-based alternatives. “Probe” denotes the public strongest hidden-metadata probe score. 
+
+C.2 From posterior mixture to matched-backbone implementation 
+
+Let y denote the downstream target, such as a future rollout segment or a task-aligned query answer. The exact posterior-conditioned predictive law has the finite-mixture form 
+
+pϕ,ψ (y | xt) = X
+
+> z∈Z
+
+pψ (y | xt, z ) qϕ(z | xt). (71) Equation (71) is the implementation-level counterpart of the posterior factorization from Sections 3–4: the model first infers which latent problem states remain plausible and then predicts conditional on them. Evaluating one conditional simulator per state is conceptually clean but needlessly changes the computational interface. To keep a single matched rollout backbone, we instead introduce a learned embedding e(z) of each semantic state and summarize the posterior by 
+
+sϕ(xt) := X
+
+> z∈Z
+
+e(z) qϕ(z | xt). (72) The rollout predictor then takes the form 
+
+ˆy = Fψ
+
+ xt, s ϕ(xt). (73) Equation (73) should be read as the minimal matched-backbone realization of the posterior-first idea. It keeps the visible field explicit, injects the inferred latent problem-state information through sϕ(xt), and preserves the same rollout family used by the direct baseline. This reduction is exact whenever the conditional predictor depends on z only through a sufficient summary representable by e(z); outside that case, we do not claim that every conditional mixture in (71) collapses exactly to one summary vector. Rather, (73) is the implementation used to expose the posterior explicitly without strengthening the backbone itself. 
+
+C.3 Summary-conditioning fidelity diagnostic 
+
+Equation (71) is the object-level predictor, whereas (73) is the matched single-backbone implementation used in the main experiments. The table below specifies the fidelity comparison we attach to this approximation. All variants share the same posterior encoder, rollout backbone family, optimization budget, and train/validation/test split; only the way in which qϕ(z | xt) is exposed to the downstream predictor changes. Summary is the implementation used in the main text. Explicit-Mix evaluates a true mixture of conditional predictors 
+
+pψ (y | xt, z ) combined by qϕ(z | xt). MC-Sample-k draws k latent samples from the inferred posterior and averages the resulting conditional predictions. The synthetic columns test theorem-facing downstream fidelity, while the public columns test rollout, oracle-gap closure, and hidden-metadata recovery. Table 5 shows that the main posterior-first conclusions survive richer ways of exposing the inferred posterior to the downstream predictor. On the synthetic benchmark, Summary and Explicit-Mix differ by only 0.016 in Grem 
+
+and 0.03 in future NLL, while MC-Sample-4 falls in between. On the public protocol, Explicit-Mix reduces pooled nRMSE only from 0.1319 to 0.1307 and raises GapClose from 0.594 to 0.611; MC-Sample-4 again lands in between at 0.1312 and 0.604. The richer interfaces are therefore slightly stronger but not qualitatively different. The summary-conditioning implementation should be read as a low-cost matched approximation to the object-level mixture, not as a claim of exact equivalence. 
+
+C.4 Training objective and matched comparison protocol 
+
+Training mirrors the same two-stage decomposition. The posterior stage is supervised directly on the realized semantic label zt. With negative log-likelihood, 
+
+Lpost (ϕ) := E[− log qϕ(zt | xt)] , (74) 
+
+17 Component Synthetic exact-ambiguity setting Visible field xt ∈ R1×64 ×64 , scalar rendered field Semantic catalogue |Z syn | = 64 = 4 × 4 × 4 operator / coefficient / memory states Main split 40 ,000 /5,000 /5,000 train/validation/test examples Renderer Gray–Scott-style field templates on a 64 × 64 grid Ambiguity regimes near-Dirac, mid, high, very high Compatible states 2 / 4 / 8 / 16 per collision class Dominant posterior mass 0.955 / 0.884 / 0.835 / 0.790; residual mass uniform in class Expected ambiguity barrier 0.004 / 0.018 / 0.031 / 0.047 Controls 4-frame richer-context control; operator-token Dirac control Targets 8-step future field, operator label, coefficient value, calibrated uncertainty score Posterior label exact rX (z) = P(zt = z | Xt) by finite collision-class enumeration 
+
+Table 6: Synthetic exact-ambiguity benchmark specification. 
+
+and with multiclass Brier loss, 
+
+LBr (ϕ) := E∥qϕ(· | xt) − δzt ∥22
+
+ . (75) Section 4.2 shows that these are exact proper-scoring objectives for posterior recovery on the discrete refinement space. The downstream simulator is trained with the benchmark task loss 
+
+Ltask (ϕ, ψ ) := Eℓ Fψ (xt, s ϕ(xt)) , y  , (76) where ℓ denotes the rollout or task loss used by the evaluation suite. The full training objective is 
+
+L(ϕ, ψ ) = λpost Lpost (ϕ) + λtask Ltask (ϕ, ψ ), (77) with nonnegative weights λpost and λtask .The empirical comparisons are matched around this objective decomposition. Relative to the direct-rollout baseline, we keep the rollout backbone family, optimization protocol, and downstream supervision fixed. The only structural change is whether the model must first make its latent problem-state posterior explicit through (70) – (73) . This is what allows the empirical section to attribute any improvement to the explicit posterior stage rather than to a stronger backbone or extra side information. 
+
+# D Empirical Setup and Full Experimental Results 
+
+This appendix records the detailed protocol and full result tables for the two-layer empirical program in Section 6. Appendix D.1 describes the exact-ambiguity synthetic benchmark and its split rules. Appendix D.2 reports the detailed synthetic tables that support the theorem-facing claim. Appendix D.3 describes the public PDEBench metadata-hidden protocol, and Appendix D.4 specifies the ambiguity-score diagnostics used by the main-text public figure. Appendix D.5 fixes the complete public reporting surface, including family-level rollout, strongest-probe, ambiguity-stratified, calibration, and probabilistic-baseline tables. Appendix D.6 specifies the complementary diagnostics for label-free probabilistic controls, supervision dependence, taxonomy size, and resource/sensitivity analyses. 
+
+D.1 Synthetic exact-ambiguity benchmark: construction and splits 
+
+The synthetic benchmark is a finite exact-collision generator. Its visible fields use a Gray–Scott-style reaction– diffusion renderer [ 20 , 21 ] as a standard source of smooth PDE-like patterns; exact posterior labels come from the enumerated collision construction, not approximate inverse inference. Table 6 lists the fixed data specification. Each semantic state is a tuple of operator class, coefficient bin, and memory branch. To create exact ambiguity, the 64 states are partitioned into collision classes. States in the same class share the same rendered visible field template but induce different downstream futures and hidden-query labels. The posterior is nonuniform within each class: the dominant compatible state receives the mass shown in Table 6, and the remaining mass is distributed uniformly over the other compatible states. This construction gives the four target values of 
+
+E[Γ amb (rX )] used in Table 1. Train/validation/test splits are shared across methods and use disjoint random seeds and rendered observations, while all semantic states appear in every split. The 4-frame context control adds a short history that breaks most collisions, and the operator-token control directly reveals the disambiguating operator class. These controls keep the downstream task family fixed and test whether the point-versus-posterior gap collapses when the posterior becomes effectively identifying. 
+
+18 Method Future NLL ↓ Energy score ↓ Operator Acc. ↑ Coeff. MAE ↓ Cov.@90 ↑ Full-task risk ↓                                                
+
+> Direct-Point 1.48 0.412 0.41 0.173 0.54 0.462
+> Direct-Dist 1.22 0.346 0.48 0.151 0.69 0.398
+> Direct-MTL 1.24 0.349 0.66 0.108 0.71 0.342
+> Direct-Large 1.20 0.337 0.58 0.129 0.70 0.366
+> Point-z1.18 0.331 0.71 0.094 0.74 0.333
+> Posterior-z1.02 0.286 0.78 0.073 0.88 0.314
+> RichContext-Posterior-z0.92 0.255 0.84 0.061 0.90 0.272
+> Oracle-z0.81 0.226 1.00 0.000 0.92 0.223
+
+Table 7: Full synthetic task-bundle table on the exact-collision benchmark.                                                   
+
+> Split / ambiguity regime Direct-Point Point-zPosterior-z
+> Full-task risk ↓Future NLL ↓Full-task risk ↓Future NLL ↓Full-task risk ↓Future NLL ↓
+> Low ambiguity / near-Dirac 0.255 1.02 0.214 0.88 0.209 0.86 Mid ambiguity 0.338 1.17 0.289 1.03 0.271 0.96 High ambiguity 0.421 1.35 0.349 1.16 0.319 1.05 Very high ambiguity 0.492 1.57 0.401 1.29 0.352 1.12 4-frame context upper bound 0.214 0.86 0.187 0.78 0.184 0.77 Operator-token Dirac control 0.176 0.72 0.154 0.66 0.153 0.65
+
+Table 8: Synthetic ambiguity stratification and identifiability controls. 
+
+D.2 Synthetic exact-ambiguity benchmark: full result tables 
+
+The main text keeps only the smallest synthetic result set needed for the argument. Tables 7–9 report the fuller task-bundle, ambiguity-stratified, and training-objective views that underlie that summary. Table 7 shows that the synthetic advantage of posterior-first modeling is not confined to a single headline metric. Relative to the strongest non-posterior single-field controls, Posterior-z improves future NLL, energy score, operator accuracy, coefficient error, and coverage simultaneously. In particular, it raises operator accuracy to 0.78, reduces coefficient MAE to 0.073, and lowers full-task risk to 0.314. The richer-context and oracle controls remain the expected upper bounds, exactly as in the main text. Table 8 shows why the posterior advantage appears. In the near-Dirac and identifiability controls, all three single-field methods are close. As ambiguity increases, the ordering Direct-Point → Point-z → Posterior-z
+
+becomes steadily stronger. At very high ambiguity, Posterior-z reduces full-task risk from 0.401 to 0.352 relative to Point-z, and reduces future NLL from 1.29 to 1.12. The appendix stratification therefore agrees with the main-text mechanism result: the benefit of the posterior stage is concentrated in the regimes where the single field leaves the latent problem state most ambiguous. Table 9 shows why rollout accuracy alone is not enough to identify the reusable state. Train-task nRMSE stays nearly unchanged across all objective families (0.028–0.030), but hidden-task score, calibration, and full-task risk improve steadily as the objective moves from direct rollout to explicit posterior recovery over the full task family. This appendix therefore reinforces the main-text conclusion: on the synthetic benchmark, posterior recovery rather than a stronger rollout stem is what accounts for the downstream improvement. 
+
+D.3 Public PDEBench protocol and hidden-metadata task construction 
+
+The public benchmark layer is built from PDEBench [ 19 ]. We select forward-simulation families whose released parameters, regimes, or forcing information define a hidden problem-state variable once withheld from the model input. Every public example is converted to the same single-observation protocol: the model receives one visible field xt, while selected metadata are hidden and can only be inferred or supplied by an oracle control. Table 10 summarizes the protocol units used in our experiments. The public protocol distinguishes three roles. The direct baseline receives only the visible field. The posterior-first model must infer a problem-state posterior q(zpub  
+
+> t
+
+| xt) before rollout. The oracle control receives the hidden metadata directly. For discrete hidden metadata we use classification-style probe metrics, and for continuous hidden metadata we use regression-style probe metrics. All public splits are trajectory-level when released trajectories are available and segment-level only for INS, where the released long simulation stream is converted into non-overlapping rollout segments before splitting. Hidden metadata are removed only from model inputs; they remain available to the evaluator and oracle control. No model sees future fields, extra trajectories, or hidden metadata beyond the protocol above. For the ambiguity-stratified main-text figure, each evaluation sample is assigned a scalar ambiguity score 
+
+a(xt) ∈ [0 , 1] , interpreted as held-out oracle-gap potential under the metadata-hidden protocol: larger values indicate that, for the same visible field, withholding metadata leaves more recoverable benefit between the direct 
+
+19 Training objective family Train nRMSE ↓ Hidden ↑ Long-horizon ↑ Calib. ↑ Full risk ↓
+
+Rollout-only direct 0.028 0.61 0.67 0.58 0.331 Rollout + auxiliary heads 0.029 0.71 0.72 0.64 0.296 Rollout + deterministic ˆz 0.029 0.77 0.76 0.68 0.271 Rollout + posterior q(z | x), rollout task only 0.029 0.81 0.79 0.76 0.248 Full task family with posterior q(z | x) 0.030 0.84 0.82 0.83 0.231 
+
+Table 9: Synthetic rollout-only miscalibration ablation. Hidden denotes hidden-task score, Long-horizon denotes long-horizon score, Calib. denotes calibration score, and Full risk denotes full-task risk. 
+
+Family System / field Protocol / grid Hidden metadata / probe 
+
+DR diffusion–reaction; 2D, 2 channels 1,000 seq.; 128 × 128 ; 101 frames regime / coefficient; cls. + reg. DS diffusion–sorption; 1D, 1 channel 10,000 seq.; 1024 grid; 101 frames from 501 raw coefficient tuple; reg. SW shallow water; 2D, 1 channel 1,000 seq.; 128 × 128 ; 101 frames source or boundary class; cls. INS incompressible NS; 2D, 2 channels 1,000 seg.; 256 × 256 ; 101 frames forcing / viscosity; reg. 
+
+Table 10: Public PDEBench metadata-hidden protocol. “Seq.” denotes released trajectories; “seg.” denotes fixed-length rollout segments extracted from the released incompressible-NS trajectory stream. Direct models receive only xt; oracle controls receive the hidden metadata. “Cls.” denotes classification and “reg.” denotes regression. 
+
+and oracle controls. The score is estimated on a protocol-construction split, frozen before model training, and used only for evaluation-time binning. Table 12 specifies the minimum diagnostics attached to this score. Beyond these internal controls, the public layer also evaluates two external probabilistic comparators that are natural reference points for metadata-hidden simulation. Approximate Bayesian Neural Operators (ABNO) [ 17 ]serve as the uncertainty-aware direct-surrogate baseline: they predict rollout distributions without explicitly reconstructing the hidden problem state. For families in which the hidden metadata are low-dimensional and naturally define a Bayesian inverse problem, we additionally use the semi-supervised invertible neural-operator approach of Kaltenbach et al. [ 18 ]. Because this model returns a posterior over hidden parameters rather than a future field, we compose its inferred posterior with the same matched forward rollout stem used by the oracle-latent control. This is the only templated composition in the public external-baseline suite, and we give its exact implementation details below. Tables 10 and 11 define the public protocol used in the second empirical layer. The first table records which metadata are hidden in each family and which strongest probe is used to test recovery; the second table records the two external probabilistic baselines on the families where their assumptions match the hidden-metadata task. 
+
+D.4 Public ambiguity-score diagnostics 
+
+Table 12 specifies the diagnostic checks attached to the public ambiguity score. The score should correlate positively with the realized direct-to-oracle gap and should separate the low- and very-high-ambiguity bins in the same direction across families. This subsection exists only to make the main-text stratification protocol explicit; the score is used for evaluation, not as a model input. 
+
+D.5 Public PDEBench metadata-hidden benchmark: complete result tables 
+
+The tables below report the complete public-benchmark evidence underlying the main-text summary. We again abbreviate Diffusion-Reaction, Diffusion-Sorption, Shallow-Water, and Incompressible Navier–Stokes as DR, DS, SW, and INS. We first report family-level and backbone-level rollout/oracle-gap results, then the strongest available metadata probes, followed by the ambiguity, calibration, and external-baseline comparisons. Tables 13 and 14 show that the public rollout gains are broad rather than isolated. At the family level, 
+
+Posterior-z closes between 57.3% (DR) and 64.1% (DS) of the direct-to-oracle gap. At the backbone 
+
+20 Baseline Type Fam. ABNO [17] UQ-dir. SW / INS Invertible-NO [18] Inv.-post. DR / DS Table 11: External probabilistic baselines used in the public metadata-hidden benchmark. Scope Spearman ρ(a, ∆ora ) ↑ Mean ∆ora (low) ↓ Mean ∆ora (very high) ↑
+
+DR 0.613 0.0523 0.1267 DS 0.552 0.0078 0.0216 SW 0.589 0.0189 0.0501 INS 0.628 0.0814 0.1842 All 0.672 0.0508 0.0931 Table 12: Diagnostics for the public ambiguity score used in Figure 1. Here ∆ora (xt) denotes the per-sample direct-to-oracle rollout gap on the metadata-hidden protocol. 
+
+level, the same ordering holds across FNO, U-Net, ConvLSTM, and Transformer in every family. The public improvement is therefore not carried by a single PDE family or a single architecture. Tables 15 and 16 show that the rollout gains coincide with genuine hidden-metadata recovery for both discrete and continuous problem-state variables. For discrete targets, mean accuracy rises from 0.704 to 0.834; for continuous targets, mean R2 rises from 0.553 to 0.766. In both cases, the posterior model moves substantially toward the oracle upper bound, which matches the mechanism interpretation in the main text. Table 17 shows the same monotone ambiguity effect as the main-text figure in table form: the public gap-closure ratio rises from 0.385 in the lowest-ambiguity bin to 0.744 in the highest-ambiguity bin. Table 18 shows that this gain is not bought with severely miscalibrated uncertainty. On the pooled public benchmark, posterior-stage ECE is 0.051, posterior-stage Cov.@90 is 0.897, and predictive Cov.@90 is 0.887. These values are not the main headline of the paper, but they are consistent with the posterior-first interpretation rather than in tension with it. Tables 19 and 20 position the method against the two strongest external probabilistic baselines available under this protocol. On SW/INS, Posterior-z improves over ABNO in both nRMSE and gap closure; on the pooled UQ comparison, gap closure rises from 0.381 to 0.600. On DR/DS, Posterior-z also improves over the invertible inverse-posterior baseline, raising pooled gap closure from 0.505 to 0.583. These appendix results are consistent with the main-text conclusion: on public PDE data, posterior-first simulation improves rollout, recovers hidden problem-state information, and its advantage strengthens as single-field ambiguity increases. 
+
+D.6 Additional probabilistic, supervision, and sensitivity diagnostics 
+
+The tables below specify complementary diagnostics for four practical questions: whether the posterior-first advantage survives stronger label-free uncertainty baselines, how strongly it depends on latent-label availability, how sensitive it is to the semantic taxonomy, and what computational overhead the explicit posterior stage introduces. Two additional label-free probabilistic controls are natural complements to ABNO and Invertible-NO. 
+
+DeepEns-Direct is an ensemble of matched direct predictors whose predictive distribution is obtained by averaging independently trained members [ 29 ]. GateMoE-Direct is a label-free mixture-of-experts direct predictor with a learned gating network over matched rollout experts [ 30 ]. Neither baseline receives hidden metadata or latent-label supervision. To measure dependence on latent-label availability, we vary the fraction of examples for which the posterior stage receives semantic supervision while keeping the rollout supervision, backbone family, and evaluation protocol fixed. To delimit the countable-refinement assumption, we vary the granularity of the semantic taxonomy while keeping the visible-field protocol and rollout backbone fixed. Coarse merges nearby semantic states, default is the main-text taxonomy, and fine splits the same hidden-metadata axes more aggressively. Finally, we record the incremental computational cost of explicit posterior recovery and the sensitivity of the method to the posterior-stage loss weight λpost .Together, these diagnostics separate four practical questions that are adjacent to, but logically distinct from, the main claim: whether the summary implementation is faithful enough to the object-level mixture, whether the 
+
+21 Family Direct nRMSE Direct-Dist nRMSE Posterior-z nRMSE Oracle-z nRMSE GapClose (Posterior-z)DR 0.2228 0.1957 0.1690 0.1290 0.573 DS 0.0285 0.0222 0.0182 0.0125 0.641 SW 0.0772 0.0607 0.0532 0.0387 0.623 INS 0.3702 0.3311 0.2872 0.2305 0.594 All 0.1747 0.1524 0.1319 0.1027 0.594 
+
+Table 13: Family-level public rollout and oracle-gap summary. 
+
+Family Backbone Direct nRMSE Posterior-z nRMSE Oracle-z nRMSE GapClose 
+
+DR FNO 0.1760 0.1340 0.1020 0.568 DR U-Net 0.2840 0.2150 0.1630 0.570 DR ConvLSTM 0.2330 0.1770 0.1360 0.577 DR Transformer 0.1980 0.1500 0.1150 0.578 DS FNO 0.0170 0.0110 0.0070 0.600 DS U-Net 0.0420 0.0270 0.0190 0.652 DS ConvLSTM 0.0310 0.0200 0.0140 0.647 DS Transformer 0.0240 0.0150 0.0100 0.643 SW FNO 0.0510 0.0360 0.0260 0.600 SW U-Net 0.1090 0.0740 0.0540 0.636 SW ConvLSTM 0.0820 0.0570 0.0410 0.610 SW Transformer 0.0670 0.0460 0.0340 0.636 INS FNO 0.2840 0.2210 0.1770 0.589 INS U-Net 0.4620 0.3590 0.2900 0.599 INS ConvLSTM 0.3970 0.3080 0.2470 0.593 INS Transformer 0.3380 0.2610 0.2080 0.592 
+
+Table 14: Per-backbone public rollout breakdown. 
+
+gains depend on full latent supervision, whether they are stable under coarser or finer semantic taxonomies, and whether they come at disproportionate computational cost. 
+
+# E Detailed Clarification of Large Language Models Usage 
+
+We declare that LLMs were employed exclusively to assist with the writing and presentation aspects of this paper. Specifically, we utilized LLMs for: (i) verification and refinement of technical terminology to ensure precise usage of domain-specific vocabulary; (ii) grammatical error detection and correction to enhance the clarity and readability of the manuscript; (iii) translation assistance from the authors’ native language to English, as we are non-native English speakers, to ensure accurate and fluent expression of scientific concepts; and (iv) improvement of sentence structure and flow while maintaining the original scientific content and meaning. We emphasize that LLMs were not used for research ideation, experimental design, data analysis, or any form of content generation that would constitute intellectual contribution to the scientific findings presented in this work. All scientific insights, methodological decisions, and analytical conclusions are the original work of the authors. The use of LLMs was limited to linguistic and presentational enhancement only, serving a role analogous to professional editing services. 
+
+22 Family Probe Direct probe Posterior-z probe Oracle-z upper bound DR Acc. ↑ 0.726 0.845 0.932 SW Acc. ↑ 0.682 0.823 0.908 All-disc. Mean Acc. ↑ 0.704 0.834 0.920 Table 15: Strongest-probe table for discrete hidden metadata. Family Probe Direct probe Posterior-z probe Oracle-z upper bound DS R2↑ 0.607 0.814 0.907 INS R2↑ 0.498 0.718 0.858 All-cont. Mean R2↑ 0.553 0.766 0.883 Table 16: Strongest-probe table for continuous hidden metadata. 
+
+Public ambiguity regime Direct nRMSE Posterior-z nRMSE Oracle-z nRMSE GapClose 
+
+Low ambiguity 0.1432 0.1237 0.0924 0.385 Mid ambiguity 0.1642 0.1316 0.0996 0.504 High ambiguity 0.1852 0.1356 0.1058 0.624 Very high ambiguity 0.2061 0.1368 0.1130 0.744 
+
+Table 17: Public ambiguity-stratified oracle-gap closure table. 
+
+Family Posterior-stage ECE ↓ Posterior-stage Cov.@90 ↑ Predictive Cov.@90 ↑ Predictive NLL ↓
+
+DR 0.061 0.892 0.883 0.978 DS 0.029 0.907 0.896 0.436 SW 0.041 0.901 0.891 0.548 INS 0.072 0.889 0.879 1.117 All 0.051 0.897 0.887 0.770 
+
+Table 18: Public calibration table for the hidden posterior and its induced predictive distribution.                          
+
+> Family ABNO nRMSE Posterior-znRMSE Oracle-znRMSE ABNO GapClose Posterior-zGapClose
+> SW 0.0587 0.0532 0.0387 0.482 0.623 INS 0.3209 0.2872 0.2305 0.353 0.594 All-UQ 0.1898 0.1702 0.1346 0.381 0.600
+
+Table 19: Public uncertainty-aware direct-baseline comparison against ABNO [17].                          
+
+> Family Inv.-NO nRMSE Posterior-znRMSE Oracle-znRMSE Inv.-NO GapClose Posterior-zGapClose
+> DR 0.1759 0.1690 0.1290 0.500 0.573 DS 0.0200 0.0182 0.0125 0.531 0.641 All-inv. 0.0979 0.0936 0.0708 0.505 0.583
+
+Table 20: Public inverse-posterior-baseline comparison against Invertible-NO [18]. 
+
+Method Latent labels? All nRMSE ↓ GapClose ↑ Strongest probe ↑ Predictive ECE ↓
+
+Direct-Point No 0.1747 0.000 0.628 0.083 
+
+DeepEns-Direct No 0.1448 0.415 0.664 0.044 
+
+GateMoE-Direct No 0.1403 0.478 0.688 0.052 
+
+Posterior-z Yes 0.1319 0.594 0.800 0.051 
+
+Oracle-z Oracle 0.1027 1.000 0.901 0.038 
+
+Table 21: Additional label-free probabilistic controls on the public metadata-hidden protocol. 23 Labeled fraction All nRMSE ↓ GapClose ↑ Strongest probe ↑ Posterior-stage ECE ↓
+
+100% 0.1319 0.594 0.800 0.051 50% 0.1350 0.551 0.779 0.062 25% 0.1438 0.429 0.731 0.079 10% 0.1521 0.314 0.682 0.104 
+
+Table 22: Dependence of posterior-first performance on latent-label availability in the public protocol.                          
+
+> Taxonomy Mean classes / family All nRMSE ↓GapClose ↑Strongest probe ↑Successful seeds / 5 ↑
+> Coarse 6.5 0.1368 0.526 0.756 5/5 Default 14.0 0.1319 0.594 0.800 5/5 Fine 28.5 0.1329 0.581 0.812 4/5
+
+Table 23: Sensitivity to semantic-taxonomy granularity and latent cardinality on the public protocol. 
+
+Method Params (M) Rel. train cost × Rel. infer. cost × All nRMSE ↓ GapClose ↑
+
+Direct-Point 31.8 1.00 1.00 0.1747 0.000 
+
+Posterior-z 34.1 1.13 1.08 0.1319 0.594 
+
+DeepEns-Direct 159.0 5.03 5.00 0.1448 0.415 
+
+GateMoE-Direct 48.7 1.71 1.58 0.1403 0.478 
+
+Explicit-Mix 78.4 3.86 5.60 0.1307 0.611 
+
+Table 24: Resource overhead of explicit posterior recovery and comparison baselines on the public protocol. 
+
+## λpost All nRMSE ↓ GapClose ↑ Strongest probe ↑ Posterior-stage ECE ↓
+
+## 0 0.1516 0.321 0.667 0.096 0.25 0.1335 0.572 0.786 0.057 1.0 0.1319 0.594 0.800 0.051 4.0 0.1329 0.581 0.807 0.055 
+
+Table 25: Sensitivity of the public protocol to the posterior-stage loss weight λpost .24 NeurIPS Paper Checklist 
+
+1. Claims 
+
+Question: Do the main claims made in the abstract and introduction accurately reflect the paper’s contributions and scope? Answer: [Yes] Justification: The abstract and Introduction state the posterior-first claim and its scope; Sections 3, 4, 5, and 6 provide the formulation, theoretical support, method, and empirical evidence. Section 7 further bounds the claim and states the main limitations. Guidelines: • The answer [N/A] means that the abstract and introduction do not include the claims made in the paper. • The abstract and/or introduction should clearly state the claims made, including the contributions made in the paper and important assumptions and limitations. A [No] or [N/A] answer to this question will not be perceived well by the reviewers. • The claims made should match theoretical and experimental results, and reflect how much the results can be expected to generalize to other settings. • It is fine to include aspirational goals as motivation as long as it is clear that these goals are not attained by the paper. 2. Limitations 
+
+Question: Does the paper discuss the limitations of the work performed by the authors? Answer: [Yes] Justification: Section 7 discusses the main limitations: the single-observation scope, reliance on a countable semantic refinement and latent supervision, the summary-conditioning approximation to explicit mixtures, and task-family/stability assumptions. Guidelines: • The answer [N/A] means that the paper has no limitation while the answer [No] means that the paper has limitations, but those are not discussed in the paper. • The authors are encouraged to create a separate “Limitations” section in their paper. • The paper should point out any strong assumptions and how robust the results are to violations of these assumptions (e.g., independence assumptions, noiseless settings, model well-specification, asymptotic approximations only holding locally). The authors should reflect on how these assumptions might be violated in practice and what the implications would be. • The authors should reflect on the scope of the claims made, e.g., if the approach was only tested on a few datasets or with a few runs. In general, empirical results often depend on implicit assumptions, which should be articulated. • The authors should reflect on the factors that influence the performance of the approach. For example, a facial recognition algorithm may perform poorly when image resolution is low or images are taken in low lighting. Or a speech-to-text system might not be used reliably to provide closed captions for online lectures because it fails to handle technical jargon. • The authors should discuss the computational efficiency of the proposed algorithms and how they scale with dataset size. • If applicable, the authors should discuss possible limitations of their approach to address problems of privacy and fairness. • While the authors might fear that complete honesty about limitations might be used by reviewers as grounds for rejection, a worse outcome might be that reviewers discover limitations that aren’t acknowledged in the paper. The authors should use their best judgment and recognize that individual actions in favor of transparency play an important role in developing norms that preserve the integrity of the community. Reviewers will be specifically instructed to not penalize honesty concerning limitations. 3. Theory assumptions and proofs 
+
+Question: For each theoretical result, does the paper provide the full set of assumptions and a complete (and correct) proof? Answer: [Yes] Justification: Sections 3–4 state the theoretical objects, assumptions, and identities used in the main paper. Appendices A–B give the formal quotient construction, posterior factorization, proper-scoring derivations, ambiguity barrier, and downstream-utility bounds. 
+
+25 Guidelines: • The answer [N/A] means that the paper does not include theoretical results. • All the theorems, formulas, and proofs in the paper should be numbered and cross-referenced. • All assumptions should be clearly stated or referenced in the statement of any theorems. • The proofs can either appear in the main paper or the supplemental material, but if they appear in the supplemental material, the authors are encouraged to provide a short proof sketch to provide intuition. • Inversely, any informal proof provided in the core of the paper should be complemented by formal proofs provided in appendix or supplemental material. • Theorems and Lemmas that the proof relies upon should be properly referenced. 4. Experimental result reproducibility 
+
+Question: Does the paper fully disclose all the information needed to reproduce the main experimental results of the paper to the extent that it affects the main claims and/or conclusions of the paper (regardless of whether the code and data are provided or not)? Answer: [No] Justification: The paper gives datasets, protocols, metrics, splits, objectives, and comparison ladders in Sections 6.1 and Appendices C–D. However, the provided manuscript does not include exact executable commands or a released code package, so exact reproduction is not fully disclosed from the paper alone. Guidelines: • The answer [N/A] means that the paper does not include experiments. • If the paper includes experiments, a [No] answer to this question will not be perceived well by the reviewers: Making the paper reproducible is important, regardless of whether the code and data are provided or not. • If the contribution is a dataset and/or model, the authors should describe the steps taken to make their results reproducible or verifiable. • Depending on the contribution, reproducibility can be accomplished in various ways. For example, if the contribution is a novel architecture, describing the architecture fully might suffice, or if the contribution is a specific model and empirical evaluation, it may be necessary to either make it possible for others to replicate the model with the same dataset, or provide access to the model. In general. releasing code and data is often one good way to accomplish this, but reproducibility can also be provided via detailed instructions for how to replicate the results, access to a hosted model (e.g., in the case of a large language model), releasing of a model checkpoint, or other means that are appropriate to the research performed. • While NeurIPS does not require releasing code, the conference does require all submissions to provide some reasonable avenue for reproducibility, which may depend on the nature of the contribution. For example (a) If the contribution is primarily a new algorithm, the paper should make it clear how to reproduce that algorithm. (b) If the contribution is primarily a new model architecture, the paper should describe the architecture clearly and fully. (c) If the contribution is a new model (e.g., a large language model), then there should either be a way to access this model for reproducing the results or a way to reproduce the model (e.g., with an open-source dataset or instructions for how to construct the dataset). (d) We recognize that reproducibility may be tricky in some cases, in which case authors are welcome to describe the particular way they provide for reproducibility. In the case of closed-source models, it may be that access to the model is limited in some way (e.g., to registered users), but it should be possible for other researchers to have some path to reproducing or verifying the results. 5. Open access to data and code 
+
+Question: Does the paper provide open access to the data and code, with sufficient instructions to faithfully reproduce the main experimental results, as described in supplemental material? Answer: [No] Justification: The public layer uses PDEBench and the synthetic construction is documented in Appendix D.1. The provided manuscript does not include an anonymized code/data URL or run commands for reproducing all experiments. Guidelines: • The answer [N/A] means that paper does not include experiments requiring code. 
+
+26 • Please see the NeurIPS code and data submission guidelines ( https://neurips.cc/public/ guides/CodeSubmissionPolicy ) for more details. • While we encourage the release of code and data, we understand that this might not be possible, so [No] is an acceptable answer. Papers cannot be rejected simply for not including code, unless this is central to the contribution (e.g., for a new open-source benchmark). • The instructions should contain the exact command and environment needed to run to reproduce the results. See the NeurIPS code and data submission guidelines ( https://neurips.cc/ public/guides/CodeSubmissionPolicy ) for more details. • The authors should provide instructions on data access and preparation, including how to access the raw data, preprocessed data, intermediate data, and generated data, etc. • The authors should provide scripts to reproduce all experimental results for the new proposed method and baselines. If only a subset of experiments are reproducible, they should state which ones are omitted from the script and why. • At submission time, to preserve anonymity, the authors should release anonymized versions (if applicable). • Providing as much information as possible in supplemental material (appended to the paper) is recommended, but including URLs to data and code is permitted. 6. Experimental setting/details 
+
+Question: Does the paper specify all the training and test details (e.g., data splits, hyperparameters, how they were chosen, type of optimizer) necessary to understand the results? Answer: [No] Justification: Sections 6.1 and Appendix D specify datasets, splits, protocols, backbones, objectives, and metrics. The provided manuscript does not list all low-level training hyperparameters such as optimizer, learning rate, batch size, epoch budget, or exact command lines. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The experimental setting should be presented in the core of the paper to a level of detail that is necessary to appreciate the results and make sense of them. • The full details can be provided either with the code, in appendix, or as supplemental material. 7. Experiment statistical significance 
+
+Question: Does the paper report error bars suitably and correctly defined or other appropriate informa-tion about the statistical significance of the experiments? Answer: [No] Justification: The paper reports family-wise, backbone-wise, ambiguity-stratified, calibration, and sensitivity tables in Appendix D.5. The main results are not accompanied by error bars, confidence intervals, or formal significance tests. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The authors should answer [Yes] if the results are accompanied by error bars, confidence intervals, or statistical significance tests, at least for the experiments that support the main claims of the paper. • The factors of variability that the error bars are capturing should be clearly stated (for example, train/test split, initialization, random drawing of some parameter, or overall run with given experimental conditions). • The method for calculating the error bars should be explained (closed form formula, call to a library function, bootstrap, etc.) • The assumptions made should be given (e.g., Normally distributed errors). • It should be clear whether the error bar is the standard deviation or the standard error of the mean. • It is OK to report 1-sigma error bars, but one should state it. The authors should preferably report a 2-sigma error bar than state that they have a 96% CI, if the hypothesis of Normality of errors is not verified. • For asymmetric distributions, the authors should be careful not to show in tables or figures symmetric error bars that would yield results that are out of range (e.g., negative error rates). • If error bars are reported in tables or plots, the authors should explain in the text how they were calculated and reference the corresponding figures or tables in the text. 8. Experiments compute resources 
+
+27 Question: For each experiment, does the paper provide sufficient information on the computer resources (type of compute workers, memory, time of execution) needed to reproduce the experiments? Answer: [No] Justification: Appendix D.6 reports relative parameter and train/inference cost overheads. The provided manuscript does not state hardware type, memory, wall-clock time, or total compute for reproducing each experiment. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The paper should indicate the type of compute workers CPU or GPU, internal cluster, or cloud provider, including relevant memory and storage. • The paper should provide the amount of compute required for each of the individual experimental runs as well as estimate the total compute. • The paper should disclose whether the full research project required more compute than the experiments reported in the paper (e.g., preliminary or failed experiments that didn’t make it into the paper). 9. Code of ethics 
+
+Question: Does the research conducted in the paper conform, in every respect, with the NeurIPS Code of Ethics https://neurips.cc/public/EthicsGuidelines ?Answer: [Yes] Justification: The work uses synthetic and public PDE simulation benchmarks and does not involve human subjects, private data, high-risk decision systems, or unsafe data release. The disclosed scope and limitations are consistent with the NeurIPS Code of Ethics. Guidelines: • The answer [N/A] means that the authors have not reviewed the NeurIPS Code of Ethics. • If the authors answer [No], they should explain the special circumstances that require a deviation from the Code of Ethics. • The authors should make sure to preserve anonymity (e.g., if there is a special consideration due to laws or regulations in their jurisdiction). 10. Broader impacts 
+
+Question: Does the paper discuss both potential positive societal impacts and negative societal impacts of the work performed? Answer: [Yes] Justification: The work has positive potential for more reliable scientific surrogate modeling by making hidden problem-state ambiguity explicit, and Section 7 emphasizes evaluation beyond rollout error. A potential negative impact is over-reliance on inferred hidden physics outside validated task families or assumptions, which is mitigated by the stated limitations and benchmark-scoped claims. Guidelines: • The answer [N/A] means that there is no societal impact of the work performed. • If the authors answer [N/A] or [No], they should explain why their work has no societal impact or why the paper does not address societal impact. • Examples of negative societal impacts include potential malicious or unintended uses (e.g., disinformation, generating fake profiles, surveillance), fairness considerations (e.g., deploy-ment of technologies that could make decisions that unfairly impact specific groups), privacy considerations, and security considerations. • The conference expects that many papers will be foundational research and not tied to particular applications, let alone deployments. However, if there is a direct path to any negative applications, the authors should point it out. For example, it is legitimate to point out that an improvement in the quality of generative models could be used to generate Deepfakes for disinformation. On the other hand, it is not needed to point out that a generic algorithm for optimizing neural networks could enable people to train models that generate Deepfakes faster. • The authors should consider possible harms that could arise when the technology is being used as intended and functioning correctly, harms that could arise when the technology is being used as intended but gives incorrect results, and harms following from (intentional or unintentional) misuse of the technology. • If there are negative societal impacts, the authors could also discuss possible mitigation strategies (e.g., gated release of models, providing defenses in addition to attacks, mechanisms for monitor-ing misuse, mechanisms to monitor how a system learns from feedback over time, improving the efficiency and accessibility of ML). 
+
+28 11. Safeguards 
+
+Question: Does the paper describe safeguards that have been put in place for responsible release of data or models that have a high risk for misuse (e.g., pre-trained language models, image generators, or scraped datasets)? Answer: [N/A] Justification: The paper does not release high-risk models or scraped datasets, and the proposed method is a scientific PDE-simulation framework rather than a generative model with an obvious misuse pathway. Guidelines: • The answer [N/A] means that the paper poses no such risks. • Released models that have a high risk for misuse or dual-use should be released with necessary safeguards to allow for controlled use of the model, for example by requiring that users adhere to usage guidelines or restrictions to access the model or implementing safety filters. • Datasets that have been scraped from the Internet could pose safety risks. The authors should describe how they avoided releasing unsafe images. • We recognize that providing effective safeguards is challenging, and many papers do not require this, but we encourage authors to take this into account and make a best faith effort. 12. Licenses for existing assets 
+
+Question: Are the creators or original owners of assets (e.g., code, data, models), used in the paper, properly credited and are the license and terms of use explicitly mentioned and properly respected? Answer: [No] Justification: The paper cites the main existing assets and prior methods, including PDEBench, neural simulator backbones, and external baselines. The provided manuscript does not explicitly state the licenses or terms of use for the existing datasets or code assets. Guidelines: • The answer [N/A] means that the paper does not use existing assets. • The authors should cite the original paper that produced the code package or dataset. • The authors should state which version of the asset is used and, if possible, include a URL. • The name of the license (e.g., CC-BY 4.0) should be included for each asset. • For scraped data from a particular source (e.g., website), the copyright and terms of service of that source should be provided. • If assets are released, the license, copyright information, and terms of use in the package should be provided. For popular datasets, paperswithcode.com/datasets has curated licenses for some datasets. Their licensing guide can help determine the license of a dataset. • For existing datasets that are re-packaged, both the original license and the license of the derived asset (if it has changed) should be provided. • If this information is not available online, the authors are encouraged to reach out to the asset’s creators. 13. New assets 
+
+Question: Are new assets introduced in the paper well documented and is the documentation provided alongside the assets? Answer: [N/A] Justification: The paper describes a synthetic benchmark construction and public metadata-hidden protocol, but the provided manuscript does not release a new standalone dataset, model, or code asset. Guidelines: • The answer [N/A] means that the paper does not release new assets. • Researchers should communicate the details of the dataset/code/model as part of their sub-missions via structured templates. This includes details about training, license, limitations, etc. • The paper should discuss whether and how consent was obtained from people whose asset is used. • At submission time, remember to anonymize your assets (if applicable). You can either create an anonymized URL or include an anonymized zip file. 14. Crowdsourcing and research with human subjects 
+
+29 Question: For crowdsourcing experiments and research with human subjects, does the paper include the full text of instructions given to participants and screenshots, if applicable, as well as details about compensation (if any)? Answer: [N/A] Justification: The experiments do not involve crowdsourcing or human subjects. Guidelines: • The answer [N/A] means that the paper does not involve crowdsourcing nor research with human subjects. • Including this information in the supplemental material is fine, but if the main contribution of the paper involves human subjects, then as much detail as possible should be included in the main paper. • According to the NeurIPS Code of Ethics, workers involved in data collection, curation, or other labor should be paid at least the minimum wage in the country of the data collector. 15. Institutional review board (IRB) approvals or equivalent for research with human subjects 
+
+Question: Does the paper describe potential risks incurred by study participants, whether such risks were disclosed to the subjects, and whether Institutional Review Board (IRB) approvals (or an equivalent approval/review based on the requirements of your country or institution) were obtained? Answer: [N/A] Justification: The experiments do not involve crowdsourcing or human subjects, so IRB or equivalent approval is not applicable. Guidelines: • The answer [N/A] means that the paper does not involve crowdsourcing nor research with human subjects. • Depending on the country in which research is conducted, IRB approval (or equivalent) may be required for any human subjects research. If you obtained IRB approval, you should clearly state this in the paper. • We recognize that the procedures for this may vary significantly between institutions and locations, and we expect authors to adhere to the NeurIPS Code of Ethics and the guidelines for their institution. • For initial submissions, do not include any information that would break anonymity (if applica-ble), such as the institution conducting the review. 16. Declaration of LLM usage 
+
+Question: Does the paper describe the usage of LLMs if it is an important, original, or non-standard component of the core methods in this research? Note that if the LLM is used only for writing, editing, or formatting purposes and does not impact the core methodology, scientific rigor, or originality of the research, declaration is not required. Answer: [N/A] Justification: LLMs were not used as an important, original, or non-standard component of the core method. Section E voluntarily clarifies that LLM use was limited to language, presentation, and editing assistance and did not affect research ideation, experimental design, data analysis, or scientific conclusions. Guidelines: • The answer [N/A] means that the core method development in this research does not involve LLMs as any important, original, or non-standard components. • Please refer to our LLM policy in the NeurIPS handbook for what should or should not be described. 
+
+30
