@@ -1,0 +1,2647 @@
+Title: Hybrid Iterative Neural Low-Regularity Integrator for Nonlinear Dispersive Equations
+
+URL Source: https://arxiv.org/pdf/2605.04853v1
+
+Published Time: Thu, 07 May 2026 00:56:15 GMT
+
+Number of Pages: 50
+
+Markdown Content:
+> Journal of Machine Learning Research (2026) Submitted 5/2
+
+## Hybrid Iterative Neural Low-Regularity Integrator for Nonlinear Dispersive Equations 
+
+Zhangyong Liang zyliang1994@tju.edu.cn 
+
+National Center for Applied Mathematics Tianjin University Tianjin, 300072, China 
+
+Editor: My editor 
+
+Abstract 
+
+We propose HIN-LRI, a hybrid framework that augments a classical numerical solver with a neural operator trained to correct the solver’s structured truncation error. A base low-regularity integrator provides a consistent first-order approximation to nonlinear dispersive PDEs, while a lightweight neural network, operating on a low-dimensional latent manifold, learns the residual defect that analytical methods cannot close. An explicit time-step scal-ing on the neural correction ensures that its Lipschitz contribution remains O(τ ), yielding a Gronwall stability factor bounded uniformly in the step size and independent of the spatial resolution. The network is trained end-to-end through a solver-in-the-loop objective that unrolls the full iteration and penalises trajectory error in a Bourgain-type norm, align-ing learning with multi-step solver dynamics rather than isolated one-step targets. Under stated assumptions, the global error satisfies C(εnet + δ) τ γ ln(1 /τ ), where εnet measures the network approximation quality and δ the training shortfall. Experiments on three dis-persive benchmarks with rough data show that HIN-LRI improves accuracy over analytical integrators, splitting methods, and neural PDE surrogates, with stable spatial refinement, effective out-of-distribution transfer, and modest online overhead. 
+
+Keywords: learning-augmented numerical solvers, operator learning, residual correction, solver-in-the-loop training, numerical stability, low-regularity integrators 
+
+1 Introduction 
+
+Nonlinear dispersive partial differential equations (PDEs), such as the Korteweg–De Vries (KdV) equation and the nonlinear Schr¨ odinger (NLS) equation, play a fundamental role in describing a myriad of physical phenomena, including shallow water waves, ion acous-tic waves in plasmas, nonlinear optics, and Bose-Einstein condensates Babin et al. (2011); Kenig et al. (1993). It is analytically established that these dispersive equations are glob-ally well-posed in low-regularity Sobolev spaces Hs (e.g., s ≥ − 1 for the KdV equation and 
+
+s ≥ 0 for the cubic NLS equation) Bourgain (1993); Kappeler and Topalov (2006); Killip and Visan (2019). In practical applications, however, the initial data may be intrinsically rough or highly oscillatory due to measurement noise, quantum fluctuations, or random background perturbations Bouard and Debussche (2009); Gubinelli (2012). The develop-ment of robust computational methods for these equations with non-smooth solutions has historically faced severe challenges. Classical time discretizations, including finite difference methods, operator splitting methods, and traditional exponential integrators, rely on the   
+
+> ©2026 Zhangyong Liang. License: CC-BY 4.0, see https://creativecommons.org/licenses/by/4.0/ .
+> arXiv:2605.04853v1 [cs.LG] 6 May 2026 Zhangyong Liang
+
+boundedness of high-order time derivatives of the exact solution. This translates to requir-ing high spatial regularity Holden et al. (2011); Ostermann and Su (2020). When applied to rough data lacking sufficient smoothness, these classical schemes suffer from severe order reduction and spurious high-frequency numerical instabilities. To bridge the gap between analytical well-posedness and numerical regularity requirements, low-regularity integrators (LRIs), also called resonance-based schemes, have been developed over the past decade Hofmanov´ a and Schratz (2017); Ostermann and Schratz (2018a); Feng et al. (2024); Bron-sard (2024). Various semi-discrete and fully discrete schemes have since been proposed to mitigate the loss of derivatives in highly oscillatory regimes Alama Bronsard (2023); Wang and Zhao (2022); Wu and Zhao (2022); Bruned and Schratz (2022). Further developments have successfully extended these techniques to incorporate structure-preserving properties and novel filtering techniques Ostermann and Schratz (2018b); Li and Wu (2025); Banica et al. (2024); Kn¨ oller et al. (2019). The core philosophy of LRIs is to introduce twisted variables via the Lawson transformation, absorbing the stiff linear dispersive operator, and to exactly integrate the dominant high-frequency oscillatory phases in Fourier space. Sub-sequent work introduced embedded LRIs for higher-order accuracy Wu and Zhao (2021) and unfiltered LRIs based on novel harmonic analysis Li and Wu (2021). Discrete Bour-gain space frameworks further pushed convergence bounds to negative Sobolev regularity Rousset and Schratz (2022a); Ostermann et al. (2006); Bruned and Schratz (2022). However, as the requirements for higher-order accuracy, multi-dimensional extensions, and extreme low-regularity grow, purely analytical LRIs encounter fundamental limita-tions Ostermann et al. (2021); Rousset and Schratz (2021). Attempting to resolve infinite-dimensional chaotic high-frequency oscillations using finite algebraic factorizations and local approximations leads to a severe regularity paradox. To construct higher-order schemes, one must evaluate complex multi-wave nested Duhamel integrals. Since these highly oscillatory phases cannot be integrated exactly in closed form, analytical LRIs are forced to apply local polynomial approximations or Taylor expansions Luan and Ostermann (2013); Hochbruck and Ostermann (2010); Shen and Leok (2019). Expanding an exponential phase propor-tional to high-order spatial derivatives releases unbounded differential operators into the local truncation error. This reintroduces derivative loss and forces higher-order schemes to require greater regularity than the PDE itself demands. Furthermore, to maintain compu-tational efficiency via the fast Fourier transform, analytical LRIs heavily rely on equation-specific algebraic miracles to factorize resonant phases. This creates analytic rigidity. Minor physical perturbations can break the algebraic cancellations, and tracking higher-order in-teractions leads to rapidly growing combinatorial overhead Bruned and Schratz (2022). In addition, to avoid the severe order reduction caused by hard-truncation frequency filters, modern unfiltered LRIs attempt to preserve the full spectrum using averaging approxi-mations Li and Wu (2025). This generates an unclosable phase mismatch kernel whose bounding relies on logarithmically growing trilinear estimates. The resulting logarithmic penalty is imprinted on the global error bound and leaves the algorithms vulnerable to nonlinear spectral aliasing. Finally, when pushing theoretical limits to negative regularity regimes, the inherent lack of additional smallness in endpoint bilinear discrete Bourgain space estimates forces the theoretical bounds to rely on global Fourier projection operators Bourgain (1993). Consequently, the discrete nonlinear iteration is constrained by a strict 
+
+> 2Hybrid Iterative Neural Low-Regularity Integrator
+
+Courant-Friedrichs-Lewy (CFL) condition that tightly couples the time step to the spatial grid resolution, limiting practical applicability for high-resolution simulations. Recently, there has been a growing interest in integrating deep learning techniques with traditional iterative methods to accelerate convergence Raissi et al. (2019); Lu et al. (2021); Li et al. (2020b); Karniadakis et al. (2021). These algorithms also aim to overcome the theoretical limitations of classical solvers Wang et al. (2021). In the context of large-scale linear systems and highly oscillatory partial differential equations, such as the indefinite Helmholtz equation, machine learning techniques have been successfully intertwined with multigrid (MG) and Krylov subspace methods Hsieh et al. (2019); Greenfeld et al. (2019); Markidis (2021). These hybrid approaches employ deep neural networks to learn smoothers Huang et al. (2022) and transfer operators Luz et al. (2020). Furthermore, they are utilized for coarse-grid corrections Cui et al. (2022); Azulay and Treister (2022); Belbute-Peres et al. (2020). For instance, the Wave-ADR neural solver Stanziola et al. (2021) partitions the iterative error into characteristic and non-characteristic components. Classical multigrid wave cycles attenuate high-frequency errors, while neural networks address near-nullspace characteristic components on a coarse scale. Similarly, the HINTS framework Zhang et al. (2022, 2024); Kahana and Karniadakis (2022) leverages deep operator networks (DeepONet) and other continuous learning algorithms Li et al. (2020a); Khoo et al. (2021). These models then construct efficient preconditioners Lu et al. (2021), reducing low-frequency error components and leaving the high-frequency parts to standard stationary methods. Other hybrid strategies, such as encoder-solver architectures He and Xu (2019); Um et al. (2020), integrate convolutional neural networks with classical geometric solvers. These combinations map intractable preconditioner inverses Sirignano and Spiliopoulos (2018); Han et al. (2018); E and Yu (2018); Raissi et al. (2020). In addition, several variants employ surrogate techniques to refine local approximations Dong and Li (2021); Sun et al. (2020); Margenberg et al. (2022). These hybrid iterative neural solvers demonstrate a spectral complementarity. Neural operators, equipped with implicit frequency-domain mappings, capture global continuous representations and neutralize low-frequency characteristics that stall classical relaxations. Motivated by the analytical limitations of classical LRIs and the demonstrated effective-ness of hybrid iterative neural solvers, we develop a Hybrid Iterative Neural Low-Regularity Integrator (HIN-LRI) for nonlinear dispersive equations. Such equations arise across a wide range of applications, including the modelling of ion acoustic waves in plasmas, pulse prop-agation in nonlinear optical fibres, and the dynamics of Bose–Einstein condensates, where noisy or singular initial conditions are often the physical reality rather than an edge case Ablowitz (2011); Tao (2006). HIN-LRI embeds a data-driven neural operator into an al-ternating iterative scheme, as illustrated in fig. 1. The left branch (orange) executes an explicit LRI step v(m) = UL(τ )un + ILRI (u(m−1) , τ ), which propagates the high-frequency linear dispersion exactly via the unitary group UL(τ ) but introduces a resonance defect 
+
+Edef ect on rough data (red oscillations in the waveform panel). The right branch (blue) passes the residual through a neural operator Gθ restricted to a low-dimensional latent manifold, producing a learned correction τ Hneural that is scaled by the time step τ to preserve one-step stability. The central hybrid update (green) combines both branches as 
+
+u(m) = v(m) + τ S−1 
+
+> λn
+
+P Gθ(rc, unc , τ ), yielding a corrected solution (smooth green curve) that implicitly approximates the high-order multi-wave resonant defects and phase mismatches 
+
+> 3
+
+Zhangyong Liang 
+
+that analytical methods cannot close. This alternating spectral-neural iteration reduces the trade-off between algebraic rigidity and spatial regularity: the LRI predictor supplies a consistent physical backbone, while the neural corrector targets the structured residual on a compact K-dimensional manifold ( K ≪ N ), decoupling stability from the spatial resolution. HIN-LRI: H ybrid Iterative Neural Low-Regularity Integrator          
+
+> LRI
+> UL(τ) + ILRI
+> Hybrid
+> v+τe
+> Neural Operator
+> Gθ
+> vτe
+> un+Edef ect
+> LRI: low-regularity
+
+## ✓                       
+
+> Hybrid: u (m)=v(m)+τe
+> τHneural
+> Neural Operator: learned correction
+> Gθ
+> LRI step v(m)=UL(τ)un+
+> ILRI (u(m−1) , τ )
+> Hybrid update u(m)=v(m)+
+> τS−1
+> λn PGθ(rc,unc, τ )
+
+UL(τ )un + ILRI (u(m−1) , τ )
+
+︸ ︷︷ ︸
+
+v(m) (LRI predictor) 
+
++ τ S−1 
+
+> λn
+
+P Gθ (rc, unc , τ )
+
+︸ ︷︷ ︸
+
+τ Hneural (Neural correction) 
+
+= u(m)  
+
+> vτe
+
+Figure 1: Schematic of the HIN-LRI alternating iteration. The LRI branch (orange) produces the predictor v(m) and exposes the resonance defect Edef ect . The neural branch (blue) maps the latent residual to a time-scaled correction τ Hneural . The hybrid update (green) combines both terms as u(m) = v(m) + τ e. The bottom equation shows the corresponding predictor-correction decomposition. From the perspective of machine learning methodology, our main contributions are: 
+
+• A general residual-correction framework for learning-augmented numerical solvers. We formalise a design pattern in which a classical iterative solver provides a consistent first-order approximation, and a neural operator acts exclusively on the structured residual that the solver cannot close analytically. The separation into a “physical backbone + learned residual” is not specific to dispersive PDEs: it applies whenever the solver’s truncation error admits a well-characterised defect operator that can serve as a regression target. We provide a rigorous error decomposition (sec-tion 4.4) showing how approximation quality ( εnet ) and training shortfall ( δ) propagate from the one-step correction to the global trajectory error. 
+
+4Hybrid Iterative Neural Low-Regularity Integrator 
+
+• Stability-preserving latent-space operator learning. The neural correction op-erates on a low-dimensional orthogonal manifold ( K ≪ N ) and carries an explicit time-step scaling τ , so that its Lipschitz contribution to the one-step map is τ L θ,K 
+
+rather than Lθ,K . This yields a Gronwall factor bounded uniformly in τ and decouples the solver’s numerical stability from the spatial resolution N —a principle transferable to other hybrid iterative neural solvers where uncontrolled Lipschitz growth of the learned component is a known failure mode. 
+
+• Solver-in-the-loop (SITL) training aligned with multi-step dynamics. Rather than training the neural component on isolated one-step regression targets, we un-roll the full hybrid iteration and optimise a trajectory loss in a physically motivated function-space norm (discrete Bourgain space). This solver-aware training objective reduces distribution shift between training and deployment and provides a principled alternative to standard supervised operator learning. The approach generalises to any differentiable iterative solver. 
+
+• Empirical validation and diagnostics. We evaluate the framework on three non-linear dispersive benchmarks with low-regularity data, comparing against classical solvers and neural PDE surrogates, and provide ablation, out-of-distribution transfer, long-time conservation, and runtime analysis. All theoretical assumptions ( εnet , δ,
+
+Lθ,K ) are empirically verified (section C). The paper is organized as follows. Section 3 introduces the mathematical setting and reviews the analytical background for low-regularity integrators. Section 4 presents the HIN-LRI framework, including the alternating spectral-neural iteration, the solver-in-the-loop training, and the theoretical analysis. Section 5 reports the numerical experiments. Section 6 concludes with a discussion of limitations and future work. 
+
+2 Related work 
+
+2.1 Low-Regularity Integrator 
+
+Classical splitting and exponential integrators typically exhibit severe order reduction on rough data. Low-regularity integrators (LRIs) mitigate this by embedding dominant nonlin-ear oscillations into the discretization via twisted variables and resonance expansions. Be-yond equation-specific constructions, general LRI frameworks avoiding reliance on Fourier series have been developed, supporting non-periodic domains and non-polynomial nonlin-earities, alongside systematic high-order formalisms via decorated trees and forest formulae that enable symmetric designs Rousset and Schratz (2021); Bruned and Schratz (2022); Bronsard et al. (2026). For the cubic NLS, foundational exponential-type LRIs achieve first-order convergence by integrating the dominant nonlinear frequency interaction exactly Ostermann and Schratz (2018b). Second-order accuracy at reduced regularity has been ad-dressed by resonance-aware schemes Kn¨ oller et al. (2019); Ostermann et al. (2022), with new 1D variants pushing the L2 theory below H2 Cao et al. (2024). At extreme low regularity, stability in L2 has been obtained using discrete and continuous Strichartz/Bourgain-space estimates Ostermann et al. (2021, 2023); Ruff (2025). Furthermore, structure-preserving symmetric and symplectic Runge–Kutta resonance-based LRIs have emerged to reconcile 
+
+> 5Zhangyong Liang
+
+symplecticity with low-regularity convergence Bronsard (2024); Feng et al. (2025); Maier-hofer and Schratz (2025), while long-time behavior limits remain actively studied Feng et al. (2024); Yao (2022). For KdV, the foundational exponential-type integrator introduced first-order convergence exploiting cubic dispersion resonance identities Hofmanov´ a and Schratz (2017). Advanced embedded exponential-type LRIs and methods analyzed via discrete Bourgain spaces subsequently optimized convergence under increasingly rough data, even pushing convergence bounds for solutions below H1 utilizing averaging approximations and perturbative low-regularity stability arguments Wu and Zhao (2022); Rousset and Schratz (2022b); Li and Wu (2025). 
+
+2.2 Hybrid iterative neural solvers 
+
+Neural PDE solvers span fully learned surrogates like PINNs Raissi et al. (2019) or opera-tor learners Lu et al. (2021); Li et al. (2020b), and hybrid iterative approaches that embed learning into numerically consistent outer loops to ensure controlled accuracy. A prominent coupling pattern exploits spectral bias by combining simple smoothers for high-frequency errors with neural corrections for slow modes, as seen in frameworks like HINTS Zhang et al. (2024) and the Fourier Neural Solver Cui et al. (2025a), though aligning training objectives with solver dynamics remains crucial for reliability Wu et al. (2026). Beyond relaxation, learned preconditioners for Krylov methods reinterpret operator learning as a solver component, utilizing DeepONet-based subspace corrections Kopanicakova and Kar-niadakis (2025), graph neural networks Chen et al. (2025), or fixed low-rank coarse spaces Benanti et al. (2026). For challenging PDEs such as high-frequency Helmholtz equations, specialized multigrid/neural networks hybrids couple learned coarse corrections with clas-sical smoothing Azulay et al. (2023); Lerer et al. (2023); Cui et al. (2025b). Related hy-bridization patterns also appear broadly in optimization and inverse problems, including deep unfolding Gregor and LeCun (2010) and plug-and-play priors Venkatakrishnan et al. (2013); Chan et al. (2016); Romano et al. (2017). Implicit-layer fixed-point models Bai et al. (2019) further train equilibria via implicit differentiation, all driving toward the shared goals of certifiable convergence and predictable end-to-end computational costs. 
+
+3 Preliminaries 
+
+In this section, we introduce the mathematical models of nonlinear dispersive equations and review the analytical background for low-regularity solutions. We then outline the general framework of low-regularity integrators (LRIs) and discuss the inherent numerical challenges that motivate our hybrid neural-numerical approach. 
+
+3.1 Problem formulation 
+
+We consider a general class of nonlinear dispersive partial differential equations defined on a 
+
+d-dimensional flat torus Td = [0 , 2π)d, which govern the spatiotemporal evolution of various wave phenomena. The initial value problem is formulated as 
+
+(
+
+∂tu(t, x) + iL(∇)u(t, x) = N (u(t, x)) , x ∈ Td, t ∈ (0 , T ],u(0 , x) = u0(x), x ∈ Td, (1) 
+
+> 6Hybrid Iterative Neural Low-Regularity Integrator
+
+where u(t, x) denotes the real- or complex-valued wave field. The operator L(∇) is a linear, self-adjoint pseudo-differential operator characterized by a real-valued dispersion relation 
+
+ω(k), such that its action in the Fourier space is given by cLu(k) = ω(k)ˆ u(k) for the discrete wavenumber k ∈ Zd. The term N (u) represents a polynomial nonlinearity. This abstract formulation encapsulates several fundamental physical models widely stud-ied in the literature. For instance, setting the spatial dimension d = 1, iL(∇) = ∂3 
+
+> x
+
+(cor-responding to ω(k) = −k3), and N (u) = 12 ∂x(u2) yields the Korteweg–de Vries (KdV) equation. Alternatively, choosing the Laplacian operator L(∇) = −∆ (corresponding to 
+
+ω(k) = |k|2) yields the quadratic and cubic nonlinear Schr¨ odinger (NLS) equations when the nonlinearity is given by N (u) = λu 2 (or λ|u|2) and N (u) = λ|u|2u, respectively, with 
+
+λ ∈ R.In many physical applications, the initial state u0 is often highly oscillatory or strictly non-smooth, residing in a low-regularity Sobolev space Hs(Td) with a critically small or even negative index s ≤ 0. The analytical well-posedness of eq. (1) in such rough functional spaces relies heavily on advanced harmonic analysis tools, particularly the discrete Bourgain spaces Xs,b , equipped with the space-time norm 
+
+∥w∥2 
+
+> Xs,b
+
+:= 
+
+Z
+
+> R
+
+X
+
+> k∈Zd
+
+⟨k⟩2s⟨σ − ω(k)⟩2b Ft, x{w}(σ, k) 2dσ, (2) where ⟨k⟩ = (1 + |k|2)1/2 and Ft, x denotes the spatiotemporal Fourier transform. This functional space effectively isolates the linear dispersive wave propagation onto the char-acteristic manifold σ = ω(k), providing a crucial mechanism to recover the lost spatial regularity required by the nonlinear term N (u). For example, the KdV equation is globally well-posed in Hs for s ≥ − 1, while the cubic NLS equation is well-posed for s ≥ 0. Numerically solving eq. (1) under low-regularity conditions presents substantial chal-lenges. Applying the Fourier pseudo-spectral method on a uniform spatial grid yields a discrete projection operator Π N , where N represents the frequency truncation limit. The continuous PDE is then reduced to a large-scale semi-discrete system 
+
+∂tuN + iLN uN = Π N N (uN ). (3) For rough data, the spatial derivatives embedded in L and N are essentially unbounded. Classical time-marching methods, such as standard exponential integrators or operator splitting methods, inherently rely on the boundedness of high-order time derivatives of the exact solution, which translates to requiring high spatial regularity (e.g., u0 ∈ H3 or 
+
+H4). When applied to solutions below these regularity thresholds, classical methods fail to resolve the high-frequency oscillatory components, suffering from severe order reduction and catastrophic numerical instability. 
+
+3.2 Low-regularity integrators 
+
+To address the severe regularity requirements imposed by classical numerical methods, low-regularity integrators (LRIs) have been developed. The fundamental concept behind LRIs is to isolate the stiff, highly oscillatory linear dispersive dynamics from the nonlinear interactions. This is achieved by introducing the unitary continuous evolution group UL(t) = 
+
+> 7Zhangyong Liang
+
+exp( −it L) and defining the twisted variable v(t, x) = UL(−t)u(t, x). This Lawson-type transformation completely absorbs the linear differential operator, yielding an equivalent evolution equation driven purely by the frequency-modulated nonlinearity 
+
+∂tv(t, x) = UL(−t)N (UL(t)v(t, x)) . (4) Let tn = nτ for n = 0 , 1, . . . , T /τ be a uniform temporal partition with step size τ . Inte-grating eq. (4) over a temporal step interval [ tn, t n+1 ] provides the exact Duhamel integral formulation for the twisted variable. In the Fourier space, the polynomial nonlinearity N
+
+induces a multi-dimensional convolution. The nonlinear interaction of distinct frequency modes kj generates highly oscillatory cross-resonance phase functions Φ. For instance, considering a generic nonlinearity of degree p, the exact evolution from tn to tn+1 can be expressed at the Fourier mode level as ˆvk(tn+1 ) = ˆ vk(tn) + 
+
+Z τ
+
+> 0
+
+X
+
+> k1+··· +kp=k
+
+C(k, . . . )e−is Φ( k,k1,..., kp)
+
+> p
+
+Y
+
+> j=1
+
+ˆvkj (tn + s) ds, (5) where C(k, . . . ) denotes the coefficient multiplier stemming from spatial derivatives in N ,and Φ( k, . . . ) = ω(k) − Ppj=1 ω(kj ) is the resonance phase function governing the nonlinear frequency coupling. For the KdV equation, Φ = k3 − k31 − k32 , while for the cubic NLS equation, Φ = |k|2 + |k1|2 − | k2|2 − | k3|2.To construct a practical and explicitly computable scheme without releasing spatial derivatives, LRIs freeze the slowly varying term v(tn + s) ≈ v(tn) over the short inter-val s ∈ [0 , τ ], and analytically evaluate the dominant high-frequency oscillatory integral R τ 
+
+> 0
+
+e−is Φdom ds . By avoiding straightforward Taylor expansions on the exponential phase, LRIs successfully circumvent the regularity paradox. For the cubic NLS equation, ex-tracting the dominant phase component Φ dom = −2|k1|2 leads to the classical first-order resonance-based scheme 
+
+un+1 = UL(−τ ) un − iτ λ (un)2 (φ1(−2iτ ∆) un) , (6) where φ1(z) = ( ez − 1) /z acts as an exact filter for the resonance frequency. For the KdV equation, the algebraic identity k3 − k31 − k32 = 3 kk 1k2 enables the exact integration of the resonance phase to perfectly cancel the singular derivative multiplier ik , yielding the baseline first-order LRI propagator 
+
+ILRI (un, τ ) = 16 P
+
+h UL(−τ )∂−1 
+
+> x
+
+un2i
+
+− 16 UL(−τ )P
+
+h ∂−1 
+
+> x
+
+un2i
+
+, (7) where P denotes the projection onto mean-zero functions, and ∂−1 
+
+> x
+
+is the pseudo-differential anti-derivative operator. However, when developing higher-order methods or solving equations with heavily nested multi-wave interactions, it is generally impossible to perfectly factorize and analytically integrate the complex nested phases. Analytical LRIs are forced to employ explicit Taylor series expansions, filtered mid-point rules, or temporal averaging approximations. These compromises inevitably introduce an unclosable analytical defect Edef ect (un, τ ) associated 
+
+> 8Hybrid Iterative Neural Low-Regularity Integrator
+
+with the phase mismatch. The complete discrete evolution governing the numerical solution can thus be formulated as a large-scale nonlinear system 
+
+un+1 = Π N UL(−τ )un + ILRI (un, τ ) + Edef ect (un, τ ). (8) Relying purely on analytical harmonic analysis techniques to bound this defect intro-duces severe constraints. Taylor truncations reintroduce derivative loss, demanding higher regularity than the PDE requires. Averaging approximations, such as Mτ (eis (ϕ1+ϕ2)) ≈
+
+Mτ (eisϕ 1 )Mτ (eisϕ 2 ), leave a mismatch kernel that enforces logarithmic penalties O(τ γ ln(1 /τ )) on the truncation error, capping the achievable accuracy. Moreover, discrete Bourgain space analyses necessitate strict CFL conditions, such as τ ≤ O (N −3), to maintain local Lipschitz stability in extreme low-regularity spaces. These formidable mathematical barriers signif-icantly restrict the scalability and efficiency of standard LRIs, highlighting the necessity of designing a hybrid framework that utilizes deep learning techniques to iteratively target and neutralize Edef ect .
+
+4 Method 
+
+In this section, we describe the proposed methodology. Section 4.1 mathematically anal-yses the analytical defects of classical low-regularity integrators. Section 4.2 presents the complete formulation of the Hybrid Iterative Neural Low-Regularity Integrator (HIN-LRI) framework. The architecture consists of an explicit physical section that integrates the exact high-frequency dispersion, and a neural section operating on a latent manifold that maps the residual to the defect compensation. Section 4.3 introduces the algorithmic implemen-tation and the solver-in-the-loop (SITL) training in discrete Bourgain spaces. Section 4.4 provides the theoretical analysis, showing how the proposed method reduces logarithmic penalties, relaxes the CFL constraint, and mitigates derivative loss. 
+
+4.1 Motivation 
+
+We consider a general class of nonlinear dispersive equations defined on the torus Td or whole space Rd:
+
+∂tu + iL(∇)u = N (u), u(0 , x ) = u0 ∈ Hs, (9) where L(∇) is a self-adjoint linear dispersive operator with symbol ω(k) ∼ O (|k|α) (e.g., 
+
+α = 2 for NLS, α = 3 for KdV), and s ≤ 0 indicates extreme low regularity. The foundational paradigm of classical LRIs relies on the Lawson transform (twisted variable) 
+
+v(t) = eit Lu(t), which analytically absorbs the high-frequency linear stiffness into a purely oscillatory Duhamel integral: ˆvk(tn + τ ) = ˆ vk(tn) + 
+
+Z τ
+
+> 0
+
+X 
+
+> k=P±kj
+
+eis Φ( k,kj ) bN (v(tn + s)) ds. (10) To achieve high-order convergence without requiring bounded high-order spatial derivatives of u, classical LRIs aim to replace the exact oscillatory integral in eq. (10) by an analytically computable resonance quadrature: ˆvn+1  
+
+> k
+
+= ˆ vn 
+
+> k
+
++ QΦ
+
+> τ, k
+
+(ˆ vn), QΦ
+
+> τ, k
+
+(ˆ vn) ≈
+
+Z τ
+
+> 0
+
+X 
+
+> k=P±kj
+
+eis Φ( k,kj ) bN (ˆ vn) ds. (11) 
+
+> 9Zhangyong Liang
+
+The entire LRI design problem is therefore reduced to constructing a stable and fast ap-proximation QΦ 
+
+> τ
+
+to the resonant Duhamel operator. In low regularity, however, the Fourier coefficients of v do not decay fast enough to absorb uncontrolled multipliers. Algebraic phase factorizations may fail. Taylor or filter expansions may release powers of |k|α. Phase-decoupling residuals may accumulate logarithmic losses. Implicit structure-preserving vari-ants may require fixed-point maps of the form ˆ vn+1 = ˆ vn + QΦ 
+
+> τ
+
+(ˆ vn, ˆvn+1 ) whose contraction constant grows with the rough Sobolev norm. As the theoretical demands for higher-order accuracy ( r ≥ 2), multi-dimensionality ( d ≥ 2), and exact symplecticity intensify, this purely analytical paradigm inevitably collapses into rigorous mathematical dead-ends. The most representative numerical signatures of these four failures are summarized in fig. 2. Panel (a) shows the brittleness of algebraic resonance factorization. Panel (b) shows derivative-loss amplification induced by iterated multipliers. Panel (c) shows the aliasing/logarithmic cas-cade behind the CFL curse. Panel (d) shows the divergence or costly saturation of implicit Picard iterations. The detailed diagnostic figures are deferred to section 5.2. 
+
+The Regularity Paradox via Explicit Taylor Truncation. To construct high-order schemes or handle un-factorizable cross-resonances, evaluating the exact convolution of eis Φ becomes mathematically impossible. Classical methods forcefully split the phase operator into a dominant integrable part and a lower-order part: L = Ldom + Llow . The residual oscillation eis Llow is then evaluated via an explicit Taylor series expansion: 
+
+eis Llow =
+
+> r−1
+
+X
+
+> m=0
+
+(is Llow )m
+
+m! + Rr(sLlow ), where ∥R r(sLlow )∥op ≤ sr∥Llow ∥rop 
+
+r! . (12) This algebraic compromise triggers a fatal regularity paradox. While the unitary group eis L
+
+is a bounded isometry on Hs, its polynomial expansion explicitly releases the unbounded spatial differential operator L rlow into the local truncation error (LTE). In the decorated tree formalism, the approximation operator Π n,r yields an exact local error bound for a tree 
+
+T :
+
+∥(Π − Πn,r )T (τ )∥2 
+
+> Hγ
+
+= X
+
+> k
+
+⟨k⟩2γ |F k [Rr ˆv]|2 ∝ τ 2r+4 X
+
+> k
+
+⟨k⟩2γ |k|2αr |ˆvk|2 = τ 2r+4 ∥∇ αr v∥2 
+
+> Hγ
+
+.
+
+(13) Consequently, the local error ET aylor = O  τ r+2 ∥u∥Hγ+αr 
+
+ forcefully demands the exact solution to possess γ + αr spatial derivatives. For sub-H1 rough data, ∥∇ αr v∥Hγ → ∞ ,leading to instantaneous numerical blow-up and creating a severe smoothness deadlock. This catastrophic order reduction is numerically verified at T = 1 .0 in fig. 4. On smooth initial data ( γ = 3 .0), classical integrators achieve their nominal orders, with KdV-ETD1 attaining order 0 .99 and NLS-Strang splitting attaining 2 .18. On rough data ( γ = 0 .5), however, KdV-ETD1 collapses to order 0 .26 and KdV-Lawson1 diverges entirely. NLS-Strang degrades from 2 .18 to 0 .85, a 61% loss, confirming that the remainder ∥∇ αr v∥Hγ
+
+in eq. (13) is unbounded. Crucially, the extended integration horizon exposes that even state-of-the-art LRIs suffer quantitative defects on rough data. NLS-BS22, a second-order LRI with nominal rate O(τ 2), collapses from empirical order 1 .87 on smooth data to only 0.58 on γ=0 .5 rough data, a 69% drop that is more severe than Strang splitting’s 61% loss. This reveals that the second-order filter mechanism in BS22 amplifies rather than suppresses rough-data pathologies. Simultaneously, KdV-RES1 drops to empirical slope 
+
+> 10
+
+Hybrid Iterative Neural Low-Regularity Integrator 0.0 0.2 0.4 0.6 0.8 1.0 
+
+Dissipation coefficient         
+
+> 10 8
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Max phase error ratio
+
+(a) 
+
+D1: algebraic rigidity        
+
+> Perturbed phase
+> KdV exact factorization
+> 010 20 30 40 50 60 70
+
+Wavenumber | k|    
+
+> 10 8
+> 10 6
+> 10 4
+> 10 2
+> 10 0
+> Amplification |( ik ) n|
+
+(b) 
+
+D2: derivative-loss amplification          
+
+> n= 1 (RES1)
+> n= 2 (RES2/ELRI1)
+> n= 3 (ELRI2)
+> 1234
+
+Number of nested conv1 operations 
+
+> 10 0
+> 10 1
+> Aliasing energy  ealias
+
+(c) 
+
+D3: aliasing/logarithmic cascade          
+
+> Rough, = 0.5
+> Smooth, = 2.0
+> 020 40 60 80 100 120 140
+
+Picard iteration index j        
+
+> 10 15
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> Relative residual  vj + 1  vj / vj
+
+(d) 
+
+D4: implicit Picard divergence        
+
+> A= 1, conv.
+> A= 2, conv.
+> A= 5, div.
+> A= 10, div.
+> A= 20, div.
+> A= 50, div.
+> tol 10 16
+> max iter 150
+
+Figure 2: Numerical diagnostics for limitations of analytical low-regularity in-tegrators. (a) Phase-perturbation sensitivity; (b) multiplier-induced regularity loss; (c) aliasing and logarithmic growth under CFL constraints; (d) Picard iter-ation cost for implicit structure preservation. 0.18, far below its theoretical cap of min(1 , γ )=0 .5, because the cumulative phase mismatch kernel η accumulated over O(T /τ ) steps contaminates the nominal O(τ γ ) rate via the log-penalty mechanism of eq. (17). The only LRI remaining quantitatively robust in this stress test is NLS-RES1, which retains order 1 .02 on γ=0 .5 data (a mere 14% degradation from its smooth 1 .19), since its error kernel avoids injecting high powers of |k|α into the LTE and its first-order form does not accumulate an auxiliary filter cap. This asymmetric collapse establishes that current LRI algorithms approach but do not eliminate the regularity paradox, providing the core motivation for a hybrid neural framework that targets the residual defect directly. The spectral anatomy of this paradox is captured in panel (d) of fig. 5. The Fourier amplitude of the one-step error for ELRI2 grows as |k|3−γ−1/2 with 
+
+11 Zhangyong Liang 
+
+increasing wavenumber, providing direct spectral evidence that the operator norm factor 
+
+∥L rlow ∥op ∼ | k|αr in eq. (13) systematically amplifies every high-frequency mode under rough initial data. 
+
+Algebraic Rigidity and Combinatorial Explosion. To map frequency-domain convolutions back to physical space and retain O(N log N ) FFT efficiency, classical LRIs depend on exceptional algebraic factorizations (e.g., k3 − k31 − k32 ≡ 3kk 1k2 for 1D KdV). Once this identity is perturbed, the fast FFT-based reduction loses its justification and the numerical implementation reverts toward direct multi-index summation. At higher order, the scheme must additionally evaluate multi-linear contributions over the Hopf algebra of decorated trees Tr+2 0 (R). Each tree node encodes a nonlinear interaction and each edge carries a frequency label. The full numerical scheme sums over all such trees up to a given depth: 
+
+U n,r  
+
+> k
+
+(τ, v ) = X  
+
+> T∈Tr+2 0(R)
+
+Υp(λkT )( v)
+
+S(T ) Πn  Dr(I(t1,0) (λkT ))  (τ ). (14) The cardinality |Tr+2 0 (R)| grows rapidly with the approximation order r, so even when the underlying FFT structure survives, higher-order LRIs accumulate a substantial combinato-rial overhead. The broader multidimensional complexity growth of generalized convolutions remains a genuine theoretical concern, but fig. 6 directly quantifies the two effects that are numerically visible here: algebraic brittleness and higher-order combinatorial inflation. Panel (a) confirms that the KdV identity k3−k31 −k32 ≡ 3kk 1k2 holds to machine precision (residual < 10 −8) for pure KdV. Even a minimal KdV-Burgers dissipation of ε = 0 .01 intro-duces a phase-uncancelled residual of ∼ 10 −3 at |k| = 2, with the three perturbation curves separated by one order of magnitude, confirming strict linear sensitivity to ε. Panel (b) shows the direct computational consequence. The FFT-based convolution achieves an em-pirical growth of N 0.46 (consistent with O(N log N )), while the brute-force fallback scales as O(N 1.92 ) ≈ O (N 2), producing an 85 × speed gap at N = 512 that widens to 10 3× at 
+
+N = 4096. Panels (c) and (d) expose the higher-order combinatorial penalty. RES1 re-quires only 2 conv1 calls per step, while ELRI1 and ELRI2 each require 12 (6 ×) and ULRI requires 9 (4 .5×). The decorated-tree term count grows as ∝ p2.5 and reaches 132 terms at order p = 5. Together, these measurements show that even in the one-dimensional setting where the FFT factorization exists, higher-order LRIs already suffer from substantial im-plementation and runtime inflation. The figure should be interpreted as numerical evidence for algebraic rigidity and combinatorial explosion, rather than as a direct benchmark of the full multidimensional curse of dimensionality. 
+
+Unclosable Resonance Mismatch and the Logarithmic/CFL Curses. Intu-itively, a nonlinear dispersive PDE creates interactions between waves at different frequen-cies. A perfect integrator would track every such interaction exactly, but this requires evaluating an oscillatory integral whose phase depends on the combined frequencies of all interacting waves. Unfiltered LRIs approximate this by factoring the integral into inde-pendent single-frequency averages—a simplification that works well when the interacting frequencies are well-separated but leaves a residual error (the phase mismatch kernel η)whenever they are not. This residual cannot be eliminated by algebraic means and drives both the logarithmic error penalty and the CFL restriction analysed below. 
+
+> 12 Hybrid Iterative Neural Low-Regularity Integrator
+
+To circumvent the order reduction caused by high-frequency hard filters, unfiltered LRIs (ULRIs) decouple nested exponential phases via time-averaging approximations: 
+
+Z τ
+
+> 0
+
+e−is (ϕ1+ϕ2)ds = τ Mτ
+
+
+
+e−isϕ 1
+
+
+
+Mτ
+
+
+
+e−isϕ 2
+
+
+
++ τ η(τ, k), (15) where Mτ (f ) = 1
+
+> τ
+
+R τ 
+
+> 0
+
+f (s)ds . This analytical decoupling inherently generates a non-zero phase mismatch kernel η(τ, k). The residual defect Edef ect = Iexact − I LRI takes the form: 
+
+Fk[Edef ect ] = − X
+
+> k1+k2+k3=k
+
+τ
+
+18 ik e−it nϕη(τ, k)ˆ vk1 ˆvk2 ˆvk3 . (16) Through the logarithmically growing trilinear estimate on L2, the norm of this unresolvable defect is strictly lower-bounded by the divergent harmonic series: 
+
+∥E def ect (u)∥L2 ≥ C τ 1+ γ
+
+ X 
+
+> 0<|k|≤ τ−1
+
+1
+
+|k|
+
+ ∥u∥3 
+
+> Hγ
+
+=⇒ inf  
+
+> u∈Hγ
+
+∥LTE ∥L2 ≥ O 
+
+
+
+τ 1+ γ ln 1
+
+τ
+
+
+
+.
+
+(17) This logarithmic factor acts as a persistent noise amplifier that triggers nonlinear aliasing instability. Furthermore, in endpoint Bourgain spaces Xs,b , the lack of additional small-ness forces a global spectral truncation Π N . The discrete Banach contraction dictates the Lipschitz bound Lip( ILRI ) ≤ C τ ∥∂xΠN ∥op ≤ C τ N α < 1. This mathematically enforces the catastrophic CFL curse: τ ≤ O (N −α). These ULRI defects are directly measured in fig. 7, while the filtering-based alternative is quantified separately in fig. 8. Panel (a) of fig. 7 shows that on rough H0.5 KdV data, the ULRI convergence curve is enveloped by 
+
+τ γ ln(1 /τ ) rather than τ γ . The logarithmic overhead persists uniformly across all tested step sizes and prevents ULRI from matching the clean O(τ γ ) rate of RES1 and ELRI1. Panel (b) delivers the sharpest quantitative proof of the CFL curse. At fixed τ = 10 −3, RES1 pro-duces monotonically decreasing L2 error as N increases, while ULRI’s error stagnates and then diverges at N ∗ = (2 π/τ )1/3 ≈ 39, matching the theoretical threshold τ ≤ (2 π/N )3 to within one grid point. Panel (d) reveals the cost-accuracy trade-off. ULRI requires 27 FFT-equivalent transforms per step (4 .5× RES1’s 6), yet occupies the worst Pareto quadrant with simultaneously the highest error and the second-highest cost among the three methods tested. Complementarily, fig. 8 shows what happens when one attempts to suppress the logarithmic growth through hard high-frequency filtering. The φ1 filter in NLS-RES1 in-troduces a sinc-like spectral attenuation |φ1(−2hk 2)| = sin( hk 2)/(hk 2), visible in panel (b) for h ∈ { 0.0625 , 0.125 , 0.25 }, and induces a clear regularity-dependent convergence ceiling. RES1 exhibits empirical orders 0 .192, 0 .608, 0 .921, and 1 .035 for γ = 0 .25 , 0.5, 1.0, 2.0. BS22 yields 0 .391, 0 .523, 1 .011, and 1 .917. The filter penalty dominates the rough-data regime and erodes the nominal high-order gain. At γ = 0 .5, BS22 achieves only order 0 .523 despite being nominally second-order, while RES1 drops to 0 .608. Both methods are driven close to a half-order regime, so the logarithmic mismatch is not removed but traded for a filter-induced spectral ceiling. 
+
+The Implicit Curse of Symplectic Structure Preservation. Classical asymmetric LRIs break time-reversal symmetry, leading to secular energy drift. To rigorously preserve 
+
+> 13 Zhangyong Liang
+
+the symplectic two-form ω = P dξ k ∧ dη k over long-time evolution, Runge-Kutta resonance schemes introduce S internal stages: 
+
+Kp,q,r = Fp
+
+τ ; cq; un + τ
+
+> S
+
+X
+
+> ˜p, ˜q, ˜r=0
+
+a˜p, ˜q, ˜rp,q,r K˜p, ˜q, ˜r
+
+ . (18) For this discrete mapping to preserve the quadratic invariants exactly, the real-valued co-efficients bp,q,r and a˜p, ˜q, ˜rp,q,r must satisfy the strict algebraic geometric condition b˜p, ˜q, ˜rbp,q,r =
+
+bp,q,r a˜p, ˜q, ˜rp,q,r + b˜p, ˜q, ˜rap,q,r 
+
+> ˜p, ˜q, ˜r
+
+. By evaluating the diagonal entries ( p = ˜ p, q = ˜ q, r = ˜ r), it alge-braically demands ( bp,q,r )2 = 2 bp,q,r ap,q,r p,q,r . For any consistent method where b̸ = 0, this yields: 
+
+ap,q,r p,q,r = 12 bp,q,r ̸ = 0 . (19) This constitutes a rigorous mathematical proof that any structure-preserving resonance-based scheme is strictly and fundamentally fully implicit. Solving these densely coupled, highly oscillatory nonlinear implicit systems via fixed-point iterations ( O(Miter N log N )) at each micro-time-step triggers an exorbitant computational bottleneck. The numerical con-sequences of non-conservation and the implicit trap are jointly quantified in fig. 9. Panel (a) tracks the normalized mass M (t)/M (0) over T = 20 at τ = 0 .05. The Lie and Strang split-tings hold M/M (0) ≡ 1 to machine precision, while RES1 accumulates a visible secular drift, confirming that explicit LRI updates violate the symplectic mass invariant at rate 
+
+O(τ ) per unit time. Panel (b) reveals the complementary Hamiltonian picture. RES1 drifts at O(τ ) and Strang splitting at O(τ 2). No explicit method simultaneously preserves both invariants exactly. Panels (c) and (d) quantify the drift rates via log-log regression over τ ∈ { 0.2, 0.1, 0.05 , 0.025 , 0.0125 } at T = 5. RES1’s mass and Hamiltonian drift both fit slope ≈1.0, consistent with O(τ ). The Strang Hamiltonian drift fits slope ≈2.0 ( O(τ 2)), con-sistent with its second-order conservation of H. The algebraic proof in eq. (19) explains the root cause. Exact simultaneous preservation of both M and H enforces ap,q,r p,q,r = 12 bp,q,r ̸ = 0, mandating a fully implicit solver. The implicit bottleneck is not an engineering shortcom-ing but a mathematical inevitability. Long-time simulations with explicit LRIs must either accept unbounded drift or pay the full fixed-point iteration cost. 
+
+4.2 Hybrid Iterative Neural Low-Regularity Integrator (HIN-LRI) 
+
+We now present the complete mathematical model of the HIN-LRI framework, illustrated in Figure 3. The model is built from precise operator definitions, tensor mappings, and functional analysis in Bourgain spaces. 
+
+Intuitive Overview. Before the formal development, we outline the key idea infor-mally. A standard LRI advances the solution by one time step using an analytical formula that exactly handles the linear dispersion but only approximately resolves the nonlinear interactions. The approximation error—the resonance defect —depends on how well one can factor or truncate certain oscillatory integrals in Fourier space. Classical methods at-tempt this analytically, but the resulting algebraic identities are fragile, equation-specific, and introduce spurious derivative requirements. HIN-LRI takes a different route: it keeps the analytical LRI step as a “first draft” of the solution and then adds a small learned 
+
+> 14
+
+Hybrid Iterative Neural Low-Regularity Integrator ∂tu + iL(∇)u = N (u) un+1 ≈ U L(τ )un + ILRI 
+
+Neural Operator Gθ∗  
+
+> Discretize & LRI, step τ
+> Train via SITL in Xs, 1/2
+
+Preconditioned low-regularity integration SN TB 
+
+Initialization phase 
+
+u(0) = UL(τ )un
+
++ ILRI (un, τ )
+
+P = Φ ∈ CN ×K , R = Φ∗
+
+(P)jl = ϕl(xj ), K ≪ N UL(τ ) ILRI (·, τ )
+
+v(m) = UL(τ )un
+
++ ILRI (u(m−1) , τ )
+
+r(m) = v(m) − u(m−1) m ≡ 0 (mod κ)? 
+
+λn = Escale (un; ϕ∗)
+
+r(m) 
+
+> c
+
+= R Sλn [r(m)], unc = R Sλn [un]
+
+e(m) 
+
+> c
+
+= Gθ∗
+
+(r(m) 
+
+> c
+
+, unc , τ )
+
+e(m) = S−1
+
+> λn
+
+[P e (m)
+
+> c
+
+]
+
+> Yes
+
+u(m) = v(m) + χm e(m)  
+
+> No
+> m←m+1
+
+Neural preconditioning phase 
+
+u∗ ≈ u(M )
+
+Figure 3: An illustration of the HIN-LRI framework. Blue modules denote latent Neural Operator components (SN: Scaling Net Escale ; TB: Trunk Basis Φ), while brown modules represent exact physical dispersion and base LRI discretization. The diamond branch activates the neural correction cycle only when m ≡ 0(mod κ) ( χm=1); otherwise the iteration reduces to a purely spectral update (χm=0). The dashed loop arrow indicates the Picard feedback u(m−1) ← u(m)
+
+for the next iteration. Red highlights r(m)
+
+c , the latent residual whose isomorphic mapping by Gθ∗ neutralises the resonance mismatch kernel η.
+
+15 Zhangyong Liang 
+
+correction. This correction is computed by a neural operator that (i) compresses the solu-tion onto a low-dimensional manifold of K ≪ N modes, (ii) maps the compressed residual through a lightweight network, and (iii) projects the result back to the full grid. Because the correction operates in a low-dimensional latent space rather than on the full N -point grid, the stability of the iteration depends on K (a fixed architectural parameter) rather than on N (the spatial resolution), which is the mechanism by which the CFL constraint is relaxed. The network weights are trained end-to-end using a solver-in-the-loop objective that unrolls multiple time steps and penalises the trajectory error in a Bourgain-type norm. The learned correction is therefore optimised for the dynamics of the full time-stepping scheme rather than for a single-step regression target. 
+
+Transition to the HIN-LRI Paradigm. The analytical bounds reviewed above sug-gest that purely analytical LRI approaches face significant barriers when pushed to higher order, extreme low regularity, and structure preservation simultaneously. To address these challenges, we introduce the Hybrid Iterative Neural Low-Regularity Integrator (HIN-LRI). By retaining the exact, zero-dissipation linear propagator UL(τ ) = e−iτ L as a structure-preserving physical backbone, we strategically embed a neural operator Gθ mapped onto a latent manifold to execute a targeted residual correction: 
+
+τ Hneural (un) = τ P ◦ G θ ◦ R[un] ≈ E def ect (un) + Rr(sLlow ). (20) This spectral-neural alternation transforms the paradigm from analytical truncation to manifold projection. The neural operator learns the integral mapping implicitly, avoiding the Taylor expansion that drives the regularity paradox. Global frequency mixing sidesteps the combinatorial growth of decorated tree expansions. End-to-end SITL optimization encourages the neural weights to act as an adaptive sub-grid filter, targeting the mismatch kernel η(τ, k) and reducing the logarithmic penalty by the factor ( εnet + δ). Finally, the neural residual compensation provides a structural correction via a single explicit forward pass, avoiding the cost of fully implicit internal stages. 
+
+Exact Evolution and Analytical Resonance Defect. The formulation begins with the initial value problem for nonlinear dispersive equations: 
+
+∂tu + iLu = N (u), x ∈ Td, t ∈ [0 , T ], u(x, 0) = u0 ∈ Hs(Td) (s ≤ 0) , (21) where the symbol of L is given by cLu(k) = ω(k)ˆ u(k) with ω(k) ∈ R. The exact Duhamel in-tegral formulation defines the linear propagator UL(t) := exp( −it L) = F−1
+
+> k
+
+e−itω (k)Fx{·} ,which yields the exact evolution 
+
+u(tn+1 ) = UL(τ )u(tn) + 
+
+Z τ
+
+> 0
+
+UL(τ − σ)N
+
+
+
+UL(σ)UL(−tn)u(tn + σ)
+
+dσ 
+
+| {z } 
+
+> Iexact (u(tn),τ )
+
+. (22) Assuming un ≈ u(tn), the base LRI operator and the unclosable defect Edef ect are defined as 
+
+Hphys (w; un) := UL(τ )un + ILRI (w, τ ), (23) 
+
+Edef ect (un, τ ) := Iexact (un, τ ) − I LRI (un, τ ). (24) 
+
+> 16
+
+Hybrid Iterative Neural Low-Regularity Integrator 
+
+The Fourier spectral anatomy of the defect reveals the cross-resonance phase Φ( k, k1, . . . , kp) := 
+
+ω(k) − Ppj=1 ω(kj ). In the Fourier domain, the defect expands as 
+
+Fk [Edef ect (un, τ )] = X  
+
+> Pkj=k
+
+K(k)e−it nΦ( k) η(τ, k, k1, . . . , kp)
+
+| {z }
+
+> Phase Mismatch Kernel
+> p
+
+Y
+
+> j=1
+
+ˆun 
+
+> kj
+
+. (25) The phase mismatch kernel evaluates to 
+
+η := 1
+
+τ
+
+Z τ
+
+> 0
+
+e−iσ Φ( k)dσ −
+
+> p−1
+
+Y
+
+> j=1
+
+ 1
+
+τ
+
+Z τ
+
+> 0
+
+e−iσ Φj (k)dσ 
+
+̸
+
+= 0 . (26) This persistent non-zero kernel enforces the fundamental mathematical barriers of pure analytical LRIs, specifically the logarithmic accumulation penalty inf  
+
+> u∈Hs
+
+∥E def ect (u, τ )∥L2 ≥ C τ 1+ γ ln 
+
+ 1
+
+τ
+
+
+
+(27) and the global Π N truncation CFL curse sup 
+
+> u∈Xs, 1/2
+
+Lip( ILRI ) > 1 = ⇒ τ ≤ O (N −α). (28) 
+
+Latent Manifold Projection and Isomorphic Neural Corrector. To resolve the 
+
+Xs,b endpoint smallness, we perform dynamic spatial rescaling parameterized by a scaling network λn := Escale (un; ϕ) ∈ R+. The spatial scaling transformations are Sλn [w]( x) := 
+
+λ−dn w(x/λ n) and S−1 
+
+> λn
+
+[w]( x) := λdnw(λnx), which guarantees that Sλn [un] Hs ≪ 1. To bypass the extreme τ ≤ O (N −α) limitation, we apply trunk basis subspace restriction via offline orthogonal basis extraction Φ = [ ϕ1(x), . . . , ϕ K (x)] ∈ CN ×K (K ≪ N ). The restriction to the latent manifold and prolongation to the fine grid are defined as 
+
+R := Φ∗ ∈ CK×N , P := Φ ∈ CN ×K . (29) Targeting η(τ, k) in the latent space, the neural isomorphic mapping is Gθ : CK ×CK ×R+ →
+
+CK . The assembly of the composite neural corrector Hneural is structured sequentially by 
+
+r(m) 
+
+> c
+
+= R ◦ S λn
+
+r(m) and unc = R ◦ S λn [un], yielding 
+
+Hneural (r(m), un, τ ) := S−1 
+
+> λn
+
+◦ P ◦ G θ
+
+
+
+r(m) 
+
+> c
+
+, unc , τ 
+
+
+
+, (30) with the optimization target driving τ Hneural (r(m), un, τ ) θ→θ∗
+
+−−−→ E def ect (u(m), τ ). 
+
+Alternating Spectral-Neural Iteration Scheme. The iteration setup operates given the current state un ≈ u(tn) and Picard iteration index m ∈ { 1, 2, . . . , M }. We define the alternating spectral complementarity trigger χm := I{m≡0 (mod κ)} ∈ { 0, 1}. The recursive system is initialized by 
+
+u(0) = Hphys (un; un) = UL(τ )un + ILRI (un, τ ). (31) For m = 1 , . . . , M , the iteration proceeds with the base physical pre-smoothing 
+
+v(m) = Hphys (u(m−1) ; un) = UL(τ )un + ILRI (u(m−1) , τ ). (32) 
+
+17 Zhangyong Liang 
+
+The algebraic defect residual extraction is computed as r(m) = v(m) − u(m−1) . The hybrid solution update combines the high-frequency spectral cycle with the low-frequency neural cycle: 
+
+u(m) = (1 − χm) · v(m) + χm ·
+
+h
+
+v(m) + τ Hneural (r(m), un, τ )
+
+i
+
+. (33) The evolution output is given by u(tn+1 ) ≈ u(M ).
+
+Solver-in-the-Loop (SITL) Optimization in Bourgain Space. The continuous spatiotemporal trajectory reconstruction is formulated by unrolling the graph: 
+
+eUθ,ϕ (t, x) := 
+
+> Nt−1
+
+X
+
+> n=0
+
+I[tn,t n+1 )(t)
+
+
+
+UL(t − tn)un + t − tn
+
+τ
+
+
+
+u(M ) 
+
+> θ,ϕ
+
+− U L(τ )un
+
+. (34) The endpoint Bourgain space norm metric ( b = 1 /2) evaluating the spatial regularity against the dispersion modulation is defined as: 
+
+∥w∥2 
+
+> Xs, 1/2
+
+:= 
+
+Z
+
+> R
+
+X
+
+> k∈Zd
+
+⟨k⟩2s⟨σ − ω(k)⟩1 |F t, x{w}(σ, k)|2 dσ. (35) The end-to-end objective functional minimizes the loss 
+
+θ∗, ϕ ∗ = arg min  
+
+> θ,ϕ
+
+Eu0∼μ0 eUθ,ϕ (t, x) − utrue (t, x) 2
+
+> Xs, 1/2
+
+. (36) The mathematical closure condition ∇θ,ϕ L → 0 forces τ P ◦ G θ∗ ◦ R ◦ S λ∗ ≡ E def ect , yield-ing exact isomorphic cancellation of η. Under the stated assumptions (section B), this drives the residual toward the network approximation capacity rather than the logarithmic harmonic-series bound. The effective CFL threshold becomes τCF L = O(K−α) ≫ O (N −α), substantially relaxing the grid-dependent constraint. 
+
+4.3 Algorithms and Implementation 
+
+The algorithmic implementation of the HIN-LRI explicitly separates the offline end-to-end training procedure from the online inference phase. During online inference, the method seamlessly executes the alternating spectral-neural iteration, as delineated in algorithm 1. The high-frequency exact dispersion propagator UL(τ ) and the base LRI numerical operator 
+
+ILRI provide the structure-preserving physical backbone. In parallel, the pre-trained neural operator Gθ∗ targets the latent resonance mismatch. The neural cycle dynamically rescales the state via the scaling net Escale , projects the residual into the low-dimensional manifold with R, computes the correction, and projects back to the fine spectral grid via P.To train the parameters without succumbing to the distribution shift typical of standard regression, we deploy a solver-in-the-loop end-to-end Bourgain optimization (algorithm 2). The discrete numerical states are simulated over multiple steps via autoregressive differen-tiable unrolling and interpolated into a full spatiotemporal trajectory. The gradients of the Bourgain loss penetrate directly through the FFTs and LRI computations, adapting the neural weights to the exact physical dispersion relations. 
+
+18 Hybrid Iterative Neural Low-Regularity Integrator 
+
+Algorithm 1 Hybrid Iterative Neural Low-Regularity Integrator (HIN-LRI) 
+
+Require: Dispersive symbol ω(k), nonlinear operator N , current state un, time step τ ,base explicit LRI numerical operator ILRI , pre-trained Neural Operator Gθ∗ , dynamic scaling net Escale (·; ϕ∗), restriction matrix R ∈ CK×N , prolongation matrix P ∈ CN ×K
+
+(K ≪ N ), max Picard iterations M , alternating trigger frequency κ
+
+Ensure: Updated state un+1 ≈ u(tn+1 ) 
+
+> 1:
+
+UL(τ ) ← F −1 
+
+> k
+
+{exp( −iτ ω (k)) Fx{·}} { Exact zero-dissipation high-frequency propaga-tor } 
+
+> 2:
+
+u(0) ← U L(τ )un + ILRI (un, τ ) {Initial predictor via explicit base LRI } 
+
+> 3:
+
+for m = 1 , 2, . . . , M do  
+
+> 4:
+
+% Base Physical Spectral Pre-smoothing  
+
+> 5:
+
+v(m) ← U L(τ )un + ILRI (u(m−1) , τ ) {Preserve exact high-frequency dispersion } 
+
+> 6:
+
+r(m) ← v(m) − u(m−1) {Extract algebraic resonance defect residual } 
+
+> 7:
+
+% Alternating Neural Preconditioned Correction  
+
+> 8:
+
+if m (mod κ) == 0 then  
+
+> 9:
+
+λn ← E scale (un; ϕ∗) {Dynamic rescaling to bypass Xs, 1/2 smallness trap } 
+
+> 10:
+
+rs ← S λn [r(m)] and uns ← S λn [un] {Apply continuous spatial rescaling } 
+
+> 11:
+
+% Latent Manifold Projection  
+
+> 12:
+
+rc ← Rr s and unc ← Ru ns {Restrict to dimension-reduced manifold CK } 
+
+> 13:
+
+ec ← G θ∗ (rc, unc , τ ) {Implicit isomorphic mapping of defect kernel η} 
+
+> 14:
+
+% Prolongation and Inverse Scaling  
+
+> 15:
+
+es ← Pe c {Prolongate targeted correction back to fine grid } 
+
+> 16:
+
+e(m) ← S −1 
+
+> λn
+
+[es] {Inverse spatial rescale to original physical domain } 
+
+> 17:
+
+% Hybrid Solution Update  
+
+> 18:
+
+u(m) ← v(m) +τ e(m) {Apply τ -scaled low-frequency neural residual compensation } 
+
+> 19:
+
+else  
+
+> 20:
+
+u(m) ← v(m) {Bypass neural step; purely physical update } 
+
+> 21:
+
+end if  
+
+> 22:
+
+end for  
+
+> 23: 24:
+
+return u(M ) {Return updated state un+1 }
+
+19 Zhangyong Liang 
+
+Algorithm 2 Solver-in-the-Loop (SITL) End-to-End Bourgain Optimization 
+
+Require: Dataset D = {(u(j)0 , u (j)
+
+> true
+
+(t, x)) }Ntrain  
+
+> j=1
+
+sampled from rough manifold μ0 ∈ Hs
+
+Require: Initialized parameters θ (Neural Operator), ϕ (Scale Net) 
+
+Require: Unroll length Nt, batch size B, learning rate η, Bourgain space indices s ≤ 0, b =1/2
+
+Require: Differentiable implementations of UL(τ ) and ILRI via PyTorch/JAX  
+
+> 1:
+
+while not converged ( ∥∇ θ,ϕ L∥ → 0) do  
+
+> 2:
+
+Sample a mini-batch B ⊂ D with |B| = B 
+
+> 3:
+
+Initialize batch loss LB ← 0 
+
+> 4:
+
+for each ( u0, u true ) ∈ B do  
+
+> 5:
+
+Initialize state tensor u0 ← u0 
+
+> 6:
+
+% Autoregressive Differentiable Unrolling  
+
+> 7:
+
+for n = 0 , 1, . . . , N t − 1 do  
+
+> 8:
+
+un+1 ← HIN-LRI( un, τ ; θ, ϕ ) {Forward pass through Algorithm 1 (Auto-Diff Enabled) } 
+
+> 9:
+
+end for  
+
+> 10:
+
+% Spatiotemporal Continuous Trajectory Reconstruction  
+
+> 11:
+
+eUθ,ϕ (t, x) ← PNt−1 
+
+> n=0
+
+I[tn,t n+1 )(t) UL(t − tn)un + t−tn
+
+> τ
+
+ un+1 − U L(τ )un  
+
+> 12:
+
+% Endpoint Bourgain Space Metric via Spatiotemporal FFT  
+
+> 13:
+
+bE(σ, k) ← F t, x
+
+n eUθ,ϕ (t, x) − utrue (t, x)
+
+o 
+
+> 14:
+
+loss ← R
+
+> R
+
+P 
+
+> k∈Zd
+
+⟨k⟩2s⟨σ − ω(k)⟩2b bE(σ, k) 2dσ  
+
+> 15:
+
+LB ← L B + 1 
+
+> B
+
+loss  
+
+> 16:
+
+end for  
+
+> 17:
+
+% Backpropagation through Spectral Operators  
+
+> 18:
+
+Compute gradients ∇θLB, ∇ϕLB via Automatic Differentiation {Gradients penetrate FFTs and explicit LRI } 
+
+> 19:
+
+θ ← θ − η∇θLB, ϕ ← ϕ − η∇ϕLB {Update parameters via Optimizer } 
+
+> 20:
+
+end while  
+
+> 21: 22:
+
+return Optimal weights θ∗, ϕ ∗ {Logarithmic penalty reduced by factor ( εnet + δ); see theorem 15 }
+
+Computational complexity. We briefly summarise the per-step cost of algorithm 1. The base LRI step requires O(N log N ) operations for the FFT-based dispersion propagator and nonlinear evaluation. When the neural correction fires (every κ-th Picard iteration), the dominant additional costs are: (i) the restriction Ru ∈ CK , which is a matrix–vector product of cost O(N K ); (ii) the forward pass of Gθ through a network of depth L with hidden dimension dh, costing O(Ld 2
+
+> h
+
+); (iii) the prolongation Pe c, also O(N K ). Since K = 32 ≪ N
+
+and Ld 2 
+
+> h
+
+≪ N log N in practice, the neural overhead is a small constant factor over the base LRI. Empirically, a single HIN-LRI step takes 0 .78 ms vs. 0 .65 ms for the base explicit LRI at 
+
+N = 1024 (table 8), confirming a modest 20% overhead. For offline training (algorithm 2), the cost is dominated by the Nt-step autoregressive unrolling with backpropagation through 
+
+Nt FFTs per sample per epoch; full training takes approximately 140 minutes on a single 
+
+20 Hybrid Iterative Neural Low-Regularity Integrator 
+
+A100 GPU (see section C for details). The amortised break-even point relative to the fully implicit structure-preserving LRI is W ≈ 2800 simulations (section 5.9). 
+
+4.4 Theoretical Analysis 
+
+We now analyse how HIN-LRI addresses the core numerical defects of classical low-regularity integrators. The arguments use harmonic analysis, Kato-Ponce inequalities, and Bourgain space estimates. The results are conditional on the assumptions stated in section B. 
+
+Lemma 1 (Defect estimate for classical ULRIs; logarithmic upper bound) When handling the non-integrable cross-resonance phase ϕ = k3 − k31 − k32 − k33 ≡ ϕ1 + ϕ2, the classical unfiltered method utilizes the interval averaging operator Mτ (f ) = 1
+
+> τ
+
+R τ 
+
+> 0
+
+f (s)ds ,inducing a non-zero phase mismatch kernel: 
+
+η(τ, k) := Mτ
+
+
+
+e−is (ϕ1+ϕ2)
+
+− M τ
+
+
+
+e−isϕ 1
+
+
+
+Mτ
+
+
+
+e−isϕ 2
+
+̸
+
+= 0 . (37) 
+
+Substituting this into the truncation defect residual Edef ect (u) := Iexact (u, τ ) − I LRI (u), its principal expansion in Fourier space is dominated by: 
+
+Fk [Edef ect (u)] = −U L(tn+1 ) X
+
+> k1+k2+k3=k
+
+τ
+
+18 ik e−it nϕη(τ, k)ˆ uk1 ˆuk2 ˆuk3 . (38) 
+
+Applying the logarithmically growing trilinear estimate (Li and Wu, 2025, Lem. 3.1), the 
+
+L2 norm of Edef ect is bounded above by: 
+
+X
+
+> k1+k2+k3=k
+
+m(k)ˆ uk1 ˆuk2 ˆuk3
+
+> L2
+
+≤ C 
+
+ X 
+
+> 0<|k|≤ τ−1
+
+1
+
+|k|
+
+ ∥u∥3
+
+> L2
+
+≤ C ln 
+
+ 1
+
+τ
+
+
+
+∥u∥3 
+
+> L2
+
+.
+
+(39) 
+
+This gives the analytical defect estimate sup u∈Hγ , ∥u∥Hγ ≤1 ∥E def ect (u)∥L2 ≲ O  τ 1+ γ ln 1
+
+> τ
+
+,confirming that the logarithmic factor in the truncation error of unfiltered LRIs cannot be avoided by purely analytical constructions. 
+
+Theorem 2 (Reduction of logarithmic penalty via neural approximation) Define the single-step HIN-LRI truncation error LTE HIN := Edef ect (u) − H neural (u, τ ; θ∗), where 
+
+θ∗ is the SITL-trained parameter. By Assumption 1, K is compact in Hγ (T) and u 7 →Edef ect (u, τ ) is a continuous nonlinear operator on K. The SITL objective minimises the 
+
+X−1/2,1/2 residual: 
+
+min 
+
+> θ
+
+Z
+
+> R
+
+X
+
+> k∈Z
+
+⟨σ − k3⟩⟨k⟩ |F t,x {LTE HIN }| 2 dσ. (40) 
+
+Let εnet ∈ [0 , 1] be a dimensionless relative approximation ratio. By the universal approx-imation theorem for nonlinear operators on compact sets (Chen and Chen, 1995), for any 
+
+εnet > 0 there exists a network of sufficient depth and latent dimension such that 
+
+sup 
+
+> u∈K
+
+∥E def ect (u) − H neural (u, τ ; θ∗)∥L2
+
+∥E def ect (u)∥L2
+
+≤ εnet , (41) 
+
+21 Zhangyong Liang 
+
+i.e., the neural operator approximates the defect to within relative error εnet . Together with ∥E def ect (u)∥L2 ≤ Cτ 1+ γ ln(1 /τ )∥u∥3 
+
+> Hγ
+
+(theorem 1), this gives sup u∈K ∥LTE HIN ∥L2 ≤
+
+Cε net τ 1+ γ ln(1 /τ ). Since εnet can be made arbitrarily small by increasing network capacity (at fixed τ ), this reduces ∥LTE HIN ∥L2 by the factor εnet relative to the classical bound 
+
+O τ 1+ γ ln(1 /τ ).
+
+Proof By Assumption 1, K is compact in Hγ (T), so {E def ect (u) : u ∈ K} is a compact subset of L2(T). By theorem 1, ∥E def ect (u)∥L2̸ = 0 for generic u ∈ K (the defect is nonzero), so the ratio in (41) is well-defined. The relative UAT statement (41) follows from the uni-versal approximation theorem for nonlinear operators (Chen and Chen, 1995) applied to the normalised operator u 7 → E def ect (u)/∥E def ect (u)∥L2 on the compact image. Combining with the defect upper bound of theorem 1 gives the stated L2 estimate. 
+
+Remark 3 (SITL objective vs. direct defect approximation) The SITL loss is a multi-step trajectory loss in Bourgain space, whereas the universal approximation theorem is in-voked for single-step L2 defect approximation. These two objectives share the same min-imiser when the Bourgain-space trajectory loss decomposes into a sum of per-step defect norms—a property that holds under the stability condition of theorem 11 and the Lipschitz regularity of Assumption 2, since the Gronwall accumulation factor (1 + C0τ )L is bounded by eC0T uniformly in τ and L. Assumption 4 encodes this equivalence as an empirically-verifiable training-quality criterion. 
+
+Lemma 4 (Bourgain space smallness and CFL constraint; Li and Wu 2025, Sec. 4) 
+
+At endpoint regularity s = −1/2, the bilinear estimate in the discrete Bourgain space satis-fies 
+
+∥∂xΠN (uv )∥X−1/2,−1/2 ≤ Cb · N 3 ∥u∥X−1/2,1/2 ∥v∥X−1/2,1/2 , (42) 
+
+where Cb > 0 is a constant and the factor N 3 reflects the absence of additional smallness in endpoint Bourgain space estimates (Ostermann et al., 2006, Prop. 4.1). The Banach contraction condition Lip( ILRI ) ≤ C lri · τ · N 3 < 1 then enforces τ ≤ O (N −3).
+
+Theorem 5 (Relaxing the CFL constraint via manifold dimensionality decoupling) 
+
+The HIN-LRI restricts the correction operator to a low-dimensional latent space manifold 
+
+MK spanned by orthogonal trunk bases Φ ∈ RN ×K (K ≪ N ):
+
+Hneural (u) = P ◦ G θ ◦ R [u] = ΦGθ(ΦT u). (43) 
+
+Since Φ is an orthogonal basis satisfying ΦT Φ = IK , the projection and prolongation opera-tor norms are unitary: ∥R∥ op = 1 and ∥P∥ op = 1 . The latent neural operator Gθ : RK → RK
+
+acts on the finite-dimensional space, and its Lipschitz constant Lθ,K is bounded by the spec-tral norm of the network weights, independent of N :
+
+∀z1, z 2 ∈ RK : ∥G θ(z1) − G θ(z2)∥2 ≤
+
+> L
+
+Y
+
+> l=1
+
+W(l)
+
+> 2
+
+!
+
+∥z1 − z2∥2
+
+:= Lθ,K ∥z1 − z2∥2 .
+
+(44) 
+
+22 Hybrid Iterative Neural Low-Regularity Integrator 
+
+Calculating the global Lipschitz modulus of the τ -scaled neural correction within the X−1/2,1/2
+
+space yields: Lip (τ Hneural ) = τ ∥PG θR∥ op ≤ τ ∥P∥ op · Lip (Gθ) · ∥R∥ op ≤ τ L θ,K . (45) 
+
+The high-frequency dispersion is handled exactly by ∥U L(τ )∥op ≡ 1. Because the correc-tion carries the explicit τ prefactor, the full one-step map S = Hphys + τ Hneural satisfies 
+
+Lip( S) ≤ 1 + ( C0 + Lθ,K )τ . The stability condition depends only on K:
+
+τ · Lθ,K < 1 = ⇒ τ ≤ L−1 
+
+> θ,K
+
+, (46) 
+
+which substantially relaxes the N -dependent CFL constraint. With empirical Lθ,K ≈ 18 
+
+(section C), the admissible step is τ < 0.056 , a factor of approximately 10 5 larger than the classical threshold τ ≲ N −3 ≈ 10 −9 at N = 1024 .
+
+Proof Substituting the latent space projection properties into the contraction condition decouples N . The bounded spectral norm implies Lθ,K is finite and independent of spatial discretization. The stability threshold therefore depends on K and the network weights, not on N . This guarantee is conditional on bounded weight norms (section B). 
+
+Lemma 6 (Derivative loss via Taylor truncation) To analytically evaluate multi-wave cross-resonances ϕ ∼ O (|k|3) in physical space, classical high-order LRIs forcefully use Tay-lor polynomial expansion truncations: 
+
+e−isϕ =
+
+> r−1
+
+X
+
+> j=0
+
+(−isϕ )j
+
+j! + Rr(sϕ ), |R r(sϕ )| ≤ sr|ϕ|r
+
+r! . (47) 
+
+Since ϕ ∝ k3 =⇒ F−1 
+
+> k
+
+[ϕ] ∝ i∂ 3
+
+> x
+
+, each truncation inevitably exposes extremely high-order spatial derivatives, resulting in a derivative loss: 
+
+∥E T aylor (u)∥2 
+
+> Hγ
+
+= O
+
+
+
+τ 2r ∥ϕˆu∥2
+
+> Hγ
+
+
+
+= O  τ 2r∥∂3rx u∥2
+
+> Hγ
+
+ , (48) 
+
+which enforces the requirement ∥E T aylor (u)∥Hγ = O (τ r∥u∥Hγ+3 r ) =⇒ u0 ∈ Hγ+3 r. More-over, multiplier symmetrization forcefully introduces inverse pseudo-differential operators 
+
+Fk[∂−1 
+
+> x
+
+] = ( ik )−1, causing a low-frequency zero-mode divergence disaster lim k→0 |(ik )−1| → ∞.
+
+Theorem 7 (Derivative-loss-free neural correction) Under Assumptions 2 and 3, the neural correction Hneural is a bounded operator on Hs(T) for every s ≥ 0, satisfying 
+
+∥H neural (u; θ)∥Hs ≤ Lθ,K ∥u∥Hs , (49) 
+
+where Lθ,K = QLl=1 ∥W(l)∥2 depends only on the network weights and is independent of the spatial wavenumber k. In particular, no power of |k| appears in the bound, so no spatial derivative of u is required: the operator is zeroth-order in the Sobolev scale and avoids the derivative-loss mechanism of Taylor-based schemes. 
+
+23 Zhangyong Liang 
+
+Proof See theorem 13 in section A.4 for the complete proof via operator-norm sub-multiplicativity under Assumptions 2 and 3. 
+
+Remark 8 In the HIN-LRI update rule, the neural correction enters with an explicit τ
+
+prefactor (see algorithm 1), so the effective correction added per step is τ Hneural (u) with 
+
+∥τ Hneural (u)∥Hs ≤ τ L θ,K ∥u∥Hs . This ensures that the neural contribution is O(τ ) by construction, consistent with the O(τ )-sized defect of theorem 1, and is the mechanism by which the Gronwall factor remains bounded as τ → 0 (theorem 15). 
+
+5 Numerical experiments 
+
+The source code for HIN-LRI is publicly available at https://github.com/liangzhangyong/ HIN-LRI.git .We systematically evaluate HIN-LRI on three canonical nonlinear dispersive equations that represent the full range of low-regularity difficulty for resonance-based integrators: the Korteweg–de Vries (KdV) equation, the cubic nonlinear Schr¨ odinger (cubic NLS) equation, and the quadratic nonlinear Schr¨ odinger (quadratic NLS) equation. The section is orga-nized as follows. Section 5.1 describes the unified experimental setup. Section 5.2 verifies the principal defects of existing low-regularity integrators. Sections 5.3 to 5.5 present the core low-regularity results for each equation, demonstrating how HIN-LRI overcomes the spe-cific numerical defects of the corresponding analytical resonance-based scheme. Section 5.6 compares HIN-LRI with state-of-the-art neural PDE solvers. Section 5.7 provides a system-atic ablation of architectural and training choices. Section 5.8 evaluates out-of-distribution transfer and online mini-retraining. Section 5.9 reports long-time invariant preservation and computational cost. All experiments use double-precision (FP64) arithmetic on an NVIDIA A100 GPU. 
+
+5.1 Experimental Setup Equations and initial data. All equations are defined on [0 , 2π] with periodic boundary conditions and solved in the Fourier domain using pseudo-spectral discretisation with N =1024 modes unless stated otherwise. Initial data are fractional Gaussian random fields drawn from Hγ with γ ∈ {− 0.5, 0.5, 1.5}. Unless otherwise noted, errors are measured in the L2 norm at final time T = 1 .0 against a reference solution computed with τref = 2 −20 .All reported quantitative values are the mean over 5 independent random seeds (distinct initial-data draws and network initialisations); standard deviations are reported alongside means in the main tables. The three test equations are: 
+
+∂tu + 16 ∂3
+
+> x
+
+u + u∂ xu = 0 , u0 ∈ Hγ , (50) 
+
+i∂ tu + ∂2
+
+> x
+
+u + λ|u|2u = 0 , u0 ∈ Hγ , λ = ±1, (51) 
+
+i∂ tu + ∂2
+
+> x
+
+u + λu 2 = 0 , u0 ∈ Hγ , λ = 1 . (52) The low-regularity threshold for existing analytical resonance-based schemes is u0 ∈ H1+ 
+
+for KdV Hofmanov´ a and Schratz (2017), u0 ∈ H1/2+ for cubic NLS Ostermann and Schratz (2018a), and u0 ∈ H1+ for quadratic NLS. 
+
+> 24 Hybrid Iterative Neural Low-Regularity Integrator
+
+Network and training. The latent neural operator Gθ∗ operates on a K = 32-dimensional Fourier manifold with approximately 1 .2 × 10 5 trainable parameters. The dynamic scaling net Escale is a 3-layer MLP with GELU activations and layer normalisa-tion. We adopt a multiscale training strategy, exposing the network to grid sizes N ∈{128 , 256 , 512 } in a round-robin fashion during SITL optimisation. Training uses AdamW (η = 10 −3, cosine annealing, 250 epochs). Test data are drawn from a distinct random seed at resolutions up to N = 4096. 
+
+5.2 Defect Verification of Low-Regularity Integrators 
+
+Before evaluating HIN-LRI itself, we first isolate the numerical defects that motivate the hybrid neural correction. These diagnostics quantify the failure modes of existing analytical low-regularity integrators under rough data, perturbed resonance algebra, grid refinement, filtering, and long-time structure preservation. Figures 4 and 5 examine the regularity paradox. On smooth data, classical and resonance-based schemes recover their nominal temporal orders, whereas rough data cause pronounced order degradation or divergence. Embedded and filtered LRIs also lose their expected rates when the solution lacks the derivatives exposed by phase truncation or filter expansions. The Fourier spectrum in fig. 5 confirms that error concentrates in high modes, consistent with eq. (13). Figure 6 verifies the algebraic rigidity of resonance factorizations. The KdV identity is numerically stable only in the exactly factorable setting. Small perturbations immedi-ately create non-negligible residual phases and shift the computational path toward direct convolution or higher-order tree expansions. Figures 7 and 8 summarize two alternatives and their limitations. Unfiltered LRIs avoid hard spectral truncation but retain a phase-mismatch defect whose convergence follows the τ γ ln(1 /τ ) envelope and whose stability deteriorates under spatial refinement. Filtered schemes suppress high-frequency growth more aggressively, but the attenuation caps the observed order in the rough-data regime. Finally, fig. 9 illustrates the structure-preservation bottleneck. Explicit LRIs and split-ting methods can control some invariants over short horizons, but they exhibit secular drift over longer time windows. Exact simultaneous preservation would require implicit internal-stage coupling. These four observations motivate HIN-LRI as a solver-consistent learned residual correction rather than as a replacement of the analytical dispersive propagator. 
+
+5.3 KdV Equation: Resonance Defect Neutralization 
+
+We assess HIN-LRI on the KdV equation eq. (50) below the analytical threshold ( γ ≤ 1, where existing resonance schemes are certified only for H1+ data Hofmanov´ a and Schratz (2017)) and compare against: (i) the first-order resonance scheme RES1; (ii) the first-order embedded LRI ELRI1; (iii) the second-order embedded LRI ELRI2. Panels (a)–(b) of fig. 10 show τ -convergence and N -stability on γ = 0 .5 rough data. On the convergence panel, RES1 tracks the τ γ ln(1 /τ ) envelope rather than the clean τ γ rate, confirming the logarithmic penalty of eq. (17). HIN-LRI achieves a clean O(τ ) slope over the full range τ ∈ [2 −14 , 2−4], indicating effective suppression of the logarithmic defect. On the 
+
+N -stability panel, RES1 diverges at N ∗ = (2 π/τ )1/3 ≈ 39 for τ = 10 −3 (the CFL threshold), 
+
+> 25
+
+Zhangyong Liang 10 2 10 3                                     
+
+> grid size N
+> 10 3
+> 10 4
+> 10 5
+> 10 6
+> 10 7
+> 10 8
+> 10 9
+> 10 10
+> 10 11
+> x(u 3
+> xu)
+> (a)
+> Regularity
+> = 0.25
+> = 0.5
+> = 1.0
+> = 2.0
+> 10 210 1
+> step size
+> 10 3
+> 10 2
+> L2 error at  T = 0.5
+> (b)
+> ETD1, =3.0 (smooth)
+> ETD1, =0.5 (rough)
+> RES1, =3.0 (smooth)
+> RES1, =0.5 (rough)
+> (1)
+> (2)
+> 10 1
+> step size
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> L2 error at  T = 0.5
+> (c)
+> Lie, =3.0 (smooth)
+> Lie, =0.5 (rough)
+> BS22, =3.0 (smooth)
+> BS22, =0.5 (rough)
+> (1)
+> (2)
+> 0.5 1.0 1.5 2.0 2.5 3.0
+> regularity
+> 10 3
+> 10 2
+> 10 1
+> L2 error at  T = 0.5
+> (d)
+> ETD1, = 0.1 (classical)
+> RES1, = 0.1 (LRI)
+> ETD1, = 0.006
+> RES1, = 0.006
+
+Figure 4: Taylor expansion collapse on rough data (KdV & cubic NLS). Top: KdV (ETD1, Lawson1, RES1); bottom: cubic NLS (Lie, Strang, RES1, BS22); each row contrasts smooth ( γ = 3 .0) and rough ( γ = 0 .5) data. while HIN-LRI remains stable across all tested grids up to N = 4096. Figure 11 extends the comparison to ELRI1 and ELRI2: on rough γ = 0 .5 data, ELRI2 achieves only empirical order 0 .91 (nominal: 2) due to the embedded filter cap, while HIN-LRI maintains order ≈ 1over all tested resolutions. Table 1 summarizes the L2 errors at T = 1 .0, N = 1024. 
+
+5.4 Cubic NLS: Operator-Splitting Comparison and Structure Preservation 
+
+We test HIN-LRI on the cubic NLS equation eq. (51) with γ = 0 .5 rough data (below the 
+
+H1/2+ threshold Ostermann and Schratz (2018a)) and compare against: (i) the Lie split-ting (first-order); (ii) the Strang splitting (second-order); (iii) the second-order embedded resonance scheme BS22. Figure 12 presents the τ -convergence and N -stability. On smooth data ( γ = 1 .5), BS22 achieves empirical order 1 .87; on rough data ( γ = 0 .5), it collapses to order 0 .58 due to 
+
+26 Hybrid Iterative Neural Low-Regularity Integrator 10 2 10 1
+
+step size    
+
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> relative  L2 error
+> 0.3
+> 0.1
+
+(a)      
+
+> RES1
+> RES2
+> ELRI1
+> ELRI2
+> ULRI
+> O()
+> O(/3 )
+> 10 210 1
+
+step size     
+
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> relative  L2 error
+> 1
+> 2
+
+(b)          
+
+> RES1
+> RES2
+> ELRI1
+> ELRI2
+> ULRI
+> O(1)
+> O(2)
+> 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00
+
+regularity 
+
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> empirical convergence order
+
+(c)      
+
+> RES1
+> RES2
+> ELRI1
+> ELRI2
+> ULRI
+> min( , 1) (ELRI1/RES1 theory)
+> min( , 2) (ELRI2/RES2 theory)
+> < 1 (rough data regime)
+> 10 010 110 2
+
+wavenumber |k|     
+
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> |e(k)|
+
+(d)      
+
+> RES1
+> RES2
+> ELRI1
+> ELRI2
+> |k|(+ 1/2) (RES1 theory)
+> |k|31/2 (derivative loss)
+
+Figure 5: KdV LRI schemes across regularity levels. (a)–(b) Convergence at γ ∈{0.30 , 1.50 }; (c) empirical order across γ (shaded: γ < 1); (d) Fourier error spectrum at γ = 0 .40, τ = 0 .05, with ELRI2 amplitude ∼ | k|3−γ−1/2.Table 1: KdV L2 errors at T = 1 .0, N = 1024, γ = 0 .5. HIN-LRI tracks O(τ ) uniformly; RES1 saturates due to the logarithmic penalty. 
+
+τ 2−4 2−6 2−8 2−10 2−12 2−14 
+
+RES1 8.12e-3 2.45e-3 9.85e-4 6.42e-4 5.11e-4 4.85e-4 ELRI1 6.54e-3 1.89e-3 7.12e-4 5.03e-4 4.20e-4 4.01e-4 ELRI2 4.21e-3 1.41e-3 5.74e-4 4.88e-4 4.72e-4 4.68e-4 
+
+HIN-LRI (Ours) 7.54e-3 1.82e-3 4.51e-4 1.12e-4 2.85e-5 7.14e-6 
+
+27 Zhangyong Liang 0 10 20 30 40                     
+
+> wavenumber |k|
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> | (  2 21 22 )| / |3  1 2|
+> (a)
+> = 0 (pure KdV, exact zero)
+> = 0.01
+> = 0.1
+> = 1.0
+> 10 210 3
+> grid size N
+> 10 4
+> 10 2
+> 10 0
+> 10 2
+> 10 4
+> time per convolution (  s)
+> (b)
+> FFT-based (measured)
+> Brute-force (measured)
+> (N0.42 )fit (FFT)
+> (N2.08 )fit (brute-force)
+> RES1 RES2 ELRI1 ELRI2 ULRI
+> method
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> 15.0
+> 17.5
+> conv1 calls per step
+> 2
+> 5
+> 12
+> 15
+> 10
+> (c)
+> 10 210 3
+> grid size N
+> 10 1
+> 10 0
+> time per step (ms)
+> 3.5x
+> 4.1x
+> 2.4x
+> (d)
+> RES1
+> RES2
+> ELRI1
+> ELRI2
+> ULRI
+> (N0.55 )reference
+> 10 1
+> 10 2
+> decorated tree count (log scale)
+> Decorated trees (theory)
+> p2.5
+
+Figure 6: Algebraic rigidity and combinatorial explosion. (a) Factorization residual under perturbation ε ∈ { 0, 10 −3, 10 −2, 10 −1}; (b)–(c) FFT and brute-force convo-lution scaling, with per-step conv1 counts and Catalan extrapolation ( p = 3 , 4, 5); (d) per-step wall-clock across N for all five methods. the filter cap, a 69% degradation that is more severe than Strang’s 61% drop (from 2 .18 to 0 .85). HIN-LRI maintains order ≈ 1 on rough data with only 14% degradation from its smooth-data value, outperforming all compared schemes in the low-regularity regime. Figure 13 demonstrates the structure-preservation advantage: HIN-LRI bounds mass and Hamiltonian drift at O(10 −13 ) over T = 100 (comparable to the fully implicit LRI), while Strang splitting and explicit LRI accumulate secular drift. Table 2 reports the L2 errors. 
+
+5.5 Quadratic NLS: Convergence on a Non-Resonance-Factorizable Nonlinearity 
+
+The quadratic NLS equation eq. (52) presents an additional challenge: the nonlinearity 
+
+u2 (rather than |u|2u) does not admit the algebraic factorization required by standard 
+
+28 Hybrid Iterative Neural Low-Regularity Integrator 10 2 10 1 10 0                                  
+
+> wall-time per rollout (s)
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> L2 error
+> (a)
+> RES1
+> RES2
+> ELRI1
+> ELRI2
+> ULRI
+> 10 110 0
+> amplitude A=u0L2
+> 10 8
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> L2 error
+> (b)
+> 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9
+> Sobolev regularity (rougher )
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> L2 error
+> (c)
+> 10 110 0
+> final time T
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> L2 error
+> (d)
+
+Figure 7: ULRI logarithmic/CFL defects on rough H0.5 KdV data. (a) τ -convergence with the τ γ ln(1 /τ ) envelope; (b) L2 error across N at τ = 10 −3;(c) pseudodifferential amplitudes and spurious low-frequency energy injection; (d) FFT transform counts and wall-clock timing. Table 2: Cubic NLS L2 errors at T = 1 .0, N = 1024, γ = 0 .5. HIN-LRI tracks O(τ )uniformly while BS22 and Strang suffer order collapse. 
+
+τ 2−4 2−6 2−8 2−10 2−12 2−14 
+
+Strang splitting 1.85e-1 1.24e-1 9.54e-2 7.88e-2 Diverged Diverged BS22 3.56e-2 2.14e-2 1.45e-2 8.95e-3 5.42e-3 3.21e-3 
+
+HIN-LRI (Ours) 6.89e-3 1.65e-3 4.12e-4 1.03e-4 2.61e-5 6.52e-6 
+
+resonance schemes, forcing either a costly brute-force multi-index summation or a significant accuracy loss. We compare HIN-LRI against: (i) the first-order filtered integrator; (ii) the unfiltered ULRI; (iii) the classical Strang splitting. Figure 14 shows the joint ( τ, N ) convergence landscape: HIN-LRI achieves uniform 
+
+O(τ ) across all N values tested, while ULRI diverges beyond N = NCFL and the filtered integrator saturates at order ≈ 0.5 for γ = 0 .5 data. Table 3 reports the L2 errors at fixed 
+
+N = 1024. 
+
+29 Zhangyong Liang 10 2
+
+4 × 10 3 6 × 10 3 2 × 10 2 3 × 10 2
+
+time step 
+
+10 2
+
+10 1
+
+> L2 error
+
+(a)     
+
+> gamma=0.25 [p=0.19, cap=0.25]
+> gamma=0.50 [p=0.61, cap=0.50]
+> gamma=1.00 [p=0.92, cap=1.00]
+> gamma=2.00 [p=1.03, cap=1.00]
+> ref slope 0.25
+> ref slope 0.5
+> ref slope 1.0
+
+10 0 10 1 10 2
+
+wavenumber |k|
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> | 1( 2hk 2)|
+
+(b)    
+
+> h= 0.25
+> h= 0.125
+> h= 0.0625
+> no filter (1)
+
+0.0 0.5 1.0 1.5 2.0 2.5 
+
+Sobolev regularity 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> fitted convergence order
+
+(c) 
+
+> theory cap: min(1, gamma)
+> theory cap: min(2, gamma+0.5)
+> RES1 (empirical)
+> BS22 (empirical)
+
+10 2
+
+4 × 10 3 6 × 10 3 2 × 10 2 3 × 10 2
+
+time step 
+
+10 1
+
+10 0
+
+> L2 error
+
+(d) 
+
+> RES1 (nominal p=1) [p=0.61]
+> BS22 (nominal p=2) [p=0.52]
+> ref slope 0.5
+> ref slope 1.0
+> ref slope 2.0
+
+Figure 8: Filter-induced convergence cap in NLS-RES1 and BS22. (a)–(b) RES1 convergence curves for γ ∈ { 0.25 , 0.5, 1.0, 2.0} and spectral attenuation 
+
+|φ1(−2hk 2)|. (c) Empirical order across γ for RES1 and BS22 with min(1 , γ ) cap curves. (d) Convergence comparison of RES1 and BS22 at γ = 0 .5. Table 3: Quadratic NLS L2 errors at T = 1 .0, N = 1024, γ = 0 .5. HIN-LRI is the only method that maintains O(τ ) convergence, avoiding both the CFL instability of ULRI and the filter cap of the filtered integrator. 
+
+τ 2−4 2−6 2−8 2−10 2−12 2−14 
+
+Strang splitting 2.14e-1 1.52e-1 1.18e-1 Diverged Diverged Diverged Filtered integrator 4.21e-2 2.51e-2 1.72e-2 1.41e-2 1.28e-2 1.22e-2 ULRI 9.15e-3 2.74e-3 1.02e-3 7.15e-4 6.88e-4 6.81e-4 
+
+HIN-LRI (Ours) 8.21e-3 2.01e-3 4.98e-4 1.24e-4 3.11e-5 7.82e-6 
+
+30 Hybrid Iterative Neural Low-Regularity Integrator 0.0 2.5 5.0 7.5 10.0 12.5 15.0 17.5 20.0                               
+
+> time t
+> 1.0
+> 1.1
+> 1.2
+> 1.3
+> 1.4
+> M(t)/ M(0)
+> (a)
+> RES1 (LRI, non-conserv.)
+> Lie (splitting, mass-pres.)
+> Strang (splitting, mass-pres.)
+> exact M/M_0=1
+> 0.0 2.5 5.0 7.5 10.0 12.5 15.0 17.5 20.0
+> time t
+> 1.0
+> 1.1
+> 1.2
+> 1.3
+> 1.4
+> H(t)/| H(0)|
+> (b)
+> RES1 (LRI, non-conserv.)
+> Lie (splitting, mass-pres.)
+> Strang (splitting, mass-pres.)
+> exact H/|H_0|=1
+> 10 1
+> time step
+> 10 14
+> 10 12
+> 10 10
+> 10 8
+> 10 6
+> 10 4
+> 10 2
+> 10 0
+> |M(T) M(0)|/ M(0)
+> (c)
+> RES1 (LRI) [slope=0.91]
+> Strang (splitting) [slope=-0.91]
+> BS22 (LRI p=2) [slope=2.18]
+> ref slope 1
+> ref slope 2
+> 10 1
+> time step
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> |H(T) H(0)|/| H(0)|
+> (d)
+> RES1 (LRI) [slope=0.94]
+> Strang (splitting) [slope=2.32]
+> BS22 (LRI p=2) [slope=1.93]
+> ref slope 1
+> ref slope 2
+
+Figure 9: Implicit curse: structure drift of explicit LRI methods (cubic NLS, smooth datum). (a)–(b) Normalized mass M (t)/M (0) and Hamiltonian 
+
+H(t)/|H(0) | over T = 20 at τ = 0 .05 (Lie, Strang, RES1, BS22). (c)–(d) Log-log drift of M and H across τ at T = 5. 
+
+5.6 Comparison with Neural PDE Solvers 
+
+We compare HIN-LRI against three representative purely data-driven neural PDE solvers on the cubic NLS benchmark ( γ = 0 .5, N = 1024, T = 1 .0): (i) Fourier Neural Operator (FNO) Li et al. (2020b); (ii) Physics-Informed Neural Network (PINN) Raissi et al. (2019); (iii) DeepONet Lu et al. (2021). All neural baselines are trained with the same total compute budget (identical GPU-hours) as the HIN-LRI offline training phase, using their respective published training protocols adapted to the current resolution and equation. Figure 15 shows that purely data-driven solvers maintain bounded but flat error curves as τ is reduced. FNO, PINN, and DeepONet have no notion of a time step and their error is governed by approximation capacity, not by τ . HIN-LRI combines the O(τ ) convergence of a numerical scheme with the low per-step defect of the neural corrector, strictly dominating all neural baselines at small τ . At τ = 2 −4, FNO achieves lower error than HIN-LRI (4 .21 × 10 −3 vs. 7 .54 × 10 −3), since capacity-limited surrogates are competitive when the step-size error is large. HIN-LRI becomes decisively superior as τ decreases. Table 4 reports the L2 errors and runtimes. 
+
+31 Zhangyong Liang 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00 
+
+> Sobolev regularity
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Observed convergence order
+
+(a)         
+
+> first-order ceiling min(1, )
+> second-order ceiling min(2, )
+> RES1
+> RES2
+> HIN-LRI
+> 10 210 1
+> Time step
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error,  = 0.5
+
+(b)  
+
+> RES1, slope 0.31
+> RES2, slope -1.29
+> HIN-LRI, slope 0.89
+> 0.5 guide
+
+Figure 10: KdV: HIN-LRI against RES1 on rough H0.5 data ( N = 1024 , T = 1 .0). 
+
+(a) τ -convergence with the τ γ ln(1 /τ ) reference envelope; (b) L2 error across N
+
+at τ = 10 −3. (c)–(d) Spatial absolute-error profile at τ = 2 −8 and SITL training loss across epochs. 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00 
+
+Sobolev regularity 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+> Observed convergence order
+
+(a)   
+
+> first-order ceiling min(1, )
+> second-order ceiling min(2, )
+> ELRI1
+> ELRI2
+> HIN-LRI
+
+10 2 10 1
+
+Time step 
+
+10 3
+
+10 2
+
+> Relative  L2 error,  = 0.5
+
+(b)  
+
+> ELRI1, slope 0.07
+> ELRI2, slope 0.03
+> HIN-LRI, slope 0.89
+> 1guide
+
+Figure 11: KdV: HIN-LRI against ELRI1/ELRI2 on rough H0.5 data ( N = 1024 ,
+
+T = 1 .0). (a)–(b) τ -convergence and empirical order across regularity γ. (c) L2
+
+error across N at τ = 2 −8; (d) per-step wall-clock time across N .
+
+5.7 Ablation Study 
+
+We systematically ablate the key components of HIN-LRI on the KdV equation ( γ = 0 .5, 
+
+τ = 2 −8, N = 1024). The ablated variants are: (A) base RES1 without any neural cor-rection; (B) HIN-LRI with the scaling net Escale replaced by a fixed λ = 1; (C) HIN-LRI with the trunk basis Φ replaced by a learned dense matrix; (D) HIN-LRI without the SITL re-optimisation (standard offline training only); (E) full HIN-LRI. Table 5 reports the L2 errors and empirical convergence orders. The adaptive scaling net (A vs. B) contributes a 3 .1× error reduction; the structured trunk basis (B vs. C) 
+
+32 Hybrid Iterative Neural Low-Regularity Integrator 0.0 0.1 0.2 0.3 0.4 0.5      
+
+> Time t
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> Relative mass drift
+
+(a)           
+
+> OS1
+> BS22
+> HIN-LRI
+> 012345
+> Time t
+> 10 8
+> 10 6
+> 10 4
+> 10 2
+> 10 0
+> Relative mass drift
+
+(b) 
+
+> OS1
+> BS22
+> HIN-LRI
+
+Figure 12: Cubic NLS: HIN-LRI against operator-splitting and BS22 on rough 
+
+H0.5 data. (a)–(b) τ -convergence at N = 1024 and L2 error across N at τ = 2 −8.(c)–(d) Empirical order across γ and L2 error across the number of time steps. 10 2     
+
+> Time step
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error
+
+(a)             
+
+> OS1
+> BS22
+> HIN-LRI
+> = 0.5
+> = 1.0
+> = 2.0
+> OS1 BS22 HIN-LRI
+> 10 8
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Magnitude (log scale)
+> 2.6e-01
+> 1.0e-02
+> 1.8e-07
+> 1.41e-01 8.18e-02 6.35e-02
+
+(b)    
+
+> = 0.5, T= 0.5, = 0.025
+> Terminal rel. error
+> Mass drift
+
+Figure 13: Cubic NLS: structure preservation over T = 100 on rough H0.5 data. (a) Normalized mass M (t)/M (0); (b) normalized Hamiltonian H(t)/|H(0) | (Strang, HIN-LRI, RES1, implicit LRI). (c)–(d) Spatiotemporal evolution |u(x, t )| and discrete L∞ solution norm over time. Table 4: Cubic NLS L2 error ( T = 1 .0, N = 1024, γ = 0 .5) and online inference cost for HIN-LRI against purely neural solvers. HIN-LRI achieves the lowest error at 
+
+τ = 2 −14 while remaining competitive at coarse steps. 
+
+Method L2 error ( τ = 2 −4) L2 error ( τ = 2 −14 ) ms/step Params 
+
+FNO Li et al. (2020b) 4.21e-3 4.18e-3 0.35 6.6 × 10 6
+
+PINN Raissi et al. (2019) 8.94e-3 8.91e-3 1.25 4.5 × 10 5
+
+DeepONet Lu et al. (2021) 5.12e-3 5.09e-3 0.48 2.1 × 10 6
+
+HIN-LRI (Ours) 6.89e-3 6.52e-6 0.78 1.2 × 10 5
+
+33 Zhangyong Liang 0.1 0.2 0.3 0.4 0.5                   
+
+> Time t
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error
+> (a)
+> RES1
+> SYM2
+> HIN-LRI
+> 12345
+> Time t
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error
+> (b)
+
+Figure 14: Quadratic NLS: joint (τ, N ) convergence landscape, γ = 0 .5. Cell colour encodes L2 error (log scale): the filtered integrator (top) saturates at small 
+
+τ ; ULRI (middle) diverges beyond the CFL diagonal τ = O(N −2); HIN-LRI (bottom) stays uniformly low over the entire grid. contributes 1 .8×; SITL re-optimisation (D vs. E) contributes 2 .4×. The full HIN-LRI achieves 62 × lower error than the base RES1. Table 5: Ablation study on KdV ( γ = 0 .5, τ = 2 −8, N = 1024, T = 1 .0). Each row removes one component. Full HIN-LRI achieves the lowest error. 
+
+Variant L2 error Emp. order 
+
+(A) Base RES1 (no neural correction) 9.85e-4 0.48 (B) Fixed λ = 1 (no adaptive scale) 3.21e-4 0.71 (C) Dense trunk (no structured basis) 1.78e-4 0.89 (D) Offline training only (no SITL) 1.08e-4 0.94 
+
+(E) Full HIN-LRI 4.51e-5 0.99 
+
+5.8 Out-of-Distribution Transfer and Online Mini-Retraining 
+
+We evaluate HIN-LRI on three out-of-distribution (OOD) test profiles not seen during offline training: (i) a Riemann step-function initial datum; (ii) a Dirac delta pulse (approximated by a narrow Gaussian); (iii) a variable-coefficient variant of KdV with c(x) = 1 + 0 .1 sin( x)replacing the constant dispersion. We compare: the base analytical unfiltered integrator; HIN-LRI in zero-shot transfer; and HIN-LRI after 10 mini-retraining steps of SITL fine-tuning on 50 fresh OOD samples. Figure 16 visualises the failure modes of ULRI on rough OOD data vs. the stable HIN-LRI solution. Table 6 reports the L2 errors: zero-shot HIN-LRI already reduces error by 13 ×
+
+on the Riemann datum and 19 × on the delta pulse relative to ULRI; after mini-retraining, errors drop by 25 × and 106 × respectively. 
+
+34 Hybrid Iterative Neural Low-Regularity Integrator 0.02 0.04 0.06 0.08 0.10    
+
+> Time step
+> 10 4
+> 10 3
+> 10 2
+> Relative  L2 error
+
+(a) 
+
+= 0.5         
+
+> RES1
+> ELRI1
+> RES2
+> ELRI2
+> ULRI
+> HIN-LRI
+> O( )
+> 0.02 0.04 0.06 0.08 0.10
+> Time step
+> 10 5
+> 10 4
+> 10 3
+> Relative  L2 error
+
+(b) 
+
+= 1.0          
+
+> RES1
+> ELRI1
+> RES2
+> ELRI2
+> ULRI
+> HIN-LRI
+> O( )
+> 0.02 0.04 0.06 0.08 0.10
+> Time step
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> Relative  L2 error
+
+(c) 
+
+= 1.5           
+
+> RES1
+> ELRI1
+> RES2
+> ELRI2
+> ULRI
+> HIN-LRI
+> O( )
+> 0.02 0.04 0.06 0.08 0.10
+> Time step
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> Relative  L2 error
+
+(d) 
+
+= 2.0  
+
+> RES1
+> ELRI1
+> RES2
+> ELRI2
+> ULRI
+> HIN-LRI
+> O( )
+
+Figure 15: HIN-LRI against neural PDE solvers: L2 error across τ (cubic NLS, 
+
+γ = 0 .5, N = 1024 ). Neural solvers (FNO, PINN, DeepONet) yield flat error curves independent of τ ; HIN-LRI tracks O(τ ) across all tested step sizes. Table 6: OOD transfer L2 errors at T = 1 .0, N = 512, τ = 2 −8. Zero-shot HIN-LRI already outperforms the analytical unfiltered integrator; mini-retraining (10 SITL steps) provides further large improvements. N/A: the variable-coefficient problem has no natural ULRI baseline. 
+
+Method / OOD profile Riemann step function Dirac delta pulse Variable coeff. c(x)Unfiltered integrator 1.45e-2 8.76e-2 N/A HIN-LRI (Zero-shot) 1.12e-3 4.51e-3 8.92e-2 
+
+HIN-LRI (Mini-retrained) 5.84e-4 8.22e-4 1.65e-3 
+
+35 Zhangyong Liang 10 2 10 1                             
+
+> Time step
+> 10 4
+> 10 3
+> Relative  L2 error
+> (a)
+> H0.2 ,p= 0.22
+> H0.4 ,p= 0.41
+> H0.6 ,p= 0.59
+> H0.8 ,p= 0.76
+> 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00
+> Regularity
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> Observed order
+> (b)
+> Theory ceiling p=
+> ULRI digitized slopes
+> ULRI in HIN-LRI tests
+> HIN-LRI
+> 0.5 1.0 1.5 2.0
+> Regularity
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> Error at finest  = 6.25 × 10  3 4.3×
+> 6.1×
+> 11.1×
+> 12.9×
+> (c)
+> ULRI
+> HIN-LRI
+> 0.5 1.0 1.5 2.0
+> Regularity
+> 0
+> 2
+> 4
+> 6
+> 8
+> Terminal-time gain (ULRI / HIN-LRI)
+> 3.9×
+> 4.8×
+> 6.4×
+> 7.6×
+> (d)
+
+Figure 16: OOD transfer: ULRI failure against HIN-LRI stability (KdV, Rie-mann step datum, τ = 2 −8, N = 512 ). (a)–(c) Solution profiles at T = 1 .0for ULRI, HIN-LRI (zero-shot), and HIN-LRI (mini-retrained, 10 SITL steps). (d) Fourier amplitude of the absolute error for all three methods. 
+
+5.9 Long-time Invariant Preservation and Total Computational Time 
+
+We integrate the rough KdV and cubic NLS wave profiles up to T = 100 and record the relative drift in the discrete Hamiltonian ∆ H(t) = |H (t)−H (0) |/|H (0) |. Figure 17 shows the spatiotemporal evolution of |u(x, t )| and the invariant drift curves. Classical unfiltered integrators suffer significant Hamiltonian fluctuation over long time, eventually triggering numerical blow-up for the coarser KdV profiles by T ≈ 60. In contrast, HIN-LRI bounds both the mass and energy drifts to O(10 −13 ) over the full T = 100 window, comparable to the fully implicit structure-preserving LRI at a fraction of the per-step cost. Table 7 quantifies the drift at intermediate checkpoints. A critical aspect of evaluating hybrid neural–numerical solvers is verifying that offline training and online inference costs are justified by the overall acceleration. We compare Total Computational Time (TCT) for solving W independent initial value problems: TCT num ≈ W × Cnum , TCT hyb ≈ W × Chyb + CTD , (53) where Cnum , Chyb are average per-simulation online costs and CTD is the offline training cost. A single HIN-LRI step takes 0 .78 ms at N = 1024, vs. 0 .65 ms for the base explicit LRI 
+
+36 Hybrid Iterative Neural Low-Regularity Integrator 0.00 0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40      
+
+> Time T
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error
+
+(a) 
+
+= 0.5               
+
+> RES1
+> ELRI1
+> RES2
+> ELRI2
+> ULRI
+> HIN-LRI
+> 0.00 0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40
+> Time T
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error
+
+(b) 
+
+= 1.0               
+
+> RES1
+> ELRI1
+> RES2
+> ELRI2
+> ULRI
+> HIN-LRI
+> 0.00 0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40
+> Time T
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> Relative  L2 error
+
+(c) 
+
+= 1.5               
+
+> RES1
+> ELRI1
+> RES2
+> ELRI2
+> ULRI
+> HIN-LRI
+> 0.00 0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40
+> Time T
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> Relative  L2 error
+
+(d) 
+
+= 2.0 
+
+> RES1
+> ELRI1
+> RES2
+> ELRI2
+> ULRI
+> HIN-LRI
+
+Figure 17: Long-time stability ( T = 100 , rough H0.5 data, τ = 2 −8, N = 1024 ). (a)– (b) Spatiotemporal heatmaps |u(x, t )| for HIN-LRI and the unfiltered integrator. (c) Relative Hamiltonian drift ∆ H(t) for HIN-LRI, ULRI, and the fully implicit LRI. (d) Relative mass drift ∆ M(t) for HIN-LRI, Strang, ULRI, and RES1. Table 7: Relative Hamiltonian energy drift ∆ H(t) = |H (t)−H (0) |/|H (0) | over long-time evolution for extremely rough initial data ( N = 1024, τ = 2 −8). HIN-LRI achieves drift levels comparable to the fully implicit structure-preserving LRI. 
+
+Evolution time T = 10 .0 T = 50 .0 T = 100 .0
+
+Strang splitting Diverged Diverged Diverged Unfiltered integrator 5.42e-06 3.15e-04 8.76e-03 Fully implicit LRI 1.05e-13 2.11e-13 4.58e-13 
+
+HIN-LRI (Ours) 1.15e-13 2.84e-13 5.12e-13 
+
+37 Zhangyong Liang 
+
+and 15 .5 ms for the fully implicit LRI. With offline training CTD ≈ 140 min, the break-even is W ≈ 2800 simulations. Combined with the relaxed CFL constraint, HIN-LRI’s TCT can be significantly smaller than analytical alternatives that require implicit solves or restrictive step-size constraints. Table 8 details the per-step runtimes. Table 8: Wall-clock runtime per time step (ms) on an NVIDIA A100 GPU. HIN-LRI adds only marginal neural overhead over the base explicit LRI while running ∼20 ×
+
+faster than the fully implicit structure-preserving method.                         
+
+> Method N=512 N=1024 N=2048 N=4096
+> Base explicit LRI (violates conservation) 0.45 ms 0.65 ms 1.25 ms 2.65 ms Fully implicit LRI (structure-preserving) 8.15 ms 15.5 ms 32.1 ms 81.4 ms
+> HIN-LRI (explicit + neural corrector) 0.52 ms 0.78 ms 1.65 ms 3.42 ms
+
+6 Conclusions 
+
+This paper introduced HIN-LRI, a hybrid iterative neural low-regularity integrator for non-linear dispersive equations with rough initial data. Beyond the specific application domain, the work contributes three principles of broader relevance to learning-augmented numerical solvers and operator learning. 
+
+Structured residual correction. Rather than replacing the numerical solver with a learned surrogate, HIN-LRI uses the solver’s own truncation-error structure as the regression tar-get for a neural operator. This “physical backbone + learned residual” pattern preserves the interpretability and convergence guarantees of the base scheme while confining the learning problem to a well-characterised, low-dimensional defect space. The resulting error decomposition—global error ≤ Gronwall factor × (approximation ratio + training short-fall) × per-step defect—provides a transparent mechanism for diagnosing and improving the hybrid solver. It applies whenever the solver’s truncation error admits a structured defect operator. 
+
+Stability-preserving latent-space learning. A recurring challenge in hybrid neural–numerical methods is that the learned component can destabilise the solver over long time horizons. Our analysis shows that an explicit time-step scaling ( τ -prefactor) on the neural correction, combined with latent-space projection and spectral-norm enforcement, ensures the one-step Lipschitz constant grows only as 1 + O(τ ), yielding a Gronwall factor bounded uniformly in τ . This design principle—scaling the learned correction by the solver’s step size and controlling its Lipschitz constant—is transferable to other hybrid iterative neural solvers. 
+
+Solver-aware training objectives. The solver-in-the-loop (SITL) training objective, which unrolls the full hybrid iteration and penalises trajectory error in a problem-adapted function-space norm, reduces distribution shift between training and deployment. The approach generalises to any differentiable iterative solver and provides a principled alternative to one-step supervised operator learning. The numerical experiments on KdV, cubic NLS, and quadratic NLS benchmarks with low-regularity data support these conclusions. Across the tested regimes, HIN-LRI reduces the saturation effects observed in analytical resonance schemes and maintains stable con-
+
+> 38 Hybrid Iterative Neural Low-Regularity Integrator
+
+vergence over a wide range of spatial resolutions. The ablation study confirms that the adaptive scaling, structured latent basis, and SITL re-optimisation each contribute to the observed performance. Long-time tests show that the neural correction reduces invariant drift while retaining an explicit online update and a modest per-step overhead. Several limitations remain and suggest directions for future work. Scope of validation. 
+
+The present experiments are restricted to periodic one-dimensional model equations (KdV, cubic NLS, quadratic NLS) with fixed training distributions drawn from fractional Gaussian random fields. While these are the canonical benchmarks in the low-regularity integrator lit-erature, physically relevant applications involve multi-dimensional geometries, non-periodic boundary conditions, and variable-coefficient operators. Extending HIN-LRI to these set-tings requires adapting both the base LRI (which relies on periodic Fourier structure) and the trunk basis construction (which assumes a global SVD). Investigating localised or hier-archical basis alternatives is an important next step. Theoretical assumptions. The error bounds depend on the compact data manifold, bounded neural operator Lipschitz constant, and SITL convergence assumptions stated in section B. In practice, weight norm control is enforced via spectral normalisation layers, though the SITL objective is non-convex. Quan-tifying the gap between the idealised bounds and the empirically observed training shortfall 
+
+δ remains open. Generalizability and overfitting. The current architecture is trained per-equation and per-regularity regime. The OOD transfer experiments (section 5.8) demon-strate reasonable zero-shot generalisation to unseen initial profiles and modest robustness to coefficient perturbations. A systematic study of how training distribution breadth, net-work capacity, and regularisation strategies affect out-of-distribution degradation is needed. 
+
+Future directions. Natural extensions include multidimensional geometries, adaptive time stepping with error estimators, and certified a posteriori error control. Developing stan-dardised benchmark suites for low-regularity neural-numerical solvers, including training protocols, uncertainty estimates, and comparisons under fixed computational budgets, is also an important direction. 
+
+> 39
+
+Zhangyong Liang 
+
+Appendix A. Theoretical Analysis of HIN-LRI 
+
+This appendix provides proofs of the three main theoretical properties of HIN-LRI estab-lished in section 4.4: the one-step truncation error bound (theorem 10), the stability and CFL relaxation (theorem 11), and the Sobolev regularity of the neural correction (theo-rem 13). These results are combined in the global convergence theorem (theorem 15) stated in section B. Note: Assumptions 1–5 are listed in section B; readers unfamiliar with the notation should consult that appendix first. 
+
+A.1 Averaging Approximation for the Phase Mismatch Kernel 
+
+The following lemma quantifies the phase mismatch kernel η(τ, ϕ 1, ϕ 2) that appears in the one-step defect analysis of section 4.4. 
+
+Lemma 9 Let ϕ1, ϕ 2 ∈ R with ϕ1, ϕ 2̸ = 0 , and let Mτ (f ) = τ −1 R τ 
+
+> 0
+
+f (s) ds . The phase mismatch kernel η(τ, ϕ 1, ϕ 2) := Mτ (e−is (ϕ1+ϕ2)) − M τ (e−isϕ 1 )Mτ (e−isϕ 2 ) satisfies 
+
+|η(τ, ϕ 1, ϕ 2)| ≲ min 
+
+ ϕ1
+
+ϕ2
+
+, ϕ2
+
+ϕ1
+
+, τ |ϕ1|, τ |ϕ2|
+
+
+
+. (54) 
+
+If additionally ϕ1 + ϕ2̸ = 0 , then |η(τ, ϕ 1, ϕ 2)| ≲ (τ |ϕ1 + ϕ2|)−1.
+
+Proof The oscillation bound ∥eisα ∥osc([0 ,τ ]) ≲ min {1, τ |α|} and the product identity |Mτ (f g )−
+
+Mτ (f )Mτ (g)| ≤ ∥ f ∥osc ∥g∥osc yield |η| ≲ min {τ |ϕ1|, τ |ϕ2|} . Writing eisϕ 1 = 1 
+
+> iϕ 1
+
+∂seisϕ 1 and integrating by parts gives |η| ≲ |ϕ2/ϕ 1|; by symmetry |η| ≲ |ϕ1/ϕ 2|. The supplementary bound follows by the same argument applied to eis (ϕ1+ϕ2).
+
+A.2 One-Step Truncation Error Theorem 10 Let γ ∈ (0 , 1] and u ∈ Hγ (T). Under Assumptions 1 and 4, the one-step HIN-LRI truncation error satisfies 
+
+EHIN (u) L2 ≤ C(εnet + δ) τ 1+ γ ln(1 /τ ), (55) 
+
+where εnet ∈ [0 , 1] is the relative neural approximation ratio (theorem 2), δ ≥ 0 is the training shortfall (Assumption 4), and C > 0 depends only on ∥u∥Hγ and γ.
+
+Proof By Assumption 4, the trained parameters θδ satisfy sup u∈K ∥H neural (u; θδ)−E def ect (u)∥L2 ≤
+
+(εnet + δ) · D(u, τ ) where D(u, τ ) = Cτ 1+ γ ln(1 /τ )∥u∥3 
+
+> Hγ
+
+is the defect magnitude from theo-rem 1. Since EHIN (u) = Edef ect (u) − H neural (u; θδ) and ∥E def ect (u)∥L2 ≤ D(u, τ ), the bound (55) follows. 
+
+40 Hybrid Iterative Neural Low-Regularity Integrator 
+
+A.3 Stability and CFL Relaxation Theorem 11 Under Assumptions 2 and 3, the Lipschitz constant of the τ -scaled HIN-LRI neural correction satisfies 
+
+Lip( τ Hneural ) ≤ τ L θ,K , Lθ,K := 
+
+> L
+
+Y
+
+> l=1
+
+∥W(l)∥2, (56) 
+
+where Lθ,K is independent of the spatial resolution N . Consequently, the full one-step map 
+
+S = Hphys +τ Hneural satisfies Lip( S) ≤ 1+( C0 +Lθ,K )τ , and the alternating spectral-neural iteration (algorithm 1) is contractive for all τ satisfying 
+
+τ L θ,K < 1. (57) 
+
+Proof Since Φ⊤Φ = IK (Assumption 3), we have ∥R∥op = ∥P∥op = 1. Operator-norm sub-multiplicativity gives Lip( Hneural ) = Lip( P ◦ G θ ◦ R) ≤ Lθ,K . Because the update rule multiplies Hneural by τ (algorithm 1), the effective per-step Lipschitz contribution is τ L θ,K .Combined with Lip( Hphys ) ≤ 1 + C0τ (Li and Wu 2025, Prop. 8.1), the full map satisfies Lip( S) ≤ 1 + ( C0 + Lθ,K )τ . The Gronwall factor e(C0+Lθ,K )T is therefore bounded uniformly in τ .
+
+Remark 12 The bound Lθ,K ≤ W L 
+
+> max
+
+is directly enforced by spectral normalisation of the weight matrices during training, giving an explicit mechanism to control the admissible time step independently of N . With empirical values Wmax ≈ 2.1 and L = 4 (section C), one obtains Lθ,K ≈ 18 and an admissible step τ < 1/18 ≈ 0.056 .
+
+A.4 Sobolev Regularity of the Neural Correction Theorem 13 Under Assumptions 2 and 3, the neural correction is a bounded linear oper-ator on Hs(T) for every s ≥ 0:
+
+Hneural (u; θ) Hs ≤ Lθ,K ∥u∥Hs . (58) 
+
+No regularity beyond u ∈ Hs is required; in particular no spatial derivatives are released. 
+
+Proof By Assumption 3, Φ⊤Φ = IK , so the restriction and prolongation satisfy ∥R∥op =
+
+∥P∥op = 1. By Assumption 2, Lip( Gθ) ≤ Lθ,K . Operator-norm sub-multiplicativity gives 
+
+∥H neural (u)∥Hs = ∥PGθ(Ru)∥Hs ≤ ∥ P∥op · Lθ,K · ∥ R∥op · ∥ u∥Hs = Lθ,K ∥u∥Hs . Since Lθ,K 
+
+is a product of matrix spectral norms and involves no power of |k|, this is a zeroth-order operator bound with no derivative loss. 
+
+Remark 14 By the algorithm definition (algorithm 1), the neural correction enters the update as τ Hneural , so the effective per-step correction magnitude is ∥τ Hneural (u)∥Hs ≤
+
+τ L θ,K ∥u∥Hs by construction. This O(τ ) scaling is consistent with the O(τ )-sized defect established in theorem 1 and ensures the Gronwall factor in theorem 15 is bounded uniformly in τ .
+
+41 Zhangyong Liang 
+
+Appendix B. Structural Assumptions and Main Convergence Theorem 
+
+The following assumptions are used throughout section 4.4 and section A. All five conditions are satisfied by the HIN-LRI implementation described in section C. 1. Compact data manifold. The initial-data distribution μ0 is supported on a compact set K ⊂ Hγ (T) for some γ ∈ (0 , 1]. This ensures that the universal approximation theorem for operators yields a finite error εnet on K.2. Neural operator regularity. The latent neural operator Gθ employs Lipschitz-continuous activations and bounded weight matrices ∥W(l)∥2 ≤ Wmax for all layers 
+
+l = 1 , . . . , L . The Lipschitz constant Lθ,K = QLl=1 ∥W(l)∥2 is finite. 3. Orthogonal trunk basis. The trunk basis Φ ∈ RN ×K satisfies Φ⊤Φ = IK , so 
+
+∥R∥op = ∥P∥op = 1. In practice this is enforced via SVD of a snapshot matrix drawn from K.4. SITL training quality. The SITL optimisation produces parameters θδ satisfying, for all u ∈ K ,
+
+τ Hneural (u; θδ) − E def ect (u) L2 ≤ (εnet + δ) · D(u, τ ),
+
+where D(u, τ ) := Cτ 1+ γ ln(1 /τ )∥u∥3 
+
+> Hγ
+
+is the defect magnitude from theorem 1. The factor τ reflects the explicit time-step scaling in the algorithm (algorithm 1). Here 
+
+εnet ∈ [0 , 1] is the relative UAT approximation ratio (Assumption 1 and theorem 2), and δ ≥ 0 is the training shortfall beyond the network’s approximation capacity. The two terms are independent. The ratio εnet is controlled by network depth and latent dimension, while δ is monitored via the held-out SITL validation loss. In practice 
+
+δ ≈ 10 −4 (section C). 5. Base LRI consistency. The base LRI propagator ILRI converges at rate O(τ γ ) in 
+
+L2 for data in Hγ (T). Assumptions 1 and 4 are standard in the operator-learning literature. Assumptions 2 and 3 are structural and enforced by construction. Assumption 2 in particular implies that the spectral-norm bound Lθ,K can be controlled via spectral normalisation of the weight matrices during training (section C). Specifically, each weight matrix W(l) is constrained by a spectral normalisation layer that enforces ∥W(l)∥2 ≤ Wmax at every gradient step, rather than relying solely on soft weight-decay regularisation. This hard enforcement is the mechanism by which Theorem 11 yields an N -independent CFL condition. 
+
+B.1 Main Convergence Theorem Theorem 15 Let γ ∈ (0 , 1] and u ∈ C([0 , T ]; Hγ (T)) with R 
+
+> T
+
+u0 dx = 0 . Under As-sumptions 1–5 and the stability condition τ L θ,K < 1 (theorem 11) , there exist constants 
+
+τ0 > 0 and C > 0 depending only on ∥u0∥Hγ , γ, and T , such that for all τ ∈ (0 , τ 0] and 
+
+n = 1 , . . . , L = T /τ :
+
+max  
+
+> 1≤n≤L
+
+∥u(tn) − un
+
+> HIN
+
+∥L2 ≤ C(εnet + δ) τ γ ln   1
+
+> τ
+
+ . (59) 
+
+> 42 Hybrid Iterative Neural Low-Regularity Integrator
+
+This bound is smaller than the classical ULRI bound Cτ γ ln(1 /τ ) by the factor (εnet + δ) ∈
+
+[0 , 1] .
+
+Proof [Proof sketch] Denote en := u(tn) − un
+
+> HIN
+
+.The base LRI operator Hphys is Lipschitz-stable on Hγ for τ ≤ τ0 by Assumption 5; see Li and Wu 2025, Prop. 8.1, which gives ∥H phys (u) − H phys (v)∥L2 ≤ (1 + C0τ )∥u − v∥L2 .By theorem 11, the τ -scaled neural correction satisfies Lip( τ Hneural ) ≤ τ L θ,K . For the full map S = Hphys + τ Hneural :
+
+∥S (u) − S (v)∥L2 ≤ (1 + C0τ + τ L θ,K )∥u − v∥L2 =  1 + ( C0 + Lθ,K )τ ∥u − v∥L2 .
+
+The Gronwall factor over L = T /τ steps is (1 + ( C0 + Lθ,K )τ )T /τ ≤ e(C0+Lθ,K )T , which is bounded uniformly in τ ; it is absorbed into C. By theorem 13, the neural term requires no extra regularity beyond Hγ (Assumption 5). Applying theorem 10 (with per-step er-ror C(εnet + δ)τ 1+ γ ln(1 /τ )) and summing over n = 0 , . . . , L − 1 gives the Gronwall sum 
+
+L · C(εnet + δ)τ 1+ γ ln(1 /τ ) = CT (εnet + δ)τ γ ln(1 /τ ), yielding (59). 
+
+Remark 16 When εnet + δ ≪ 1 (well-trained network of sufficient capacity), bound (59) 
+
+reduces to a fraction of the classical ULRI bound: the τ γ ln(1 /τ ) rate is preserved but multiplied by a small coefficient. As εnet → 0 (via increasing network capacity) and δ → 0
+
+(via extended SITL training), the bound approaches 0 for any fixed τ , reflecting the fact that a sufficiently expressive, well-trained network can reduce the resonance defect to negligible levels. 
+
+Appendix C. Reproducibility and Implementation Details 
+
+Hardware. All experiments were conducted on a single NVIDIA A100 (80 GB) GPU with an AMD EPYC 7763 CPU (256 GB RAM). Training and inference use PyTorch 2.1 with CUDA 12.1 in FP64 arithmetic throughout. 
+
+Data generation. Initial data are sampled as fractional Gaussian random fields on [0 , 2π] with N Fourier modes. Specifically, ˆ u0(k) = |k|−(γ+1 /2) ξk where ξk ∼ CN (0 , 1) are i.i.d. standard complex Gaussians, yielding u0 ∈ Hγ−ε almost surely for any ε > 0. Reference solutions are computed with τref = 2 −20 using a fully implicit energy-preserving LRI verified against an independent high-order Runge–Kutta solver. 
+
+Training protocol. The training set consists of Ntrain = 500 initial conditions per equation, with Nval = 100 held out for validation. The unroll length is Nt = 16 steps per training sample. We use AdamW with initial learning rate η = 10 −3, weight decay 10 −4, and cosine annealing over 250 epochs with batch size B = 8. Total offline training time is approximately 140 minutes on the hardware above (corresponding to δ ≈ 10 −4 in theorem 15). 
+
+Neural architecture. The latent neural operator Gθ consists of a branch encoder (3-layer MLP, hidden dimension 128, GELU activations), a Fourier mixing layer on the 
+
+K = 32 latent modes, and a decoder MLP of matching architecture. The scaling network 
+
+Escale is a 3-layer MLP (hidden dimensions 64 → 32 → 1) with GELU activations and layer normalisation, outputting a positive scalar via a softplus final activation. Total trainable 
+
+> 43 Zhangyong Liang
+
+parameters: ≈ 1.2×10 5. Each weight matrix is constrained by a spectral normalisation layer that enforces ∥W(l)∥2 ≤ Wmax at every gradient step. The observed values are Wmax ≈ 2.1and Lθ,K ≈ 18 across all trained models, confirming the CFL relaxation condition τ L θ,K ≪
+
+N 3 by a factor of ∼ 10 5 at N = 1024. 
+
+Empirical verification of Assumptions 2 and 4. To make the theoretical quantities 
+
+εnet , δ, and Lθ,K empirically verifiable, we report the following diagnostics measured on the held-out validation set ( Nval = 100) after training. Defect approximation error. We evaluate ∥τ Hneural (u; θδ) − E def ect (u)∥L2 /D (u, τ ) on each validation sample. The defect 
+
+Edef ect is computed as the difference between a high-accuracy reference step ( τref = 2 −20 )and the base LRI step. The median relative ratio is 0 .032 for KdV, 0 .041 for cubic NLS, and 0 .038 for quadratic NLS, providing empirical estimates of ( εnet + δ). The training loss saturates at ≈ 3 × 10 −4 and the validation loss at ≈ 4 × 10 −4. This indicates δ ≈
+
+10 −4, with the remaining gap dominated by εnet . Latent dimension sensitivity. We train HIN-LRI with K ∈ { 8, 16 , 32 , 64 , 128 } on the KdV benchmark ( γ = 0 .5, τ = 2 −8). The validation defect ratio decreases monotonically from 0 .12 ( K = 8) to 0 .032 ( K = 32), with diminishing returns beyond K = 32 (0 .029 at K = 64, 0 .028 at K = 128). This confirms the UAT prediction that εnet decreases with increasing network capacity. Lipschitz proxy. The enforced spectral-norm product Lθ,K = Q 
+
+> l
+
+∥W(l)∥2 is logged at every epoch. It stabilises at ≈ 18 after epoch 50 and remains within [17 .5, 18 .5] throughout training for all three equations, confirming Assumption 2 and the CFL condition τ L θ,K < 1 for τ ≤ 0.05. 
+
+Code availability and reproducibility commands. Source code for HIN-LRI, in-cluding training scripts, pretrained weights, and all experiment configurations, is publicly available at https://github.com/liangzhangyong/HIN-LRI.git (commit hash [TO BE FILLED BEFORE SUBMISSION] ). A frozen environment.yml listing all Python dependen-cies (PyTorch 2.1, NumPy 1.25, SciPy 1.11, CUDA 12.1) is included in the repository root. To reproduce the main KdV convergence table (table 1), run: 
+
+python train.py --equation kdv --gamma 0.5 --seeds 5 python evaluate.py --equation kdv --gamma 0.5 --tau_range 4,14 
+
+Analogous scripts for cubic NLS ( --equation cnls ) and quadratic NLS ( --equation qnls ) reproduce all remaining tables. Pretrained weights for all three equations are pro-vided in checkpoints/ ; loading them skips offline training and directly reproduces the inference-time results. We commit to verifying that the repository link resolves and that all scripts execute without modification before camera-ready submission. 
+
+References 
+
+Mark J Ablowitz. Nonlinear dispersive waves: asymptotic analysis and solitons , volume 47. Cambridge University Press, 2011. Yvonne Alama Bronsard. Error analysis of a class of semi-discrete schemes for solving the Gross–Pitaevskii equation at low regularity. J. Comput. Appl. Math. , 418:114632, 2023. ISSN 0377-0427. B. Azulay and M. Treister. A multigrid approach for training deep neural networks. arXiv preprint arXiv:2201.07470 , 2022. 
+
+> 44 Hybrid Iterative Neural Low-Regularity Integrator
+
+R Azulay et al. Multigrid/nn hybrids for high-frequency heterogeneous helmholtz. arXiv preprint , 2023. A. Babin, A. Ilyin, and E. Titi. On the regularization mechanism for the spatially periodic korteweg-de vries equation. Comm. Pure Applied Math. , 64:591–648, 2011. Shaojie Bai, J Zico Kolter, and Vladlen Koltun. Deep equilibrium models. NeurIPS , 2019. Valeria Banica, Georg Maierhofer, and Katharina Schratz. Numerical integration of Schr¨ odinger maps via the Hasimoto transform. SIAM Journal on Numerical Analysis , 62 (1):322–352, 2024. Filipe de Avila Belbute-Peres, Thomas Economon, and Zico Kolter. Combining differ-entiable pde solvers and graph neural networks for fluid flow prediction. International Conference on Machine Learning , pages 2402–2411, 2020. G Benanti et al. Neuralsp: Neural learned subspace preconditioners. SIAM Journal on Matrix Analysis and Applications , 2026. A. Bouard and A. Debussche. Soliton dynamics for the korteweg–de vries equation with multiplicative homogeneous noise 14 . Elect. J. Prob. , 2009. J. Bourgain. Fourier transform restriction phenomena for certain lattice subsets and ap-plications to nonlinear evolution equations. part ii: The kdv-equation. Geometric and Functional Analysis , 3:209–262, 1993. Yvonne Alama Bronsard. A symmetric low-regularity integrator for the nonlinear schr¨ odinger equation. IMA Journal of Numerical Analysis , 44(6):3648–3682, 2024. doi: 10.1093/imanum/drad093. Yvonne Alama Bronsard, Yvain Bruned, Georg Maierhofer, and Katharina Schratz. Sym-metric resonance based integrators and forest formulae. Foundations of Computational Mathematics , 2026. doi: 10.1007/s10208-026-09742-0. Published online 2026. Yvain Bruned and Katharina Schratz. Resonance-based schemes for dispersive equations via decorated trees. Forum of Mathematics, Pi , 10:e2, 2022. doi: 10.1017/fmp.2021.13. Jiachuan Cao, Buyang Li, and Yanping Lin. A new second-order low-regularity integrator for the cubic nonlinear schr¨ odinger equation. IMA Journal of Numerical Analysis , 44(3): 1313–1345, 2024. doi: 10.1093/imanum/drad017. SH Chan, X Wang, and OA Elgendy. Plug-and-play admm for image restoration. IEEE Transactions on Computational Imaging , 2016. S Chen et al. Graph neural preconditioners. NeurIPS , 2025. Tianping Chen and Hong Chen. Universal approximation to nonlinear operators by neural networks with arbitrary activation functions and its application to dynamical systems. 
+
+IEEE Transactions on Neural Networks , 6(4):911–917, 1995. doi: 10.1109/72.392253. 
+
+> 45 Zhangyong Liang
+
+Y. Cui, S. Wang, and L. Zheng. A coarse-grid correction method built on fourier neural network for solving partial differential equations. Journal of Computational Mathematics ,1, 2022. Y Cui et al. Fourier neural solver for pdes. SIAM Journal on Scientific Computing , 2025a. Z Cui et al. Wave-adr-ns for separating characteristic error components. Journal of Com-putational Physics , 2025b. Suchuan Dong and Zongyi Li. Local extreme learning machines and domain decomposi-tion for solving linear and nonlinear partial differential equations. Computer Methods in Applied Mechanics and Engineering , 387:114129, 2021. Weinan E and Bing Yu. The deep ritz method: A deep learning-based numerical algorithm for solving variational problems. Communications in Mathematics and Statistics , 6(1): 1–12, 2018. Yue Feng, Georg Maierhofer, and Katharina Schratz. Long-time error bounds of low-regularity integrators for nonlinear schr¨ odinger equations. Mathematics of Computation ,93(348):1569–1598, 2024. doi: 10.1090/mcom/3922. Yue Feng, Georg Maierhofer, and Chushan Wang. Explicit symmetric low-regularity inte-grators for the nonlinear schr¨ odinger equation. arXiv preprint arXiv:2411.07720 , 2025. Daniel Greenfeld, Meirav Galun, Ronen Basri, Irad Yavneh, and Ron Kimmel. Learning to optimize multigrid pde solvers. International Conference on Machine Learning , pages 2415–2423, 2019. Karol Gregor and Yann LeCun. Learning fast approximations of sparse coding. ICML ,2010. M. Gubinelli. Rough solutions for the periodic korteweg–de vries equation 11 . Commun. Pure Appl. Anal. , 2012. Jiequn Han, Arnulf Jentzen, and Weinan E. Solving high-dimensional partial differential equations using deep learning. Proceedings of the National Academy of Sciences , 115(34): 8505–8510, 2018. J. He and J. Xu. Mgnet: A unified framework of multigrid and convolutional neural network. 
+
+Science China Mathematics , 62:1331–1354, 2019. Marlis Hochbruck and Alexander Ostermann. Exponential integrators. Acta Numerica , 19: 209–286, 2010. M. Hofmanov´ a and K. Schratz. An exponential-type integrator for the kdv equation 136 . 
+
+Numer. Math. , 2017. Martina Hofmanov´ a and Katharina Schratz. An exponential-type integrator for the KdV equation. Numerische Mathematik , 136(4):1117–1137, 2017. doi: 10.1007/ s00211-016-0859-1. 
+
+> 46 Hybrid Iterative Neural Low-Regularity Integrator
+
+H. Holden, K. H. Karlsen, N. H. Risebro, and T. Tao. Operator splitting for the kdv equation 80 . Math. Comp. , 2011. Jun-Ting Hsieh, Shengjia Zhao, Stephan Eickenberg, Arthur Balvert, and Qiaoning Liao. Learning core design for multigrid methods. arXiv preprint arXiv:1902.05656 , 2019. H. Huang, J. Chen, and L. Wang. Learning smoothers in multigrid methods. Journal of Computational Physics , 453:110940, 2022. A. Kahana and G. E. Karniadakis. Geometry-aware preconditions for deeponets. Computer Methods in Applied Mechanics and Engineering , page 115433, 2022. T. Kappeler and P. Topalov. Global well-posedness of kdv in h−1. Duke Math. J. , 135: 327–360, 2006. George Em Karniadakis, Ilidi G Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , 3(6):422–440, 2021. C. E. Kenig, G. Ponce, and L. Vega. Well-posedness and scattering results for the generalized korteweg-de vries equation via the contraction principle. Comm. Pure Appl. Math. , 46: 527–620, 1993. Yuehaw Khoo, Jianfeng Lu, and Lexing Ying. Solving parametric pde problems with arti-ficial neural networks. European Journal of Applied Mathematics , 22(3):421–435, 2021. R. Killip and M. Visan. Kdv is well-posed in h−1 190. Ann. Math. (2) , 2019. Marvin Kn¨ oller, Alexander Ostermann, and Katharina Schratz. A fourier integrator for the cubic nonlinear schr¨ odinger equation with rough initial data. SIAM Journal on Numerical Analysis , 57(4):1967–1986, 2019. doi: 10.1137/18M1198375. A Kopanicakova and GE Karniadakis. Deeponet-based hybrid preconditioners. Computer Methods in Applied Mechanics and Engineering , 2025. A Lerer et al. Compact implicit neural schemes. arXiv , 2023. B. Li and Y. Wu. A fully discrete low-regularity integrator for the 1d periodic cubic nonlinear schr¨ odinger equation 149 . Numer. Math. , 2021. Buyang Li and Yifei Wu. An unfiltered low-regularity integrator for the KdV equation with solutions below H1. Foundations of Computational Mathematics , 2025. doi: 10.1007/ s10208-025-09702-0. Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural operator: Graph kernel network for partial differential equations. arXiv preprint arXiv:2003.03485 , 2020a. Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. arXiv preprint arXiv:2010.08895 , 2020b. 
+
+> 47 Zhangyong Liang
+
+Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learn-ing nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature machine intelligence , 3(3):218–229, 2021. Vu Thai Luan and Alexander Ostermann. Exponential B-series: The stiff case. SIAM Journal on Numerical Analysis , 51(6):3431–3445, 2013. I. Luz, M. Galun, H. Maron, R. Basri, and I. Yavneh. Learning algebraic multigrid using graph neural networks. ICML 2020 , 2020. Georg Maierhofer and Katharina Schratz. Bridging the gap: Symplecticity and low regu-larity in runge–kutta resonance-based schemes. Mathematics of Computation , 2025. doi: 10.1090/mcom/4105. Nils Margenberg, Jonas K”ohler, Rick Boelens, and Tijn Oosterlee. Neural networks as structural priors for deep learning-based image reconstruction. arXiv preprint arXiv:2201.07722 , 2022. Stefano Markidis. The old and the new: Can physics-informed deep-learning replace tradi-tional linear solvers? Frontiers in big Data , 4:669097, 2021. A. Ostermann and K. Schratz. Low regularity exponential-type integrators for semilinear Schr¨ odinger equations 18 . Found. Comput. Math. , 2018a. A. Ostermann and C. Su. A lawson-type exponential integrator for the korteweg-de vries equation 40 . IMA J. Numer. Anal. , 2020. A. Ostermann, F. Rousset, and K. Schratz. Fourier integrator for periodic nls: low regularity estimates via discrete bourgain spaces to appear in https://arxiv.org/abs/.12785. J. Eur. Math. Soc. , 2006. Alexander Ostermann and Katharina Schratz. Low regularity exponential-type integrators for semilinear schr¨ odinger equations. Foundations of Computational Mathematics , 18(3): 731–755, 2018b. doi: 10.1007/s10208-017-9352-1. Alexander Ostermann, Fr´ ed´ eric Rousset, and Katharina Schratz. Error estimates of a fourier integrator for the cubic schr¨ odinger equation at low regularity. Foundations of Computational Mathematics , 21(3):725–765, 2021. doi: 10.1007/s10208-020-09468-7. Alexander Ostermann, Yifei Wu, and Fangyan Yao. A second-order low-regularity integrator for the nonlinear schr¨ odinger equation. Advances in Continuous and Discrete Models ,2022(23), 2022. doi: 10.1186/s13662-022-03695-8. Alexander Ostermann, Fr´ ed´ eric Rousset, and Katharina Schratz. Fourier integrator for periodic NLS: Low regularity estimates via discrete bourgain spaces. Journal of the European Mathematical Society , 25(10):3913–3952, 2023. doi: 10.4171/JEMS/1275. Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural net-works: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics , 378:686–707, 2019. 
+
+> 48 Hybrid Iterative Neural Low-Regularity Integrator
+
+Maziar Raissi, Alireza Yazdani, and George Em Karniadakis. Hidden fluid mechanics: Learning velocity and pressure fields from flow visualizations. Science , 367(6481):1026– 1030, 2020. Yan Romano, Michael Elad, and Peyman Milanfar. The little engine that could: Regular-ization by denoising (red). SIAM Journal on Imaging Sciences , 2017. F. Rousset and K. Schratz. Convergence error estimates at low regularity for time dis-cretizations of kdv 4 . Pure Appl. Math. , 2022a. Fr´ ed´ eric Rousset and Katharina Schratz. A general framework of low regularity integrators. 
+
+SIAM Journal on Numerical Analysis , 59(3):1735–1768, 2021. doi: 10.1137/20M1371506. Fr´ ed´ eric Rousset and Katharina Schratz. Convergence error estimates at low regularity for time discretizations of KdV. Pure and Applied Analysis , 4(1):127–152, 2022b. doi: 10.2140/paa.2022.4.127. Maximilian Ruff. Improved error estimates for low-regularity integrators using space-time bounds. arXiv preprint arXiv:2503.22621 , 2025. Xuefeng Shen and Melvin Leok. Geometric exponential integrators. Journal of Computa-tional Physics , 382:27–42, 2019. Justin Sirignano and Konstantinos Spiliopoulos. Dgm: A deep learning algorithm for solving partial differential equations. Journal of computational physics , 375:1339–1364, 2018. A. Stanziola, S. R. Arridge, B. T. Cox, and B. E. Treeby. A helmholtz equation solver using unsupervised learning: Application to transcranial ultrasound. Journal of Computational Physics , 441:110430, 2021. Luning Sun, Han Gao, Shuo Pan, and Jianxun Wang. Surrogate modeling for fluid flows based on physics-constrained deep learning without simulation data. Computer Methods in Applied Mechanics and Engineering , 361:112732, 2020. Terence Tao. Nonlinear dispersive equations: local and global analysis . Number 106. Amer-ican Mathematical Soc., 2006. K. Um, R. Brand, Y. R. Fei, P. Holl, and N. Thuerey. Solver-in-the-loop: Learning from differentiable physics to interact with iterative pde-solvers. NeurIPS 2020 , 2020. SV Venkatakrishnan, CA Bouman, and B Wohlberg. Plug-and-play priors for model based reconstruction. GlobalSIP , 2013. Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing ,43(5):A3055–A3081, 2021. Yan Wang and Xiaofei Zhao. A symmetric low-regularity integrator for nonlinear Klein-Gordon equation. Mathematics of Computation , 91(337):2215–2245, 2022. 
+
+> 49 Zhangyong Liang
+
+J Wu et al. Reliability and physics-aware update in hybrid solvers. Journal of Computational Physics , 2026. Y. Wu and X. Zhao. Embedded exponential-type low-regularity integrators for kdv equation under rough data. doi:10.1007/s10543-021-00895-8. BIT , 2021. Yifei Wu and Xiaofei Zhao. Embedded exponential-type low-regularity integrators for KdV equation under rough data. BIT Numerical Mathematics , 62(3):1049–1090, 2022. doi: 10.1007/s10543-021-00895-8. Fangyan Yao. A second-order embedded low-regularity integrator for the quadratic non-linear schr¨ odinger equation on torus. International Journal of Numerical Analysis and Modeling , 19(5):656–668, 2022. M. Zhang, Y. Zhang, L. Lu, and G. E. Karniadakis. Hints: Hybrid iterative neural training solver for solving partial differential equations. Computer Methods in Applied Mechanics and Engineering , 398:115201, 2022. X Zhang et al. Hints: Hybrid iterative neural transfer solvers. arXiv preprint , 2024.

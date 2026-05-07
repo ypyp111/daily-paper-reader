@@ -6,64 +6,76 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-06
-- 运行时间：2026-05-06 20:25:26 UTC
+- 最新运行日期：2026-05-07
+- 运行时间：2026-05-07 20:21:50 UTC
 - 运行状态：成功
-- 本次总论文数：14
-- 精读区：6
-- 速读区：8
+- 本次总论文数：18
+- 精读区：7
+- 速读区：11
 
 ### 今日简报（AI）
-今日深度研读 14 篇论文，聚焦物理信息神经网络（PINNs）的理论突破与神经 PDE 模拟的范式创新。
-满分论文揭示了随机测试函数在 $H^{-1}$ 范数下的等价性，而后验优先模拟则实现了从单一场推断隐藏状态的跨越。
-推荐关注 Agent 驱动的运筹优化与复杂域符号回归，探索 AI 在工业钻井及生产建模中的实战潜力。
-- 详情：[/202605/06/README](/202605/06/README)
+今日深挖 18 篇 AI+Science 前沿，重点聚焦物理信息神经网络（PINN）在复杂动力学方程中的满分表现。
+核心突破在于利用 PINN 实现了非均匀电子玻尔兹曼方程的高效求解，并确保了不可压缩流体模拟中的结构保真性。
+推荐关注符号回归与领域专用语言（DSL）的结合，这是提升科研数据分析自动化与可解释性的关键路径。
+- 详情：[/202605/07/README](/202605/07/README)
 
 ### 精读区论文标签
-1. [Random test functions, $H^{-1}$ norm equivalence, and stochastic variational physics-informed neural networks](/202605/06/2605.03542v1-random-test-functions-h-1-norm-equivalence-and-stochastic-variational-physics-informed-neural-networks)  
+1. [A physics-informed neural network approach to solve the spatially inhomogeneous electron Boltzmann equation](/202605/07/2605.04307v1-a-physics-informed-neural-network-approach-to-solve-the-spatially-inhomogeneous-electron-boltzmann-equation)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：用于PDE的随机变分物理信息神经网络
-2. [Posterior-First Neural PDE Simulation: Inferring Hidden Problem State from a Single Field](/202605/06/2605.03247v1-posterior-first-neural-pde-simulation-inferring-hidden-problem-state-from-a-single-field)  
+   evidence：求解电子玻尔兹曼方程的PINN方法
+2. [Structure-Preserving and Pressure-Robust PINNs for Incompressible Oseen Problems](/202605/07/2605.04427v1-structure-preserving-and-pressure-robust-pinns-for-incompressible-oseen-problems)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：针对Oseen方程的结构保持PINN
+3. [Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems](/202605/07/2605.04708v1-differentiable-chemistry-in-pinns-for-solving-parameterized-and-stiff-reaction-systems)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：将可微化学求解器集成到PINN中以解决刚性系统
+4. [Simultaneous CNN Approximation on Manifolds with Applications to Boundary Value Problems](/202605/07/2605.04126v1-simultaneous-cnn-approximation-on-manifolds-with-applications-to-boundary-value-problems)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：神经PDE模拟与推断隐藏问题状态
-3. [GRIFDIR: Graph Resolution-Invariant FEM Diffusion Models in Function Spaces over Irregular Domains](/202605/06/2605.03497v1-grifdir-graph-resolution-invariant-fem-diffusion-models-in-function-spaces-over-irregular-domains)  
+   evidence：用于流形边界值问题的物理信息CNN框架
+5. [Geometry-Aware Neural Optimizer for Shape Optimization and Inversion](/202605/07/2605.04474v1-geometry-aware-neural-optimizer-for-shape-optimization-and-inversion)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：在不规则区域使用有限元和神经算子的函数空间扩散模型
-4. [Meta-Inverse Physics-Informed Neural Networks for High-Dimensional Ordinary Differential Equations](/202605/06/2605.03511v1-meta-inverse-physics-informed-neural-networks-for-high-dimensional-ordinary-differential-equations)  
+   evidence：用于PDE系统的几何感知神经网络优化器
+6. [Gradient Scaling Effects in Adaptive Spectral PINNs for Stiff Nonlinear ODEs](/202605/07/2605.04502v1-gradient-scaling-effects-in-adaptive-spectral-pinns-for-stiff-nonlinear-odes)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于高维ODE的元逆物理信息神经网络
-5. [Programmatic Context Augmentation for LLM-based Symbolic Regression](/202605/06/2605.03101v1-programmatic-context-augmentation-for-llm-based-symbolic-regression)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：基于大模型的符号回归用于科学发现
-6. [Automated Large-scale CVRP Solver Design via LLM-assisted Flexible MCTS](/202605/06/2605.03339v1-automated-large-scale-cvrp-solver-design-via-llm-assisted-flexible-mcts)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：用于自动设计高性能求解器和算法的LLM辅助框架
+   evidence：常微分方程自适应谱PINNs中的梯度缩放
+7. [Hybrid Iterative Neural Low-Regularity Integrator for Nonlinear Dispersive Equations](/202605/07/2605.04853v1-hybrid-iterative-neural-low-regularity-integrator-for-nonlinear-dispersive-equations)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：训练神经算子以修正非线性色散 PDE 的求解器误差
 
 ### 速读区论文标签
-1. [Complex Equation Learner: Rational Symbolic Regression with Gradient Descent in Complex Domain](/202605/06/2605.03841v1-complex-equation-learner-rational-symbolic-regression-with-gradient-descent-in-complex-domain)  
+1. [Symbolic Regression via Neural Networks](/202605/07/2605.04337v1-symbolic-regression-via-neural-networks)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：符号回归用于从数据中发现可解释的方程
-2. [ORPilot: A Production-Oriented Agentic LLM-for-OR Tool for Optimization Modeling](/202605/06/2605.02728v1-orpilot-a-production-oriented-agentic-llm-for-or-tool-for-optimization-modeling)  
+   evidence：使用神经网络识别动力系统的控制方程
+2. [HepScript: A Dual-Use DSL for Human-AI Collaborative Data Analysis Workflows in High-Energy Physics](/202605/07/2605.01423v1-hepscript-a-dual-use-dsl-for-human-ai-collaborative-data-analysis-workflows-in-high-energy-physics)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于优化建模和算法发现的智能体AI系统
-3. [TADI: Tool-Augmented Drilling Intelligence via Agentic LLM Orchestration over Heterogeneous Wellsite Data](/202605/06/2605.00060v1-tadi-tool-augmented-drilling-intelligence-via-agentic-llm-orchestration-over-heterogeneous-wellsite-data)  
+   evidence：用于科学数据分析工作流的大模型与智能体
+3. [Composition-Weighted Symbolic Regression for General-Purpose Property Prediction](/202605/07/2605.02267v1-composition-weighted-symbolic-regression-for-general-purpose-property-prediction)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：用于自动发现解析函数形式的符号回归
+4. [Error analysis for learning fractional stochastic differential equations with applications in neural approximations](/202605/07/2605.04168v1-error-analysis-for-learning-fractional-stochastic-differential-equations-with-applications-in-neural-approximations)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：分数阶随机微分方程的神经近似
+5. [Experiment-as-Code Labs: A Declarative Stack for AI-Driven Scientific Discovery](/202605/07/2605.04375v1-experiment-as-code-labs-a-declarative-stack-for-ai-driven-scientific-discovery)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：用于科学发现的AI智能体
+6. [Evolving Idea Graphs with Learnable Edits-and-Commits for Multi-Agent Scientific Ideation](/202605/07/2605.04922v1-evolving-idea-graphs-with-learnable-edits-and-commits-for-multi-agent-scientific-ideation)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：多智能体科学构思框架
+7. [RunAgent: Interpreting Natural-Language Plans with Constraint-Guided Execution](/202605/07/2605.00798v1-runagent-interpreting-natural-language-plans-with-constraint-guided-execution)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于分析异构科学和运营数据的智能体LLM编排
-4. [M-CaStLe: Uncovering Local Causal Structures in Multivariate Space-Time Gridded Data](/202605/06/2605.00398v1-m-castle-uncovering-local-causal-structures-in-multivariate-space-time-gridded-data)  
+   evidence：用于结构化工作流的多智能体计划执行平台
+8. [GRAIL: A Deep-Granularity Hybrid Resonance Framework for Real-Time Agent Discovery via SLM-Enhanced Indexing](/202605/07/2605.02489v2-grail-a-deep-granularity-hybrid-resonance-framework-for-real-time-agent-discovery-via-slm-enhanced-indexing)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：时空网格数据中的因果结构发现
-5. [AAFLOW: Scalable Patterns for Agentic AI Workflows](/202605/06/2605.02162v1-aaflow-scalable-patterns-for-agentic-ai-workflows)  
+   evidence：多智能体系统中的实时智能体发现框架
+9. [Neural Control: Adjoint Learning Through Equilibrium Constraints](/202605/07/2605.03288v1-neural-control-adjoint-learning-through-equilibrium-constraints)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：智能体AI工作流的可扩展模式与分布式运行时
-6. [ARIADNE: Agentic Reward-Informed Adaptive Decision Exploration via Blackboard-Driven MCTS for Competitive Program Generation](/202605/06/2605.02431v1-ariadne-agentic-reward-informed-adaptive-decision-exploration-via-blackboard-driven-mcts-for-competitive-program-generation)  
+   evidence：具有平衡约束的物理AI任务神经控制
+10. [From Intent to Execution: Composing Agentic Workflows with Agent Recommendation](/202605/07/2605.03986v1-from-intent-to-execution-composing-agentic-workflows-with-agent-recommendation)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：使用MCTS和大模型自动生成程序和算法
-7. [Reinforcement Learning for LLM-based Multi-Agent Systems through Orchestration Traces](/202605/06/2605.02801v1-reinforcement-learning-for-llm-based-multi-agent-systems-through-orchestration-traces)  
+   evidence：多智能体系统的自动创建
+11. [ANDRE: An Attention-based Neuro-symbolic Differentiable Rule Extractor](/202605/07/2605.04193v1-andre-an-attention-based-neuro-symbolic-differentiable-rule-extractor)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：基于大模型的多智能体编排强化学习
-8. [Learning Correct Behavior from Examples: Validating Sequential Execution in Autonomous Agents](/202605/06/2605.03159v1-learning-correct-behavior-from-examples-validating-sequential-execution-in-autonomous-agents)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：利用LLM语义理解验证自主智能体的顺序执行行为
+   evidence：用于科学发现的神经符号可微规则提取器
 
 
 <div class="dpr-home-promo-card">
