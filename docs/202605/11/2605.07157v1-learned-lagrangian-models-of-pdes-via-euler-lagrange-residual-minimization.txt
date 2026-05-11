@@ -1,0 +1,588 @@
+Title: Learned Lagrangian Models of PDEs via Euler-Lagrange Residual Minimization
+
+URL Source: https://arxiv.org/pdf/2605.07157v1
+
+Published Time: Mon, 11 May 2026 00:34:31 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Learned Lagrangian Models of PDEs via Euler–Lagrange Residual Minimization 
+
+Lyra Zhornyak 
+
+University of Pennsylvania 
+
+zhornyak@seas.upenn.edu 
+
+Eric Forgoston 
+
+Montclair State University 
+
+eric.forgoston@montclair.edu 
+
+M. Ani Hsieh 
+
+University of Pennsylvania 
+
+mya@seas.upenn.edu 
+
+# Abstract 
+
+We present the first method to directly use a learned continuous Lagrangian to fore-cast the dynamics of systems governed by partial differential equations, exploiting the inherent conservative structure to achieve stable long-range predictions. We de-velop an optimization-based integrator that minimizes the squared Euler–Lagrange residual via a mesh-free near-symplectic construction on local space-time patches. Different from integrators for analytical models, integrators for learned models should decouple model error (phase error) from integration error (conservation error). By relying on optimization rather than time-stepping, we bypass the global coupling inherent to fixed discretizations, which slows time- and space-stepping and complicates learning. Our method scales linearly with domain size via Jacobi iteration, and places no structural requirements on the learned network, allowing it to be coupled with existing physics-guided machine learning (ML) methods. We validate our approach on a learned representation of a double pendulum, a one-dimensional wave equation, and a two-dimensional wave equation. Our method achieves error comparable to classical symplectic methods while generalizing to spatially varying dynamics and arbitrary boundary conditions without retraining. 
+
+# 1 Introduction 
+
+Dynamical systems are mathematical models that describe how a system evolves over time, typically specified by a state space and a set of rules governing how the states change over time and space. Estimating dynamical systems models from data is challenging because the dynamics are often nonlinear and high-dimensional, making it difficult to identify both the model structure and parameters from noisy, sparse, or partially observed time series measurements of system states. Nevertheless, modern approaches like physics-informed/guided or structure preserving machine learning have significantly improved our ability to model and capture complex dynamics from data [Thuerey et al., 2021]. In recent years, neural networks have successfully been used to learn Hamiltonians [Greydanus et al., 2019], Lagrangians [Cranmer et al., 2020, Lutter et al., 2019], and dynamics directly from data [Sanchez-Gonzalez et al., 2020, Chen et al., 2018]. Yet while these models capture the underlying physics with increasing accuracy, strikingly little attention is paid to how these models are used 
+
+for tasks where forward integration plays a central role, e.g. , forward simulation, prediction and forecasting, estimation and filtering. This oversight matters because forecasting a system’s behavior places different demands on the learned model than finding a solution does. While these two uses are closely related — knowing how to produce a good local solution does help forecasting — their objectives are distinct: solving 
+
+demands local accuracy and sensitivity to the equations, while forecasting demands stability and bounded long-term error. For systems that conserve energy (waves, vibrations, orbits, etc.), this distinction is particularly important as even small per-step errors compound over long simulations, eventually producing solutions that violate conservation laws and become physically meaningless. 
+
+> Preprint.
+> arXiv:2605.07157v1 [cs.LG] 8 May 2026
+
+Existing work has predominantly focused on producing better and better models of the dynamics, implicitly assuming that forecasting errors can be overcome by either more training or specialized architectures. This assumption fails most severely for chaotic systems and systems defined by partial differential equations (PDEs). Accumulated errors can violate the structure of the system, pushing a trajectory outside of the stable, learned regime, thereby causing a catastrophic failure in the prediction. Classical numerical analysis has long known that preserving structure can matter as much as per-step accuracy. For Hamiltonian and Lagrangian systems, symplectic integrators trade local fidelity for energy conservation and long-term stability [Reich, 1999, Marsden and West, 2001]. Despite this, most learned-physics methods treat the integrator as an implementation detail. Motivated by this gap, we introduce Euler–Lagrange Minimization (ELM), the first variational integrator designed for learned continuous Lagrangian models of PDEs. Prior work on learned variational integrators has been limited to finite-dimensional systems [Sæmundsson et al., 2020]. ELM extends to multidimensional field theories by evaluating the Euler–Lagrange residual on Hermite-interpolated space-time patches and minimizing the residual locally via Newton iteration. The local construction maintains linear scaling with domain size by avoiding a coupled, global solution process, and the optimization-based framing naturally incorporates boundary conditions through constraints on the optimized variables. When the residual is driven to zero, the integrator becomes symplectic, inheriting the long-term energy conservation of classical variational integrators. Beyond twice-differentiability of the learned Lagrangian, ELM imposes no structural constraints. We validate and demonstrate the performance of ELM on three systems of increasing dynamical complexity: a chaotic double pendulum, where ELM achieves energy drift comparable to state-of-the-art symplectic methods; the one-dimensional (1D) wave equation, where a learned Lagrangian density outperforms Lagrangian Neural Networks [Cranmer et al., 2020] in both accuracy and compute time; and the two-dimensional (2D) wave equation, where (to the best of our knowledge) ELM provides the first forward simulation of a 2D PDE using a learned continuous Lagrangian density. By not preemptively discretizing space, ELM allows models trained on homogeneous domains to produce, without modification, physically correct reflection, transmission, and interference effects for spatially varying dynamics and new boundary conditions. We provide a summary of related work in Section 2 and describe our methodology and conditions for symplecticity in Section 3. Section 4 demonstrates the near-symplectic behavior on all three systems and we conclude with a discussion on limitations and future directions in Section 5. 
+
+# 2 Related Work 
+
+Operator Methods for Differential Equations The most conceptually straightforward method for learning a dynamical system might be directly modelling the underlying equations. Physics-Informed Neural Networks [Raissi et al., 2019], for example, adds the residual of the governing equation applied to the network outputs as a loss term. However, this approach often requires strong prior knowledge on the function being learned to ensure training is successful [Krishnapriyan et al., 2021]. To bypass these limitations and to enable more general models, one can alternatively learn a map to an operator space where solutions are more easily found. Some examples include DeepONet [Lu et al., 2021], which uses a branch-trunk architecture to map the input and output to a common space; Fourier Neural Operators [Li et al., 2021], which learns operators using truncated Fourier modes to achieve resolution invariance; and other physics-informed operator learning variants such as PI-DeepONet [Wang et al., 2021] and PINO [Li et al., 2024]. Operator-based methods rely on a strict definition of the domain and are highly structured. To learn local physical laws and allow for arbitrary domains, graph neural network approaches such as Graph Network Simulators [Sanchez-Gonzalez et al., 2020] and MeshGraphNets [Pfaff et al., 2021] have successfully been shown to represent classical numerical schemes such as finite-differences [Brandstetter et al., 2022]. While these methods are effective on a wide variety of problems, none of them encode or preserve the conservation laws of the systems they model. As such, even small per-step errors in integration will accumulate and eventually violate fundamental conservation laws. Post-hoc remedies such as filtering can suppress some high-frequency error [Lippe et al., 2023], but do not address the structural cause of the drift. This limitation is not just architectural; these methods implicitly fuse the dynamics with their integrator, motivating efforts to instead learn the variational structure from which the dynamics arise. 2Structure-Preserving Learning Variational mechanics, by contrast, considers the whole trajectory rather than any individual point. Conserved quantities thus manifest as structural symmetries of the governing functions, e.g. a Lagrangian or a Hamiltonian. These functions can either be learned directly, as in Hamiltonian [Greydanus et al., 2019] and Lagrangian Neural Networks (LNN) [Cranmer et al., 2020], or used as the basis for designing the structure of the network, as in DeLaN [Lutter et al., 2019] and constrained formulations [Finzi et al., 2020] (see Yu and Wang [2024] for a broader survey). In most cases, the method to produce long-horizon forecasts, i.e. the integrator, is barely considered [Chen et al., 2020]. Existing works that explicitly preserve structure apply only to systems governed by ODEs [Sæmundsson et al., 2020] or rely on fixed spatial discretizations. Offen and Ober-Blöbaum [2024] learn a discrete Lagrangian for a prescribed discretization which leads to an implicit update scheme that may couple all nodes into a single global solve. This is computationally expensive and can be numerically unstable, limiting this method to only 1D PDEs. By assuming that the grid is regular, FS-HNN [Li et al., 2026] extends structure-preserving approaches to two dimensions by combining a learned Hamiltonian functional (via DeepONet) and a learned convolutional kernel. FS-HNN is not symplectic, however, and achieves energy conservation by projecting the operator onto a skew-symmetric subspace. With ELM, we instead use learned continuous Lagrangian densities independent of the boundary conditions and discretization. The near-symplectic construction improves energy conservation by orders of magnitude over long time horizons. 
+
+Classical Variational Integrators Variational integrators, derived directly from the discrete Eu-ler–Lagrange equations, are symplectic by construction [Marsden and West, 2001]. For PDEs that arise from field theories, this construction extends to multisymplectic integrators that preserve the underlying geometric structure [Marsden et al., 1998]. The long-time numerical stability of these multisymplectic integrators has been proven over exponential time scales [Reich, 1999, Hairer et al., 2006] where the computed energy of the system oscillates around its true value rather than accumu-lating error. The accuracy of a variational integrator depends on how well the discrete Lagrangian approximates the continuous one. Leok and Shingel [2012] and Hall and Leok [2015] demonstrate a Galerkin approach, approximating trajectories with a finite-dimensional function space, that can achieve arbitrarily high integration order. On this foundation, our ELM method can be understood as a Galerkin-style variational integrator specifically designed for learned Lagrangian field theo-ries. Whereas classical variational integrators minimize a discrete action constructed from a known Lagrangian, ELM minimizes the squared Euler–Lagrange residual on space-time patches using a learned Lagrangian, evaluated at a set of quadrature points. When this residual is zero, the integrator inherits the symplectic guarantees of classical theory. In practice, we oversample the quadrature (using more points than required for symplecticity), trading exact symplecticity for stability of the patch solver and robustness to imperfections in the learned Lagrangian. 
+
+# 3 Methodology 
+
+Given a configuration manifold Q and coordinate space X ⊆ Rn+1 , suppose we have a learned map from the tangent bundle 1 L : T Q → R. We want to find the path q : X → Q such that the action 
+
+S[q] = 
+
+Z
+
+> X
+
+L(q(ξ), q ξ0 (ξ), . . . , q ξn (ξ)) d X (1) is stationary, where ξ = ( ξ0, . . . , ξ n) ∈ X and qξi = ∂q/∂ξ i. In Lagrangian mechanics, L is the Lagrangian density and S is the action. As an example, for the 1D wave equation, L(q, q t, q x) =  
+
+> 12
+
+μ q 2 
+
+> t
+
+− 12 c2q2
+
+> x
+
+. For simplicity, this methodology is formulated assuming a PDE with one spatial and one temporal dimension ( (t, x ) ∈ X = R2). However, the formulation for ODEs and higher-dimensional PDEs proceeds in an identical manner. Standard variational methods discretize the action S[q] to form an integrator. This requires symbolic manipulation of L and so is not possible for learned Lagrangians. ELM is an optimization-based integrator designed for learned models, constructed at three scales (Figure 1). A local, pointwise residual measuring the deviation from the learned dynamics (Section 3.1) defines the error induced by a path approximated from a finite set of nodes (Section 3.2). Starting from an initial guess, a damped Newton solve swept via Jacobi iteration across multiple overlapping patches advances the global state without a coupled solve (Section 3.3). Constructed on variational principles, this integrator is symplectic when the residual vanishes and near-symplectic in practice (Section 3.4).   
+
+> 1More precisely, the first jet bundle J1(X, Q )for PDEs.
+
+3Global 
+
+Patch 
+
+Local                                   
+
+> Prior
+> {q(ti,x j)}
+> Next
+> {q(ti+1 ,x j)}
+> Learned Lagrangian
+> L(q, q t, q x, . . . )
+> Estimate
+> γ(0) (ti+1 , x j)
+> Newton Refine
+> γ(k+1) =γ(k)−λ(∇2
+> γJ)−1∇γJ
+> Patch Error
+> J(Q,X)≈∑nω i=1 ωiR2[ˆ q|(˜ti,˜xi)]
+> Interpolate
+> Fθ=Q
+> ˆq(s) = ∑
+> iθifi(s)
+> EL Residual
+> R2=
+> (∂L
+> ∂q −ddt∂L
+> ∂q t−ddx∂L
+> ∂qx
+> )2
+> Sample
+> evaluate at nωpoints
+> ×nr
+> ˆqR2
+> J, ∇γJ, ∇2
+> γJ
+
+Figure 1: The construction of ELM at three scales. Local : the squared Euler–Lagrange residual R2
+
+is computed from the learned Lagrangian L and evaluated at nω quadrature points. Patch : Hermite interpolation fits a set of basis functions to known node states to form ˆq. The resulting residuals are summed to form the patch error J. Global : an initial estimate γ(0) is refined by damped Newton iteration using J; iterating nr times around the loop advances the solution by one time step. 
+
+3.1 Local Residual 
+
+Suppose we have some variation δq from the true path q such that δq = 0 on the boundary of the integration domain. Since S[q] is a functional, a necessary condition for a minimum to exist is when its first variational derivative, δS , equals zero: 
+
+δS =
+
+Z Z  ∂L
+
+∂q − ddt∂L
+
+∂q t
+
+− ddx∂L
+
+∂q x
+
+
+
+δq dt dx = 0 
+
+Since δq can be any function, by the Fundamental Lemma of the calculus of variations, δS = 0 only when the quantity in the brackets is zero everywhere on X. We denote this term as R:
+
+R[q | (t, x )] ≡
+
+ ∂L
+
+∂q − ddt∂L
+
+∂q t
+
+− ddx∂L
+
+∂q x
+
+
+
+> (t,x )
+
+. (2) 
+
+R = 0 is the Euler-Lagrange equation. Given an approximate path ˆq, the squared Euler–Lagrange residual R2[ˆ q | (t, x )] is a measure of the deviation from the dynamics represented by L.
+
+3.2 Patch Error 
+
+Suppose we have a set of m coordinates and a set of corresponding field values and their derivatives: 
+
+X = [ ( t1, x 1) . . . (tm, x m) ] ,
+
+Q = [ q(t1, x 1) qt(t1, x 1) qx(t1, x 1) qtx (t1, x 1) q(t2, x 2) qt(t2, x 2) . . . ] .
+
+For a set of 4m linearly independent functions F = {f1, . . . , f 4m}, we construct a Hermite interpo-lation ˆq by fitting F to the data. The interpolation coefficients θ ∈ R4m are found by solving 
+
+h
+
+f1(X ) ∂f 1(X )   
+
+> ∂t ∂f 1(X)
+> ∂x ∂2f1(X)
+> ∂t∂x
+
+f2(X ) ∂f 2(X ) 
+
+> ∂t
+
+. . . 
+
+iT
+
+θ = Q. (3) The resulting best fit function is denoted as ˆq = P4mi=1 θifi.We define the residual accumulated by this interpolation as the patch error: 
+
+J(Q, X ) ≡
+
+Z Z  
+
+> Conv( X)
+
+R2[ˆ q | (t, x )] d t dx ≈
+
+> nω
+
+X
+
+> i=1
+
+ωiR2 ˆq  eti, exi
+
+ , (4) where Conv( X ) is the convex hull of X , from which we select nω points (et, ex) and associated weights ω. Throughout this work, we assume a monomial basis (e.g. 1, x, x 2, ... ) for simplicity. 43.3 Global Integrator 
+
+To advance the solution by one time step, we seek the node γ ∈ T Q at a new coordinate η ∈ X that minimizes the patch error given the known states. This defines the integrator G:
+
+G(Q, X , η ) ≡ arg min  
+
+> γ
+
+J([ Q; γ], [X ; η]) . (5) While this minimization can be implemented in a variety of ways, we use damped Newton iteration for simplicity. Given an initial guess γ(0) extrapolated from previous time steps, the update is 
+
+γ(k+1) = γ(k) − λ
+
+
+
+∇2
+
+> γ
+
+
+
+J(γ(k))
+
+ −1
+
+∇γ
+
+
+
+J(γ(k))
+
+
+
+, (6) where λ ∈ (0 , 1] is a damping parameter. The choice of damping parameter is highly dependent on the patch overlap and the dynamical coupling of the system; for ODEs, λ = 1 is typically fine, whereas for 2D PDEs, λ = 0 .5 is often needed. The number of required iterations, by contrast, is mostly dependent on the behavior of the system near the minimum and the selection of λ.
+
+3.4 Near-Symplecticity 
+
+Given a system whose dynamics are governed by an ODE and whose Lagrangian is given by L(q, q t),we employ the Gauss–Legendre (GL) quadrature on nω points, which exactly integrates polynomials up to degree 2nω − 1. We define the discrete action on the patch [t0, t 1] as 
+
+Sd(q(t0), q t(t0), q (t1), q t(t1)) ≡
+
+> nω
+
+X
+
+> i=1
+
+ωi L(ˆ q(eti), ˆqt(eti)) .
+
+Unlike classical discrete methods that advance q ∈ Q, ELM advances a state (q, q t) on the tangent bundle T Q . From this state, the momentum is given by p = ∂L 
+
+> ∂q t
+
+and the differential of the discrete action can be expressed as 
+
+dSd = p(t1) d q(t1) − p(t0) d q(t0) + 
+
+> nω
+
+X
+
+> i=1
+
+ωi R[ˆ q|eti] dˆ q(eti) + O(∆ t2nω +1 ). (7) We refer the interested reader to Appendix A for the full derivation. Assume that the Newton iteration in Equation (6) converges such that J = 0 . Since J is the sum of the squared residuals and R2 ≥ 0, this requires that R = 0 at each GL quadrature point and thus Equation (7) reduces to dSd = p(t1) d q(t1) − p(t0) d q(t0). Under these conditions, the corresponding update can be represented by a type-1 generating function [Marsden and West, 2001] to within GL quadrature error and thus ELM is symplectic. In Section 4.1, we verify that, with the appropriate choice of quadrature, J can be driven to within machine precision of 0. Specifically, 
+
+nω = 2 is chosen for ODEs to produce a symplectic integrator of order 2nω = 4 .In principle, the argument on symplecticity above could be extended to PDEs. In practice, a larger 
+
+nω is needed to ensure that the Jacobi iteration is stable. This oversampling prevents J from reaching 
+
+0 except in edge cases where q ∈ span F. Since ELM is an optimization-based integrator with a symplectic construction, we refer to ELM as being near-symplectic . We leave the bounding of the convergence of the Newton iteration and the backward error analysis for future work. 
+
+# 4 Experiments 
+
+4.1 Double Pendulum 
+
+We first verify that ELM’s symplectic structure for ODEs holds in practice. Consider the chaotic double pendulum, governed by a nonlinear ODE. Its coupled dynamics and complicated Lagrangian make it a standard benchmark for long-horizon rollouts. Figure 2 shows the relative energy error over the full trajectory on a log-log scale. We compare ELM against four standard integrators using an LNN-style estimate for qtt with the same underlying learned model of the system. The non-symplectic methods (the classical Runge–Kutta (RK4) and Dormand–Prince) result in continual and steady energy accumulation. In contrast, symplectic methods conserve a discrete Hamiltonian, so while they do oscillate, they remain bounded over long time-scales. We see in the figure that ELM matches the fourth-order Gauss–Legendre Runge–Kutta method (GLRK, Hairer et al., 2006) since ELM is also a fourth-order symplectic method (when optimized over two GL points). 5Figure 2: Relative error in energy |Et − E0|/E 0 over 100 ,000 s for a double pendulum with initial angles q1 = 3π 
+
+> 7
+
+and q2 = 3π 
+
+> 4
+
+. The double pendulum has an analytical Lagrangian L = ˙ q21 + 12 ˙q22 +˙q1 ˙q2 cos( q1 − q2) + 2 cos q1 + cos q2. Results are shown for ELM and for four classical integrators using an LNN-style estimate for the acceleration. All methods share the same learned Lagrangian. Faint lines are the raw values while bold lines show a moving average to remove the oscillations characteristic of symplectic integrators. 
+
+4.2 1D Wave Equation 
+
+Having shown the symplectic underpinnings of ELM for ODEs, we now demonstrate the strength of ELM as a mesh-free, near-symplectic integrator that allows learned Lagrangian density models to be applied to PDEs for the first time. We compare the LNN wave model [Cranmer et al., 2020] against ELM on a 1D wave equation, both using learned Lagrangians of equivalent Multilayer Perceptron (MLP) architectures. LNN learns a discrete Lagrangian on a fixed discretization and integrates all nodes as a single ODE. Different from LNN, ELM learns the continuous Lagrangian density and integrates the learned Lagrangian using the methodology described in Section 3. Over 10 ,000 s, the behavior of the two methods sharply diverges (Figure 3). Even at the coarsest settings, using only 21 spatial nodes, Figure 3a shows how ELM maintains discernible and symmetric wavefronts over longer periods while LNN devolves sooner. Figure 3b shows several orders of magnitude improvement in energy conservation, and the snapshots in Figure 3c demonstrate the increased spatial fidelity of ELM. Both improve as the number of nodes increases and time step size decreases. In contrast, the fixed error induced by the learned discretization in LNN leads to diminishing returns when using smaller step sizes. This highlights a major advantage of learning a continuous Lagrangian: we separate model errors from integration errors. Since every well-conditioned learned Lagrangian is a valid Lagrangian and represents some dynamics, the error in the learned model can only contribute to phase error while all energy drift is attributable to the integrator. Some additional results and discussion are provided in Appendix D, including heatmaps for the exact solution and additional integrators, plus the relative L2 error over the full 10 ,000 s. 
+
+4.3 2D Wave Equation 
+
+To enable ELM to integrate systems of higher dimensions, only mechanical changes are needed: the basis functions must incorporate the new coordinate and one must integrate over it. Otherwise, everything proceeds identically. Unlike the periodic boundaries used for the 1D wave equation, the 2D wave equation is simulated in a box with Dirichlet boundary conditions, q = 0 . On boundary nodes, q is fixed and only the spatial derivatives are optimized, using the nearest complete patch; this leaves q = 0 as a hard constraint. 6(a) Spatio-temporal heatmaps of wave amplitude, showing the first ∼20 and the last ∼10 periods.          
+
+> (b) Relative error in energy |Et−E0|/E 0.(c) Spatial profile q(x)at t= 1000 s.
+
+Figure 3: (a) Wave amplitude heatmaps, (b) relative error in energy, and (c) spatial profile for the 1D wave equation qtt = 0 .05 qxx , with periodic boundary conditions, and a Gaussian initial condition. LNN uses a velocity-Verlet integrator with two time-step sizes. ELM is shown at three spatio-temporal resolutions. Parameters for each method and training procedure are listed in Appendices B and C. Figure 4 compares ELM against a Fourier Neural Operator (FNO, Li et al., 2021) and PDE-Refiner [Lippe et al., 2023] over 1,000 s. The center-node trace (Figure 4a) shows that ELM tracks the analytical ground truth with only minor phase drift and energy loss, while both FNO and PDE-Refiner have identifiable drift within the first 20 s. The energy drift shown in Figure 4b tells a similar story. While PDE-Refiner fails more gracefully than FNO, it still devolves into a non-physical global oscillation seen in Figure 4c. ELM achieves better overall accuracy and energy conservation with 
+
+40 ,000 × fewer model parameters than PDE-Refiner. The L 2 error is provided in Appendix E. To the best of our knowledge, this is the first work to simulate a PDE with two spatial dimensions using a learned Lagrangian density over long time-horizons. 
+
+4.4 Emergent Boundary Effects 
+
+Both PDE results used identical boundary conditions in training as in inference. Since learned contin-uous Lagrangians are pointwise, models compose and transfer to new domains without retraining. We first demonstrate this in 1D. Suppose we have two learned Lagrangians independently trained on separate homogeneous media with different wave speeds and we want to explore what happens when they are abutted. Here, we represent the transition as a sharp sigmoid blend between the two Lagrangians at x = 1 . Figure 5a shows the result: the wave partially reflects and partially transmits at the interface, exactly as waves behave when they hit an impedance barrier. Compared to the analytical solution with a step boundary, the learned model accumulated only ∼1% energy drift over 20 s, with stable behavior at the interface. The domain edges use homogeneous Neumann boundary conditions. 7(a) Center-node displacement q(0 , 0, t ) showing ∼5 sbefore FNO diverges and the last ∼3 s simulated.                 
+
+> (b) Relative energy error |Et−E0|/E 0. Faded lines are raw values; bold lines show a moving-average.
+> (c) Spatial snapshots q(x, y )at t= 0 ,1,10 ,100 ,1000 s. Top: eigenmode ground truth. Middle: PDE-Refiner. Bottom: ELM. FNO is omitted as it diverges by t∼22 s.
+
+Figure 4: (a) Center amplitude, (b) relative energy error, and (c) spatial snapshots in time for the 2D wave equation qtt = qxx + qyy , using a 31 × 31 grid with Gaussian initial condition, and Dirichlet boundary conditions over 1,000 s ( ∼350 periods of the fundamental mode). ELM uses a learned Lagrangian density; FNO and PDE-Refiner are autoregressive baselines on a 64 × 64 grid. The eigenmode ground truth is found using a 50 × 50 mode decomposition. Parameters for each method and training procedure are listed in Appendices B and C. The same flexibility extends to 2D. Figure 5b shows the mean energy over time when a driven wave hits a barrier with two slits, producing interference fringes whose y-positions are within 0.083 of those predicted by theory. This example has three types of boundary conditions: a sinusoidally driven input on one edge, an internal wall with Dirichlet boundary conditions, and absorbing boundaries on all others. Unlike the prior results, this configuration has driven and absorbing edges, so results demonstrate steady-state behavior. This uses the identical model from Section 4.3; barriers, slits, and driven boundaries are enforced purely through constraints on the degrees of freedom (see Appendix F). The operator baselines of Section 4.3 have no comparable method for transferring to this domain. 8(a) Spatio-temporal heatmap of a wave traversing a sigmoid impedance interface at x = 1 (dashed line). 
+
+> (b) Time-averaged energy density for a driven wave hitting two slits, demonstrating interference.
+
+Figure 5: Demonstrations of (a) partial reflection and (b) diffraction and interference. Both panels use models trained only on homogeneous data with simple boundary conditions. Boundary effects are realized purely through the spatial variation of the Lagrangian or constraints on degrees of freedom. In Figure (b), the theoretical minima for the fringes in this setup are shown as blue tick marks. 
+
+# 5 Discussion and Conclusion 
+
+We have presented Euler-Lagrange Minimization (ELM), a novel, near-symplectic integrator that uses learned Lagrangians for forward simulation of ODE and PDE systems. Conceptually, ELM separates what a system’s physics are (the Lagrangian density) from how to simulate them (the variational integrator). ELM achieves this through a construction at three scales: the local squared Euler-Lagrange residual which measures deviation from the learned dynamics, a patch error which describes the error induced by a finite basis over known states, and a minimization of this error via damped Newton iteration. When the residual reaches zero, the integrator is symplectic. When it does not, the integrator remains near-symplectic, maintaining orders of magnitude less energy drift over long rollouts compared to existing methods. For PDE systems, this is by design. We deliberately oversample the quadrature to trade exact symplecticity for the stability of the patch solver. Our results show that ELM achieves energy conservation comparable to the symplectic GLRK integrator for the chaotic double pendulum. On 1D waves, ELM outperforms LNN at similar computational cost and, unlike LNN, scales accuracy with resolution. ELM also constitutes the first simulation of a 2D PDE using a learned Lagrangian density, outperforming operator baselines with orders of magnitude fewer parameters. More broadly, ELM avoids baking discretization into the learned model, so accuracy and compute can be traded at inference time. A further consequence of pairing a learned continuous Lagrangian with local optimization is that models compose and transfer across domains without retraining. Spatial variation in the Lagrangian produces physically correct reflection and transmission at impedance interfaces; constraints on degrees of freedom realize Dirichlet, Neumann, driven, and absorbing boundaries through the same integrator. The identical model used for the homogeneous 2D wave produces double-slit interference when given a barrier and a driven edge. Operator-based methods, which fuse dynamics with discretization, cannot transfer this way. By not leaving the integrator as an implementation detail, a single trained model behaves as a physics primitive. Several limitations remain. ELM is currently more expensive per time step than standard integrators, particularly for the ODE case where symplectic methods are already available. The Jacobi sweep converges slowly for strongly-coupled systems, particularly in higher-dimensional PDEs where patches naturally overlap more. Finally, ELM currently accepts only Lagrangian densities with up to first derivatives, excluding systems such as beam mechanics. None of these limitations require rethinking the local optimization framework to address. Extending ELM to dissipative systems, higher-order field theories, and adaptive mesh refinement are natural directions for future work. Taken together, the results of this paper argue that the integrator deserves the same care as the model to achieve flexible physics-learning systems. ELM offers a starting point for learned models that can be deployed, constrained, and combined at inference time rather than retrained per scenario. 9References 
+
+J. Bradbury, R. Frostig, P. Hawkins, M. J. Johnson, Y. Katariya, C. Leary, D. Maclaurin, G. Necula, A. Paszke, J. VanderPlas, S. Wanderman-Milne, and Q. Zhang. JAX: composable transformations of Python+NumPy programs, 2018. URL http://github.com/jax-ml/jax .J. Brandstetter, D. E. Worrall, and M. Welling. Message passing neural PDE solvers. In International Conference on Learning Representations (ICLR) , 2022. R. T. Q. Chen, Y. Rubanova, J. Bettencourt, and D. Duvenaud. Neural ordinary differential equations. In Advances in Neural Information Processing Systems (NeurIPS) , pages 6571–6583, 2018. Z. Chen, J. Zhang, M. Arjovsky, and L. Bottou. Symplectic recurrent neural networks. In International Conference on Learning Representations (ICLR) , 2020. M. Cranmer, S. Greydanus, S. Hoyer, P. Battaglia, D. Spergel, and S. Ho. Lagrangian neural networks. In ICLR 2020 Workshop on Integration of Deep Neural Models and Differential Equations , 2020. arXiv:2003.04630. M. Finzi, K. A. Wang, and A. G. Wilson. Simplifying Hamiltonian and Lagrangian neural networks via explicit constraints. In Advances in Neural Information Processing Systems (NeurIPS) , 2020. S. Greydanus, M. Dzamba, and J. Yosinski. Hamiltonian neural networks. In Advances in Neural Information Processing Systems (NeurIPS) , pages 15353–15363, 2019. E. Hairer, C. Lubich, and G. Wanner. Geometric Numerical Integration: Structure-Preserving Algorithms for Ordinary Differential Equations , volume 31 of Springer Series in Computational Mathematics . Springer, Berlin Heidelberg, 2 edition, 2006. doi: 10.1007/3-540-30666-8. J. Hall and M. Leok. Spectral variational integrators. Numerische Mathematik , 130(4):681–740, 2015. doi: 10.1007/s00211-014-0679-0. A. U. Hamzaogullari and A. Ozakin. Learning relativistic geodesics and chaotic dynamics via stabilized Lagrangian neural networks. arXiv preprint arXiv:2601.12519 , 2026. doi: 10.48550/ arXiv.2601.12519. P. Kidger and C. Garcia. Equinox: neural networks in JAX via callable PyTrees and filtered transformations. Differentiable Programming workshop at Neural Information Processing Systems 2021 , 2021. A. S. Krishnapriyan, A. Gholami, S. Zhe, R. M. Kirby, and M. W. Mahoney. Characterizing possible failure modes in physics-informed neural networks. In Advances in Neural Information Processing Systems (NeurIPS) , volume 34, 2021. M. Leok and T. Shingel. General techniques for constructing variational integrators. Frontiers of Mathematics in China , 7(2):273–303, 2012. doi: 10.1007/s11464-012-0190-9. Y. Li, Y. Yang, and C. Allen-Blanchette. Frequency-separable Hamiltonian neural network for multi-timescale dynamics. arXiv preprint arXiv:2603.06354 , 2026. Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anandkumar. Fourier neural operator for parametric partial differential equations. In International Conference on Learning Representations (ICLR) , 2021. Z. Li, H. Zheng, N. Kovachki, D. Jin, H. Chen, B. Liu, K. Azizzadenesheli, and A. Anandkumar. Physics-informed neural operator for learning partial differential equations. ACM / IMS Journal of Data Science , 1(3):1–27, 2024. doi: 10.1145/3648506. P. Lippe, B. S. Veeling, P. Perdikaris, R. E. Turner, and J. Brandstetter. PDE-Refiner: Achieving accurate long rollouts with neural PDE solvers. In Advances in Neural Information Processing Systems (NeurIPS) , 2023. L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence , 3: 218–229, 2021. doi: 10.1038/s42256-021-00302-5. 10 M. Lutter, C. Ritter, and J. Peters. Deep Lagrangian networks: Using physics as model prior for deep learning. In International Conference on Learning Representations (ICLR) , 2019. J. E. Marsden and M. West. Discrete mechanics and variational integrators. Acta Numerica , 10: 357–514, 2001. doi: 10.1017/S096249290100006X. J. E. Marsden, G. W. Patrick, and S. Shkoller. Multisymplectic geometry, variational integrators, and nonlinear PDEs. Communications in Mathematical Physics , 199:351–395, 1998. doi: 10.1007/ s002200050505. G. Mur. Absorbing boundary conditions for the finite-difference approximation of the time-domain electromagnetic-field equations. IEEE transactions on Electromagnetic Compatibility , (4):377–382, 1981. C. Offen and S. Ober-Blöbaum. Learning of discrete models of variational PDEs from data. Chaos ,34(1):013104, 2024. doi: 10.1063/5.0172287. T. Pfaff, M. Fortunato, A. Sanchez-Gonzalez, and P. W. Battaglia. Learning mesh-based simulation with graph networks. In International Conference on Learning Representations (ICLR) , 2021. Outstanding Paper Award. M. Raissi, P. Perdikaris, and G. E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. doi: 10.1016/j.jcp.2018.10.045. S. Reich. Backward error analysis for numerical integrators. SIAM Journal on Numerical Analysis ,36(5):1549–1570, 1999. doi: 10.1137/S0036142997329797. S. Sæmundsson, A. Terenin, K. Hofmann, and M. P. Deisenroth. Variational integrator networks for physically structured embeddings. In International Conference on Artificial Intelligence and Statistics (AISTATS) , 2020. A. Sanchez-Gonzalez, J. Godwin, T. Pfaff, R. Ying, J. Leskovec, and P. W. Battaglia. Learning to simulate complex physics with graph networks. In International Conference on Machine Learning (ICML) , 2020. N. Thuerey, B. Holzschuh, P. Holl, G. Kohl, M. Lino, Q. Liu, P. Schnell, and F. Trost. Physics-based deep learning. arXiv preprint arXiv:2109.05237 , 2021. Book, 461 pages. Web version: physicsbaseddeeplearning.org. S. Wang, H. Wang, and P. Perdikaris. Learning the solution operator of parametric partial differential equations with physics-informed DeepONets. Science Advances , 7(40):eabi8605, 2021. doi: 10.1126/sciadv.abi8605. R. Yu and R. Wang. Learning dynamical systems from data: An introduction to physics-guided deep learning. Proceedings of the National Academy of Sciences , 121(27):e2311808121, 2024. 11 A Deriving the Generating Function 
+
+Our goal is to relate the differential of the discrete action dSd to the Euler-Lagrange residual R.
+
+Lemma 1. The differential of the Lagrangian dL can be expressed in terms of the residual R as 
+
+dL = R dq + ddt
+
+ ∂L
+
+∂q t
+
+dq
+
+
+
+.
+
+Proof. We proceed via product rule, noting that ddt dq = d qt:
+
+R dq + ddt
+
+ ∂L
+
+∂q t
+
+dq
+
+
+
+=
+
+ ∂L
+
+∂q dq − ddt∂L
+
+∂q t
+
+dq
+
+
+
++
+
+ ddt∂L
+
+∂q t
+
+dq + ∂L
+
+∂q t
+
+ddt dq
+
+
+
+= ∂L
+
+∂q dq + ∂L
+
+∂q t
+
+dqt
+
+= d L
+
+We now proceed in deriving the generating function form shown in Equation (7): 
+
+dSd =
+
+> nω
+
+X
+
+> i=1
+
+ωi dL
+
+= X ωiR dq + X ωi
+
+ddt
+
+ ∂L
+
+∂q t
+
+dq
+
+
+
+= X ωiR dq +
+
+Z t1
+
+> t0
+
+ddt
+
+ ∂L
+
+∂q t
+
+dq
+
+
+
+dt + O  ∆t2nω +1 
+
+= X ωiR dq + ∂L
+
+∂q t
+
+dq
+
+> t1
+> t0
+
++ O  ∆t2nω +1 
+
+= X ωiR dq + p(t1) d q(t1) − p(t0) d q(t0) + O  ∆t2nω +1  .
+
+Transitioning between each line, this is the result of the following steps: 1. Applying Lemma 1. 2. Using the standard approximation error of GL quadrature. 3. Applying the fundamental theorem of calculus. 4. Using the Legendre transformation to obtain the momenta pi.As discussed in Section 3.4, when R → 0 and the step size ∆t is sufficiently small, this means that the update induced by ELM can be represented by a type-1 generating function. Thus, it is symplectic. 12 B Computational Cost Summary 
+
+Table 1: Configuration, computational cost, and final energy drift for each method in Section 4. Methods sharing a letter in the Net column use the same architecture and the same trained weights. More details on architecture and training can be found in Appendix C. Computational cost excludes JIT compilation. The double pendulum experiments run on CPU (float64) while wave experiments run on GPU (float32).                                                                                                                                     
+
+> Method Net Params Nodes ∆tSteps ms/step Total |∆E/E 0|
+> Double pendulum (100,000 s; ELM nr=10 ,nω= 2 )
+> RK4 A
+> 163,604 —0.02 5,000,000 0.18 924 s 77% Dormand-Prince A—adaptive ——944 s 17% Implicit Midpoint A—0.02 5,000,000 0.41 2,072 s 3.4% GLRK A—0.02 5,000,000 0.76 3,815 s 0.065% ELM A—0.02 5,000,000 2.4 11,977 s 0.045%
+> 1D wave (periodic boundaries; 10,000 s; ELM nr= 3 ,nω= 3 in time and 6in space.)
+> LNN ∆t=0 .4B324,001 100 0.4 25,000 5.7 141 s 680% LNN ∆t=0 .1B100 0.1 100,000 5.5 549 s 1,680% ELM n=21 C
+> 322,801 21 0.4 25,000 9.4 235 s 21% ELM n=31 C31 0.2 50,000 9.6 481 s 5.2% ELM n=51 C51 0.1 100,000 15 1,500 s 1.9%
+> 2D wave (Dirichlet boundaries, 1,000 s; ELM nr= 20 ,nω= 3 in time and 5×5in space.)
+> ELM D3,521 31 ×31 0.02 50,000 968 48,400 s 19% PDE-Refiner E∼146M 64 ×64 0.02 50,000 26 1,300 s 271% FNO F138,301 64 ×64 0.02 50,000 2.9 145 s diverges ††NaN at t= 21 .9s; energy exceeds 10 36 before divergence.
+
+# C Training Procedures 
+
+The model and all surrounding code were implemented in JAX [Bradbury et al., 2018] and with the Equinox library [Kidger and Garcia, 2021]. Training and inference was performed on a single machine with an NVIDIA ® 5070 Ti. The remainder of this appendix begins by describing the training and execution for ELM across all systems. Descriptions of architecture and training data follow for each system examined in Section 4. These subsections also describe how comparison methods were trained, where appropriate. Networks are named in line with the Net column of Table 1. The remaining subsections provide some further discussion on the data requirements for training ELM. 
+
+C.1 Training ELM 
+
+The three ELM networks ( A, C, D) share a single training procedure. Each network minimizes the mean squared Euler–Lagrange residual ( R2) on a batch of pointwise samples, plus a small set of 
+
+gauge constraints that pin down the affine ambiguity of the Lagrangian. For ODEs, for any function 
+
+L(q, q t) which satisfies the Euler–Lagrange equations, the Lagrangian 
+
+L∗(q, q t) = AL(q, q t) + Bq t + C
+
+also satisfies the equations for any A, B, C ∈ R. A similar statement holds for PDEs. To counteract this ambiguity simply without affecting the solution space, a set of soft gauge constraints are added to the loss: 
+
+L = R2 +
+
+ ∂2L(0) 
+
+∂q 2
+
+> t
+
+− 1
+
+2
+
++
+
+ ∂L(0) 
+
+∂q t
+
+2
+
++ L(0) 2 (8) Combined, these gauge constraints seek to fix (A, B, C ) = (1 , 0, 0) . While R2 is evaluated across the batch, these gauge constraints only fix L at the origin. While this is sufficient for the wave equation, more complicated Lagrangians such as the double pendulum require additional assistance. 13 The first step of any ELM rollout requires the Hermite degrees of freedom at t = 0 :1. (q, q t) for the double pendulum. 2. (q, q t, q x, q xt ) for the 1D wave. 3. (q, q t, q x, q y , q xt , q yt , q xy , q xyt ) for the 2D wave. These can either be computed analytically from the closed-form initial condition or estimated from data, the same way a finite-difference solver seeds its initial half-step. No multi-frame warm-up is required. 
+
+C.2 Double-pendulum network (A) 
+
+Using the loss described by Cranmer et al. [2020], a generic MLP can learn the double-pendulum Lagrangian directly from (q, q t, q tt ) data. Let M (q) = ∂2L
+
+> ∂q 2
+> t
+
+be the mass matrix of the network. Then, the LNN acceleration can be computed as 
+
+qtt = M (q)−1
+
+ ∂L
+
+∂q − ∂2L
+
+∂q∂q t
+
+qt
+
+
+
+,
+
+whose difference against the acceleration in data is minimized during training. By taking the inverse of the mass matrix, this loss implicitly regularizes the network away from eigenvalues close to zero. Without this regularization, the gauge terms in Equation (8) are insufficient to prevent a collapse of the mass matrix in this system for a generic network. While one solution to this problem might be to either use the original LNN loss or apply more recent work on stabilizing LNN training [Hamzaogullari and Ozakin, 2026], to keep the training procedure simple and consistent we instead adopt a DeLaN inspired architecture for the double-pendulum only .The new model is defined as 
+
+L(q, q t) = 12 qTt M (q)qt − V (q),
+
+where M (q) is produced from a Cholesky factor and V (q) is a separate scalar head. The network reads 
+
+(sin q(t0), cos q(t0), sin q(t1), cos q(t1), q t(t0), q t(t1)) through three hidden layers of width 200 with Softplus activations. It is trained for 200 ,000 steps on 20 ,000 samples of (q, q t, q tt ) generated from the analytical double-pendulum Lagrangian, with angles drawn uniformly from [−π, π ] and angular velocities up to qmax  
+
+> t
+
+= 8 .The imposition of structure here is accepted for the following reasons: • We know that a generic MLP can learn a double pendulum and that the resulting model can be used here without modification. • All comparisons in Section 4.1 use the same network, so ELM does not gain any advantage. • As ELM represents a symplectic integrator, and since any learned Lagrangian represents some set of dynamics, the model error is separate from the integration error and does not compound. 
+
+C.3 1D wave networks (B, C) 
+
+Networks B and C share hidden-layer width and differ only in the number of inputs. B tries to learn the spatial discretization, while C is a strictly pointwise function. 
+
+LNN baseline (B). The architecture from Cranmer et al. [2020] consists of an MLP with three hidden layers of width 400 and Softplus activations, taking the 6-tuple 
+
+(q(t, x i−1), q (t, x i), q (t, x i+1 ), q t(t, x i−1), q t(t, x i), q t(t, x i+1 )) from a 3-node spatial stencil. This model was trained on 1D wave trajectories ( qtt = 0 .05 qxx with periodic boundary conditions) using the original code, with the best model from 200 random seeds returned. LNN training is unstable enough that only ∼5–10% of seeds converge to a test loss below 1.5. 14 ELM (C). Training samples are drawn from random superpositions of plane waves on the relevant domain (5 modes, wavenumbers are uniform in [−kbound , k bound ], frequencies are set by the linear dispersion relation ω = c|k|). All derivatives the loss touches are computed analytically from the closed-form superposition. Training was conducted with Adam with a cosine one-cycle schedule (learning rate 10 −3 → 0.2). The network is an MLP with three hidden layers of width 400 and Softplus activations, taking the 
+
+pointwise 3-tuple (q, q t, q x) at a single space-time point. The model was trained for 50 ,000 steps on 
+
+5,000 plane-wave samples ( kbound = 4 , c2 = 0 .05 ). Unlike the LNN model, only a single arbitrary seed was used. 
+
+C.4 2D wave networks (D, E, F) ELM (D). Training samples are drawn identically to the 1D wave case, only this time using a super position of 2D waves. The network is an MLP with two hidden layers of width 40 and Softplus activations, taking the pointwise 4-tuple (q, q t, q x, q y ) at a single space-time point. The model was trained for 100 ,000 steps on 10 ,000 plane-wave samples ( kbound = 6 , c2 = 1 ). 
+
+PDE-Refiner (E). A U-Net conditioned on a diffusion-step embedding, trained as a denoiser with 8 denoising steps and a 4-frame input history. The training data is 400 eigenmode-decomposed trajectories of the 2D wave on a 64 × 64 grid with ∆t = 0 .02 s. Half of this training data is a random superposition of modes, half is simulated initial Gaussian pulses. The model was trained for 400 epochs. 
+
+FNO (F). A standard Fourier Neural Operator, trained as a one-step predictor with a 10-frame input history. The training data is the same 400 eigenmode trajectories on 64 × 64 at ∆t = 0 .02 s, trained for 500 epochs. 
+
+Comparison of data requirements. The disparity between dataset sizes is worth quantifying. Network D sees 10 4 pointwise samples, each a 4-tuple of scalars, totalling 4 × 10 4 scalar values seen during training. Networks E and F each see 400 trajectories of length T on a 64 × 64 grid at 
+
+∆tsave = 0 .02 s, sliding the input/target window across each trajectory. With even a modest trajectory length of T = 1 this is on the order of 8 × 10 8 space-time scalar values per epoch, repeated for hundreds of epochs. ELM is trained on roughly five orders of magnitude less raw data, on a network up to five orders of magnitude smaller, and still produces the greater long time-horizon stability seen in Figure 4. 
+
+C.5 The cost of pointwise derivatives 
+
+ELM’s training data and initial state require pointwise field derivatives, which may seem more demanding than the dense regular-grid snapshots that autoregressive baselines ( E, F) consume. In practice, it is less so. ELM’s loss is strictly pointwise: training samples need not lie on a regular grid, share a coordinate frame, or be uniformly spaced. In principle, four sensors placed near to each other, sampled over sufficient time, produce all the data needed to train a model for ELM. This is the minimum needed to recover qxy. The autoregressive baselines, by contrast, are tied to a dense mesh for both training and rollout and require a multi-frame input history (4 frames for PDE-Refiner, 10 for FNO). All derivatives needed for ELM can be recovered from this data via standard finite-differences approximation. 
+
+# D Extended 1D Wave Comparison 
+
+Figures 6 and 7 extend Section 4.2 with the relative L2 error and full spatio-temporal heatmaps over the same 10 ,000 s problem ( qtt = 0 .05 qxx , periodic boundary conditions, Gaussian initial condition). In addition to the LNN and ELM-learned configurations of Figure 3, both figures include two compute-matched symplectic baselines on the same n=51 , ∆t=0 .1 discretization: GLRK and ELM-ODE. Both methods share the same fourth-order finite differences to compute spatial derivatives and both still use the same underlying learned Lagrangian. To use GLRK, a LNN-style estimate for the second time derivative is used. 15 ELM at all three resolutions mostly preserves wave structure for the full duration, with higher resolution producing sharper wavefronts. LNN at both time steps shows progressive amplitude decay and phase distortion, consistent with the energy drift reported in Figure 3. GLRK and ELM-ODE are virtually identical on the heatmap and L2 plot, once again validating the symplecticity of ELM on ODEs. These methods also show that much of the distortion exhibited by ELM on the various configs is the inherent phase error in the learned Lagrangian. On short time scales, the joint space-time optimization of ELM achieves lower L2 error than the space-discretized symplectic integrators. This suggests that minimizing on space-time patches avoids artifacts caused by fixed discretization. 
+
+Figure 6: Relative L2 error vs. exact solution over the full 10 ,000 s ( 224 periods) for the methods of Figure 3, plus the GLRK and ELM-ODE symplectic baselines. 
+
+# E Extended 2D Wave Comparison 
+
+Figure 8 extends Section 4.3 with the relative L2 error against the eigenmode ground truth over the full 1,000 s rollout. The qualitative result matches Figure 4b. ELM is the only method that stays below 10 0; PDE-Refiner saturates near 10 0, and FNO diverges before 30 s. 16 Figure 7: Spatio-temporal heatmaps q(x, t ) over 10 ,000 s ( 224 periods) extending Figure 3a. The figure shows the first ∼20 periods and the last ∼10 . Parameters for each method are listed in Appendix B. 
+
+Figure 8: Relative L2 error vs. eigenmode ground truth for the 2D wave over 1,000 s for the same system and methods as Figure 4. 17 F Boundary Condition Implementations 
+
+The experiments in Section 4 use five boundary conditions across the 1D and 2D wave equations. Table 2 lists the mathematical condition imposed at each boundary node and the section in which the boundary condition appears. In ELM, every boundary condition is realized by constraining a subset of the per-node variables before the Jacobi sweep; no boundary condition requires a change to the loss or to the integrator core. We implement the absorbing boundary as a Mur boundary condition [Mur, 1981]. This boundary requires an estimate of the wave speed in the medium. For a homogeneous medium, the wave speed can be estimated from the learned model as 
+
+ˆc2 = − ∂2L
+
+∂q 2
+
+> x
+
+ ∂2L
+
+∂q 2 
+
+> t0
+
+.
+
+As the boundary condition is used only to prevent boundary reflections from distorting the qualitative interference pattern, this requirement is acceptable. Table 2: Boundary conditions used in the experiments. For the periodic boundary, q⋆ indicates that all optimized variables are shared. For the Mur boundary, s = ±1 denotes the outward-normal sign (+1 for the right/top edges, −1 for left/bottom).                       
+
+> Name Condition Used in
+> Periodic q⋆(t, x 0) = q⋆(t, x N)Section 4.2 (1D wave) Dirichlet q= 0 Section 4.3, slit barrier in Section 4.4 Neumann qx= 0 Section 4.4 (1D impedance edges) Driven q=Asin( ωt )Section 4.4 (driven edge of double-slit) Mur qt+s c q x= 0 Section 4.4 (other three edges of double-slit)
+
+18

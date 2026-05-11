@@ -1,0 +1,946 @@
+Title: NSPOD: acceleratingthe convergence ofKrylov-based iterative linearsolvers via approximated PODs
+
+URL Source: https://arxiv.org/pdf/2605.07828v1
+
+Published Time: Mon, 11 May 2026 01:39:12 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# NSPOD: accelerating the convergence of Krylov-based iterative linear solvers via approximated PODs 
+
+## Francesc Levrero-Florencio a,∗, Youngkyu Lee b,∗, Jay Pathak c,∗∗ and George Em Karniadakis b,∗∗ 
+
+> a
+
+Synopsys UK Ltd, UK 
+
+> b
+
+Division of Applied Mathematics, Brown University, Rhode Island, USA 
+
+> c
+
+Synopsys Inc, California, USA 
+
+A R T I C L E I N F O 
+
+Keywords :Neural operators Linear iterative solvers Parametric PDEs Multigrid 
+
+A B S T R A C T 
+
+The convergence of Krylov-based linear iterative solvers applied to parametric partial differential equations (PDEs) is often highly sensitive to the domain, its discretization, the location/values of the applied Dirichlet/Neumann boundary conditions, body forces and material properties, among others. We have previously introduced hybridization of classical linear iterative solvers with neural operators for specific geometries, but they tend to not perform well on geometries not previously seen during training [47]. We partially addressed this challenge by introducing the deep operator network Geo-DeepONet and hybridizing it with Krylov-based iterative linear solvers [20], which, despite learning effectively across arbitrary unstructured meshes without requiring retraining, led to only modest reductions in iterations compared to state-of-the-art 
+
+preconditioners. In this study we introduce Neural Subspace Proper Orthogonal Decomposition (NSPOD), a multigrid-like deep operator network-based preconditioner which can dramatically reduce the number of iterations needed for convergence in Krylov-based linear iterative solvers, even when compared to state-of-the-art methods such as algebraic multigrid preconditioners. We demonstrate its efficiency via numerical experiments on a linearized version of solid mechanics PDEs applied to unstructured domains obtained from complex CAD geometries. We expect that the findings in this study lead to more efficient hybrid preconditioners that can match, or possibly even surpass, the convergence properties of the current gold standard preconditioning methods for solid mechanics PDEs. 
+
+## 1. Introduction 
+
+Numerical solutions of parametric elliptic partial differential equations (PDEs) are essential in real-world engineering applications. These solutions are obtained by applying a suitable numerical method to the corresponding PDEs, with the most commonly used numerical method being the finite element method (FEM), and then solving a potentially large system of linear equations [3, 8]. Depending on how large and complex the considered domain is, the number of nodes ( 𝑛 nod ) can be of the order of millions. For such large-scale problems direct methods are prohibitive as they do not scale well [18]. Efficient alternative methods for large sparse linear systems are those based on Krylov spaces [35, 39], such as conjugate gradients (CG) or the generalised minimal residual (GMRES) methods. However, the convergence of these methods is highly dependent on the condition number of the linear system’s matrix [35], which at the same time depends on the domain’s discretization. A domain with small and complex geometric features is likely to present large gradients in the discretization, thus resulting in a large condition number [4]. A widely used solution to improve the convergence of Krylov methods is to use a preconditioning strategy [35, 39]. There are many popular preconditioners, from the relatively simple Jacobi, Gauss-Seidel, incomplete LU (ILU), or successive over-relaxation (SOR) [27, 35, 46], to the more complex methods based on domain-decomposition [38] or multigrid (MG) techniques [40]. Relatively simple preconditioners such as ILU or SOR are utilized when there is no geometric information available. On the other hand, domain decomposition methods or MG methods are commonly employed when there is such geometric information available. Of particular interest for linear systems derived from PDEs are the MG methods due to their scalability and favorable computational complexity. MG methods are based on solving the underlying PDEs on a smaller subspace, e.g. a coarser mesh generated from the same geometry, and then use 
+
+> ∗
+
+These two authors contributed equally. 
+
+> ∗∗
+
+Corresponding authors 
+
+flevrero@synopsys.com (F. Levrero-Florencio); youngkyu_lee@brown.edu (Y. Lee); jpathak@synopsys.com (J. Pathak); 
+
+george_karniadakis@brown.edu (G.E. Karniadakis) 
+
+> ORCID
+
+(s): 
+
+Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 1 of 17 
+
+> arXiv:2605.07828v1 [math.NA] 8 May 2026 NSPOD
+
+this solution to improve the solution approximation from the finer mesh. State-of-the-art MG preconditioners may also lead to significant improvements in convergence, vastly surpassing that of standard preconditioners [44]. MG methods can be interpreted in the context of subspace correction methods [43], which involve two main algorithmic components: transfer operators and subspace solvers. These are problem-dependent, and substantially affect the applicability and convergence properties of the resulting iterative method [18]. In the last few years, machine learning (ML) methods have been used to solve the underlying PDEs directly, completely bypassing the need for standard numerical methods, such as the aforementioned FEM. Among the most popular ML-based approaches to solve PDEs are physics-informed neural networks (PINNs) [7, 6, 33] and neural operators (NO) [13, 23, 25]. PINNs are trained in order to minimize the mean square error of the PDE residual, boundary/initial conditions, and observed data. NOs learn operators, i.e. mappings between function spaces, thus they learn the mapping between the parametric input functions and the corresponding output functions (i.e. the solutions of the PDEs). A substantial advantage of NOs is their reusability; they can be used for solution inference in previously unseen domain locations without extra training efforts. A recent strategy is to hybridize classical iterative linear solvers with pretrained NOs by employing hybrid preconditioners [15, 20, 21, 47]. The idea behind this hybridization is to let classical iterative solvers reduce high-frequency modes [35] whilst the NOs reduce low-frequency modes due to their spectral bias [32]. These hybrid preconditioners improve the convergence of classical iterative solvers in structured domains compared to when standard preconditioners are used [20, 22, 18]. A big disadvantage of these hybrid preconditioning strategies is that they are restricted to the same domain where the corresponding NO was trained, meaning that geometric transferability is still an open issue. Furthermore, even if the convergence is better than that of standard preconditioners in structured domains, it is not clear when complex unstructured domains are used. In this study we propose hybrid iterative solvers with neural preconditioners to solve parametric PDEs on unstructured domains. We use deep operator networks (DeepONet) as our NOs, as it performs better on unstructured domains compared to other NO architectures [25, 26]. We introduce PointTransformer [48] layers in modified architectures for both branch and trunk subnetworks of DeepONet: the branch network is based on the encoder portion of the semantic segmentation variant of PointTransformer networks, whilst the trunk network consists of several stacked layers of PointTransformer blocks [48]. PointTransformers are powerful architectures that adapt traditional transformers to point cloud data; they are able to capture long-range dependencies between points in 3D space. Finally, at the end of the branch subnetwork we also include a customized squeezed-and-excitation network, producing a scaled output acting as an attention mechanism [12, 20, 42]. By combining all these components we build PTFONet. We train these PTFONets on a number of CAD geometries, several of them if we want to achieve a certain degree of geometric transferability. We then use these trained networks to perform solution inference and build preconditioners based on Proper Orthogonal Decomposition (POD) of these inferred solutions; we denote this hybrid preconditioner as Neural Subspace Proper Orthogonal Decomposition (NSPOD). A sketch of this methodology is shown in Fig. 1. The superior performance of the resulting preconditioners and the assessment of their geometric transferability is shown via various numerical experiments. This paper is organized as follows: in Section 2, we describe the studied model problem and review the FEM applied to elliptic systems; in Section 3.1, we introduce the hybrid preconditioning framework that combines the pretrained PTFONet with Krylov-based linear iterative solvers; in Section 3.2 the mathematical framework for the newly developed version of DeepONet is thoroughly described; in Sections 3.3 and 3.4 we describe the employed network architecture framework and how the networks are trained, respectively; in Section 3.5 we describe our newly develop hybrid preconditioner NSPOD; in Section 4.4 we describe the computational cost of the developed hybrid preconditioner for both offline and online stages. Finally, in Section 4, we demonstrate the numerical performance of the proposed hybrid preconditioner strategy via numerical experiments. Discussion, conclusion, limitations, and future work are all discussed in Section 5. 
+
+## 2. Model problem 
+
+In this manuscript we focus on the study of linearized equations in quasi-static solid mechanics. A body occupies a bounded region Ω0 ⊂ ℝ𝑛 dim , with boundary 𝜕 Ω0 which is not necessarily simply connected nor convex; 𝑛 dim is the number of spatial dimensions considered. This body is subjected to surface tractions, or Neumann boundary conditions (BCs), on 𝜕 Ω𝑁  
+
+> 0
+
+, and to prescribed displacements, or Dirichlet boundary conditions , on 𝜕 Ω𝐷  
+
+> 0
+
+, such that 
+
+𝜕 Ω0 = 𝜕 Ω𝑁  
+
+> 0
+
+∪ 𝜕 Ω𝐷  
+
+> 0
+
+and 𝜕 Ω𝑁  
+
+> 0
+
+∩ 𝜕 Ω𝐷  
+
+> 0
+
+= ∅ .  
+
+> Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 2 of 17
+
+NSPOD Training dataset 
+
+𝐟 
+
+𝐗 
+
+𝐝 
+
+Branch Scaling 
+
+Trunk 
+
+BC 
+
+⊙
+
+⊗̃ 𝐮 
+
+PTFONet 
+
+Jacobi, GS, SOR, . . . 
+
+Standard preconditioner −1 1
+
+{−1 1 , −1 2
+
+}
+
+Hybrid preconditioner NSPOD preconditioner 
+
+𝐟 𝑖 = 𝐟 + 𝜂 𝐬 𝑖 , 𝐬 𝑖 ∼  (𝐟 min , 𝐟 max 
+
+)
+
+{𝐟 1, 𝐟 2, … , 𝐟 𝑚 
+
+}
+
+𝐗 
+
+𝐝 
+
+PTFONet 
+
+𝐔 = [̃
+
+𝐮 1̃ 𝐮 2 …̃ 𝐮 𝑚 
+
+]
+
+POD 
+
+𝐏 T = [𝜙 𝜙 𝜙 1 𝜙 𝜙 𝜙 2 … 𝜙 𝜙 𝜙 𝑚 
+
+]
+
+−1 2 = 𝐏 (𝐏 T𝐊𝐏 ) 𝐏 T
+
+Krylov method 
+
+Target problem 
+
+⎧⎪⎨⎪⎩
+
+∇ ⋅ 𝜎 𝜎 𝜎 + 𝐛 = 𝟎 , in Ω0,𝜎 𝜎 𝜎 𝐧 − 𝐭 = 𝟎 , on 𝜕 Ω𝑁  
+
+> 0
+
+,
+
+𝐮 − 𝐮 = 𝟎 , on 𝜕 Ω𝐷  
+
+> 0
+
+,
+
+# 𝐊𝐮 = 𝐟 
+
+# 𝐮 ⋆
+
+Figure 1: A graphical overview of the NSPOD hybrid preconditioned Krylov-based linear iterative solvers. The PTFONet is trained on CAD geometries in an offline stage, encoding the geometries used during training, which allows for generation of preconditioners for the same geometry but different input functions, or for completely different geometries altogether, in the subsequent online stage. This hybrid preconditioner is applied to a new combination of input functions in an online 
+
+stage in which the preconditioner is created and applied. 
+
+By considering a quasi-static regime, the mechanical behavior of the considered body is characterized by the 
+
+balance of linear momentum equation, such that 
+
+∇ ⋅ 𝜎 𝜎 𝜎 + 𝐛 = 𝟎 , in Ω0, (1) 
+
+𝜎 𝜎 𝜎 𝐧 − 𝐭 = 𝟎 , on 𝜕 Ω𝑁  
+
+> 0
+
+, (2) 
+
+𝐮 − 𝐮 = 𝟎 , on 𝜕 Ω𝐷  
+
+> 0
+
+, (3) where 𝐮 is the displacement field, ∇ ⋅ (⋅) is the divergence of (⋅), 𝜎 𝜎 𝜎 = 𝔻 𝑒 ∶ 𝜀 𝜀 𝜀 is the Cauchy’s stress tensor, 𝔻 𝑒 is the fourth-order constant elasticity tensor, 𝜀 𝜀 𝜀 is the infinitesimal strain tensor, 𝐛 is the volumetric body force, 𝐧 is the outward normal defined on 𝜕 Ω𝑁  
+
+> 0
+
+, 𝐭 is the surface traction, and 𝐮 is the prescribed displacement field on 𝜕 Ω𝐷  
+
+> 0
+
+.As a preliminary study, and in order to simplify learning, we assume the following here: homogeneous Dirichet BCs, which are applied on a strict non-empty subset of 𝜕 Ω0, namely 𝜕 Ω𝐷  
+
+> 0
+
+⊂ 𝜕 Ω0, such that 0 <
+
+> |||𝜕 Ω𝐷
+> 0
+> |||
+
+|𝜕 Ω0| ≤ 𝑝 < 
+
+1 (thus 𝜕 Ω𝐷  
+
+> 0
+
+≠ ∅ and 𝜕 Ω𝐷  
+
+> 0
+
+≠ 𝜕 Ω0
+
+); homogeneous Neumann BCs which are applied to the whole 𝜕 Ω𝑁  
+
+> 0
+
+; isotropic elasticity with a spatially-constant Young’s modulus (𝐸 ), a fixed Poisson’s ratio (𝜈 ) set to a predetermined value, and spatially-constant body forces (𝐛 ). In the following we also assume that the well-posedness of the considered system is ensured. Now let  ⊂ 𝐿 2 (Ω0
+
+) be a specific Hilbert space consisting of functions on Ω0. Therefore, Eqs. 1, 2 and 3 admit the following weak formulation: Find 𝐮 ∈  such that 
+
+∫Ω0
+
+(𝔻 𝑒 ∶ 𝜀 𝜀 𝜀 ) ∶ ∇ 𝜂 𝜂 𝜂 d𝑉 − ∫Ω0
+
+𝐛 ⋅ 𝜂 𝜂 𝜂 d𝑉 = 0 , ∀𝜂 𝜂 𝜂 ∈ . (4) 
+
+Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 3 of 17 NSPOD 
+
+Now consider the parameter space  = { 𝐸, 𝑝, 𝐛 , 𝜎 } ⊂ ℝ2+ 𝑛 dim × 𝑆 𝑘 , where 𝜎 ∈ 𝑆 𝑘 is a permutation of elements 
+
+𝑛 = {𝑛 1, 𝑛 2, … , 𝑛 𝑘 
+
+} ∈ ℕ𝑘 ; the meaning of this permutation will be revealed when the dataset creation process is described in Section 3.4. By considering this parameter space, Eq. 4 can be written as: Given 𝜉 𝜉 𝜉 ∈ , find 𝐮 ∈  such that 
+
+ (𝐮 , 𝜂 𝜂 𝜂 ; 𝜉 𝜉 𝜉 ) = ( 𝐛 , 𝜂 𝜂 𝜂 ; 𝜉 𝜉 𝜉 ) , ∀𝜂 𝜂 𝜂 ∈ , (5) where  (⋅, ⋅; 𝜉 𝜉 𝜉 ) and (⋅, ⋅; 𝜉 𝜉 𝜉 ) denote a bilinear form obtained from ∇ ⋅ 𝜎 𝜎 𝜎 and an inner product defined on 𝐿 2 (Ω0
+
+),respectively. Equation 5 can be solved via the FEM, yielding a system of linear equations 
+
+𝐊𝐮 = 𝐟 , (6) where 𝐮 are the nodal displacements 𝐮 ∈ ℝ𝑛 nod ×𝑛 dim , 𝐊 ∈ ℝ(𝑛 nod ×𝑛 dim )×(𝑛 nod ×𝑛 dim ) is the stiffness matrix, and 
+
+𝐟 ∈ ℝ𝑛 nod ×𝑛 dim is the load vector. In here both 𝐊 and 𝐟 depend on the parameters 𝜉 𝜉 𝜉 , and their components are computed as 
+
+𝐊 𝑖𝑗 =  (𝜙 𝑖 , 𝜙 𝑗 ; 𝜉 𝜉 𝜉 ) , 𝐟 𝑖 = (𝐛 , 𝜙 𝑖 ; 𝜉 𝜉 𝜉 ) , 1 ≤ 𝑖, 𝑗 ≤ 𝑛 nod × 𝑛 dim ,
+
+where {𝜙 𝑖 
+
+}𝑛 nod ×𝑛 dim  
+
+> 𝑖 =1
+
+denotes a set of nodal basis functions on a suitable finite element space ℎ defined on a quasi-uniform tetrahedral mesh  ℎ of Ω0, ℎ being the mesh size. To guarantee convergence of the solution to a continuous solution, coercivity and elliptic regularity need to be assumed [4]. 
+
+## 3. Methodology 
+
+In order to solve the resulting system of linear Equations (Eq. 6), various preconditioned iterative solvers might be employed, with Krylov-based solvers being the most widely used [5, 35, 38], especially when the linear system is large. Defining the preconditioner is usually a challenging task. Hybrid preconditioners [18, 47] may assist in simplifying this task by employing approximated inferred solutions in different ways, such as by constructing the bases of projection operators in a MG fashion [18, 20], or by using direct inference when relaxation methods are employed [15, 47]. Despite these efforts, performance on arbitrary, unstructured, domains is still an unresolved issue. In this section we briefly introduce the basic concepts behind hybrid preconditioned Krylov-based linear iterative solvers, and later we propose our novel NSPOD approach, which significantly improves the convergence behavior of even state-of-the-art MG approaches. 
+
+3.1. Hybrid preconditioners 
+
+Direct inference through an NO is most commonly employed when relaxation methods are used because Krylov-based methods require linear preconditioners, and inference employing neural networks is generally not linear. However, flexible Krylov-based methods [37] can be used with nonlinear preconditioners, so we introduce here hybrid preconditioners for relaxation methods using DeepONet. A standard relaxation method can be formulated as a preconditioned Richardson iteration [36]. The 𝑖 −th iteration 𝐮 (𝑖 ) of the solution given by a standard relaxation method is then {
+
+𝐫 (𝑖 ) = 𝐟 − 𝐊𝐮 (𝑖 ),
+
+𝐮 (𝑖 +1) = 𝐮 (𝑖 ) + −1 𝐫 (𝑖 ),
+
+where −1 denotes the specific preconditioner of the Richardson iteration, e.g. choosing −1 as the diagonal or lower triangular part of 𝐊 leads, respectively, to the Jacobi or Gauss-Seidel methods. The hybrid preconditioned Richardson iteration, also known as HINTS [15, 47], can be written as 
+
+⎧⎪⎪⎪⎨⎪⎪⎪⎩
+
+𝐫 (𝑖 ) = 𝐟 − 𝐊𝐮 (𝑖 ),
+
+𝐮  
+
+> (
+> 𝑖 +12
+> )
+
+= 𝐮 (𝑖 ) + −1 1
+
+(𝐫 (𝑖 )) ,
+
+𝐫  
+
+> (
+> 𝑖 +12
+> )
+
+= 𝐟 − 𝐊𝐮  
+
+> (
+> 𝑖 +12
+> )
+
+,
+
+𝐮 (𝑖 +1) = 𝐮  
+
+> (
+> 𝑖 +12
+> )
+
++ −1 2
+
+(
+
+𝐫  
+
+> (
+> 𝑖 +12
+> )
+
+)
+
+,
+
+(7)   
+
+> Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 4 of 17 NSPOD
+
+where −1 1 and −1 2 denote, respectively, the 𝑛 𝑟 iterations of the relaxation method and the prediction of the pretrained NO (DeepONets are commonly used here). More details about this form of hybrid preconditioner may be found in [20, 47]. Hybrid preconditioning of standard Krylov-based methods can be achieved by the trunk basis (TB) approach [18]. This method extracts the basis functions from the last layer of the trunk network of DeepONet and uses them to construct a linear preconditioner. We introduce here the TB-based prolongation operator 𝐏 ∈ ℝ𝑛 nod ×𝑛 𝑏𝑓 , where 𝑛 𝑏𝑓 is the number of basis functions used. The (𝑖, 𝑗 ) − th component of 𝐏 is 𝐏 𝑖𝑗 = 𝑗 
+
+(𝐗 𝑖 
+
+), where 𝑗 
+
+(𝐗 𝑖 
+
+) is the 𝑗 −th component of the last layer of the trunk network evaluated at the spatial location 𝐗 𝑖 ∈ Ω 0 ⊂ ℝ3. To define a well-conditioned coarse-level operator 𝐊 𝑐 = 𝐏 T𝐊𝐏 , it is required that 𝐏 has full rank and orthogonal columns, which is straightforwardly achieved by performing a QR decomposition of 𝐏 and using 𝐐 as the prolongation of operator instead [20]. Therefore, the TB-based preconditioner −1  
+
+> TB
+
+is defined as 
+
+−1  
+
+> TB
+
+∶= 𝐏 (𝐏 T𝐊𝐏 ) 𝐏 T = 𝐏𝐊 𝑐 𝐏 T, (8) where 𝐊 𝑐 is the coarse-level problem commonly used in MG methods [5, 40]. It is clear that the linear, symmetric, operator in Eq. 8 can be used as the preconditioner in standard Krylov-based methods. Adding everything together, given the residual 𝐫 (𝑖 ) = 𝐟 − 𝐊𝐮 (𝑖 ) in a Krylov iteration, the hybrid preconditioned residual is defined as 
+
+⎧⎪⎪⎨⎪⎪⎩
+
+𝐮 ′ = 𝐮 (𝑖 ) + −1 1
+
+(𝐫 (𝑖 )) ,
+
+𝐮 ′′ = 𝐮 ′ + −1 
+
+> TB
+
+(𝐟 − 𝐊𝐮 ′) ,
+
+𝐮 ′′′ = 𝐮 ′′ + −1 1
+
+(𝐟 − 𝐊𝐮 ′′ ) ,
+
+𝐳 (𝑖 ) = 𝐟 − 𝐊𝐮 ′′′ ,
+
+(9) where −1 1 denotes the 𝑛 𝑟 iterations of the relaxation method used in this MG-like two-level preconditioner. More details of this preconditioner, as well as a schematic representation, can be seen in [20]. 
+
+3.2. PointTransformer DeepONet 
+
+We first introduce the “vanilla” DeepONet architecture here and briefly describe its mathematical formulation; a more detailed description can be found in [20]. We then introduce our newer architecture, PointTransformer DeepONet (PTFONet). Let  and  be infinite dimensional Banach spaces, and let  ∶  →  be some operator to be approximated via DeepONet, with the corresponding approximation being NN . The output of DeepONet is defined as a contraction between the outputs of two different neural networks, called the branch and the trunk networks. The branch network 
+
+ ∶ ℝ𝑚 → ℝ𝑝 is a vector-valued network of dimension 𝑝 that takes a discretized function 𝐟 𝑚 ∈ 𝑚 as the input. We assume that 𝑚 is an 𝑚 −dimensional space satisfying 
+
+∀𝑓 ∈ , ∃𝐟 𝑚 ∈ 𝑚 such that lim  
+
+> 𝑚 →∞
+
+𝐟 𝑚 = 𝑓 . 
+
+The trunk network  ∶ Ω 0 ⊂ ℝ𝑛 dim → ℝ𝑝 is another vector-valued network of dimension 𝑝 , but it now takes coordinates in the domain Ω0 as the input. The final output of DeepONet is then given by 
+
+NN (𝐟 ) ( 𝐗 ) ∶= ⟨ (𝐟 ) ,  (𝐗 )⟩, ∀𝐟 ∈ 𝑚 , 𝐗 ∈ Ω 0,
+
+where 𝐗 are spatial coordinates and ⟨⋅1, ⋅2⟩ is the inner product betwen ⋅1 and ⋅2. With this setting, the universal approximation theorem for operators [25] guarantees that DeepONet may sufficiently approximate any target operator in 𝐿 2−norm. Given the quasi-uniform tetrahedral discretization  ℎ, the adjancency matrix 𝐀 can be suitably defined, which consists of (𝑖, 𝑗 ) components equal to one if the 𝑖 −th and 𝑗 −th nodes are connected and zero otherwise. Alternatively, one can use the set of edges  ⊆ {( 𝑣 1, 𝑣 2
+
+) 
+
+> 1
+
+, (𝑣 1, 𝑣 2
+
+) 
+
+> 2
+
+, … |𝑣 1, 𝑣 2 ∈ {1, 2, … , 𝑛 nod 
+
+}} =∶  . Our new architecture, PTFONet, utilizes PointTransformers [48] as the main convolution layers in both branch and trunk networks, and it requires of spatial coordinates and connectivity information such as that provided by the coordinates 𝐗 and edge indices 
+
+. PTFONet also adds an additional subnetwork, BC network from now onwards, that deals with the position of fully restrained nodes in the mesh, which correspond to the locations where homogeneous Dirichlet BCs have been applied.   
+
+> Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 5 of 17 NSPOD
+
+We denote the new versions of the branch, trunk and BC networks as ̃ ,̃  , and ̃ , respectively. In addition, a scaling network , inspired by the squeeze-and-excitation network [12], is immediately added after the new branch network in order to enhance the performance of PTFONet; more information about this scaling network can be found in [20]. Therefore PTFONet consists of four subnetworks: ̃  ∶ ℝ𝑚 × ℝ𝑛 dim ×  → ℝ𝑛 dim ×𝑝 ,̃  ∶ ℝ𝑛 dim ×  → ℝ𝑝 ,̃
+
+ ∶ {0 , 1} × ℝ𝑛 dim ×  → ℝ𝑝 , and  ∶ ℝ𝑛 dim ×𝑝 → ℝ𝑛 dim ×𝑝 . First the output of the branch network gets passed to the scaling network, yielding ◦̃ ∶ ℝ𝑚 × ℝ𝑛 dim ×  → ℝ𝑛 dim ×𝑝 , where ◦ is a function composition; then, the outputs of the trunk and BC network get element-wise multiplied, yielding ̃  ⊙̃  ∶ ℝ𝑛 dim × {0 , 1} ×  → ℝ𝑝 , where ⊙ is the Hadamard product; finally, these two latter outputs get contracted appropriately such that 
+
+(
+
+◦̃ 
+
+)
+
+⊗
+
+(̃
+
+ ⊙̃ 
+
+)
+
+∶
+
+ℝ𝑚 × ℝ𝑛 dim × {0 , 1} ×  → ℝ𝑛 dim , where ⊗ here is the contraction that yields an output of the desired dimensions. The output of PTFONet, namely PTF , is then given by 
+
+PTF (𝐟 , 𝐗 , ) ( 𝐗 , 𝑑, ) ∶= ⟨◦̃ (𝐟 , 𝐗 , ) ,̃  ⊙̃  (𝐗 , 𝑑, )⟩, ∀𝐟 ∈ 𝑚 , 𝐗 ∈ Ω 0, 𝑑 ∈ {0 , 1} ,  ⊆  . (10) In the implementation of ̃ , the position of homogeneous Dirichlet BCs 𝐗 ∈ 𝜕 Ω𝐷  
+
+> 0
+
+gets encoded as a binary variable 
+
+𝑑 which is defined as for all 𝐗 ∈ Ω 0,
+
+𝑑 =
+
+{
+
+1 if 𝐗 ∈ 𝜕 Ω𝐷  
+
+> 0
+
+,
+
+0 if 𝐗 ∉ 𝜕 Ω𝐷  
+
+> 0
+
+.
+
+It is also relevant to mention that, because we are dealing with linearized solid mechanics, isotropic elasticity, and both Dirichlet and Neumann BCs are homogeneous, the relevant input parameters to this study are the Young’s modulus 𝐸 
+
+and the volumetric forces 𝐛 , both considered to be spatially constant. The Poisson’s ratio 𝜈 is fixed and assumed to be 
+
+𝜈 = 0 .2. Thus, 𝐟 = { 𝐸, 𝐛 } in Eq. 10, leading to 
+
+PTF (𝐸, 𝐛 , 𝐗 , ) ( 𝐗 , 𝑑, ) ∶= ⟨◦̃ (𝐸, 𝐛 , 𝐗 , ) ,̃  ⊙̃  (𝐗 , 𝑑, )⟩, ∀𝐸 ∈ ℝ+, ∀𝐟 ∈ 3, 𝐗 ∈ Ω 0, 𝑑 ∈ {0 , 1} ,  ⊆  .
+
+3.3. Network architecture 
+
+The overall architecture of PTFONet is shown in Fig. 2. Edge indices 𝑖 and nodal coordinates 𝐗 ℎ𝑖 are also provided to the PointTransformer layers in order to compute nodal neighbors. Normally the edge indices would not need to be provided and the appropriate connectivity would be calculated via 𝑘 −nearest neighbors ( 𝑘 NN) [48] but we provide the edge indices to all the subnetworks of PTFONet so that we do not waste computational resources on unnecessary computation of neighbors; however, the edge indices are still recomputed via 𝑘 NN after each pooling operation in the branch network. Here it is also important to point out that in order for our precomputed edge indices to perform similarly to those computed by 𝑘 NN we require the mesh to be of good quality, meaning that for all the nodes 𝐗 ℎ𝑖 ∈  ℎ,there is some 𝜀 > 0 such that the ball of radius 𝜀 centered around 𝐗 ℎ𝑖 contains all nodes 𝐗 ℎ𝑗 ∈ 𝑖 
+
+(𝐗 ℎ𝑖 
+
+) and contains no nodes 𝐗 ℎ𝑘 ∉ 𝑖 
+
+(𝐗 ℎ𝑖 
+
+), where 𝑖 
+
+(𝐗 ℎ𝑖 
+
+) is the neighborhood of 𝐗 ℎ𝑖 as defined by the edge indices 𝑖 .We include an ablation study in Section 4.3, where we substitute: PointTransformer convolution layers for GraphConv [28] convolution layers, and Farthest Point Sampling (FPS) [31, 48] and kNN-based pooling layers for SAGPooling-based [19, 16] pooling layers. This creates an analogous graph-based DeepONet, which we call GraphONet, and allows for a straightforward comparison of performance between PointTransformer and a state-of-the-art graph convolution layer, GraphConv. We choose these specific graph-based convolution and pooling layers because they achieved the maximum accuracy in our numerical experiments with other configurations of graph-based DeepONets (results not shown). The architecture of this graph-based DeepONet is shown in Fig. 3. 
+
+3.4. Training methodology 
+
+To train PTFONet we build a dataset 𝐷 consisting of 𝑁 𝑠 samples given by 
+
+𝐷 = {(  ℎ𝑖 , 𝐄 ℎ𝑖 , 𝐛 ℎ𝑖 , 𝐗 ℎ𝑖 , 𝐝 ℎ𝑖 , 𝑖 , 𝐮 pred ,𝑖 
+
+)} 𝑁 𝑠  
+
+> 𝑖 =1
+
+. (11) Naturally, the discretized domain  ℎ𝑖 determines the matrix of coordinates 𝐗 ℎ𝑖 and set of edge indices 𝑖 ; 𝐄 ℎ𝑖 , 𝐛 ℎ𝑖 , 𝐝 ℎ𝑖 and 
+
+𝐮 ℎ 
+
+> pred ,𝑖
+
+here respectively denote the vectors/matrices of nodal values of Youngs’ modulus, body forces, locations where homogeneous Dirichlet BCs have been applied, and reference displacement solution, all computed on  ℎ𝑖 . The training   
+
+> Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 6 of 17
+
+NSPOD 
+
+> [𝐄 ℎ, 𝐛 ℎ]
+> MLP PointTransformer TransformerDown PointTransformer TransformerDown PointTransformer TransformerDown PointTransformer GlobalAvgPooling MLP SE
+
+𝑛 nod × 4 𝑛 nod × 𝐶 𝑏 1 
+
+> 𝑛 nod
+> 4
+
+× 𝐶 𝑏 2 
+
+> 𝑛 nod
+> 16
+
+× 𝐶 𝑏 3 
+
+> 𝑛 nod
+> 64
+
+× 𝐶 𝑏 4 1 × 𝐶 𝑏 4 1 × 3 𝑛 𝑏𝑓 
+
+> 𝐗 ℎ
+> MLP PointTransformer PointTransformer PointTransformer MLP
+
+𝑛 nod × 3 𝑛 nod × 𝐶 𝑡 1 𝑛 nod × 𝐶 𝑡 2 𝑛 nod × 𝐶 𝑡 3 𝑛 nod × 𝑛 𝑏𝑓 
+
+> 𝐝 ℎ
+> MLP PointTransformer PointTransformer PointTransformer MLP
+
+𝑛 nod × 1 𝑛 nod × 𝐶 𝑡 1 𝑛 nod × 𝐶 𝑡 2 𝑛 nod × 𝐶 𝑡 3 𝑛 nod × 𝑛 𝑏𝑓 
+
+> ⊙
+> ⊗
+
+̃
+
+𝐮 
+
+ (𝐮 pred ,̃ 𝐮 )
+
+Figure 2: PTFONet architecture; the shown text blocks below the layers describe their output tensor dimensions. The symbol ⊙ and ⊗ are, respectively, the Hadamard and tensor products, as explained in Section 3.2.  is the relative 
+
+2−error loss function between the reference (true) displacement 𝐮 pred and the predicted displacement ̃ 𝐮 , given by Eq. 12. ReLU activation functions are used after each block with the exception of the last MLP blocks in the branch and trunk networks, where no activation function was used; a tanh activation function was used at the end of the last MLP block in the BC network. 
+
+process of PTFONet is performed by minimizing the nodal-wise relative error between the inferred and reference displacement solutions, and is given by arg min 𝜃 𝜃 𝜃 
+
+1
+
+𝑁 𝑠 𝑁 𝑠 ∑
+
+> 𝑖 =1
+
+√√√√√(PTF 
+
+(𝐄 ℎ𝑖 , 𝐛 ℎ𝑖 , 𝐗 ℎ𝑖 , 𝑖 
+
+) ( 𝐗 ℎ𝑖 , 𝐝 ℎ𝑖 , 𝑖 
+
+) − 𝐮 pred ,𝑖 
+
+)T (PTF 
+
+(𝐄 ℎ𝑖 , 𝐛 ℎ𝑖 , 𝐗 ℎ𝑖 , 𝑖 
+
+) ( 𝐗 ℎ𝑖 , 𝐝 ℎ𝑖 , 𝑖 
+
+) − 𝐮 pred ,𝑖 
+
+)
+
+𝐮 Tpred 𝐮 pred 
+
+,
+
+(12) where 𝜃 𝜃 𝜃 denote all the parameters in PTFONet. We also use the same relative error function as our accuracy function. All our discretized meshes  ℎ𝑖 started as CAD geometries; we use a total of four meshes which were obtained from the ABC dataset [17]. We then mesh these geometries with 𝑃 1 conforming finite elements with Gmsh [11] and process them with FEniCSx [2] in order to assign the appropriate BCs, as we are describing in the next paragraph. We ensure that the chosen geometries have around 10 , 000 nodes in order to not require excessive computational power during training. We also use FEniCSx and the sparse direct solver MUMPS [1] to solve the corresponding linear elasticity systems on these geometries in order to obtain 𝐮 pred .
+
+Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 7 of 17 NSPOD 
+
+> [𝐄 ℎ, 𝐛 ℎ]
+> MLP GraphConv SAGPooling GraphConv SAGPooling GraphConv SAGPooling GraphConv GlobalAvgPooling MLP SE
+
+𝑛 nod × 4 𝑛 nod × 𝐶 𝑏 1 
+
+> 𝑛 nod
+> 4
+
+× 𝐶 𝑏 2 
+
+> 𝑛 nod
+> 16
+
+× 𝐶 𝑏 3 
+
+> 𝑛 nod
+> 64
+
+× 𝐶 𝑏 4 1 × 𝐶 𝑏 4 1 × 3 𝑛 𝑏𝑓 
+
+> 𝐗 ℎ
+> MLP GraphConv GraphConv GraphConv MLP
+
+𝑛 nod × 3 𝑛 nod × 𝐶 𝑡 1 𝑛 nod × 𝐶 𝑡 2 𝑛 nod × 𝐶 𝑡 3 𝑛 nod × 𝑛 𝑏𝑓 
+
+> 𝐝 ℎ
+> MLP GraphConv GraphConv GraphConv MLP
+
+𝑛 nod × 1 𝑛 nod × 𝐶 𝑡 1 𝑛 nod × 𝐶 𝑡 2 𝑛 nod × 𝐶 𝑡 3 𝑛 nod × 𝑛 𝑏𝑓 
+
+> ⊙
+> ⊗
+
+̃
+
+𝐮 
+
+ (𝐮 pred ,̃ 𝐮 )
+
+Figure 3: Graph-based architecture; the shown text blocks below the layers describe their output tensor dimensions. The symbol ⊙ and ⊗ are, respectively, the Hadamard and tensor products, as explained in Section 3.2.  is the relative 2−error loss function between the reference (true) displacement 𝐮 pred and the predicted displacement ̃ 𝐮 , given by Eq. 12. ReLU activation functions are used after each block with the exception of the last MLP blocks in the branch and trunk networks, where no activation function was used; a tanh activation function was used at the end of the last MLP block in the BC network. 
+
+As previously mentioned, in this study we use spatially constant 𝐸 and 𝐛 for each considered sample in the dataset 
+
+𝐷 . We obtain 𝐸 for a specific sample by generating values 𝐸 ∼ 𝑁 (1 , 1) until 𝐸 > 𝐸 min , where 𝐸 min = 0 .3. To obtain 
+
+𝐛 for a specific sample, we generate it as in 𝐛 ∼ 𝑁 (𝟎 3, 𝐈 3
+
+), where 𝟎 3 and 𝐈 3 are the three-dimensional zero vector and identity matrix, respectively. 𝑁 (𝜇 𝜇 𝜇, ΣΣΣ) denotes a normal distribution with mean vector 𝜇 𝜇 𝜇 and covariance matrix ΣΣΣ.Note that despite our use of spatially constant 𝐸 , we still construct a matrix 𝐄 ℎ with repeated numbers for each node. Furthermore, a matrix 𝐛 ℎ is constructed by applying 𝐿 2 projection to the right-hand side vector 𝐟 in Eq (6), which leads a non-constant matrix. This is to allow for a straightforward extension to when spatially varying functions are used as inputs. To obtain 𝑑 we first sample 𝑝 from a uniform distribution, namely 𝑝 ∼ 𝑈 (0 .1, 0.5) . This represents the maximum proportion of boundary that gets homogeneous Dirichlet BC assigned, i.e. 0 <
+
+> |||𝜕 Ω𝐷
+> 0
+> |||
+
+|𝜕 Ω0| ≤ 𝑝 . Then create two lists: list 𝐴 , which contains all the boundary surfaces for each of the considered geometries, randomly permuted; and list 𝐵 , which will contain the boundary surfaces that form 𝜕 Ω𝐷  
+
+> 0
+
+. We go through the list of surfaces in list 𝐴 exhaustively, adding these to list 𝐵 whilst 
+
+> |||𝜕 Ω𝐷
+> 0
+> |||
+
+|𝜕 Ω0| ≤ 𝑝 holds, and skipping any surfaces that would lead to 
+
+> |||𝜕 Ω𝐷
+> 0
+> |||
+
+|𝜕 Ω0| > 𝑝 .We implemented all the networks in this study using PyTorch [29] and trained using the AdamW optimizer [24], with a batch size of 10, a learning rate of 10 −4 , and weight decay of 5 × 10 −5 . The training process stops if the average relative error (Eq. 12) of the test samples does not decrease for 100 consecutive epochs. In all our numerical 
+
+Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 8 of 17 NSPOD 
+
+PTF 
+
+(𝐟 1
+
+) ( 𝐗 1
+
+)
+
+PTF 
+
+(𝐟 2
+
+) ( 𝐗 2
+
+)
+
+PTF 
+
+(𝐟 3
+
+) ( 𝐗 3
+
+)
+
+…
+
+PTF 
+
+(𝐟 𝑚 
+
+) ( 𝐗 𝑚 
+
+)
+
+𝐔 =
+
+⎡⎢⎢⎢⎣
+
+PTF 
+
+(𝐟 1
+
+) ( 𝐗 1,1
+
+) … PTF 
+
+(𝐟 1
+
+) ( 𝐗 1,𝑛 nod 
+
+)
+
+PTF 
+
+(𝐟 2
+
+) ( 𝐗 2,1
+
+) … PTF 
+
+(𝐟 2
+
+) ( 𝐗 2,𝑛 nod 
+
+)
+
+⋮ ⋱ ⋮
+
+PTF 
+
+(𝐟 𝑚 
+
+) ( 𝐗 𝑚, 1
+
+) … PTF 
+
+(𝐟 𝑚 
+
+) ( 𝐗 𝑚,𝑛 nod 
+
+)⎤⎥⎥⎥⎦
+
+ΣΣΣ = 1
+
+𝑚 − 1 𝐔𝐔 T
+
+POD: {{ 𝜆 1, 𝜆 2, … } , {𝜙 𝜙 𝜙 1, 𝜙 𝜙 𝜙 2, … }} 
+
+𝐏 T = [𝜙 𝜙 𝜙 1 𝜙 𝜙 𝜙 2 … 𝜙 𝜙 𝜙 𝑚 
+
+]
+
+Figure 4: Pipeline for NSPOD creation. From left to right: inferring 𝑚 solutions for 𝑚 different input combinations {𝐟 𝑖 
+
+}𝑚 𝑖 =1 ,defined in (13) , assembly of the 𝐔 matrix, creation of the appropriate covariance matrix ΣΣΣ and its spectral decomposition, final assembly of the prolongation matrix 𝐏 . 𝐗 𝑖,𝑗 here denote the 𝑗 −th node for the 𝑖 −th modified right-hand side vector. 
+
+experiments, the Krylov-based iterative solvers terminate when either of the two following criteria are satisfied: 
+
+‖𝐫 (𝑖 )‖2 ≤ 10 −12 , or ‖𝐫 (𝑖 )‖2
+
+> ‖𝐫 (0) ‖2
+
+≤ 10 −8 . We performed all our network training and data generation on a computational cluster with an Intel Xeon Gold 6542Y and an NVIDIA H100 NVL Tensor Core GPU. Other experiments were conducted using computational resources and services at the Center for Computation and Visualization, Brown University, where each computing node is equipped with an AMD EPYC 9554 64-Core Processor (256GB) and an NVIDIA L40S GPU (48GB). 
+
+3.5. Neural Proper Orthogonal Decomposition 
+
+In this study we introduce the NSPOD preconditioner for Krylov-based methods, which is based on creating a prolongation operator 𝐏 in Eq. 8 from a POD of the solution space spanned by applying different input functions. To be more precise, we first train PTFONet with the desired combination of geometries, each sample having different 
+
+𝐸 , 𝐛 , and 𝑑 . Then we use the trained PTFONet to infer ̃ 𝐮 on a number 𝑚 of unseen cases, which are generated not by varying physical parameters, but by introducing random noise to the right-hand side vector 𝐟 to form a neighborhood of the original problem. In particular, the 𝑖 -th modified right-hand side vector is defined as 
+
+𝐟 𝑖 = 𝐟 + 𝜂 𝐬 𝑖 , (13) where 𝜂 is a scaling factor and each component of the noise vector 𝐬 𝑖 is sampled from a uniform distribution 
+
+ (𝐟 min , 𝐟 max 
+
+). Here, 𝐟 min and 𝐟 max represent the minimum and maximum elements of the nominal vector 𝐟 , respectively. Note that we set 𝜂 = 0 .01 in this paper. We then build a matrix 𝐔 where the rows correspond to these inferred ̃ 𝐮 . Then we build the corresponding covariance matrix ΣΣΣ = 1 
+
+> 𝑚 −1
+
+𝐔𝐔 T and perform its spectral decomposition with eigenvectors 
+
+𝜙 𝜙 𝜙 1, 𝜙 𝜙 𝜙, … , 𝜙 𝜙 𝜙 𝑚 . We finally build the desired prolongation operator as 𝐏 T = [𝜙 𝜙 𝜙 1 𝜙 𝜙 𝜙 2 … 𝜙 𝜙 𝜙 𝑚 
+
+]. The process is depicted in Fig. 4. 
+
+## 4. Results 
+
+In this section we describe a series of numerical experiments and report their results. In Section 4.1 we show the performance of the NSPOD preconditioner for Krylov-based iterative linear solvers when the associated PTFONet is trained on one geometry. In Section 4.2 we evaluate the performance of the NSPOD preconditioner for Krylov-based iterative linear solvers when the associated PTFONet is trained on several geometries. In Section 4.3 we show an ablation study which compared the performance of PTFONet against the performance of an analogous graph-based DeepONet. We finalize the Results section by reporting the computational cost of the NSPOD preconditioner in Section 4.4. Since we are using PTFONets trained on different datasets we summarize this information, including the names, number of train/test samples, and brief description of the network/dataset, in Table 1. 
+
+Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 9 of 17 NSPOD 
+
+Table 1 
+
+Names of the different versions of PTFONet used, number of samples, and brief descriptions of the considered datasets. 
+
+Name Number of samples (train/test) Brief description of network/dataset 
+
+PTFONetV1 4000 (3600/400) One geometry PTFONetV2 6000 (5400/600) Three geometries − no unseen geometries in the test set PTFONetV3 4000 (3600/400) One geometry − used to infer on unseen geometries GraphONet 6000 (5400/600) Graph-based DeepONet − same dataset as PTFONetV2   
+
+> (a) Geometry 1 (b) Geometry 2 (c) Geometry 3
+
+Figure 5: Discretized geometries for PTFONetV1 training on a single geometry. 𝑃 1 conforming tetrahedra finite elements are used for the discretization. (a) The mesh of Geometry 1 consists of 11 , 411 nodes and 48 , 215 elements. (b) The mesh of Geometry 2 consists of 11 , 163 nodes and 43 , 216 elements. (c) The mesh of Geometry 3 consists of 15 , 563 nodes and 
+
+45 , 258 elements. 
+
+Table 2 
+
+Number of channels for the layers shown in Fig. 2 for PTFONetV1. 
+
+Parameter Number of channels 
+
+𝐶 b1 48 
+
+𝐶 b2 96 
+
+𝐶 b3 192 
+
+𝐶 b4 384 
+
+𝐶 t1 48 
+
+𝐶 t2 96 
+
+𝐶 t3 192 
+
+𝑁 bf 256 
+
+4.1. Training on a single geometry 
+
+We trained PTFONet three times with a different single geometry each time; these geometries are shown in Fig. 5. The employed architecture, PTFONetV1 from now onwards, is shown in Fig. 2; the parameters shown in the figure are described in Table 2. We employed three datasets each containing 𝑁 𝑠 = 4000 samples of the same geometry but different combinations of 𝐸 , 𝐛 , and 𝑑 . The relative errors (Eq. 12) on the respective test sets achieved by the trained PTFONetV1 are 12 .14% for Geometry 1, 13 .50% for Geometry 2, and 17 .15% for Geometry 3. We now compare the number of iterations needed for convergence of different preconditioners when a CG iterative solver is used. Figure 6 shows the number of iterations to convergence of no preconditioner, a Jacobi preconditioner, SOR preconditioner, BoomerAMG [10], SA-AMG [41] from PETSc preconditioner, and our NSPOD preconditioner for different number of samples 𝑚 . BoomerAMG is a classical Ruge-Stüben style AMG. Specifically, it uses Falgout coarsening, canonical interpolation, and Symmetric SOR/Jacobi smoother. On the other hand, PETSc’s SA-AMG uses aggregation coarsening, smoothed interpolation with damped Jacobi, and Chebyshev smoother. These preconditioners are tested on an unseen combination of 𝐸 , 𝐛 , and 𝑑 for geometries 1, 2, and 3. Figure 6 shows that the performance of the NSPOD preconditioner using PTFONetV1 outperforms even state-of-the-art preconditioners such as BoomerAMG 
+
+Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 10 of 17 NSPOD                         
+
+> Figure 6: Number of CG iterations vs number of samples employed to create the NSPOD preconditioner for the three considered geometries; we employed PTFONetV1 in this scenario. We consider 𝑚 = 128 ,256 ,512 ,and 1024 .(a) Geometry 1. (b) Geometry 2, where CG with no preconditioner and/or with Jacobi preconditioner did not converge, thus the corresponding results are not shown. (c) Geometry 3.
+> Table 3
+> Number of channels for the layers shown in Fig. 2 for PTFONetV2.
+> Parameter Number of channels
+> 𝐶 b1 64
+> 𝐶 b2 128
+> 𝐶 b3 256
+> 𝐶 b4 768
+> 𝐶 t1 64
+> 𝐶 t2 128
+> 𝐶 t3 256
+> 𝑁 bf 512
+
+or PETSc’s SA-AMG when the number of samples 𝑚 to construct the POD is large enough. For Geometry 1, we have that for 𝑚 = 1 , 024 the number of iterations for NSPOD with PTFONetV1 is 171 whilst for BoomerAMG is 218 and for PETSc’s SA-AMG is 237. For Geometry 2, we have that for 𝑚 = 1 , 024 the number of iterations for NSPOD with PTFONetV1 is 128, respectively, whilst for BoomerAMG is 238 and for PETSc’s SA-AMG is 229. For Geometry 3 we have a different trend, where the performance of NSPOD is poorer than that of the standard AMG preconditioners evaluated; we have that for 𝑚 = 1 , 024 the number of iterations for NSPOD with PTFONetV1 is 49 whilst for BoomerAMG is 33 and for PETSc’s SA-AMG is 22. 
+
+4.2. Training on several geometries 
+
+We now trained PTFONet on the geometries shown in Fig. 5 at the same time in order to check the potential geometric transferability of PTFONet. The employed architecture, PTFONetV2 from now onwards, is the same as in the previous section, shown in Fig. 2; however the parameters are different, now described in Table 3. Since we wanted to encode several geometries in the same network we increased the capacity of the network. Also, we increased the value of weight decay to 10 −2 in order to prevent potential overfitting caused by this substantial increase in capacity. We employed a dataset containing 𝑁 𝑠 = 6000 samples, 2000 of each of the considered geometries, and with different combinations of 
+
+𝐸 , 𝐛 , and 𝑑 ; both the train and test sets of this dataset contain the three geometries so there is no unseen geometry in the test set. The relative error on the test set achieved by the trained PTFONetV2 is 16 .91% .We now compare the number of iterations needed for convergence of different preconditioners when a CG iterative solver is used. Figure 7 shows the number of iterations to convergence of the same combination of preconditioners as in Fig. 6 plus the addition of NSPOD from a PTFONet trained on a completely new geometry, and hence this PTFONet (PTFONetV3 from now onwards) has not seen any of the geometries in Fig. 5 (this new geometry is shown in Fig. 8); since PTFONetV3 has only been trained on one geometry, it retains the parameters described in Table 2 and the weight decay used during its training is 5 × 10 −5 . Figure 7 shows that the performance of the NSPOD preconditioner using PTFONetV2 also outperforms the state-of-the-art preconditioners mentioned in Section 4.1. Even the performance                           
+
+> Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 11 of 17 NSPOD
+> Figure 7: Number of CG iterations vs number of samples employed to create the NSPOD preconditioner for the three con-sidered geometries; we employed PTFONetV2 and PTFONetV3 in this scenario. We consider 𝑚 = 128 ,256 ,512 ,and 1024 .
+> (a) Geometry 1. (b) Geometry 2, where CG with no preconditioner and/or with Jacobi preconditioner did not converge, thus the corresponding results are not shown. (c) Geometry 3.
+> Figure 8: Unseen discretized geometry for PTFONetV3 training. 𝑃 1conforming tetrahedra finite elements are used for discretization. The mesh consists of 9,223 nodes and 33 ,733 elements
+
+of NSPOD when using PTFONetV3, which was trained on a completely unseen geometry, is comparable to that of BoomerAMG or PETSc’s SA-AMG when 𝑚 = 1 , 024 . For Geometry 1, we have that for 𝑚 = 1 , 024 the number of iterations for NSPOD with PTFONetV2 and PTFONetV3 are 169 and 216, respectively, whilst for BoomerAMG is 218 and for PETSc’s SA-AMG is 237. For Geometry 2, we have that for 𝑚 = 1 , 024 the number of iterations for NSPOD with PTFONetV2 and PTFONetV3 are 85 and 189, respectively, whilst for BoomerAMG is 238 and for PETSc’s SA-AMG is 229. For Geometry 3 we have a different trend, where the performance of both versions of NSPOD is poorer than that of the standard AMG preconditioners evaluated; we have that for 𝑚 = 1 , 024 the number of iterations for NSPOD with PTFONetV2 and PTFONetV3 are 51 and 77, respectively, whilst for BoomerAMG is 33 and for PETSc’s SA-AMG is 22. 
+
+4.3. Ablation study 
+
+We also trained a Graph-based version of PTFONet, GraphONet from now onwards, on the geometries shown in Fig. 5 at the same time in order to compare its performance against PTFONetV2. Graph-based networks have been used in the last few years to approximate solutions of FE systems because they naturally follow the graph structure of an FE mesh. For instance, Pichi et al. [30] used a graph autoencoder to encode parametrized PDEs; Despande et al. [9] used a graph UNet for prediction of PDE solutions. The employed architecture of GraphONet is shown in Fig. 3 and the used parameters are described in Table 3. We employed the same multigeometry dataset as in the previous section. The relative error on the test set achieved by the trained GraphONet is 32 .21% .We now compare the number of iterations needed for convergence of different preconditioners when a CG iterative solver is used. Figure 9 shows the number of iterations to convergence of the same combination of preconditioners as in Fig. 7 but by substituting PTFONetV3 for GraphONet. Figure 9 shows that the performance of the NSPOD preconditioner using PTFONetV2 outperforms the NSPOD preconditioner using GraphONet. We have that for 𝑚 =                
+
+> Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 12 of 17 NSPOD
+> Figure 9: Number of CG iterations vs number of samples employed to create the NSPOD preconditioner for the three con-sidered geometries; we employed PTFONetV2 and GraphONet in this scenario. We consider 𝑚 = 128 ,256 ,512 ,and 1024 .
+> (a) Geometry 1. (b) Geometry 2, where CG with no preconditioner and/or with Jacobi preconditioner did not converge, thus the corresponding results are not shown. (c) Geometry 3.
+
+1, 024 the number of iterations for NSPOD with GraphONet for geometries 1, 2, and 3 are, respectively, 328, 114, and 46. Thus, the performance of the NSPOD preconditioner with GraphONet does not improve on the performance of either BoomerAMG or PETSc’s SA-AMG for any of the geometries. 
+
+4.4. Computational cost 
+
+The computational cost of the NSPOD preconditioner consists of offline and online phases. The offline cost is dominated by the training of the neural operator (e.g., PTFONet or GraphONet), which is a one-time investment, performed only once prior to the simulation stage. The online cost consists of two components: assembly and application . During the assembly phase, we sample 𝑚 ≪ 𝑛 nod latent vectors from a prescribed distribution and pass them through PTFONet. The cost of the PointTransformer pooling layers consists of the cost of MLPs, FPS and 𝑘 NN operations. The cost of MLPs is  (𝑊 ), where 𝑊 denote the number of weights in a layer. In the case of FPS, it is well known that the cost is roughly  (𝑟𝑛 nod log 𝑛 nod 
+
+), where 𝑟 
+
+represents the pooling ratio. Note that we use a value of 𝑟 = 0 .25 . The cost of 𝑘 NN is roughly  (𝑘 (1 + 𝑟 ) 𝑛 nod log 𝑛 nod 
+
+),which is a summation of the costs for node feature interpolation and edge adjacency calculation; 𝑘 is the number of chosen neighbors, which is 𝑘 = 16 in this study. Since the number of weights remains constant regardless of the problem size 𝑛 nod , the assembly cost is dominated by  (𝑛 nod log 𝑛 nod 
+
+). The computational overhead of the assembly process increases with the problem size; however, it maintains a near-linear complexity rather than exhibiting exponential growth. On the other hand, the implementation of GPU-accelerated pooling [14] effectively mitigates the theoretical 
+
+ (𝑛 nod log 𝑛 nod 
+
+) bottleneck, making it highly scalable for large-scale datasets, achieving near-constant empirical execution time for typical dataset sizes and ensuring high scalability. Furthermore, the use of GPU parallel computing allows for asynchronous execution with respect to the 𝑚 samples, providing significant potential for further acceleration. Our numerical experiments indicate that while increasing 𝑚 
+
+enhances the preconditioner’s performance, it also adds to the cost; thus, a "sweet spot" for 𝑚 exists where both acceleration and computational efficiency are optimized. The cost of applying the preconditioner per iteration, the application phase, is comparable to that of an algebraic two-grid method. Let 𝑛 𝑟 be the smoothing step number. Note that the overall cost for the smoothing step is roughly  (2𝑛 𝑟 
+
+(𝑛 nod 𝑛 dim 
+
+)) [5] since FE matrices are sparse. The combined cost of restriction, prolongation, and the coarse-level solver is  (𝑚 (𝑛 nod 𝑛 dim 
+
+) + 𝑚 2). Consequently, the total cost per iteration, including smoothing, is 
+
+ (2𝑛 𝑟 
+
+(𝑛 nod 𝑛 dim 
+
+) + 𝑚 (𝑛 nod 𝑛 dim 
+
+) + 𝑚 2).
+
+## 5. Discussion and Conclusion 
+
+In this paper we proposed PTFONet and NSPOD. PTFONet is a PointTransformer-based DeepONet architecture which can effectively predict displacements for linearized solid mechanics on complex CAD geometries. NSPOD is a hybrid preconditioner for Krylov-based linear iterative solvers which uses PTFONet to generate the prolongation operator for a multigrid 𝑉 (1 , 1) structure. We designed a number of numerical experiments involving real CAD geometries,   
+
+> Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 13 of 17 NSPOD
+
+which allow for a comparison of NSPOD’s performance against state-of-the-art preconditioners for linearized solid mechanics. We also performed an ablation study to assess whether the PointTransformer-based architecture of PTFONet is indeed superior to a graph-based alternative. Finally, we described the computational cost of NSPOD for both its offline and online stages. The numerical experiments in Section 4.1 show that PTFONet achieves high accuracy when trained on a single geometry for different values of Young’s modulus, body forces, and locations of homogeneous Dirichlet BCs. Furthermore, the number of CG iterations achieved by NSPOD with PTFONetV1 is significantly smaller than those from standard preconditioners, Jacobi and SOR; but also smaller than state-of-the-art multigrid preconditioners, BoomerAMG and PETSc’s SA-AMG, except for Geometry 3. This might be because PTFONet trained on Geometry 3 had the lowest accuracy, but also because Geometry 3 is dominated by “thin” features; it is possible that PTFONet only managed to capture a very narrow slice of the solution spectrum due to spectral bias [32], which might not be enough to warrant a substantial reduction in CG iterations when using the associated NSPOD preconditioner. The numerical experiments in Section 4.2 show that PTFONet also achieves high accuracy when trained on several geometries. This is also performed for different values of Young’s modulus, body forces, and locations of homogeneous Dirichlet BCs, within each geometry. Moreover, the number of CG iterations achieved by NSPOD with PTFONetV2 is significantly smaller than those from standard preconditioners, Jacobi and SOR; but also smaller than state-of-the-art multigrid preconditioners, BoomerAMG and PETSc’s SA-AMG, again with the exception of Geometry 3. The reasoning here is similar to that of PTFONet trained on a single geometry, with spectral bias possibly playing a role on not effectively capturing the portion of the solution spectrum which might be relevant in constructing the prolongation operator. NSPOD with PTFONetV3 achieves a comparable number of CG iterations compared to BoomerAMG and PETSc’s SA-AMG, but not significantly lower. This is expected, as PTFONetV3 was trained on a completely different geometry; however, seeing how it still performs comparably to other state-of-the-art multigrid preconditioners suggests that there is a degree of geometric transferability. Our ablation study shows how the performance of NSPOD with a graph-based DeepONet, namely GraphONet, achieves a much lower reduction in CG iterations compared to NSPOD with PTFONetV2. This suggests that a PointTransformer-based DeepONet is indeed superior to an homologous graph-based architecture. However, it is relevant to mention that the accuracy of GraphONet is substantially lower to that of PTFONetV2, i.e. 32 .21% vs 
+
+16 .91% error, which might be the reason why such a relatively low reduction in CG iterations is achieved. Increasing the capacity of GraphONet and retraining with a larger dataset might be a partial solution to this low accuracy. Since FE meshes might have long distance connections between nodes, it is possible that graph-based architectures suffer from oversmoothing [45, 34], which might lead to a drop in performance. Likewise, whilst connectivity in an FE mesh is extremely important, it is true that connectivity alone does not explain spatial variability of input functions and/or geometric features; spatial coordinates are required to do so. Hence they need to be somehow supplied to all the branches in a DeepONet architecture, which is what occurs in PTFONet. This study comes with a number of limitations. We keep variability as constrained as possible; we used spatially constant Young’s modulus and body forces, and we only used homogeneous Dirichlet BCs. We only used a few CAD geometries because of the complexity in creating the datasets for each of them; more geometries are required in order to assess the geometric transferability of PTFONet more thoroughly. Also related to this, we only used geometries with 𝑛 nod ≈ 10 , 000 ; much smaller/larger geometries might need modification of the architecture, either changing the pooling ratio or changing the number of pooling operations; these are respectively 0.25 and 3 in this study (Fig. 2). The presence of 𝑘 NN and FPS operations in the pooling layers means that large meshes might imply a substantial increase in computational cost even during inference; however, this is considerably reduced by using efficient implementations with KDTrees optimized for GPU. The offline stage of NSPOD, i.e. training, is computationally expensive; for instance, PTFONetV2, which has a large capacity, requires around 800 hours of training in a single NVIDIA H100 GPU. Last but not least, the results show that Geometry 3 does not benefit from a large reduction in CG iterations when using NSPOD; complex geometries and/or with “thin” features might not benefit from substantial reductions in CG iterations compared to other multigrid preconditioners, which could be due to the presence of spectral bias in PTFONet. We are also considering a number of ways in which this study could be improved in the future. A first logical step is to extend the study to consider higher variability in terms of spatially-varying input functions, non-homogeneous Dirichlet/Neumann BCs, and number of considered geometries. We should also consider a number of meshes with different numbers of nodes so that we can tune the pooling methodology in the branch network to achieve higher generality. Geometry 3, which comprises of “thin” features mainly, benefits the least from a reduction in CG iterations when using NSPOD; this effect might be partially alleviated by increasing the capacity of the architecture, increasing   
+
+> Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 14 of 17
+
+NSPOD 
+
+the number of training samples, and/or implementing qualitative changes of the architecture, e.g. such as by including physics-related losses in the loss function. NSPOD is not restricted to a specific architecture but in terms of its practical use in general purpose FEM software it would be advantageous to use architectures which possess a high degree of geometric transferability; whilst geometric transferability is still an open issue in physics ML, PTFONet seems to be allow for a certain degree of geometric transferability when using NSPOD. The latter seems to suggest that hybridizing ML methods with traditional numerical solvers for PDEs is a very powerful tool that might, at least partially, alleviate some of the drawbacks of pure data-based methods. 
+
+## CRediT authorship contribution statement 
+
+Francesc Levrero-Florencio: Conceptualization of this study, Methodology, Software, Writing. Youngkyu Lee: 
+
+Conceptualization of this study, Methodology, Software, Writing. Jay Pathak: Conceptualization of this study, Writing. George Em Karniadakis: Conceptualization of this study, Methodology, Writing. 
+
+## References 
+
+[1] Amestoy, P.R., Duff, I.S., L’Excellent, J.Y., Koster, J., 2001. A fully asynchronous multifrontal solver using distributed dynamic scheduling. SIAM Journal on Matrix Analysis and Applications 23, 15–41. URL: https://doi.org/10.1137/S0895479899358194 , doi: 10.1137/ S0895479899358194 , arXiv:https://doi.org/10.1137/S089547989935819 .[2] Baratta, I.A., Dean, J.P., Dokken, J.S., Habera, M., Hale, J.S., Richardson, C.N., Rognes, M.E., Scroggs, M.W., Sime, N., Wells, G.N., 2023. DOLFINx: the next generation FEniCS problem solving environment. preprint. doi: 10.5281/zenodo.10447666 .[3] Bathe, K., 2006. Finite Element Procedures. Prentice Hall. URL: https://books.google.com/books?id=rWvefGICfO8C .[4] Brenner, S., Scott, L., 2013. The Mathematical Theory of Finite Element Methods. Texts in Applied Mathematics, Springer New York. URL: 
+
+https://books.google.com/books?id=9YPrBwAAQBAJ .[5] Briggs, W.L., Henson, V.E., McCormick, S.F., 2000. A Multigrid Tutorial, Second Edition. Second ed., Society for Industrial and Applied Mathematics. URL: https://epubs.siam.org/doi/abs/10.1137/1.9780898719505 , doi: 10.1137/1.9780898719505 ,
+
+arXiv:https://epubs.siam.org/doi/pdf/10.1137/1.9780898719505 .[6] Cai, S., Mao, Z., Wang, Z., Yin, M., Karniadakis, G.E., 2021a. Physics-informed neural networks (pinns) for fluid mechanics: a review. Acta Mechanica Sinica 37, 1727–1738. URL: https://doi.org/10.1007/s10409-021-01148-1 , doi: 10.1007/s10409-021-01148-1 .[7] Cai, S., Wang, Z., Wang, S., Perdikaris, P., Karniadakis, G.E., 2021b. Physics-informed neural networks for heat transfer problems. Journal of Heat Transfer 143, 060801. URL: https://doi.org/10.1115/1.4050542 , doi: 10.1115/1.4050542 .[8] Ciarlet, P.G., 2002. The Finite Element Method for Elliptic Problems. Society for Industrial and Applied Math-ematics. URL: https://epubs.siam.org/doi/abs/10.1137/1.9780898719208 , doi: 10.1137/1.9780898719208 ,
+
+arXiv:https://epubs.siam.org/doi/pdf/10.1137/1.9780898719208 .[9] Deshpande, S., Bordas, S.P., Lengiewicz, J., 2024. MAgNET: A graph U-Net architecture for mesh-based simulations. Engineering Applica-tions of Artificial Intelligence 133, 108055. URL: https://www.sciencedirect.com/science/article/pii/S0952197624002136 ,doi: https://doi.org/10.1016/j.engappai.2024.108055 .[10] Falgout, R.D., Yang, U.M., 2002. hypre: A library of high performance preconditioners, in: International Conference on Computational Science, Springer. pp. 632–641. [11] Geuzaine, C., Remacle, J.F., 2009. Gmsh: A 3-d finite element mesh generator with built-in pre-and post-processing facilities. International Journal for Numerical Methods in Engineering 79, 1309–1331. [12] Hu, J., Shen, L., Sun, G., 2018. Squeeze-and-excitation networks, in: 2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 7132–7141. doi: 10.1109/CVPR.2018.00745 .[13] Jin, P., Meng, S., Lu, L., 2022. MIONet: Learning multiple-input operators via tensor product. SIAM Journal on Scientific Computing 44, A3490–A3514. [14] Johnson, J., Douze, M., Jégou, H., 2019. Billion-scale similarity search with gpus. IEEE Transactions on Big Data 7, 535–547. [15] Kahana, A., Zhang, E., Goswami, S., Karniadakis, G., Ranade, R., Pathak, J., 2023. On the geometry transferability of the hybrid iterative numerical solver for differential equations. Computational Mechanics 72, 471–484. URL: https://doi.org/10.1007/ s00466-023-02271-5 , doi: 10.1007/s00466-023-02271-5 .[16] Knyazev, B., Taylor, G.W., Amer, M., 2019. Understanding attention and generalization in graph neural networks. Advances in Neural Information Processing Systems 32. URL: https://proceedings.neurips.cc/paper_files/paper/2019/file/ 4c5bcfec8584af0d967f1ab10179ca4b-Paper.pdf .[17] Koch, S., Matveev, A., Jiang, Z., Williams, F., Artemov, A., Burnaev, E., Alexa, M., Zorin, D., Panozzo, D., 2019. Abc: A big cad model dataset for geometric deep learning, in: The IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp. 9601–9611. [18] Kopaničáková, A., Karniadakis, G.E., 2025. DeepONet based preconditioning strategies for solving parametric linear systems of equations. SIAM Journal on Scientific Computing 47, C151–C181. URL: https://doi.org/10.1137/24M162861X , doi: 10.1137/24M162861X ,
+
+arXiv:https://doi.org/10.1137/24M162861X .[19] Lee, J., Lee, I., Kang, J., 2019. Self-attention graph pooling, in: Chaudhuri, K., Salakhutdinov, R. (Eds.), Proceedings of the 36th International Conference on Machine Learning, PMLR. pp. 3734–3743. URL: https://proceedings.mlr.press/v97/lee19c.html .[20] Lee, Y., Florencio, F.L., Pathak, J., Karniadakis, G.E., 2025a. Hybrid iterative solvers with geometry-aware neural preconditioners for parametric PDEs. URL: https://arxiv.org/abs/2512.14596 , arXiv:2512.14596 .
+
+Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 15 of 17 NSPOD 
+
+[21] Lee, Y., Liu, S., Darbon, J., Karniadakis, G.E., 2025b. Automatic discovery of optimal meta-solvers for time-dependent nonlinear pdes. URL: 
+
+https://arxiv.org/abs/2507.00278 , arXiv:2507.00278 .[22] Lee, Y., Liu, S., Zou, Z., Kahana, A., Turkel, E., Ranade, R., Pathak, J., Karniadakis, G.E., 2025c. Fast meta-solvers for 3d complex-shape scatterers using neural operators trained on a non-scattering problem. Computer Methods in Applied Mechanics and Engineering 446, 118231. URL: https://www.sciencedirect.com/science/article/pii/S0045782525005031 , doi: https://doi.org/10.1016/j.cma. 2025.118231 .[23] Li, Z., Kovachki, N.B., Azizzadenesheli, K., liu, B., Bhattacharya, K., Stuart, A., Anandkumar, A., 2021. Fourier neural operator for parametric partial differential equations. International Conference on Learning Representations URL: https://openreview.net/forum? id=c8P9NQVtmnO .[24] Loshchilov, I., Hutter, F., 2019. Decoupled weight decay regularization. International Conference on Learning Representations URL: 
+
+https://openreview.net/forum?id=Bkg6RiCqY7 .[25] Lu, L., Jin, P., Pang, G., Zhang, Z., Karniadakis, G.E., 2021. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature Machine Intelligence 3, 218–229. URL: https://doi.org/10.1038/s42256-021-00302-5 , doi: 10.1038/ s42256-021-00302-5 .[26] Lu, L., Meng, X., Cai, S., Mao, Z., Goswami, S., Zhang, Z., Karniadakis, G.E., 2022. A comprehensive and fair comparison of two neural operators (with practical extensions) based on fair data. Computer Methods in Applied Mechanics and Engineering 393, 114778. URL: 
+
+http://dx.doi.org/10.1016/j.cma.2022.114778 , doi: 10.1016/j.cma.2022.114778 .[27] Meijerink, J.A., van der Vorst, H.A., 1977. An iterative solution method for linear systems of which the coefficient matrix is a symmetric 
+
+𝑀 -matrix. Mathematics of Computation 31, 148–162. URL: http://www.jstor.org/stable/2005786 .[28] Morris, C., Ritzert, M., Fey, M., Hamilton, W.L., Lenssen, J.E., Rattan, G., Grohe, M., 2021. Weisfeiler and leman go neural: Higher-order graph neural networks. URL: https://arxiv.org/abs/1810.02244 , arXiv:1810.02244 .[29] Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., Chanan, G., Killeen, T., Lin, Z., Gimelshein, N., Antiga, L., Desmaison, A., Kopf, A., Yang, E., DeVito, Z., Raison, M., Tejani, A., Chilamkurthy, S., Steiner, B., Fang, L., Bai, J., Chintala, S., 2019. PyTorch: An imperative style, high-performance deep learning library. Advances in Neural Information Processing Systems 32. URL: https://pytorch.org/ .[30] Pichi, F., Moya, B., Hesthaven, J.S., 2024. A graph convolutional autoencoder approach to model order reduction for parametrized pdes. Journal of Computational Physics 501, 112762. URL: https://www.sciencedirect.com/science/article/pii/S0021999124000111 ,doi: https://doi.org/10.1016/j.jcp.2024.112762 .[31] Qi, C.R., Yi, L., Su, H., Guibas, L.J., 2017. PointNet++: Deep hierarchical feature learning on point sets in a metric space. Advances in Neural Information Processing Systems 30. [32] Rahaman, N., Baratin, A., Arpit, D., Draxler, F., Lin, M., Hamprecht, F., Bengio, Y., Courville, A., 2019. On the spectral bias of neural networks, in: Chaudhuri, K., Salakhutdinov, R. (Eds.), Proceedings of the 36th International Conference on Machine Learning, PMLR. pp. 5301–5310. URL: https://proceedings.mlr.press/v97/rahaman19a.html .[33] Raissi, M., Perdikaris, P., Karniadakis, G., 2019. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics 378, 686–707. URL: https://www. sciencedirect.com/science/article/pii/S0021999118307125 , doi: https://doi.org/10.1016/j.jcp.2018.10.045 .[34] Rusch, T.K., Bronstein, M.M., Mishra, S., 2023. A survey on oversmoothing in graph neural networks. URL: https://arxiv.org/abs/ 2303.10993 , arXiv:2303.10993 .[35] Saad, Y., 2003. Iterative Methods for Sparse Linear Systems. Second ed., SIAM, Philadelphia. URL: https://epubs.siam.org/doi/abs/10.1137/1.9780898718003 , doi: 10.1137/1.9780898718003 ,
+
+arXiv:https://epubs.siam.org/doi/pdf/10.1137/1.9780898718003 .[36] Saad, Y., Schultz, M.H., 1986. GMRES: A generalized minimal residual algorithm for solving nonsymmetric linear systems. SIAM Journal on Scientific and Statistical Computing 7, 856–869. URL: https://doi.org/10.1137/0907058 , doi: 10.1137/0907058 ,
+
+arXiv:https://doi.org/10.1137/0907058 .[37] Simoncini, V., Szyld, D.B., 2002. Flexible inner-outer Krylov subspace methods. SIAM Journal on Numerical Analysis 40, 2219–2239. URL: https://doi.org/10.1137/S0036142902401074 , doi: 10.1137/S0036142902401074 ,
+
+arXiv:https://doi.org/10.1137/S0036142902401074 .[38] Toselli, A., Widlund, O., 2004. Domain Decomposition Methods - Algorithms and Theory. Springer Series in Computational Mathematics, Springer, Berlin Heidelberg. URL: https://books.google.com/books?id=tpSPx68R3KwC .[39] Trefethen, L.N., Bau, III, D., 1997. Numerical Linear Algebra. SIAM, Philadelphia. URL: https://epubs.siam.org/doi/abs/10.1137/ 1.9780898719574 , doi: 10.1137/1.9780898719574 , arXiv:https://epubs.siam.org/doi/pdf/10.1137/1.9780898719574 .[40] Trottenberg, U., Oosterlee, C., Schuller, A., 2001. Multigrid Methods. Elsevier Science. URL: https://books.google.com/books?id= -og1wD-Nx_wC .[41] Van ∖vek, P., Brezina, M., Mandel, J., 2001. Convergence of algebraic multigrid based on smoothed aggregation. Numerische Mathematik 88, 559–579. [42] Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, Ł., Polosukhin, I., 2017. Attention is all you need. Advances in Neural Information Processing Systems 30. [43] Xu, J., 1992. Iterative methods by space decomposition and subspace correction. SIAM Review 34, 581–613. URL: https://doi.org/ 10.1137/1034116 , doi: 10.1137/1034116 , arXiv:https://doi.org/10.1137/1034116 .[44] Xu, J., Zikatanov, L., 2017. Algebraic multigrid methods. Acta Numerica 26, 591–721. [45] Yang, C., Wang, R., Yao, S., Liu, S., Abdelzaher, T., 2020. Revisiting over-smoothing in deep gcns. URL: https://arxiv.org/abs/2003. 13663 , arXiv:2003.13663 .[46] Young, D., 1954. Iterative methods for solving partial difference equations of elliptic type. Transactions of the American Mathematical Society 76, 92–111. URL: http://www.jstor.org/stable/1990745 .
+
+Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 16 of 17 NSPOD 
+
+[47] Zhang, E., Kahana, A., Kopaničáková, A., Turkel, E., Ranade, R., Pathak, J., Karniadakis, G.E., 2024. Blending neural operators and relaxation methods in pde numerical solvers. Nature Machine Intelligence 6, 1303–1313. [48] Zhao, H., Jiang, L., Jia, J., Torr, P.H., Koltun, V., 2021. Point Transformer, in: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV), pp. 16259–16268. 
+
+Francesc Levrero-Florencio et al.: Preprint submitted to Elsevier Page 17 of 17
