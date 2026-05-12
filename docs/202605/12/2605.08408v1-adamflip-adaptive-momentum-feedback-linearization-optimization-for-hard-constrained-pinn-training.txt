@@ -1,0 +1,1900 @@
+Title: AdamFLIP: Adaptive Momentum Feedback Linearization Optimization for Hard Constrained PINN Training
+
+URL Source: https://arxiv.org/pdf/2605.08408v1
+
+Published Time: Tue, 12 May 2026 00:13:57 GMT
+
+Number of Pages: 35
+
+Markdown Content:
+# AdamFLIP: Adaptive Momentum Feedback Linearization Optimization for Hard Constrained PINN Training 
+
+Binghang Lu 1∗ Runyu Zhang 2∗ Changhong Mou 3 Na Li 4 Guang Lin 1 
+
+> 1
+
+Purdue University  
+
+> 2
+
+Massachusetts Institute of Technology  
+
+> 3
+
+Utah State University  
+
+> 4
+
+Harvard University 
+
+# Abstract 
+
+Physics-informed neural networks (PINNs) provide a flexible framework for solv-ing forward and inverse problems governed by partial differential equations (PDEs), but standard PINN training typically relies on soft penalty formulations that com-bine PDE residuals, data mismatch, and initial/boundary conditions using manually chosen weights. This often leads to ill-conditioning, sensitivity to loss weights, and poor constraint satisfaction. In this work, we reformulate PINN training as an equality-constrained optimization problem and propose a novel Adaptive Momen-tum Feedback Linearization Optimization for Hard Constrained PINN (AdamFLIP). The key idea is to view the constraint residuals as the output of a controlled dynam-ical system and to compute the Lagrange multiplier as a feedback input that locally drives these residuals toward stable linear contraction dynamics. AdamFLIP then applies Adam-style first- and second-moment adaptation to the resulting feedback-linearized Lagrangian gradient, combining principled constraint handling with the scalability and robustness of adaptive neural-network optimization. We test AdamFLIP on a range of benchmark forward and inverse PDE problem, and it con-sistently outperforms both the standard soft-constrained PINN and state-of-the-art constrained optimizers. Specifically, on the Navier–Stokes equations benchmark, AdamFLIP reduces relative L2 error by more than two thirds for the predicted solution compared to the next best method. Our AdamFLIP framework provides an effective and computationally scalable hard constraint optimization method for PINN training. 
+
+# 1 Introduction 
+
+Physics informed neural networks (PINNs) have become more and more popular in scientific ma-chine learning which helps bridge the gap between data-driven modeling and classical PDE-based simulation. In a standard PINN (c.f. [ 1, 2, 3]), one represents the solution of a PDE with a neural network and trains it by minimizing a composite objective loss function that includes the residual of the governing differential equation (via automatic differentiation of the network) together with initial/boundary conditions and any available data. The learned solution is therefore expected to be approximate both the available data and the governing equations. This framework can naturally extend to both forward and inverse problems; in the inverse problem setting, unknown PDE parameters are treated as additional trainable variables and inferred jointly with the solution during optimization. PINNs have consequently been applied in a wide range of engineering and scientific fields [4, 5]. Most existing PINN training approaches use a soft-penalty formulation, in which the PDE residual, boundary conditions (BCs), and initial conditions (ICs) are summed as separately weighted terms 
+
+> ∗Equal contribution. Preprint.
+> arXiv:2605.08408v1 [cs.LG] 8 May 2026
+
+in a composite loss function. However, improper weight selection can lead to ill-conditioning, slow convergence, or solutions that fit the data while significantly violating the governing equations or boundary and initial conditions. Moreover, because each loss term may differ in scale, minimizing the composite loss does not guarantee that each term is individually minimized. Hence, the PINN’s performance is highly sensitive to choice of penalty weights which has been shown in extensive empirical and theoretical studies [6, 7, 8, 9]. These challenges have motivated several recent methods that incorporate constrained-optimization ideas into PINN training while retaining the soft-penalty objective. For example, Xu and Darve [ 10 ]adopt a trust-region strategy, and ADMM-PINNs [ 11 ] use operator splitting to decouple training. However, both methods still remain penalty weights dependent. A more fundamental shift recasts PINN training entirely as a constrained optimization problem. One prominent direction uses aug-mented Lagrangian (AL) methods [ 12 , 13 , 14 ], which treats ICs and BCs as equality constraints and performs primal updates coupled with multiplier (and penalty) updates to adaptively emphasize violated constraints. A second direction leverages sequential quadratic programming (SQP) and trust-region formulations; for example, [ 15 ] use sequential quadratic programming with trust-region to mitigate ill-conditioning and instability observed in standard PINNs (trSQP-PINN). Rather than enforcing constraints through the optimizer, a third class of methods builds them directly into the network architecture. Early work in this direction embedded constraints into the trial solution [ 16 , 17 ]. More recent approaches hard-impose boundary conditions through Fourier-feature parameterizations [ 18 , 19 ] or add a projection layer derived from Karush–Kuhn–Tucker (KKT) conditions to exactly satisfy linear equality constraints [20]. Beyond PINNs, constrained optimization is a long-standing theme in machine learning and reinforce-ment learning [ 21 , 22 ], where the goal is to optimize a learning objective while satisfying explicit constraints subject to explicit operational or physical constraints. Standard approaches in this broader literature include primal–dual Lagrangian methods (e.g. [ 23 , 24 ]), SQP-style methods (e.g. [ 25 ]), and hard-constraint-by-construction approaches (e.g. [ 26 , 27 ]). Recently, a separate line of work [ 28 , 29 , 30 ] has brought a control-theoretic perspective to constrained optimization that proposes a feedback linearization (FL) solver that imports a classical nonlinear control idea into constrained learning. Rather than relying on primal-dual updates or second-order subproblems, FL designs the multiplier/feedback update to impose a stable, approximately linear contraction on constraint viola-tions, and has been developed with rigorous convergence theories for general constrained nonconvex problems. 
+
+Our Contributions. We bring this FL framework to PINN training and make the following contribu-tions. First, we formulate PINN training as an equality-constrained problem that explicitly separates feasibility (IC/BC/PDE satisfaction) from optimality, and design the multiplier/feedback update to shape the constraint-violation dynamics into a stable linear system. Second, we introduce AdamFLIP, an adaptive variant that integrates FL with moment estimation following Adam [ 31 ]. AdamFLIP preserves the fast convergence and robustness of adaptive gradient methods while incorporating principled constraint handling through FL. Empirically, AdamFLIP consistently outperforms both standard soft-penalty PINN training with Adam and representative constrained PINN optimizers, achieving significantly improved constraint satisfaction and solution accuracy for both forward and inverse problems. Third, we provide finite-time convergence analysis for a metric-compatible variant of AdamFLIP, showing that both the stationarity residual and constraint violation achives best-iterate converge at a rate of O(log T / √T ) under standard assumptions. Together, these results demonstrate that embedding feedback-linearization principles into modern adaptive optimizers offers a simple yet powerful alternative to penalty reweighting and classical constrained-training schemes. Due to space constraints, we defer a more comprehensive review of the related literature and a detailed comparison with our work to Appendix A. 
+
+# 2 Preliminaries: Physics Informed Neural Networks (PINNs) 
+
+To illustrate the framework of physics informed neural networks (PINNs) [ 4, 1, 2], we start with the general nonlinear PDE which takes the following form: 
+
+ut + N [u] = 0 , x ∈ Ω, t ∈ [0 , T ], (1) where Ω ⊂ RD is an open, bounded D dimensional domain, u : [0 , T ]×Ω → R denotes the unknown solution field, and N [·] is a (generally nonlinear) differential operator acting on u.2Equation (1) is supplemented with the initial condition (IC): 
+
+u(0 , x ) = u0(x), x ∈ Ω, (2) and suitable boundary conditions (BCs) prescribed on the spatial boundary ∂Ω. Without loss of generality, we denote these conditions abstractly by 
+
+B[u]( t, x ) = h(t, x ), (t, x ) ∈ [0 , T ] × ∂Ω, (3) where B is a boundary operator (e.g., Dirichlet, Neumann, Robin, or a combination) and h is a given function. PINNs offer a unified framework for combining observational data with physical laws. The key idea is to incorporate the governing PDE (1) together with the associated initial and boundary conditions (3) ) directly into the loss function of a neural network where the required derivatives are obtained via automatic differentiation. In this setting, the solution u is approximated by a neural network which is trained both to fit available data and to minimize the residuals of the PDE and its boundary conditions. Consequently, the learned surrogate remains consistent with the underlying physics. More specifically, the PINN framework introduces the PDE residual loss (physics loss) denoted as ℓphy ,initial condition loss denoted as ℓic and boundary condition loss denoted as ℓbc according to (1) , (2) ,(3) as follows: ℓphy (u; t, x ) := ut(t, x ) + N [u]( t, x ); (4) 
+
+ℓic (u; t, x ) := ( u(0 , x ) − u0(x)) 2; (5) 
+
+ℓbc (u; t, x ) := ( B[u]( t, x ) − h(t, x )) 2 (6) In specific, in PINN we collect samples (generally from a mesh) D := {(ti, x i)} and we define 
+
+Dphy := {(x, t ) ∈ D : x ∈ Ω, t ∈ [0 , T ]},
+
+Dic := {(x, t ) ∈ D : x ∈ Ω, t = 0 },
+
+Dbc := {(x, t ) ∈ D : ( t, x ) ∈ [0 , T ] × ∂Ω}
+
+(7) Then assume that u is parameterized by the parameter of a neural network, i.e. u = uθ , then the total PDE residual loss Lphy , boundary loss Lbc and initial condition Lic loss with respect to the parameter θ are given by 
+
+Llabel (θ) := 1
+
+> |D label |
+
+P 
+
+> (ti,x i)∈D label
+
+ℓlabel (uθ ; ti, x i); label ∈ { phy , ic , bc }
+
+Forward Problem For the forward problem, we assume that the differential operator N is fully known and the task is to find a proper uθ that makes Lphy , Lic , Lbc as small as possible, and in general, the classical approach solves this by solving the unconstrained optimization problem 
+
+min  
+
+> θ
+
+L(θ) := wphy Lphy (θ) + wic Lic (θ) + wbc Lbc (θ), (8) where wphy , w ic , w bc are some hand-tuned weight on different losses. Then we solve this by first-order methods such as gradient descent or Adam [31]. 
+
+Inverse Problem The inverse problem considers a more challenging setting in which the differential operator N in (1) depends on unknown parameters κ (e.g. the unknown viscosity term v in 1D burgers equation). The goal is to jointly estimate the true parameter κ while learning an accurate solution 
+
+uθ from noisy observational data. To clarify the notation, we explicitly denote the parameterized differential operator by Nκ. Accordingly, the associated physics loss is redefined as 
+
+ℓphy (u, κ ; t, x ) := ut(t, x ) + Nκ[u]( t, x ), Lphy (θ, κ ) := 1 
+
+> |D phy |
+
+P 
+
+> (ti,x i)∈D phy
+
+ℓphy (uθ , κ ; ti, x i)
+
+whereas the definitions of Lic , Lbc still remain unchanged. Note that the goal is to both recover the optimal parameter of the neural network θ and the parameter of the differential operator κ. To achieve this, we also need to collect observation data set u(xi, t i) where (xi, t i) ∈ D , and define the data loss as 
+
+Ldata := 1
+
+> |D|
+
+P 
+
+> (ti,x i)∈D
+
+(uθ (ti, x i) − ui)2 , (9) and similar to solving the forward problem classical approach solves this by solving a minimization problem on a weighted loss that is a weighted summation of all the losses and then use first order method to find a solution. 
+
+min θ,κ L(θ, κ ) := wphy Lphy (θ, κ ) + wic Lic (θ) + wbc Lbc (θ) + wdata Ldata (θ) (10) 33 Feedback Linearization Constrained Optimization for Solving PINNs 
+
+Constrained Optimization for PINNs As mentioned in the previous section, PINNs typically solve optimization problems where the total objective loss L(θ), L(θ, κ ) is a linear combination of different losses such as data loss, physics loss, boundary condition loss and initial condition loss. While these constraints ideally should be satisfied during training, the highly nonlinear structure of the network and the discretized PDE makes it difficult to achieve objective loss going to strictly zero. Further, it often requires delicate tuning in the penalty weights wdata , w phy , w ic , w bc .Another way to handle this is via constrained optimization rather than optimizing the linear combina-tion of different loss. Instead of solving (8) or (10) , rather, we choose to put some of the losses into the constraint. In specific, for the forward problem , we consider the objective function is the physics loss Lphy (θ), and the equality constraints aggregate the initial and boundary condition losses into a single vector h(θ) := [ Lic (θ), Lbc (θ)] ⊤ ∈ R2:
+
+min θ Lphy (θ) s.t. Lbc (θ) = 0 , Lic (θ) = 0 (11) and for the inverse problem we consider the optimization variable expands to include both the neural network weights and the unknown PDE parameters, effectively replacing θ with the joint variable (θ, κ ). The objective becomes the data loss f (θ, κ ) := Ldata (θ), and the constraint vec-tor expands to enforce the PDE residual alongside the initial and boundary conditions, yielding 
+
+[Lphy (θ, κ ), Lic (θ), Lbc (θ)] ⊤ ∈ R3.
+
+min θ,κ Ldata (θ) s.t. Lphy (θ, κ ), Lbc (θ), Lic (θ) = 0 (12) Hence, rather than consider a unconstrained optimization problem, we put some of the losses as constraint and then we can use constrained optimization solvers. Note that both the forward problem 11 and inverse problem 12 fit into the general equality-constrained optimization framework as follows 
+
+min x f (θ) s.t. h(θ) = 0 . (13) 
+
+Remark 1 (Why Constrained Optimization for PINNs ) . Comparing with the penalty-based formula-tions (8) , (10) , constrained optimization offers a principled alternative by explicitly treating physical laws and boundary conditions as constraints, rather than soft penalties, thereby providing a clearer separation between feasibility and optimality. Moreover, constrained formulations can be interpreted as implicitly performing adaptive penalty adjustment (e.g. [32]) through dual variables, alleviating the need for manual loss reweighting and improving robustness across different problem instances. We observe in Table 1 that constrained methods achieve substantially smaller boundary and initial condition errors than unconstrained optimizers such as Adam, even though the physics loss is occasionally larger, which is consistent with prior observations [ 33 , 34 , 35 ]. This behavior can be attributed to two factors: first, the physics loss computed via automatic differentiation is sensitive to local approximation errors and network smoothness; second, PINN training involves an inherent tradeoff among physics residuals, boundary conditions, and initial conditions, so enforcing feasibility more strictly can redistribute errors across these components. 
+
+Feedback Linearization (FL) for equality-constrained optimization. Having reformulated PINN training as an equality-constrained problem, the next question is how to solve it efficiently and robustly. In this work, inspired by recent control-theoretic approaches to constrained optimization [ 28 , 30 ], we adopt a feedback linearization (FL) perspective, which views optimization dynamics as a controlled system and designs the multiplier to directly shape constraint evolution. Consider the equality-constrained problem in (13), whose first-order KKT conditions are 
+
+∇f (θ) + Jh(θ)⊤λ = 0 , h(θ) = 0 .
+
+A common approach to constrained optimization is to perform gradient descent on the Lagrangian, 
+
+θt+1 = θt − η ∇f (θt) + Jh(θt)⊤λt
+
+,
+
+which reduces the problem to designing the dual variable λt.Following [ 28 , 30 ], we interpret θ as the system state and λ as a feedback input, leading to a control-theoretic viewpoint in which the goal is to design a stabilizing feedback law. Let yt = h(θt) denote the constraint violation. A first-order approximation gives 
+
+yt+1 − yt ≈ − η  Jh(θt)∇f (θt) + Jh(θt)Jh(θt)⊤λt
+
+ .
+
+4FL selects λt to impose stable linear dynamics on yt, namely 
+
+yt+1 − yt = −ηKy t,
+
+where 0 ≺ K ⪯ 1 
+
+> η
+
+I. Solving for λt yields 
+
+λt = − Jh(θt)Jh(θt)⊤−1 Jh(θt)∇f (θt) − Kh (θt), (14) which enforces a controlled contraction of constraint violations. Substituting back gives the FL update 
+
+θt+1 = θt −η
+
+
+
+∇f (θt) − Jh(θt)⊤ Jh(θt)Jh(θt)⊤−1 Jh(θt)∇f (θt)−Kh (θt)
+
+.
+
+The analysis and empirical results in [ 30 , 28 ] show that the resulting algorithm performs strongly and achieves O( 1√T ) even in nonconvex settings. 
+
+Remark 2 (Connection and Difference with SQP) . Recent results in [ 28 ] establish a formal connec-tion between FL and sequential quadratic programming (SQP), showing that for the specific choice 
+
+K = 1 
+
+> η
+
+I, the FL update recovers the following SQP 
+
+min d ∇f (θt)⊤d + 12η ∥d∥2 s.t. h(θt) + Jh(θt)d = 0 .
+
+A key distinction, however, is that FL introduces an explicit gain matrix K to directly shape the constraint dynamics, enabling flexible control over the stability and rate of feasibility enforce-ment. Moreover, the control-theoretic formulation of FL naturally admits momentum extensions that incorporate temporal smoothing into the dynamics, and this observation directly motivates the momentum-based variants developed next. 
+
+FL with Momentum (FL-momentum) In [ 28 ], a momentum-based variant of feedback lineariza-tion, termed FL-momentum, was proposed to accelerate convergence. The method augments the feedback-linearized update with a momentum variable as 
+
+mt = βm t−1 +  ∇f (θt) + Jh(θt)⊤λt
+
+ , (λt is set according to (14) )
+
+θt+1 = θt − ηm t.
+
+Compared to naive FL, which updates the primal variable θ using only the instantaneous feedback-linearized gradient ∇f (θt) + Jh(θt)⊤λt, FL-momentum incorporates information from previous iterations through the momentum variable mt. From an optimization perspective, the momentum term introduces an inertial effect that extrapolates the update direction based on past descent trends, allowing the iterate to move more aggressively along persistent descent directions. As a result, FL-momentum empirically achieves accelerated convergence relative to naive FL. 
+
+# 4 AdamFLIP: An Optimizer for Solving Constrained Optimization in PINNs 
+
+While FL-momentum introduced at the end of previous section achieves acceleration, it still uses a single global stepsize across all coordinates, which can be suboptimal for neural-network parametriza-tions where gradients are often highly anisotropic and unevenly scaled. In contrast, in unconstrained optimization, Adam [ 31 ] has achieved strong empirical success in training neural networks across a wide range of applications. Motivated by this observation, we propose AdamFLIP ( Ada ptive 
+
+momentum Feedback Li nearization Optimization for Hard Constrained PINN Training), which augments FL-momentum with coordinate-wise adaptive scaling; see Algorithm 1. where x◦2 and 
+
+x◦ 12 denote the elementwise square and square root of x, and x ⊘ y denotes elementwise division. In addition to the first-moment estimate mt, AdamFLIP maintains a second-moment accumulator vt
+
+that tracks the elementwise squared magnitude of the feedback-linearized gradient. The resulting update rescales each coordinate of the momentum direction by an estimate of its historical variability, allowing parameters with consistently large gradients to take smaller steps while amplifying progress along flatter directions. The design of AdamFLIP is directly inspired by the Adam optimizer. Specifically, AdamFLIP mirrors Adam’s use of bias-corrected first- and second-moment estimates, but replaces the standard gradient with the gradient of the Lagrangian ∇f (θt) + Jh(θt)⊤λt. From this perspective, AdamFLIP can be interpreted as applying Adam-style adaptive normalization to feedback-linearized constrained opti-mization, preserving the structure and intuition of FL while inheriting the robustness and scalability that make Adam effective in large-scale neural network training. 5Algorithm 1 AdamFLIP Algorithm 
+
+Require: Initial parameters θ0, step size η, moments m0 = 0 , v0 = 0 , hyperparameters β1, β 2, ϵ, δ  
+
+> 1:
+
+for t = 1 , 2, . . . do  
+
+> 2:
+
+Compute constraint multiplier λt = − Jh(θt)Jh(θt)⊤+ ϵI −1 Jh(θt)∇f (θt)−Kh (θt) 
+
+> 3:
+
+gt ← ∇ f (θt) + Jh(θt)⊤λt 
+
+> 4:
+
+mt ← β1mt−1 + (1 − β1)gt 
+
+> 5:
+
+vt ← β2vt−1 + (1 − β2)g◦2 
+
+> t
+> 6:
+
+ˆmt ← mt
+
+1 − βt
+
+> 1
+
+, ˆvt ← vt
+
+1 − βt 
+
+> 2
+> 7:
+
+θt+1 ← θt − η ˆmt ⊘
+
+
+
+ˆv◦ 12 
+
+> t
+
++ δ
+
+ 
+
+> 8:
+
+end for 
+
+We would also like to point out one caveat that FL-based algorithms are designed under the assumption that Jh(θ)Jh(θ)⊤ is invertible, an assumption that may not hold in PINN training, particularly near exact constraint satisfaction where some residual gradients can become near zero. In Algorithm 1, we mitigate potential ill-conditioning by introducing a damped solve using Jh(θt)Jh(θt)⊤ + ϵI .
+
+4.1 Theoretical Guarantees 
+
+In this section, we provide a finite-time convergence guarantee for a variant of AdamFLIP. We note that a rigorous analysis of the original AdamFLIP remains challenging. To address this, we introduce a modified version (Algorithm 2), for which we establish convergence. The key difficulty with the original AdamFLIP (Algorithm 1) lies in a mismatch of metrics: the feedback-linearization multiplier is computed in the Euclidean metric, while the final update is preconditioned by an Adam-style diagonal metric Dt = diag 
+
+ 1√¯vt+δ
+
+
+
+. This inconsistency makes it difficult to control the optimization dynamics. To resolve this issue, the variant computes the multiplier directly in the same diagonal metric Dt used for the update, ensuring metric consistency throughout. In addition, following [ 36 ], we adopt a monotone second-moment estimate (AMSGrad-style) to stabilize the adaptive preconditioner. This modification prevents oscillations in the effective stepsizes and enables a tractable convergence analysis. We emphasize that, despite strong empirical performance, providing a convergence guarantee for the original AdamFLIP remains an open problem. We leave this question to future work. In the following, we introduce standard assumptions for nonconvex constrained optimization (cf. [ 37 , 38 ]). 
+
+Algorithm 2 AdamFLIP variant 
+
+Require: Initial point θ1, moments m0 = 0 , v0 = 0 , ¯v0 = 0 , stepsizes {ηt}, parameters β1, β 2 ∈
+
+[0 , 1) , denominator constant δ > 0, gain K = κI  
+
+> 1:
+
+for t = 1 , 2, . . . do  
+
+> 2:
+
+Define Dt = diag 
+
+ 1√¯vt−1+δ
+
+
+
+. 
+
+> 3:
+
+Compute λt = − Jh(θt)DtJh(θt)⊤−1 Jh(θt)Dt∇f (θt) − κh (θt). 
+
+> 4:
+
+gt = ∇f (θt) + Jh(θt)⊤λt. 
+
+> 5:
+
+mt = β1mt−1 + (1 − β1)gt, vt = β2vt−1 + (1 − β2)g◦2 
+
+> t
+
+. 
+
+> 6:
+
+ˆmt = mt
+
+> 1−βt
+> 1
+
+, ˜vt = vt
+
+> 1−βt
+> 2
+
+. 
+
+> 7:
+
+¯vt = max elem {¯vt−1, ˜vt}. 
+
+> 8:
+
+θt+1 = θt − ηtDt ˆmt. 
+
+> 9:
+
+end for Assumption 1 (Smoothness and regularity) . f, h are C2 on a neighborhood of a compact set C,the iterates remain in C, and Jh(θ) has full row rank on C. Consequently, there exists G such that 
+
+∥gt∥ ≤ G for all t.
+
+Assumption 2 (Stepsizes) . ηt > 0, ηt+1 ≤ ηt, ηt ≤ 1/κ , P 
+
+> t
+
+ηt = ∞, P 
+
+> t
+
+η2 
+
+> t
+
+< ∞.
+
+Define Mt := Jh(θt)DtJh(θt)⊤, λ† 
+
+> t
+
+:= −M −1 
+
+> t
+
+Jh(θt)Dt∇f (θt), and rt := ∇f (θt)+ Jh(θt)⊤λ† 
+
+> t
+
+,
+
+then we can prove the following theorem 6Theorem 1 (Finite-time convergence, proof see Appendix E) . Under Assumptions 1–2, the iterates generated by Algorithm 2 satisfy 
+
+PTt=1 ηt
+
+ ∥rt∥2 + ∥h(θt)∥1
+
+ = O
+
+
+
+1 + PTt=1 η2
+
+> t
+
+
+
+.
+
+Consequently, min 1≤t≤T
+
+ ∥rt∥2 + ∥h(θt)∥1
+
+ = O
+
+ 1PTt=1 ηt
+
+
+
+.
+
+Remark 3 (Discussion on the convergence implications and assumptions) . The quantity ∥rt∥ corre-sponds to a first-order stationarity residual, while ∥h(θt)∥1 measures feasibility violation. Together, 
+
+∥rt∥2 + ∥h(θt)∥1 serves as a natural surrogate for the KKT residual of the constrained problem. Con-sequently, Theorem 1 establishes that this KKT residual diminishes along the iterates in a weighted average sense, which in turn implies a best-iterate convergence guarantee. In particular, choosing ηt = η√t log t for t ≥ 2 satisfies the stepsize conditions. In this case, Theorem 1 implies the best-iterate guarantee 
+
+min 2≤t≤T
+
+ ∥rt∥2 + ∥h(θt)∥1
+
+ = O
+
+ log T√T
+
+
+
+.
+
+We note, however, that the obtained rate is still weaker than the classical rate typically achieved by first-order methods for nonconvex constrained optimization with min 1≤t≤T
+
+ ∥rt∥2 + ∥h(θt)∥1
+
+ = O  1
+
+> T
+
+.This gap reflects the additional challenges introduced by the adaptive metric and the coupled multiplier update, and closing this gap remains an interesting direction for future work. We also note that the full-row-rank condition on Jh(θ) cannot be guaranteed in general for PINN training, particularly near exact constraint satisfaction where some residual gradients may become degenerate. In practice, we do not observe this issue to be problematic, and we further stabilize the multiplier computation by using a damped solve with Jh(θt)Jh(θt)⊤ +ϵI . Extending the convergence analysis to rank-deficient or relaxed constraint settings remains an open direction. 
+
+# 5 Experiment Results 
+
+We evaluate AdamFLIP on four benchmark PDEs spanning 1D and 2D settings, linear and nonlinear dynamics, and integer- and fractional-order operators: (i) 1D viscous Burgers equation, (ii) 1D time-fractional mixed diffusion-wave equation (TFMDWE), (iii) 2D heat equation, and (iv) 2D incompressible Navier–Stokes equations (NSE). Each problem is tested in both forward (all PDE parameters known) and inverse (unknown parameters co-optimized with the network) settings, except NSE which is tested in the forward setting only. We compare against a standard PINN (Adam), AL-PINN [ 13 ], trSQP-PINN [ 15 ], and FL-PINN (feedback linearization without adaptive moments), as summarized in Table 2. The rationale for selecting these baselines is discussed in Appendix A and Remark 4. All methods share identical network architectures, training data, and stopping criteria per problem to ensure a fair comparison. Full experimental details (architecture, collocation points, hyperparameters, et al.) are deferred to Appendix C. 
+
+Burgers’ equation. We consider the 1D viscous Burgers equation on Ω = [ −1, 1] , t ∈ [0 , T ]:
+
+ut + uu x − νu xx = 0 , u(±1, t ) = 0 , u(x, 0) = − sin( πx ), (15) with ν = 0 .01 /π . The nonlinear advection–diffusion coupling produces steep shock formation, making this a standard yet challenging PINN benchmark. In the inverse setting, two unknown parameters κ1 (scaling uu x) and κ2 (scaling uxx ) are co-optimized with the network, initialized at 
+
+κ1=2 , κ 2=0 (true values: κ1=1 , κ2=ν). 
+
+Time-fractional mixed diffusion-wave equation (TFMDWE). On Ω = (0 , π ), t ∈ [0 , 1] :
+
+Dαt u − uxx = f (x, t ), u ∂Ω = 0 , u(x, 0) = 0 , (16) where Dαt is the Caputo fractional derivative of order α ∈ (0 , 1] , modeling anomalous diffusion in viscoelastic media [ 39 ]. With f (x, t ) = [Γ(4) /Γ(4 −α) t3−α + t3] sin( x), the exact solution is 
+
+u = t3 sin( x). In the inverse setting, α is treated as an unknown parameter. 
+
+2D heat equation. On Ω = (0 , 1) 2, t ∈ [0 , 1] :
+
+ut − ν∆u = 0 , u ∂Ω = 0 , u(x, y, 0) = sin( πx ) sin( πy ), (17) with analytical solution u = sin( πx ) sin( πy ) e −2π2νt . In the inverse setting, the thermal diffusivity 
+
+ν (denoted κ) is unknown and co-optimized. 7Table 1: Consolidated error comparison of evaluated models. Metrics include relative L2 error, wall-clock time (WT, in seconds) measured on an NVIDIA H100 GPU (80 GB), and constraint errors (CE) as MSE across initial/boundary conditions (IC/BC), physics residuals (Phy), and data loss (DL). Parameter recovery absolute errors are denoted by Err. Best results are highlighted in blue and second-best in light blue . Dataset Metric Standard PINN AdamFLIP FL-PINN AL-PINN trSQP-PINN Rel. L2 2.51 × 10 −1 3.12 × 10 −2 1.06 × 10 −1 8.20 × 10 −2 4.43 × 10 −1
+
+CE (IC) 4.26 × 10 −3 1.00 × 10 −4 6.82 × 10 −4 2.34 × 10 −3 9.91 × 10 −2
+
+Burgers Fwd CE (BC) 2.44 × 10 −3 1.00 × 10 −4 4.40 × 10 −4 6.25 × 10 −5 9.80 × 10 −2
+
+CE (Phy) 1.49 × 10 −3 2.60 × 10 −3 1.13 × 10 −2 2.97 × 10 −3 1.31 × 10 −3
+
+WT (s) 113 115 133 155 625 Rel. L2 5.46 × 10 −1 5.74 × 10 −2 4.19 × 10 −1 4.02 × 10 −1 4.54 × 10 −1
+
+CE (IC) 9.00 × 10 −3 2.90 × 10 −3 2.26 × 10 −2 3.06 × 10 −2 4.41 × 10 −1
+
+Burgers Inv CE (BC) 1.00 × 10 −4 3.50 × 10 −3 2.04 × 10 −2 2.73 × 10 −2 2.56 × 10 −1
+
+CE (Phy) 1.00 × 10 −4 2.11 × 10 −2 1.80 × 10 −3 2.48 × 10 −2 5.20 × 10 −3
+
+CE (DL) 1.13 × 10 −1 1.20 × 10 −3 6.62 × 10 −2 5.94 × 10 −2 4.07 × 10 −1
+
+Err ( κ1) 3.33 × 10 −2 1.54 × 10 −2 1.28 × 10 −1 5.94 × 10 −1 9.82 × 10 −1
+
+Err ( κ2) 6.50 × 10 −3 3.60 × 10 −3 9.65 × 10 −2 7.97 × 10 −2 1.90 × 10 −2
+
+WT (s) 248 324 334 334 621 Rel. L2 7.71 × 10 −1 2.85 × 10 −1 4.26 × 10 −1 4.93 × 10 −1 4.56 × 10 −1
+
+CE (IC) 1.65 × 10 −3 1.42 × 10 −5 1.36 × 10 −4 1.11 × 10 −3 1.69 × 10 −3
+
+TFMDWEs Fwd CE (BC) 2.19 × 10 −2 1.47 × 10 −4 4.20 × 10 −3 5.16 × 10 −2 2.90 × 10 −2
+
+CE (Phy) 1.07 × 10 −1 8.87 × 10 −2 1.19 × 10 −1 7.88 × 10 −1 8.13 × 10 −1
+
+WT (s) 56 50 52 53 105 Rel. L2 2.22 × 10 −1 3.95 × 10 −2 5.99 × 10 −1 8.81 × 10 −1 6.67 × 10 −1
+
+CE (IC) 9.01 × 10 −4 1.77 × 10 −5 1.56 × 10 −5 2.60 × 10 −4 1.19 × 10 −4
+
+TFMDWEs Inv CE (BC) 2.27 × 10 −2 2.57 × 10 −4 4.08 × 10 −4 3.74 × 10 −3 3.59 × 10 −3
+
+CE (Phy) 7.01 × 10 −2 6.53 × 10 −2 1.82 × 10 −1 4.92 × 10 −3 3.78 × 10 −3
+
+CE (DL) 3.59 × 10 −3 1.13 × 10 −4 2.61 × 10 −2 5.62 × 10 −2 5.44 × 10 −2
+
+Err ( α) 1.93 × 10 −1 3.40 × 10 −2 7.40 × 10 −2 9.54 × 10 −2 1.64 × 10 −1
+
+WT (s) 120 133 141 134 144 Rel. L2 3.43 × 10 −2 7.53 × 10 −3 9.49 × 10 −3 3.09 × 10 −2 6.60 × 10 −1
+
+CE (IC) 1.20 × 10 −4 5.59 × 10 −5 1.13 × 10 −4 3.65 × 10 −5 1.22 × 10 −1
+
+Heat Fwd CE (BC) 1.56 × 10 −4 6.35 × 10 −5 1.70 × 10 −4 7.89 × 10 −5 2.62 × 10 −2
+
+CE (Phy) 1.82 × 10 −3 2.00 × 10 −4 7.35 × 10 −4 7.41 × 10 −4 1.07 × 10 −2
+
+WT (s) 261 336 354 364 1260 Rel. L2 2.90 × 10 −2 1.59 × 10 −2 4.06 × 10 −2 3.98 × 10 −2 6.42 × 10 −1
+
+CE (IC) 3.06 × 10 −5 1.43 × 10 −5 1.80 × 10 −5 1.71 × 10 −4 4.81 × 10 −4
+
+Heat Inv CE (BC) 1.19 × 10 −4 1.03 × 10 −5 8.73 × 10 −6 3.07 × 10 −4 4.57 × 10 −3
+
+CE (Phy) 2.79 × 10 −4 9.13 × 10 −5 7.44 × 10 −5 2.29 × 10 −4 3.73 × 10 −3
+
+CE (DL) 5.22 × 10 −5 1.51 × 10 −5 8.81 × 10 −5 9.18 × 10 −5 2.59 × 10 −2
+
+Err ( κ) 9.00 × 10 −4 5.00 × 10 −4 6.70 × 10 −3 2.00 × 10 −3 8.84 × 10 −1
+
+WT (s) 297 346 360 361 1300 Rel. L2(u) 3.62 × 10 −2 1.18 × 10 −2 7.70 × 10 −2 5.19 × 10 −2 1.96 × 10 0
+
+Rel. L2(v) 3.48 × 10 −2 1.06 × 10 −2 8.13 × 10 −2 3.69 × 10 −2 9.68 × 10 −1
+
+Navier–Stokes CE (IC) 2.15 × 10 −5 1.26 × 10 −5 1.98 × 10 −3 1.10 × 10 −3 7.82 × 10 −4
+
+CE (BC) 1.02 × 10 −4 4.86 × 10 −5 2.72 × 10 −3 8.13 × 10 −4 3.56 × 10 −4
+
+CE (Phy) 6.11 × 10 −4 2.53 × 10 −4 1.08 × 10 −2 8.56 × 10 −4 1.29 × 10 1
+
+WT (s) 155 335 414 410 720 82D Navier–Stokes equations. On Ω = [0 , 2π]2, t ∈ [0 , T ]:
+
+ut + ( u · ∇ )u = −∇ p + ν∆u, ∇ · u = 0 , (18) where u = ( u, v ) is the velocity, p is the pressure, and ν = 0 .01 . We benchmark on the Taylor–Green vortex (closed-form solution). The network maps (x, t ) 7 → (u, p ).
+
+Discussion. Table 1 shows all results. For all seven problem configurations, AdamFLIP achieves the lowest relative L2 error, , typically improving over the next-best baseline by a factor of 2 to 10 .We highlight several key observations. 
+
+Forward problems. On Burgers (forward), AdamFLIP attains a relative L2 error of 3.12 ×10 −2,roughly 3× lower than the next-best AL-PINN ( 8.20 ×10 −2) and an order of magnitude lower than Standard PINN ( 2.51 ×10 −1), while simultaneously achieving the best IC/BC constraint satisfaction. On the 2D heat equation, AdamFLIP ( 7.53 ×10 −3) and FL-PINN ( 9.49 ×10 −3) both substantially outperform Standard PINN ( 3.43 ×10 −2), confirming the benefit of constrained formulations; notably, trSQP-PINN diverges ( 6.60 ×10 −1) on this problem. For the TFMDWE, all methods have difficulty due to the non-local fractional operator, yet AdamFLIP ( 2.85 ×10 −1) still improves upon the next-best FL-PINN ( 4.26 ×10 −1) while reducing IC/BC errors by one–two orders of magnitude. On the Navier–Stokes benchmark, AdamFLIP reduces L2 errors for both velocity fields to ∼1×10 −2,roughly 3× better than Standard PINN and an order of magnitude better than FL-PINN; trSQP-PINN again fails catastrophically on this system. 
+
+Inverse problems. The advantages of AdamFLIP are even more pronounced in parameter inferring. On Burgers (inverse), AdamFLIP achieves L2 = 5 .74 ×10 −2, nearly an order of magnitude below all baselines ( ∼4−5×10 −1), and recovers κ1, κ 2 with the smallest absolute errors ( 1.54 ×10 −2 and 
+
+3.60 ×10 −3, respectively). For the TFMDWE inverse problem, AdamFLIP attains L2 = 3 .95 ×10 −2
+
+and the most accurate recovery of the fractional order α (error 3.40 ×10 −2), while AL-PINN and FL-PINN degrade to errors larger than 5×10 −1. On the 2D heat inverse problem, all methods except trSQP-PINN perform reasonably, with AdamFLIP ( 1.59 ×10 −2) achieving the best L2 accuracy and parameter error ( 5.00 ×10 −4). 
+
+Computational cost. AdamFLIP incurs only a modest overhead relative to Standard PINN (typically 
+
+≤30% ), while trSQP-PINN requires 2−5× longer wall-clock time due to trust-region subproblem solves and pretraining requirements. AL-PINN and FL-PINN have comparable cost to AdamFLIP. 
+
+Constraint satisfaction trade-offs. Standard PINN occasionally achieves the lowest physics-loss CE (e.g., Burgers inverse), yet this does not translate to more accurate solution, consistent with the observation in Remark 1 that lower physics residual does not imply better constraint satisfaction in solution space. AdamFLIP’s feedback mechanism adaptively redistributes enforcement effort across IC, BC, and physics constraints, yielding the best overall accuracy. Additional spatiotemporal solution fields, absolute error maps, and per-problem analysis are provided in Appendix C. 
+
+# 6 Conclusion and Future Work 
+
+In this paper, we introduced AdamFLIP, an adaptive, momentum-based feedback linearization optimizer designed for hard-constrained PINN training. By formulating a feedback mechanism that drives constraint violations toward a stable linear dynamical system, and integrating Adam-style momentum updates, AdamFLIP enforces hard constraints and fasten the convergence. Crucially, it aviods the process of manual loss-weight tuning while maintaining computational efficiency. We evaluated our method against state-of-the-art constrained PINN baselines on classic PDEs and time-fractional partial differential equations (TFMDWEs) across both forward and inverse problem settings. Empirical results demonstrate that AdamFLIP not only guarantees rigorous constraint satisfaction but also yields lower relative L2 errors with only a marginal increase in training time. These findings open several promising avenues for future research. First, extending this first-order framework to zeroth-order optimization [ 29 ] could further enhance both model expressiveness and interpretability. Second, applying AdamFLIP to naturally enforce PDE symmetries, specifically, Lie point symmetries [ 40 , 41 , 42 ], presents a compelling direction for developing even more physically rigorous neural solvers. 9Acknowledgments and Disclosure of Funding 
+
+Guang Lin gratefully acknowledges support from the National Science Foundation (DMS-2533878, DMS-2053746, DMS-2134209, ECCS-2328241, CBET-2347401, and OAC-2311848), the U.S. De-partment of Energy (DOE) Office of Science Advanced Scientific Computing Research program under award DE-SC0023161, the SciDAC LEADS Institute, and the DOE Fusion Energy Sciences program under award DE-SC0024583. Runyu Zhang is supported by the MIT Postdoctoral Fellow-ship Program for Engineering Excellence. Na Li gratefully acknowledges support in part from NSF ASCENT under Grant 2328241 and in part from the NSF AI Institute under Grant 2112085. 
+
+# References 
+
+[1] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics , 378:686–707, 2019. [2] George Em Karniadakis, Ioannis G Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , 3(6):422–440, 2021. [3] Salvatore Cuomo, Vincenzo Schiano Di Cola, Fabio Giampaolo, Gianluigi Rozza, Maziar Raissi, and Francesco Piccialli. Scientific machine learning through physics–informed neural networks: Where we are and what’s next. Journal of Scientific Computing , 92(3):88, 2022. [4] Shengze Cai, Zhiping Mao, Zhicheng Wang, Minglang Yin, and George Em Karniadakis. Physics-informed neural networks (pinns) for fluid mechanics: A review. Acta Mechanica Sinica , 37(12):1727–1738, 2021. [5] Jiangtao Guo, Hao Zhu, Yujie Yang, and Chenrui Guo. Advances in physics-informed neural networks for solving complex partial differential equations and their engineering applications: A systematic review. Engineering Applications of Artificial Intelligence , 161:112044, 2025. [6] Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing ,43(5):A3055–A3081, 2021. [7] Aditi Krishnapriyan, Amir Gholami, Shandian Zhe, Robert Kirby, and Michael W Mahoney. Characterizing possible failure modes in physics-informed neural networks. Advances in neural information processing systems , 34:26548–26560, 2021. [8] Sifan Wang, Shyam Sankaran, Hanwen Wang, and Paris Perdikaris. An expert’s guide to training physics-informed neural networks. arXiv preprint arXiv:2308.08468 , 2023. [9] Suryanarayana Maddu, Dominik Sturm, Christian L Müller, and Ivo F Sbalzarini. Inverse dirichlet weighting enables reliable training of physics informed neural networks. Machine Learning: Science and Technology , 3(1):015026, 2022. [10] Kailai Xu and Eric Darve. Trust region method for coupled systems of pde solvers and deep neural networks. arXiv preprint arXiv:2105.07552 , 2021. [11] Yongcun Song, Xiaoming Yuan, and Hangrui Yue. The admm-pinns algorithmic framework for nonsmooth pde-constrained optimization: A deep learning approach. SIAM Journal on Scientific Computing , 46(6):C659–C687, 2024. [12] Lu Lu, Raphaël Pestourie, Wenjie Yao, Zhicheng Wang, Francesc Verdugo, and Steven G. Johnson. Physics-informed neural networks with hard constraints for inverse design. arXiv preprint arXiv:2102.04626 , 2021. [13] Hwijae Son, Sung Woong Cho, and Hyung Ju Hwang. Enhanced physics-informed neural net-works with augmented lagrangian relaxation method (al-pinns). Neurocomputing , 548:126424, 2023. [14] Qifeng Hu, Shamsulhaq Basir, and Inanc Senocak. Conditionally adaptive augmented la-grangian method for physics-informed learning of forward and inverse problems. arXiv preprint arXiv:2508.15695 , 2025. 10 [15] Xiaoran Cheng and Sen Na. Physics-informed neural networks with trust-region sequential quadratic programming. arXiv preprint arXiv:2409.10777 , 2024. [16] Isaac E Lagaris, Aristidis Likas, and Dimitrios I Fotiadis. Artificial neural networks for solving ordinary and partial differential equations. IEEE transactions on neural networks , 9(5):987– 1000, 1998. [17] Franck Djeumou, Cyrus Neary, Eric Goubault, Sylvie Putot, and Ufuk Topcu. Neural networks with physics-informed architectures and constraints for dynamical systems modeling. In 
+
+Learning for Dynamics and Control Conference , pages 263–277. PMLR, 2022. [18] Christopher Straub, Philipp Brendel, Vlad Medvedev, and Andreas Rosskopf. Hard-constraining neumann boundary conditions in physics-informed neural networks via fourier feature embed-dings. arXiv preprint arXiv:2504.01093 , 2025. [19] Physical informed neural networks with soft and hard boundary constraints for solving advection-diffusion equations using fourier expansions. Computers & Mathematics with Applications ,159:60–75, 2024. [20] Hao Chen, Gonzalo E Constante Flores, and Can Li. Physics-informed neural networks with hard linear equality constraints. Computers & Chemical Engineering , 189:108764, 2024. [21] James Kotary, Ferdinando Fioretto, Pascal Van Hentenryck, and Bryan Wilder. End-to-end constrained optimization learning: A survey. arXiv preprint arXiv:2103.16378 , 2021. [22] Javier Garcıa and Fernando Fernández. A comprehensive survey on safe reinforcement learning. 
+
+Journal of Machine Learning Research , 16(1):1437–1480, 2015. [23] Yatin Nandwani, Abhishek Pathak, and Parag Singla. A primal dual formulation for deep learning with constraints. Advances in neural information processing systems , 32, 2019. [24] Adam Stooke, Joshua Achiam, and Pieter Abbeel. Responsive safety in reinforcement learning by pid lagrangian methods. In International conference on machine learning , pages 9133–9143. PMLR, 2020. [25] Albert S Berahas, Frank E Curtis, Daniel Robinson, and Baoyu Zhou. Sequential quadratic optimization for nonlinear equality constrained stochastic optimization. SIAM Journal on Optimization , 31(2):1352–1379, 2021. [26] Youngjae Min and Navid Azizan. Hardnet: Hard-constrained neural networks with universal approximation guarantees. arXiv preprint arXiv:2410.10807 , 2024. [27] Panagiotis D Grontas, Antonio Terpin, Efe C Balta, Raffaello D’Andrea, and John Lygeros. Pinet: Optimizing hard-constrained neural networks with orthogonal projection layers. arXiv preprint arXiv:2508.10480 , 2025. [28] Runyu Zhang, Arvind Raghunathan, Jeff S Shamma, and Na Li. Constrained optimization from a control perspective via feedback linearization. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. [29] Runyu Zhang, Gioele Zardini, Asuman Ozdaglar, Jeff Shamma, and Na Li. Zeroth-order constrained optimization from a control perspective via feedback linearization. arXiv preprint arXiv:2509.24056 , 2025. [30] Vito Cerone, Sophie M Fosson, Simone Pirrera, and Diego Regruto. A new framework for constrained optimization via feedback control of lagrange multipliers. IEEE Transactions on Automatic Control , 2025. [31] Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 , 2014. [32] Shirong Li and Xinlong Feng. Dynamic weight strategy of physics-informed neural networks for the 2d navier–stokes equations. Entropy , 24(9):1254, 2022. [33] Pratik Rathore, Weimu Lei, Zachary Frangella, Lu Lu, and Madeleine Udell. Challenges in training pinns: A loss landscape perspective. arXiv preprint arXiv:2402.01868 , 2024. 11 [34] Tao Wang, Bo Zhao, Sicun Gao, and Rose Yu. Understanding the difficulty of solving cauchy problems with pinns. In 6th Annual Learning for Dynamics & Control Conference , pages 453–465. PMLR, 2024. [35] Tim De Ryck, Ameya D Jagtap, and Siddhartha Mishra. Error estimates for physics-informed neural networks approximating the navier–stokes equations. IMA Journal of Numerical Analysis ,44(1):83–119, 2024. [36] Sashank J Reddi, Satyen Kale, and Sanjiv Kumar. On the convergence of adam and beyond. In 
+
+International Conference on Learning Representations , 2018. [37] Jorge Nocedal and Stephen J Wright. Numerical optimization . Springer, 2006. [38] David W Peterson. A review of constraint qualifications in finite-dimensional spaces. Siam Review , 15(3):639–654, 1973. [39] Yuri Luchko. Initial-boundary-value problems for the generalized multi-term time-fractional diffusion equation. Journal of Mathematical Analysis and Applications , 374(2):538–548, 2011. [40] Johannes Brandstetter, Max Welling, and Daniel E Worrall. Lie point symmetry data aug-mentation for neural PDE solvers. In International Conference on Machine Learning , pages 2241–2256. PMLR, 2022. [41] T. Akhound-Sadegh, L. Perreault-Levasseur, J. Brandstetter, M. Welling, and S. Ravanbakhsh. Lie point symmetry and physics-informed networks. In Advances in Neural Information Processing Systems , volume 36, pages 42468–42481, 2023. [42] G. Mialon, Q. Garrido, H. Lawrence, D. Rehman, Y. LeCun, and B. Kiani. Self-supervised learning with lie symmetries for partial differential equations. In Advances in Neural Information Processing Systems , volume 36, pages 28973–29004, 2023. [43] Utkarsh Utkarsh, Pengfei Cai, Alan Edelman, Rafael Gomez-Bombarelli, and Christopher Vin-cent Rackauckas. Physics-constrained flow matching: Sampling generative models with hard constraints. arXiv preprint arXiv:2506.04171 , 2025. 
+
+# A Related Works: Constrained Optimization Methods for PINN, and comparison with AdamFLIP 
+
+In this section, we review recent constrained-optimization approaches for PINN training and compare their algorithmic principles with AdamFLIP. One line of work improves the optimization dynamics while largely preserving the penalty-based PINN objective. For example, [ 10 ] uses a trust-region strategy that restricts each update to a region where a local model of the composite loss is reliable, thereby improving stability in ill-conditioned regimes. ADMM-PINNs [ 11 ] instead use operator splitting: auxiliary variables are introduced so that the original problem decomposes into a PINN-based smooth subproblem and additional subproblems that may admit proximal or closed-form updates. Although these methods introduce constraints, such as the trust-region constraint in trust-region methods and the variable-splitting consistency constraint in ADMM, the main PINN training objective still relies on a weighted combination of PDE, data, and boundary/initial residuals. Therefore, they remain closer to soft-penalty-based PINN methods rather than fully hard-constrained formulations. A more fundamental shift is to recast PINN training itself as a constrained optimization problem. In this view, some loss components are no longer treated merely as weighted penalties but are instead imposed as equality constraints. A prominent family of methods follows the augmented Lagrangian (AL) principle [ 12 , 13 , 11 , 14 ]. For instance, hPINNs [ 12 ] use penalty and augmented-Lagrangian mechanisms to impose hard constraints in inverse-design problems, where the design variables and the PDE solution are learned through neural parameterizations. AL-PINNs [ 13 ] further formulate the PINN training problem by treating initial and boundary conditions as constraints and optimizing a sequence of augmented-Lagrangian objectives. In such methods, the training objective typically takes the form of the PDE residual augmented by multiplier terms and quadratic penalties for constraint violations. The multipliers and penalty parameters are updated over training so that violated constraints are emphasized more strongly. More recently, conditionally adaptive AL methods [ 14 ]12 introduce separate penalty parameters for heterogeneous constraints and update them conditionally, so that difficult constraints receive stronger enforcement. These AL-based approaches provide an important step beyond fixed penalty weighting, since the effective weights on the constraints are adapted through dual and penalty updates. However, their practical behavior still depends on the design of penalty schedules, multiplier updates, inner-loop training accuracy, and stopping criteria for the sequential augmented problems. In contrast, AdamFLIP does not enforce constraints by repeatedly increasing penalty weights or performing dual ascent on an augmented objective. Instead, the multiplier in AdamFLIP is computed from the local Jacobian geometry and the desired feedback dynamics, rather than learned through an outer penalty/multiplier update loop. A second constrained-optimization direction is based on SQP and trust-region methods. For example, trSQP-PINN [ 15 ] formulates PINN training as a hard-constrained problem and, at each iteration, solves a local approximation obtained by linearizing the constraints and using a quadratic model of the objective within a trust region. To reduce the cost of classical SQP, it uses quasi-Newton approximations and a pretraining stage to improve initialization. For instance, complex constraint implementations like trSQP-PINN require a pre-trained model and use quasi-Newton update to enforce the constraints, which doubling or tripling the total training time (as shown in our experiments in WT comparison in Table 1). AdamFLIP is related in spirit to SQP because both methods use local constraint linearization; see Remark 2. However, their algorithmic structures are different. trSQP-PINN solves a constrained quadratic/trust-region subproblem at each iteration and requires quasi-Newton updates, trust-region management, and pretraining. AdamFLIP instead computes a feedback-linearization multiplier in closed form and then applies an Adam-style adaptive update to the resulting Lagrangian gradient. Thus, AdamFLIP retains local constraint awareness while remaining closer to a first-order neural-network optimizer. Rather than enforcing constraints through the optimizer, a third class of methods builds them directly into the network architecture. This idea has early roots in trial-solution constructions [ 16 ], where the neural ansatz is designed to satisfy prescribed initial or boundary conditions by construction. More recent work develops this principle in more systematic and problem-adapted ways, including physics-informed architectures for dynamical systems with built-in structural constraints [ 17 ], Fourier-based parameterizations that hard-impose certain boundary conditions [ 18 , 19 ], and KKT-hPINN [ 20 ], which uses a KKT-derived projection layer to enforce linear equality constraints exactly. These hard-constraint-by-construction methods can guarantee exact satisfaction of eligible constraints at every forward pass. However, they are often problem-specific: the ansatz, embedding, or projection layer must be tailored to the boundary condition, domain geometry, or constraint structure. Moreover, they do not directly address the optimization difficulty associated with the remaining PDE residual, data loss, or inverse-parameter identification objective. AdamFLIP is complementary to this line of work: it does not require a specialized architecture, but instead operates at the optimizer level once the relevant PINN losses are formulated as equality constraints. 
+
+Remark 4 (Choice of constrained PINN baselines) . In Section 5, we compare AdamFLIP with AL-PINN and trSQP-PINN as two representative optimizer-level constrained PINN baselines. AL-PINN represents augmented-Lagrangian methods, which enforce constraints through multiplier and penalty updates, while trSQP-PINN represents SQP/trust-region methods, which enforce constraints by solving local constrained subproblems. These two methods are therefore the closest classical constrained-optimization counterparts to AdamFLIP. We do not use architecture-based hard-constraint methods as primary baselines because they change the hypothesis class through problem-specific trial functions, embeddings, or projection layers. Such comparisons would mix the effect of the optimizer with the effect of a specialized constrained parameterization. We also include standard PINN with Adam as the soft-penalty baseline and FL-PINN as an ablation of AdamFLIP without Adam-style adaptive moments. 
+
+# B Discussion on the Limitations 
+
+While AdamFLIP shows strong empirical performance, several limitations remain. First, our con-vergence analysis applies to a variant of AdamFLIP rather than the original AdamFLIP used in the experiments. The original algorithm computes the feedback-linearization multiplier in the Euclidean metric but applies an Adam-style preconditioned update, creating a metric mismatch that complicates the analysis. Second, the analysis assumes that Jh(θ) has full row rank, which may fail in PINN training, especially near exact constraint satisfaction. We mitigate possible ill-conditioning in prac-tice by using the damped solve Jh(θt)Jh(θt)⊤ + ϵI , but extending the theory to rank-deficient or relaxed constraint settings remains open. Finally, AdamFLIP requires choosing which losses are 13 treated as objectives and which are imposed as constraints. Our choices work well for the tested benchmarks, but other PDEs, noisy or sparse data, and higher-dimensional problems may require different formulations and further empirical validation. 
+
+# C Detailed Experimental Setup and Additional Results 
+
+This appendix provides the full experimental details for the numerical results reported in Section 5. We summarize the shared experimental settings below; problem-specific settings (architecture, collocation points, inverse problem parameterization) are given in each subsequent subsection. 
+
+C.1 Physics-Informed Neural Networks (PINNs) PINN architecture. Figure 1 illustrates the PINN framework used throughout our experiments. The neural network takes spatiotemporal coordinates as input, processes them through multiple fully connected hidden layers with tanh activations, and outputs the predicted solution field ˆu. For inverse problems, the unknown PDE parameters (e.g., κ1, κ2, α) are included as learnable scalars in the computational graph and co-optimized with the network weights θ. All required spatial and temporal derivatives are computed via automatic differentiation. x           
+
+> t
+> Neural Network (NN)
+> σ
+> σ
+> σ
+> σ
+> σ
+> σ
+> σ
+> σ
+> σ
+> σ
+> σ
+> σ
+> ˆu
+> Auto-differentiation
+> ∂∂t
+> ∂∂xi
+> ∂2
+> ∂x2
+> i
+> ...
+> Loss Functions L(θ)
+> Physics Loss
+> Lphysics
+> IC Loss
+> Lic
+> BC Loss
+> Lbc
+> Data Loss
+> Ldata
+> κ2
+> κ1
+> Inverse problem
+> Total Loss:
+> L(θ) = Lphysics +Lic +Lbc +Ldata
+> θL<ϵ
+> Yes
+> No
+
+Physics Informed Neural Network (PINN) 
+
+Figure 1: Illustration of the PINN framework. The network maps spatiotemporal inputs to the solution field ˆu; automatic differentiation provides exact derivatives for constructing the physics, initial condition, and boundary condition losses. In inverse problems, unknown PDE parameters are jointly optimized. 
+
+Training procedure. For each test problem, all five methods (Standard PINN, AL-PINN, trSQP-PINN, FL-PINN, and AdamFLIP) use an identical network architecture, the same training data, and the same stopping criterion: training terminates when the total loss falls below a predefined threshold 
+
+ϵ, or a maximum iteration count is reached. The Adam optimizer [ 31 ] is used for the unconstrained baseline (Standard PINN) and as the base optimizer within AdamFLIP, with hyperparameters β1 =0.9, β2 = 0 .999 .14 Evaluation metrics. We report: (i) the relative L2 error between the predicted and analytical solutions on a held-out test grid; (ii) the constraint errors (CE), computed as the mean squared error (MSE) at the initial condition (IC), boundary condition (BC), physics residual (Phy), and—for inverse problems—data loss (DL) collocation points; (iii) the absolute parameter recovery error for inverse problems; and (iv) the training wall-clock time (WT), measured on an HPC node equipped with an NVIDIA H100 GPU (80 GB). 
+
+Choice of Objectives and Constraints in the Algorithm For the forward problem, we choose the boundary loss and initial loss as constraints because the boundary and initial conditions define the admissible solution space of the PDE. If these conditions are not well satisfied, the learned solution may be physically inconsistent even when the residual loss is small inside the domain. Therefore, we optimize the physics residual as the main objective while enforcing the boundary and initial losses as constraints. This design encourages the model to reduce the PDE residual without violating the prescribed boundary and initial behaviors. For the inverse problem, we use the data loss as the objective and treat the physics, boundary, and initial losses as constraints. This is because the main goal of the inverse problem is to fit the observed data and recover the unknown quantities, while the PDE residual and prescribed conditions should still be satisfied to ensure physical consistency. In this setting, the data loss drives parameter identification, and the constraints prevent the learned solution from deviating from the governing equation and known problem conditions. We performed experiments where all loss terms were treated as constraints with the target loss value set to zero. The final experimental results show that the above objective–constraint choices provide the best overall performance, giving a better balance between accuracy, constraint satisfaction, and training stability. 
+
+Constraint Error (CE) To evaluate the physical consistency of our learned solutions, we adopt the constraint error metric introduced by [ 43 ]. Specifically, we compute the ℓ2 norm of the residuals evaluated by the constraint functions R∗ on each predicted sample ˆu(n), and average these norms across all N samples: CE (∗) = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+R∗
+
+
+
+ˆu(n)
+
+> 2
+
+, ∗ ∈ { IC , BC , Phy }.
+
+Here, the residual functions R∗ quantify the violations of the prescribed Dirichlet initial and boundary conditions, as well as conservation laws. 
+
+Collocation sampling. Training collocation points are sampled uniformly at random from the respective domains: Dic at t = 0 , Dbc along the spatial boundaries over time, and Dphy in the spatiotemporal interior. The specific numbers of collocation points ( Nic , Nbc , Nf ) vary by problem and are detailed in each subsection below. 
+
+C.2 One-dimensional Burgers’ Equation 
+
+The one-dimensional viscous Burgers’ equation is a nonlinear partial differential equation frequently used as a benchmark [ 2]. The Burgers’ equation with Dirichlet boundary conditions on the spatial domain Ω = [ −1, 1] and time domain [0 , T ] yields the following: 
+
+∂u ∂t − ν ∂2u∂x 2 + u ∂u ∂x = 0 , x ∈ Ω, t ∈ [0 , T ], (19) 
+
+u(x, t ) = 0 , ∀x ∈ ∂Ω, (20) 
+
+u(x, 0) = − sin( πx ). (21) Here, u(x, t ) represents the solution over space and time, and the viscosity ν is chosen to be 0.01 /π .The benchmark solution clearly displays the formation and evolution of steep gradients over time. 
+
+C.2.1 Numerical Settings Neural network architecture To ensure a fair and consistent comparison across all different models, we employ an identical deep neural network architecture. Specifically, each model utilizes a 15 fully connected network consisting of 8 hidden layers with 20 neurons per layer. During the training phase, each model was trained until its loss dropped below the predefined threshold, ϵ.
+
+Training and testing data In the training stage, the IC and BC losses are evaluated using data sampled in space at the initial time t = 0 and in time along the spatial boundaries ( x = −1 and 
+
+x = 1 ). In contrast, the physics loss is computed on 100 unlabeled collocation points randomly selected from the interior of the spatiotemporal domain. During the testing stage, the evaluation data are sampled over the spatiotemporal domain Ω × [0 , T ], where Ω = [0 , 1] . The data is generated on a uniform grid with a spatial mesh size of ∆x = 0 .01 and a temporal step size of ∆t = 0 .01 .
+
+Quantitative comparison metric To quantitatively assess and compare the performance across all tested models, we calculate the mean squared error (MSE) between the benchmark solution and the model prediction. 
+
+Acronyms of all different models 
+
+Table 2: Acronyms of all different models in numerical results.             
+
+> Model Acronym Full name Reference PINN Physics-Informed Neural Network [1] AL-PINN PINN With Augmented Lagrangian Relaxation Method [13] trSQP-PINN PINN With Trust-Region Sequential Quadratic Programming [15] FL-PINN Feedback linearization PINN n/a AdamFLIP Adam feedback linearization PINN n/a
+
+C.2.2 Forward Problem 
+
+In this section, we consider the forward problem setting where the physics loss is fully specified and does not involve any unknown parameters to be inferred. The objective is therefore to approximate the solution accurately while ensuring consistency with the prescribed initial condition, boundary condition, and governing equation. Table 3 presents a quantitative comparison of standard PINN (Adam), AL-PINN, trSQP-PINN, FL-PINN, and AdamFLIP for the Burgers’ equation, measured in terms of the relative L2 error and the constraint errors (CE) for the initial condition (IC), boundary condition (BC), and physics loss (PL). Among all models considered, AdamFLIP performs best as achieving a relative L2 error that is approximately one order of magnitude smaller than those of the other models while also yielding the lowest constraint errors (CE) in most cases. Although trSQP-PINN attains the smallest physics-loss CE, which is several orders of magnitude lower than those of the other models, this advantage does not translate into improved relative L2 error accuracy or better performance in the other constraint errors. It is also worth noting that all models yield comparable wall-clock times, indicating that the improved performance of AdamFLIP is achieved without introducing additional computational cost. Table 3: Quantitative error comparison for the 1D Burgers equation (forward problem). We report relative L2 errors, constraint errors (CE) at initial (IC), boundary (BC), and physics (Phy) collocation points, and training wall-clock time (WT). 
+
+Method Constraint Rel. L2 CE (IC) CE (BC) CE (Phy) WT (s) 
+
+Standard PINN ✗ 2.51 × 10 −1 4.26 × 10 −3 2.44 × 10 −3 1.49 × 10 −3 113 
+
+AL-PINN ✓ 8.20 × 10 −2 2.34 × 10 −3 6.25 × 10 −5 2.97 × 10 −3 155 trSQP-PINN ✓ 4.43 × 10 −1 9.91 × 10 −2 9.80 × 10 −2 1.31 × 10 −3 625 FL-PINN ✓ 1.06 × 10 −1 6.82 × 10 −4 4.40 × 10 −4 1.13 × 10 −2 133 
+
+AdamFLIP ✓ 3.12 × 10 −2 1.00 × 10 −4 1.00 × 10 −4 2.60 × 10 −3 115 16 (a) Spatiotemporal fields 
+
+> (b) Absolute errors
+
+Figure 2: Comparison of spatiotemporal solutions and absolute errors for the one-dimensional Burgers’ equation. (a) Predicted fields u(x, t ) from the benchmark solution and from Standard PINN, FL-PINN, trSQP-PINN, and AdamFLIP. (b) Corresponding absolute error distributions for each method. This is also confirmed in Figure 2. In particular, Figure 2a compares the spatiotemporal fields predicted by different models with the benchmark solution (first panel). Compared with the benchmark solution, the standard PINN (second panel) captures the overall spatiotemporal structure but exhibits noticeable smoothing in regions that should contain sharp gradients. The FL-PINN (third panel) improves the representation of these features by more accurately capturing the solution structure along the characteristic directions of the dynamics, while AdamFLIP (forth panel) performs best overall, effectively preserving both the magnitude and the sharpness of the solution profile. Figure 2b further supports these observations by presenting the spatiotemporal absolute error dis-tributions for the different models.It is clearly observed that AdamFLIP attains the smallest error throughout the entire spatiotemporal domain, with substantially smaller errors in the shock regions than the other models. FL-PINN reduces these errors by incorporating feedback linearization, yet residual discrepancies remain visible. In contrast, AdamFLIP achieves the lowest absolute error throughout the domain, with errors significantly suppressed in both magnitude and spatial extent. These observations are consistent with the quantitative results in Table 3, confirming that AdamFLIP provides superior accuracy while enforcing physical constraints more effectively. 
+
+C.2.3 Inverse Problem 
+
+In the inverse problem setting, we assume that there are two unknown PDE parameters κ1 and κ2 in Eq. (19) , which yields the following setting: 
+
+∂u ∂t + κ1u ∂u ∂x = κ2
+
+∂2u∂x 2 , x ∈ Ω, t ∈ [0 , T ], (22) 
+
+u(x, t ) = 0 , ∀x ∈ ∂Ω, (23) 17 u(x, 0) = − sin( πx ). (24) Within the PINN frameworks, κ1 and κ2 are parameterized as learnable scalars, which are co-optimized with the neural network weights by minimizing the loss function same as in the forward problem. In this setup, for all models we initialize the parameter estimates at κ1 = 2 , κ 2 = 0 ,whereas their ground truth values are κ1 = 1 and κ2 = ν = 0 .01 /π ≈ 0.00318 .Table 4 shows the learned PDE parameters and their L1 error compared to the ground truth for the Burgers’ equation in the inverse problem setting. It is shown that among all models, AdamFLIP demonstrates the highest accuracy by achieving the lowest L1 errors in estimating both κ1 and κ2.Specifically, it reduces the estimation error of κ1 by nearly an order of magnitude compared to the next best model, FL-PINN, while simultaneously improving the estimation accuracy for κ2 by at least one-third relative to the other methods. We use the same neural network structure same as used in forward problem but treat the unknown parameters as the trainable parameters in the neural network. Notably, trSQP-PINN exhibits the largest error in κ1 (0.9821 ), indicating unstable or inaccurate parameter identification. By enforcing parameter bounds and adaptively balancing constraints, AdamFLIP substantially improves robustness and accuracy in parameter discovery. Table 4: Parameter estimation results for the one-dimensional Burgers’ equation in the inverse problem setting. The exact PDE parameters are κ1 = 1 and κ2 = 0 .003183 .
+
+Method ˆκ1 |ˆκ1 − κ1| ˆκ2 |ˆκ2 − κ2|
+
+Standard PINN 0.9667 0.0333 0.0097 0.0065 
+
+AL-PINN 1.5940 0.5940 0.0829 0.0797 
+
+trSQP-PINN 1.9821 0.9821 0.0222 0.0190 
+
+FL-PINN 0.8723 0.1277 0.0996 0.0965 
+
+AdamFLIP 1.0154 0.0154 0.0067 0.0036 
+
+Similar to Table 3, Table 5 presents a quantitative comparison of standard PINN (Adam), AL-PINN, trSQP-PINN, FL-PINN, and AdamFLIP for the Burgers’ equation in the inverse problem setting, where the relative L2 error and the constraint errors (CE) for the initial condition (IC), boundary condition (BC), and physics loss (PL) are compared. Consistent with the forward problem setting, AdamFLIP performs best, achieving a relative L2 error that is approximately one order of magnitude smaller than those of the other models. Furthermore, it yields the lowest constraint errors in most categories. For example, while AL-PINN and FL-PINN manage to reduce the data loss constraint error, CE(DL), to roughly half of that produced by the standard PINN, AdamFLIP minimizes this error by nearly two orders of magnitude relative to the baseline. Similarly, AdamFLIP reduces the initial and boundary constraint errors to approximately one-tenth of those observed in the AL-PINN and FL-PINN models. While constrained models incur overhead in computational cost, i.e., AL-PINN, FL-PINN and trSQP-PINN take about one-third longer to train than standard PINN, AdamFLIP remains relative efficient. Consistent with the quantitative results in Tables 4–5, Figure 3 presents a qualitative comparison of the reconstructed spatiotemporal solutions and their corresponding absolute errors. The benchmark solution is characterized by a sharp transition near x = 0 , a feature that AdamFLIP accurately captures across the entire temporal domain. In contrast, the standard PINN fails to resolve the underlying physical structure, instead converging to a trivial, highly diffuse profile that neglects the sharp interface. While FL-PINN improves upon the baseline, it still exhibits noticeable discrepancies near the transition region. These differences are further emphasized in the absolute error plots: the standard PINN shows significant error concentrations around the discontinuity, and FL-PINN achieves only moderate error reduction, whereas AdamFLIP maintains uniformly low errors throughout the entire domain. Overall, AdamFLIP proves to be the most effective framework, significantly outperforming other models with or without constraints by accurately identifying the governing physics while reconstructing the underlying spatiotemporal dynamics with moderate computational overhead. 18 Table 5: Quantitative error comparison for the 1D Burgers equation (inverse problem). We report relative L2 errors, constraint errors (CE) at initial (IC), boundary (BC), physics (Phy), and data loss (DL) collocation points, and training wall-clock time (WT).                                                                                              
+
+> Method Constraint Rel. L2CE (IC) CE (BC) CE (Phy) CE (DL) WT (s)
+> Standard PINN ✗5.46 ×10 −19.00 ×10 −31.00 ×10 −41.00 ×10 −41.13 ×10 −1248 AL-PINN ✓4.02 ×10 −13.06 ×10 −22.73 ×10 −22.48 ×10 −25.94 ×10 −2334 trSQP-PINN ✓4.54 ×10 −14.41 ×10 −12.56 ×10 −15.20 ×10 −34.07 ×10 −1621 FL-PINN ✓4.19 ×10 −12.26 ×10 −22.04 ×10 −21.80 ×10 −36.62 ×10 −2334
+> AdamFLIP ✓5.74 ×10 −22.90 ×10 −33.50 ×10 −32.11 ×10 −21.20 ×10 −3324
+
+(a) Spatiotemporal fields 
+
+(b) Absolute errors 
+
+Figure 3: Comparison of spatiotemporal solutions and absolute errors for the inverse one-dimensional Burgers’ equation. (a) Predicted fields u(x, t ) from the benchmark solution and from Standard PINN, FL-PINN, trSQP-PINN ,and AdamFLIP. (b) Corresponding absolute error distributions for each method. 
+
+C.3 Time-fractional Mixed Diffusion-Wave Equations (TFMDWEs) 
+
+The third example we consider is the time-fractional mixed diffusion-wave equation (TFMDWE). This class of equations is widely used to model anomalous transport processes and memory effects in complex media, such as viscoelastic materials, where the dynamics transition between pure diffusion and wave propagation [ 39 ]. Specifically, we consider the tTFMDWEs on the spatial domain 
+
+Ω = (0 , π ) with homogeneous Dirichlet boundary conditions: 
+
+Dαt u(x, t ) = ∂2u∂x 2 + f (x, t ), t ∈ [0 , 1] , x ∈ Ω ≡ [0 , π ], (25) 
+
+u(x, t ) = 0 , ∀x ∈ ∂Ω, (26) 
+
+u(x, 0) = 0 , x ∈ Ω, (27) 19 where Dαt denotes the Caputo fractional derivative of order α ∈ (0 , 1] . In addition, we prescribe the forcing term as: 
+
+f (x, t ) = 
+
+ Γ(4) Γ(4 − α) t3−α + t3
+
+
+
+sin( x), (28) which corresponds to the analytical solution u(x, t ) = t3 sin( x). Here, Γ( ·) represents the Euler gamma function. 
+
+C.3.1 PINN’s settings Neural network architecture To ensure a fair and consistent comparison across all different models, we employ an identical deep neural network architecture. Specifically, each model utilizes a fully connected network consisting of 3 hidden layers with 100 neurons per layer. During the training phase, each model was trained until its loss dropped below the predefined threshold, ϵ.
+
+Training and testing data In the training stage, the initial condition (IC) and boundary condition (BC) losses are evaluated using data uniformly sampled in space at t = 0 and in time along the spatial boundaries ( x = 0 and x = π), with Nic = 100 and Nbc = 100 points, respectively. In contrast, the physics loss for the TFMDWE is computed on Nf = 5000 interior collocation points randomly selected from the spatiotemporal domain (0 , π )×(0 , 1] . Additionally, Ndata = 100 synthetic observation points are sampled from the exact solution u(x, t ) = t3 sin( x) to inform the training process. During the testing stage, the evaluation data are sampled over the spatiotemporal domain 
+
+Ω × [0 , T ], where Ω = [0 , π ] and T = 1 . The data is generated on a uniform grid with a spatial mesh size of ∆x = π/ 100 and a temporal step size of ∆t = 0 .01 , resulting in a 100 × 100 grid for quantitative performance assessment. 
+
+C.3.2 Forward 
+
+Table 6 reports the numerical performance of Standard PINN, AL-PINN, trSQP-PINN, FL-PINN, and AdamFLIP on the forward fractional PDE problem. Overall, AdamFLIP provides the best accuracy and constraint satisfaction, achieving the lowest relative L2 error of 2.85 × 10 −1 while substantially reducing the constraint errors to CE(IC) = 1 .42 × 10 −5 and CE(BC) = 1 .47 × 10 −4.In comparison, FL-PINN improves over the baselines with a relative error of 4.26 × 10 −1, but its constraint errors remain larger ( CE(IC) = 1 .36 × 10 −4, CE(BC) = 4 .20 × 10 −3) and its physics-loss constraint error is higher than AdamFLIP. Both AL-PINN and trSQP-PINN reduce the relative error compared to Standard PINN, yet they exhibit markedly poorer physics-loss enforcement, with 
+
+CE(PL) on the order of 10 −1–10 0, indicating unstable or imbalanced training. Standard PINN performs worst overall, yielding a large relative error of 7.71 × 10 −1 with comparatively weak constraint satisfaction. Moreover, AdamFLIP achieves these improvements with the lowest wall-clock time ( 50 s ), demonstrating a favorable trade-off between accuracy, constraint enforcement, and computational efficiency for forward fractional PDE learning. Table 6: Quantitative error comparison for the forward fractional PDE. We report relative L2 errors, constraint errors (CE) at initial (IC), boundary (BC), and physics (Phy) collocation points, and training wall-clock time (WT). 
+
+Method Constraint Rel. L2 CE (IC) CE (BC) CE (Phy) WT (s) 
+
+Standard PINN ✗ 7.71 × 10 −1 1.65 × 10 −3 2.19 × 10 −2 1.07 × 10 −1 56 AL-PINN ✓ 4.93 × 10 −1 1.11 × 10 −3 5.16 × 10 −2 7.88 × 10 −1 53 trSQP-PINN ✓ 4.56 × 10 −1 1.69 × 10 −3 2.90 × 10 −2 8.13 × 10 −1 105 FL-PINN ✓ 4.26 × 10 −1 1.36 × 10 −4 4.20 × 10 −3 1.19 × 10 −1 52 
+
+AdamFLIP ✓ 2.85 × 10 −1 1.42 × 10 −5 1.47 × 10 −4 8.87 × 10 −2 50 
+
+Figure 4 visualizes the spatiotemporal solution fields and corresponding absolute error maps for the forward one-dimensional time-fractional mixed diffusion–wave equation. As shown in Fig. 7(a), the benchmark solution exhibits a smooth high-amplitude region concentrated near the upper time boundary, with the strongest response occurring around the center of the spatial domain. The Standard PINN prediction in Fig. 7(b) deviates noticeably from the benchmark, particularly in the high-gradient region near the top boundary, where the solution amplitude and spread are misrepresented. This discrepancy is reflected in the error map in Fig. 7(c), where the Standard PINN displays pronounced 20 localized errors concentrated near the upper portion of the domain, indicating difficulty in resolving the sharp spatiotemporal transition governed by the fractional dynamics. In contrast, FL-PINN produces a solution field that more closely matches the benchmark structure, reducing the mismatch in the dominant high-amplitude region. The corresponding absolute error map shows a substantial reduction in error magnitude and spatial extent compared with the Standard PINN, suggesting that feedback linearization improves optimization stability and accelerates convergence toward a physically consistent solution. AdamFLIP yields the closest agreement with the benchmark among all methods. Its predicted spatiotemporal field preserves both the location and smooth shape of the dominant response region, and its absolute error map exhibits the smallest and most spatially confined residuals. In particular, the remaining errors are primarily limited to a narrow band near the upper time boundary, consistent with a challenging region where the solution gradients are largest and where PINN training typically struggles. Overall, Fig. 4 demonstrates that adaptive feedback linearization not only improves solution accuracy relative to the Standard PINN but also yields more uniform and reduced errors across the full spatiotemporal domain, aligning with the quantitative improvements reported in Table 6. 21 (a) Spatiotemporal field of Benchmark  
+
+> (b) Spatiotemporal fields of different models (c) Absolute errors
+
+Figure 4: Forward time-fractional mixed diffusion–wave equation (1D) results: benchmark spatiotem-poral field and model predictions. (a) Reference solution u(x, t ). (b) Predicted spatiotemporal fields obtained by Standard PINN, FL-PINN, trSQP-PINN, and AdamFLIP. (c) Corresponding absolute error maps , showing that AdamFLIP yields the smallest and most localized errors, especially near the high-gradient region at large t.22 C.3.3 Inverse 
+
+Table 7 reports a quantitative comparison for the inverse fractional PDE problem across Standard PINN, AL-PINN, trSQP-PINN, FL-PINN, and AdamFLIP in terms of the relative L2 error, constraint errors for the initial condition (IC), boundary condition (BC), physics loss (PL), and data loss (DL), as well as wall-clock time. Overall, AdamFLIP achieves the best performance, attaining the lowest relative L2 error of 3.95 × 10 −2 and the smallest data loss CE(DL) = 1 .13 × 10 −4, indicating substantially improved data fitting and more reliable parameter identification compared with all baselines. The Standard PINN exhibits moderate solution accuracy ( 2.22 × 10 −1) but suffers from notice-ably larger violations of the boundary condition and physics constraints ( CE(BC) = 2 .27 × 10 −2,
+
+CE(PL) = 7 .01 × 10 −2). AL-PINN and trSQP-PINN perform poorly in this inverse setting, produc-ing large relative errors on the order of 10 −1–10 0 and comparatively large data losses, suggesting that they either overemphasize certain constraints or converge to suboptimal parameter values. FL-PINN partially improves constraint enforcement, achieving a small CE(IC) = 1 .56 × 10 −5 and 
+
+CE(BC) = 4 .08 × 10 −4, but its overall accuracy remains limited ( 5.99 × 10 −1). This behavior is consistent with a failure mode in inverse optimization where the method collapses to a trivial solution, yielding low constraint residuals while failing to match observational data. In contrast, AdamFLIP adaptively balances constraints and data fitting during training, preserving strong IC/BC enforcement (CE(IC) = 1 .77 × 10 −5, CE(BC) = 2 .57 × 10 −4) while dramatically reducing the data loss and improving overall solution accuracy, with a comparable computational cost. Table 7: Quantitative error comparison for the inverse fractional PDE problem. We report relative 
+
+L2 errors, constraint errors (CE) at initial (IC), boundary (BC), physics (Phy), and data loss (DL) collocation points, and training wall-clock time (WT).                                                                                              
+
+> Method Constraint Rel. L2CE (IC) CE (BC) CE (Phy) CE (DL) WT (s)
+> Standard PINN ✗2.22 ×10 −19.01 ×10 −42.27 ×10 −27.01 ×10 −23.59 ×10 −3120
+> AL-PINN ✓8.81 ×10 −12.60 ×10 −43.74 ×10 −34.92 ×10 −35.62 ×10 −2134 trSQP-PINN ✓6.67 ×10 −11.19 ×10 −43.59 ×10 −33.78 ×10 −35.44 ×10 −2144 FL-PINN ✓5.99 ×10 −11.56 ×10 −54.08 ×10 −41.82 ×10 −12.61 ×10 −2141
+> AdamFLIP ✓3.95 ×10 −21.77 ×10 −52.57 ×10 −46.53 ×10 −21.13 ×10 −4133
+
+Figure 5 illustrates the spatiotemporal solution fields and corresponding absolute error maps for the inverse one-dimensional time-fractional mixed diffusion–wave equation. Compared with the forward case, the inverse problem is more challenging due to the additional requirement of parameter identification while simultaneously fitting observational data. The Standard PINN solution exhibits noticeable distortion in the upper time region, where the dominant response is expected. The predicted field appears overly smoothed and shifted, leading to large localized errors near the top boundary, as highlighted in the absolute error map. This behavior reflects the tendency of unconstrained optimization to converge to suboptimal parameter values that partially satisfy the PDE residual but fail to accurately reconstruct the underlying dynamics. FL-PINN improves constraint enforcement and produces a solution with a clearer dominant structure compared to Standard PINN. However, the reconstructed field still deviates from the expected spatiotemporal pattern, particularly in the central region, where the amplitude and curvature are misrepresented. The corresponding error map reveals persistent residual bands, indicating that strict constraint minimization alone does not guarantee accurate parameter recovery in the inverse setting. AdamFLIP yields a solution field that most closely matches the expected physical structure, accurately capturing both the spatial localization and temporal evolution of the dominant response. The absolute error map is nearly uniform and close to zero across the entire domain, with only minor residuals near regions of steep gradient. This demonstrates that adaptive constraint balancing effectively mitigates the degeneracy observed in pure feedback linearization and prevents convergence to trivial or physically inconsistent parameter values. Overall, Fig. 5 visually confirms the quantitative results reported in Table 7: AdamFLIP provides substantially improved accuracy, more reliable parameter identification, and significantly reduced global error compared to Standard PINN and FL-PINN in the inverse fractional PDE setting. 23 (a) Spatiotemporal fields of different models (b) Absolute errors 
+
+Figure 5: Inverse time-fractional mixed diffusion–wave equation (1D) results: spatiotemporal re-constructions and absolute errors. (a) Predicted solution fields u(x, t ) obtained by Standard PINN, FL-PINN, trSQP-PINN, and AdamFLIP. (b) Corresponding absolute error maps, showing that AdamFLIP produces the smallest and most uniform errors across the spatiotemporal domain, whereas Standard PINN and FL-PINN exhibit larger localized error bands, especially near the upper-time region. 
+
+C.4 2D Heat Equation 
+
+We next consider the classical two-dimensional heat equation on the unit square Ω = (0 , 1) 2 with homogeneous Dirichlet boundary conditions: 
+
+∂u (x, y, t )
+
+∂t − ν ∆u(x, y, t ) = f (x, y, t ), (x, y ) ∈ Ω, t ∈ [0 , 1] , (29) 
+
+u(x, y, t ) = 0 , ∀x ∈ ∂Ω, (30) 
+
+u(x, y, 0) = u0(x, y ), (31) where ∆ is the Laplacian operator and ∂Ω denotes the boundary of the domain. To enable quantitative comparison, we consider the following analytical solution 
+
+u(x, y, t ) = sin( πx ) sin( πy ) e −2π2κt , (32) 24 with no forcing, i.e., f ≡ 0.
+
+C.4.1 PINN’s settings Neural network architecture To ensure a fair and consistent comparison across all different models, we employ an identical deep neural network architecture. Specifically, each model utilizes a fully connected network consisting of 6 hidden layers with 64 neurons per layer. During the training phase, each model was trained until its loss dropped below the predefined threshold, ϵ.
+
+Training and testing data In the training stage, the initial and boundary condition losses are evaluated using data randomly sampled in space at the initial time t = 0 and in time along the spatial boundaries (( x, y ) ∈ ∂Ω) . Specifically, we sample Nic = 500 points for the initial condition and 
+
+Nbc = 500 points for the boundary conditions. Additionally, we sample Nf = 2000 collocation points within the interior of the spatio-temporal domain to compute the residual loss. During the testing stage, the evaluation data are sampled over the spatiotemporal domain Ω × [0 , 1] . The data is generated on a uniform grid with a spatial mesh size of ∆x = ∆ y = 0 .01 and a temporal step size of ∆t = 0 .01 . All samples are drawn uniformly at random from their respective domains. The homogeneous Dirichlet condition u = 0 is imposed at all boundary points. 
+
+C.4.2 Forward Problem 
+
+In this section, we consider the forward problem setting where the physics loss is fully specified and does not involve any unknown parameters to be inferred which is same as in Section C.2.2. Table 8 presents a quantitative comparison of standard PINN (Adam), AL-PINN, trSQP-PINN, FL-PINN, and AdamFLIP for the two-dimensional heat equation. The performance is measured in terms of the relative L2 error and the constraint errors (CE) for the initial condition (IC), boundary condition (BC), and physics loss (PL). Among all models considered, AdamFLIP performs best, achieving a relative L2 error that is approximately one order of magnitude smaller than that of the standard PINN. Furthermore, AdamFLIP yields the lowest constraint errors for both the BC and PL components, with its PL constraint error being roughly one-third of that achieved by the standard PINN. In contrast to the Burgers’ equation results, trSQP-PINN struggles significantly in this setting, exhibiting a relative L2 error that is more than one order of magnitude higher than the other models. This indicates that the optimization advantages of trSQP-PINN do not necessarily translate to improved accuracy for the heat equation. It is also worth noting that all models yield comparable wall-clock times that implies the improved performance of AdamFLIP is achieved without introducing prohibitive computational cost, as its training time remains within approximately one-third of the baseline PINN’s overhead. Figure 6 shows the absolute error distributions at the two different time steps. The standard PINN exhibits a noticeable error distribution that intensifies near the boundaries and the center of the domain as the system evolves toward t = 1 .0. While maintaining the overall physical structure, the FL-PINN shows a concentrated region of higher absolute error near the domain center (x ≈ 0.5, y ≈ 0.5) .Notably, the peak error for this method is approximately one order of magnitude larger than that of the best-performing model. In contrast, the AdamFLIP demonstrates the highest precision among all methods. The absolute error maps for AdamFLIP are significantly clearer, with error magnitudes consistently remaining near the lower bound of the scale across both time steps, which is consistent with the results in Table 8. Table 8: Quantitative error comparison for the 2D heat equation (forward problem). We report relative 
+
+L2 errors, constraint errors (CE) at initial (IC), boundary (BC), and physics (Phy) collocation points, and training wall-clock time (WT). 
+
+Method Constraint Rel. L2 CE (IC) CE (BC) CE (Phy) WT (s) 
+
+Standard PINN ✗ 3.43 × 10 −2 1.20 × 10 −4 1.56 × 10 −4 1.82 × 10 −3 261 
+
+AL-PINN ✓ 3.09 × 10 −2 3.65 × 10 −5 7.89 × 10 −5 7.41 × 10 −4 364 trSQP-PINN ✓ 6.60 × 10 −1 1.22 × 10 −1 2.62 × 10 −2 1.07 × 10 −2 1260 FL-PINN ✓ 9.49 × 10 −3 1.13 × 10 −4 1.70 × 10 −4 7.35 × 10 −4 354 
+
+AdamFLIP ✓ 7.53 × 10 −3 5.59 × 10 −5 6.35 × 10 −5 2.00 × 10 −4 336 25 Figure 6: Comparison of spatiotemporal solutions and absolute errors in forward problem for the 2d Heat equation: Standard PINN, AL-PINN, trSQP-PINN, FL-PINN, and AdamFLIP. 
+
+C.4.3 Inverse Problem 
+
+In the inverse problem setting, we consider the thermal diffusivity ν in Eq. (29) to be an unknown parameter, hereafter denoted as κ, which leads to the following formulation: 
+
+∂u (x, y, t )
+
+∂t − κ ∆u(x, y, t ) = f (x, y, t ), (x, y ) ∈ Ω, t ∈ [0 , 1] , (33) 
+
+u(x, y, t ) = 0 , ∀x ∈ ∂Ω, (34) 
+
+u(x, y, 0) = u0(x, y ), (35) Consistent with the treatement in Section C.2.3, κ is parameterized as learnable scalars, which are co-optimized with the neural network weights by minimizing the loss function same as in the forward problem. In this setup, for all models we initialize the parameter estimates at κ = 1 , whereas their ground truth values are κ = 0 .1.Table 4 shows the learned PDE parameters and their L1 error compared to the ground truth for the Burgers’ equation in the inverse problem setting. It is shown that among all models, AdamFLIP demonstrates the highest accuracy by achieving the lowest L1 errors in estimating κ. Specifically, it reduces the estimation error of κ by nearly half of magnitude compared to the next best model, standard PINN. Table 9: Parameter estimation results for the two-dimensional heat equation in the inverse problem setting. The exact PDE parameters are κ = 0 .1.
+
+Method ˆκ |ˆκ − κ|
+
+Standard PINN 0.0991 0.0009 AL-PINN 0.1020 0.0020 trSQP-PINN 0.9840 0.8840 FL-PINN 0.0933 0.0067 
+
+AdamFLIP 0.0995 0.0005 
+
+Table 10 presents a quantitative error comparison of different models for the two-dimensional heat equation in the inverse problem setting. Beyond the standard constraint errors (CE) for the initial condition (IC), boundary condition (BC), and physics loss (PL), we also report the data loss error (CE(DL)) used to infer the unknown diffusivity κ. Consistent with the forward problem results, 
+
+AdamFLIP exhibits the most robust performance, achieving a relative L2 error that is approximately half that of the standard PINN. Furthermore, the data loss error (CE(DL)) for AdamFLIP is roughly one-third of the error observed in the standard baseline, indicating a significantly more accurate reconstruction of the underlying field from observed data. 26 Table 10: Quantitative error comparison for the 2D heat equation (inverse problem). We report relative L2 errors, constraint errors (CE) at initial (IC), boundary (BC), physics (Phy), and data loss (DL) collocation points, and training wall-clock time (WT).                                                                                              
+
+> Method Constraint Rel. L2CE (IC) CE (BC) CE (Phy) CE (DL) WT (s)
+> Standard PINN ✗2.90 ×10 −23.06 ×10 −51.19 ×10 −42.79 ×10 −45.22 ×10 −5297 AL-PINN ✓3.98 ×10 −21.71 ×10 −43.07 ×10 −42.29 ×10 −49.18 ×10 −5361 trSQP-PINN ✓6.42 ×10 −14.81 ×10 −44.57 ×10 −33.73 ×10 −32.59 ×10 −21300 FL-PINN ✓4.06 ×10 −21.80 ×10 −58.73 ×10 −67.44 ×10 −58.81 ×10 −5360
+> AdamFLIP ✓1.59 ×10 −21.43 ×10 −51.03 ×10 −59.13 ×10 −51.51 ×10 −5346
+
+It is also noteworthy that AdamFLIP achieves the lowest initial condition error (CE(IC)), which is approximately half the magnitude of the error produced by the standard PINN. In contrast, trSQP-PINN continues to struggle in this setting, yielding a relative L2 error and a data loss error that are more than one order of magnitude higher than those of the other models. Regarding computational efficiency, all frameworks yield comparable wall-clock times (WT) though the training time for AdamFLIP is approximately one-fifth higher than the standard PINN. These results are also confirmed in Figure 7. While all methods capture the general diffusion dynamics (panel a.), the spatial distributions of absolute error at different time instances (panel. b) reveal that AdamFLIP yields a much smaller error distribution in space that effectively mitigating the concentrated interior errors observed in the standard PINN and FL-PINN models. 
+
+Figure 7: Inverse 2D heat equation results: comparison of absolute errors fields for each method at the same time instants,for PINN, FL-PINN, trSQP-PINN, and AdamFLIP. It shows that AdamFLIP yields the smallest and most uniformly distributed errors across the spatial domain. 
+
+C.5 2D Incompressible Navier–Stokes 
+
+We evaluate all methods on the 2D incompressible Navier–Stokes equations, a coupled nonlinear system that is substantially more challenging than the scalar PDEs considered above. The governing equations on Ω = [0 , 2π]2, t ∈ [0 , T ] are 
+
+∂u ∂t + u ∂u ∂x + v ∂u ∂y = − ∂p ∂x + ν
+
+ ∂2u∂x 2 + ∂2u∂y 2
+
+
+
+, (36) 
+
+∂v ∂t + u ∂v ∂x + v ∂v ∂y = − ∂p ∂y + ν
+
+ ∂2v∂x 2 + ∂2v∂y 2
+
+
+
+, (37) 
+
+∂u ∂x + ∂v ∂y = 0 , (38) 27 where u = ( u, v ) is the velocity field, p is the pressure, and ν = 0 .01 . We use the Taylor–Green vortex as the benchmark, which admits the following closed-form analytical solution: 
+
+u(x, y, t ) = − cos( x) sin( y) e−2νt , (39) 
+
+v(x, y, t ) = sin( x) cos( y) e−2νt , (40) 
+
+p(x, y, t ) = − 14 (cos(2 x) + cos(2 y)) e−4νt . (41) 
+
+C.5.1 Numerical Settings Neural network architecture To ensure a fair and consistent comparison across all models, we employ an identical fully connected network consisting of 6 hidden layers with 64 neurons per layer. The network takes (x, y, t ) as input and predicts the velocity-pressure field (u, v, p ). During training, each model was trained until its loss dropped below the predefined threshold, ϵ.
+
+Training and testing data In the training stage, the initial condition loss is evaluated at Nic = 500 
+
+randomly sampled spatial points at t = 0 . The boundary condition loss is evaluated at Nbc = 500 
+
+points sampled along the spatial boundaries over time. The physics loss, comprising the two momentum equations (36) –(37) and the incompressibility constraint (38) , is computed on Nf = 2000 
+
+collocation points randomly sampled from the interior of the spatiotemporal domain. During the testing stage, the evaluation data are generated on a uniform grid over Ω × [0 , T ] with spatial mesh size ∆x = ∆ y = 0 .05 and temporal step size ∆t = 0 .1.We consider the forward problem setting where the viscosity ν is known and the objective is to accurately approximate the velocity and pressure fields. Table 11 presents a quantitative comparison of Standard PINN (Adam), AL-PINN, trSQP-PINN, FL-PINN, and AdamFLIP for the Navier–Stokes equations. The performance is measured in terms of the mean relative L2 errors of the velocity components u and v, the constraint errors (CE) for the initial condition (IC), boundary condition (BC), and physics residual (Phy), and the training wall-clock time (WT). Among all models, AdamFLIP achieves the best performance across all accuracy metrics. It attains mean relative L2 errors of 1.18 × 10 −2 and 1.06 × 10 −2 for the u and v velocity components, respectively—roughly 3× lower than Standard PINN ( 3.62 ×10 −2 and 3.48 ×10 −2) and substantially better than all constrained baselines. AdamFLIP also yields the lowest constraint errors across IC, BC, and physics residual, demonstrating that the feedback linearization mechanism effectively balances multi-component constraint satisfaction in this coupled system. Notably, trSQP-PINN fails catastrophically on this problem, producing L2 errors on the order of 10 0
+
+and a physics CE of 1.29 × 10 1. This is consistent with the sensitivity of trust-region SQP methods to the increased dimensionality and nonlinearity of the Navier–Stokes system. FL-PINN also struggles relative to the scalar PDE benchmarks, with L2 errors ( 7.70 × 10 −2, 8.13 × 10 −2) that are worse than Standard PINN, suggesting that naive feedback linearization without adaptive moment estimation is insufficient for this more complex problem. AL-PINN performs comparably to Standard PINN on the v-component but shows degraded IC/BC enforcement. In terms of computational cost, Standard PINN is the fastest at 155 s, while AdamFLIP requires 335 s— roughly 2× the baseline, which is a larger overhead than observed on the scalar PDEs. This additional cost is attributable to the Jacobian computations required for the multi-output, multi-constraint structure of the Navier–Stokes system. Nevertheless, the accuracy improvement is substantial. Table 11: Quantitative error comparison for the 2D Navier–Stokes equations (forward problem). We report mean relative L2 errors for velocity components u and v, constraint errors (CE) at initial (IC), boundary (BC), and physics (Phy) collocation points.                                                                                         
+
+> Method Constraint Mean L2(u)Mean L2(v)CE (IC) CE (BC) CE (Phy)
+> Standard PINN ✗3.62 ×10 −23.48 ×10 −22.15 ×10 −51.02 ×10 −46.11 ×10 −4
+> AL-PINN ✓5.19 ×10 −23.69 ×10 −21.10 ×10 −38.13 ×10 −48.56 ×10 −4
+> trSQP-PINN ✓1.96 ×10 09.68 ×10 −17.82 ×10 −43.56 ×10 −41.29 ×10 1
+> FL-PINN ✓7.70 ×10 −28.13 ×10 −21.98 ×10 −32.72 ×10 −31.08 ×10 −2
+> AdamFLIP ✓1.18 ×10 −21.06 ×10 −21.26 ×10 −54.86 ×10 −52.53 ×10 −4
+
+Figure 8 presents the pointwise absolute error maps |u − ˆu| and |v − ˆv| at t = 1 for all five methods. Standard PINN exhibits moderate, spatially distributed errors that are roughly uniform across the 28 domain. AL-PINN shows a similar error pattern with slightly larger magnitudes. trSQP-PINN produces large-scale errors spanning the entire domain, consistent with its failure to converge to a physically meaningful solution. FL-PINN displays concentrated error regions, particularly near the vortex cores where the velocity gradients are steepest. In contrast, AdamFLIP achieves the smallest and most spatially uniform errors for both velocity components, with residual errors primarily confined to narrow bands near regions of maximum shear. These qualitative observations are fully consistent with the quantitative results reported in Table 11. 
+
+Figure 8: Pointwise absolute error |u − ˆu| (top row) and |v − ˆv| (bottom row) at t = 1 for the 2D Navier–Stokes equations. From left to right: Standard PINN, AL-PINN, trSQP-PINN, FL-PINN, and AdamFLIP. AdamFLIP produces the smallest and most spatially uniform errors across both velocity components. 
+
+# D Further Ablations 
+
+Table 12 studies the effect of the momentum parameters (β1, β 2) under fixed Kp = 1000 and Ki =0.01 . Overall, introducing stronger first- and second-moment smoothing significantly reduces the relative L2 error compared with the weak-momentum baseline. The setting (β1, β 2) = (0 .99 , 0.9999) 
+
+achieves the lowest mean relative L2 error, indicating that aggressive momentum smoothing can improve the final solution accuracy. However, this configuration may be more sensitive to random initialization and training dynamics. In comparison, (β1, β 2) = (0 .95 , 0.999) also yields a very low relative L2 error and provides a competitive balance between accuracy and stability. Therefore, we use (β1, β 2) = (0 .95 , 0.999) as the default configuration in our experiments. Table 12: Ablation study on the momentum parameters (β1, β 2) with fixed Kp = 1000 and Ki =0.01 . We report the relative L2 error averaged over three random seeds. Lower values are better. The best result is highlighted in bold. 
+
+β1 β2 Rel. L2 Error 
+
+0.00 0.9000 2.15 ×10 −1 ± 3.34 ×10 −2
+
+0.50 0.9900 1.00 ×10 −1 ± 1.28 ×10 −2
+
+0.90 0.9900 1.33 ×10 −1 ± 1.56 ×10 −2
+
+0.90 0.9990 1.10 ×10 −1 ± 1.89 ×10 −2
+
+0.95 0.9990 8.48 ×10 −3 ± 5.01 ×10 −2
+
+0.99 0.9999 7.53 ×10 −3 ± 6.99 ×10 −3
+
+Table 13 studies the effect of the proportional penalty gain Kp on the objective loss and constraint satisfaction. Here, the physics loss is treated as the optimization objective, while the initial condition and boundary condition losses are treated as constraints. As Kp increases, both constraint losses decrease substantially, indicating that a larger proportional gain improves enforcement of the initial and boundary conditions. However, this comes at the cost of a larger physics loss, revealing a clear trade-off between minimizing the PDE residual objective and satisfying the constraints. Small values 29 Table 13: Ablation study on the proportional penalty gain Kp. We report the physics loss as the objective and the initial condition (IC) and boundary condition (BC) losses as constraints. Results are averaged over three random seeds and reported as mean ± standard deviation. Lower values are better. The selected default configuration is highlighted in bold.                                                                            
+
+> Kp
+> Objective Constraints Physics Loss IC Loss BC Loss
+> 10 3.83 ×10 −4±5.66 ×10 −59.83 ×10 −1±1.17 ×10 −18.48 ×10 −2±4.87 ×10 −2
+> 50 4.71 ×10 −3±5.96 ×10 −43.88 ×10 −2±5.31 ×10 −33.55 ×10 −2±7.72 ×10 −3
+> 100 7.34 ×10 −3±4.68 ×10 −42.54 ×10 −2±1.33 ×10 −22.95 ×10 −2±1.48 ×10 −2
+> 200 1.01 ×10 −2±1.07 ×10 −33.55 ×10 −2±3.08 ×10 −22.68 ×10 −2±1.49 ×10 −2
+> 500 1.12 ×10 −2±6.52 ×10 −42.27 ×10 −2±1.76 ×10 −21.89 ×10 −2±1.29 ×10 −2
+> 1000 1.30 ×10 −2±1.02 ×10 −31.26 ×10 −2±4.99 ×10 −31.31 ×10 −2±4.80 ×10 −3
+> 2000 1.43 ×10 −2±1.56 ×10 −38.16 ×10 −3±6.20 ×10 −49.25 ×10 −3±1.50 ×10 −3
+> 5000 2.25 ×10 −2±3.38 ×10 −31.10 ×10 −2±4.69 ×10 −39.28 ×10 −3±4.49 ×10 −3
+
+such as Kp = 10 achieve the lowest physics loss but fail to enforce the constraints, especially the initial condition loss. In contrast, very large values such as Kp = 5000 provide strong boundary constraint satisfaction but significantly increase the physics loss. The setting Kp = 1000 provides a balanced trade-off, achieving much lower IC and BC losses than small-Kp settings while avoiding the larger objective degradation observed at Kp = 5000 . Therefore, we select Kp = 1000 as the default configuration. 
+
+# E Proof of Theorem 1 
+
+We prove Theorem 1 using the exact penalty merit function 
+
+Ψρ(θ) := f (θ) + ρ∥h(θ)∥1.
+
+Throughout the proof, all constants are uniform over θ ∈ C and over the admissible diagonal metrics generated by Algorithm 2. 
+
+Lemma 1 (Uniform metric bounds and finite metric variation) . Under Assumption 1, the diagonal metrics Dt satisfy 
+
+1
+
+G + δ I ⪯ Dt ⪯ 1
+
+δ I ∀t. 
+
+Moreover, if ∆t := ∥Dt+1 − Dt∥, then 
+
+> ∞
+
+X
+
+> t=1
+
+∆t ≤ nδ ,
+
+and therefore 
+
+> ∞
+
+X
+
+> t=1
+
+ηt∆t ≤ η1nδ .
+
+Proof. Since vt = β2vt−1 + (1 − β2)g◦2 
+
+> t
+
+and v0 = 0 , the bias-corrected raw second moment 
+
+˜vt = vt/(1 − βt
+
+> 2
+
+) is a coordinatewise convex combination of g◦21 , . . . , g ◦2 
+
+> t
+
+. Hence, by Assumption 1, for every coordinate j,
+
+0 ≤ ˜vt,j ≤ G2.
+
+The monotone second-moment estimate is defined by 
+
+¯vt = max  
+
+> elem
+
+{¯vt−1, ˜vt}.
+
+Thus 0 ≤ ¯vt,j ≤ G2 for all t, j . Since 
+
+Dt = diag 
+
+ 1
+
+√¯vt−1 + δ
+
+
+
+,
+
+30 we have, for every coordinate j,
+
+1
+
+G + δ ≤ 1
+
+√¯vt−1,j + δ ≤ 1
+
+δ .
+
+This proves the uniform metric bounds. It remains to prove finite variation. For each coordinate j, define 
+
+dt,j := 1
+
+√¯vt−1,j + δ .
+
+Since ¯vt,j is coordinatewise nondecreasing in t, the sequence dt,j is nonincreasing in t. Moreover, 
+
+0 < d t,j ≤ 1/δ . Therefore, 
+
+> ∞
+
+X
+
+> t=1
+
+|dt+1 ,j − dt,j | =
+
+> ∞
+
+X
+
+> t=1
+
+(dt,j − dt+1 ,j ) ≤ d1,j ≤ 1
+
+δ .
+
+Since Dt is diagonal, 
+
+∥Dt+1 − Dt∥ ≤ ∥ Dt+1 − Dt∥F ≤
+
+> n
+
+X
+
+> j=1
+
+|dt+1 ,j − dt,j |.
+
+Summing over t gives 
+
+> ∞
+
+X
+
+> t=1
+
+∆t ≤
+
+> n
+
+X
+
+> j=1
+> ∞
+
+X
+
+> t=1
+
+|dt+1 ,j − dt,j |≤ nδ .
+
+Finally, since ηt ≤ η1,
+
+> ∞
+
+X
+
+> t=1
+
+ηt∆t ≤ η1
+
+> ∞
+
+X
+
+> t=1
+
+∆t ≤ η1nδ .
+
+This proves the lemma. 
+
+Lemma 2 (Momentum tracking error) . Let et := ˆ mt − gt. Then there exists Ce > 0 such that, for every T ≥ 1,
+
+> T
+
+X
+
+> t=1
+
+ηt∥et∥ ≤ Ce
+
+> T
+
+X
+
+> t=1
+
+η2 
+
+> t
+
++
+
+> T
+
+X
+
+> t=1
+
+ηt∆t
+
+!
+
+.
+
+Consequently, by Lemma 1, 
+
+> T
+
+X
+
+> t=1
+
+ηt∥et∥ ≤ Ce
+
+> T
+
+X
+
+> t=1
+
+η2 
+
+> t
+
++ η1nδ
+
+!
+
+.
+
+Proof. The bias-corrected first moment can be written as 
+
+ˆmt =
+
+> t
+
+X
+
+> i=1
+
+at,i gi, at,i := (1 − β1)βt−i
+
+> 1
+
+1 − βt
+
+> 1
+
+.
+
+The weights satisfy at,i ≥ 0 and Pti=1 at,i = 1 . Hence 
+
+et = ˆ mt − gt =
+
+> t
+
+X
+
+> i=1
+
+at,i (gi − gt).
+
+By Assumption 1 and Lemma 1, the map (θ, D ) 7 → gD (θ) is Lipschitz on the compact admissible set 
+
+C × 
+
+
+
+D : 1
+
+G + δ I ⪯ D ⪯ 1
+
+δ I
+
+
+
+.
+
+31 Let Lg > 0 be a corresponding Lipschitz constant. Then, for i ≤ t,
+
+∥gi − gt∥ ≤ Lg
+
+ ∥θi − θt∥ + ∥Di − Dt∥.
+
+Since ˆmt is a convex combination of previous gi’s and ∥gi∥ ≤ G, we have ∥ ˆmt∥ ≤ G. Together with 
+
+∥Dt∥ ≤ 1/δ , this gives 
+
+∥θt+1 − θt∥ = ηt∥Dt ˆmt∥ ≤ Gδ ηt.
+
+Therefore, for i ≤ t,
+
+∥θi − θt∥ ≤ Gδ
+
+> t−1
+
+X
+
+> k=i
+
+ηk, ∥Di − Dt∥ ≤ 
+
+> t−1
+
+X
+
+> k=i
+
+∆k.
+
+Then 
+
+∥gi − gt∥ ≤ Lg
+
+Gδ
+
+> t−1
+
+X
+
+> k=i
+
+(ηk + ∆ k).
+
+Thus 
+
+∥et∥ ≤ Lg
+
+Gδ
+
+> t
+
+X
+
+> i=1
+
+at,i t−1X
+
+> k=i
+
+(ηk + ∆ k)= Lg
+
+Gδ
+
+> t−1
+
+X
+
+> k=1
+
+(ηk + ∆ k)
+
+> k
+
+X
+
+> i=1
+
+at,i .
+
+Using the explicit form of at,i ,
+
+> k
+
+X
+
+> i=1
+
+at,i = βt−k 
+
+> 1
+
+− βt
+
+> 1
+
+1 − βt
+
+> 1
+
+≤ βt−k
+
+> 1
+
+1 − β1
+
+.
+
+Therefore, 
+
+∥et∥ ≤ Lg G
+
+(1 − β1)δ
+
+> t−1
+
+X
+
+> k=1
+
+βt−k 
+
+> 1
+
+(ηk + ∆ k).
+
+Multiplying by ηt and summing from t = 1 to T yields 
+
+> T
+
+X
+
+> t=1
+
+ηt∥et∥ ≤ Lg G
+
+(1 − β1)δ
+
+> T
+
+X
+
+> t=1
+
+ηtt−1X
+
+> k=1
+
+βt−k 
+
+> 1
+
+(ηk + ∆ k)= Lg G
+
+(1 − β1)δ 
+
+> T−1
+
+X
+
+> k=1
+
+(ηk + ∆ k)
+
+> T
+
+X
+
+> t=k+1
+
+ηtβt−k 
+
+> 1
+
+.
+
+Since ηt is nonincreasing, for t ≥ k + 1 we have ηt ≤ ηk. Hence 
+
+> T
+
+X
+
+> t=k+1
+
+ηtβt−k 
+
+> 1
+
+≤ ηk
+
+> ∞
+
+X
+
+> ℓ=1
+
+βℓ 
+
+> 1
+
+= ηk
+
+β1
+
+1 − β1
+
+.
+
+Therefore, 
+
+> T
+
+X
+
+> t=1
+
+ηt∥et∥ ≤ Lg Gβ 1
+
+(1 − β1)2δ 
+
+> T−1
+
+X
+
+> k=1
+
+ηk(ηk + ∆ k)
+
+≤ Ce
+
+> T
+
+X
+
+> t=1
+
+η2 
+
+> t
+
++
+
+> T
+
+X
+
+> t=1
+
+ηt∆t
+
+!
+
+,
+
+where one may take 
+
+Ce := Lg Gβ 1
+
+(1 − β1)2δ .
+
+The second claim follows immediately from Lemma 1. This proves the lemma. 32 Proof of Theorem 1. By Lemma 1, the matrices Dt are uniformly positive definite and uniformly bounded. Since Jh(θ) has full row rank on C, the matrices 
+
+Mt = Jh(θt)DtJh(θt)⊤
+
+are uniformly nonsingular. Therefore, λ† 
+
+> t
+
+, rt, and gt are all uniformly bounded on the compact admissible set. In particular, define 
+
+Gf := sup 
+
+> θ∈C
+
+∥∇ f (θ)∥, J1 := sup 
+
+> θ∈C
+
+∥Jh(θ)∥2→1, Λ := sup 
+
+> t≥1
+
+∥λ† 
+
+> t
+
+∥∞.
+
+All three constants are finite. Let Lf > 0 be a Lipschitz constant of ∇f on the neighborhood specified in Assumption 1. Let 
+
+Lh, 1 > 0 satisfy 
+
+∥h(θ + s) − h(θ) − Jh(θ)s∥1 ≤ Lh, 1
+
+2 ∥s∥2
+
+whenever the line segment between θ and θ + s lies in that neighborhood. Let et := ˆ mt − gt. The update can be written as 
+
+θt+1 = θt − ηtDtgt − ηtDtet.
+
+We first estimate the objective decrease. By smoothness of f ,
+
+f (θt+1 ) ≤ f (θt) + ⟨∇ f (θt), θ t+1 − θt⟩ + Lf
+
+2 ∥θt+1 − θt∥2
+
+= f (θt) − ηt ⟨∇ f (θt), D tgt⟩ − ηt ⟨∇ f (θt), D tet⟩ + Lf
+
+2 η2 
+
+> t
+
+∥Dt ˆmt∥2.
+
+Using ∥∇ f (θt)∥ ≤ Gf , ∥Dt∥ ≤ 1/δ , and ∥ ˆmt∥ ≤ G, we obtain 
+
+f (θt+1 ) ≤ f (θt) − ηt ⟨∇ f (θt), D tgt⟩ + ηtGf
+
+δ ∥et∥ + Lf G2
+
+2δ2 η2 
+
+> t
+
+. (42) We now simplify the leading inner product. By definition, 
+
+rt = ∇f (θt) + Jh(θt)⊤λ† 
+
+> t
+
+,
+
+so 
+
+∇f (θt) = rt − Jh(θt)⊤λ† 
+
+> t
+
+.
+
+Therefore, 
+
+⟨∇ f (θt), D tgt⟩ = ⟨rt, D tgt⟩ − 
+
+D
+
+Jh(θt)⊤λ† 
+
+> t
+
+, D tgt
+
+E
+
+= ⟨rt, D tgt⟩ − 
+
+D
+
+λ† 
+
+> t
+
+, J h(θt)Dtgt
+
+E
+
+.
+
+We have Jh(θt)Dtrt = 0 by construction. Moreover, 
+
+gt = rt + κJ h(θt)⊤M −1 
+
+> t
+
+h(θt),
+
+and hence 
+
+⟨rt, D tgt⟩ = ⟨rt, D trt⟩ + κ rt, D tJh(θt)⊤M −1 
+
+> t
+
+h(θt)
+
+= ⟨rt, D trt⟩ + κ Jh(θt)Dtrt, M −1 
+
+> t
+
+h(θt)
+
+= ⟨rt, D trt⟩ .
+
+Also, the metric feedback-linearization identity gives 
+
+Jh(θt)Dtgt = κh (θt).
+
+Thus 
+
+⟨∇ f (θt), D tgt⟩ = ⟨rt, D trt⟩ − κλ †
+
+> t
+> ⊤
+
+h(θt).
+
+33 Using Dt ⪰ 1 
+
+> G+δ
+
+I and ∥λ† 
+
+> t
+
+∥∞ ≤ Λ, we obtain 
+
+− ⟨∇ f (θt), D tgt⟩ ≤ − 1
+
+G + δ ∥rt∥2 + κΛ∥h(θt)∥1. (43) Combining (42) and (43) yields 
+
+f (θt+1 ) ≤ f (θt) − ηt
+
+G + δ ∥rt∥2 + ηtκΛ∥h(θt)∥1 + ηtGf
+
+δ ∥et∥ + Lf G2
+
+2δ2 η2 
+
+> t
+
+. (44) Next, we estimate the constraint violation. By Taylor’s theorem, 
+
+h(θt+1 ) = h(θt) + Jh(θt)( θt+1 − θt) + Et
+
+= h(θt) − ηtJh(θt)Dtgt − ηtJh(θt)Dtet + Et
+
+= (1 − κη t)h(θt) − ηtJh(θt)Dtet + Et,
+
+where 
+
+∥E t∥1 ≤ Lh, 1
+
+2 ∥θt+1 − θt∥2.
+
+Since ∥θt+1 − θt∥ ≤ ηt∥Dt ˆmt∥ ≤ ηtG/δ , we have 
+
+∥E t∥1 ≤ Lh, 1G2
+
+2δ2 η2 
+
+> t
+
+.
+
+Using ηt ≤ 1/κ , we have 1 − κη t ≥ 0. Therefore, 
+
+∥h(θt+1 )∥1 ≤ (1 − κη t)∥h(θt)∥1 + ηt∥Jh(θt)Dtet∥1 + Lh, 1G2
+
+2δ2 η2
+
+> t
+
+≤ (1 − κη t)∥h(θt)∥1 + ηtJ1
+
+δ ∥et∥ + Lh, 1G2
+
+2δ2 η2 
+
+> t
+
+. (45) Multiplying (45) by ρ and adding it to (44), we obtain 
+
+Ψρ(θt+1 ) ≤ Ψρ(θt) − ηt
+
+G + δ ∥rt∥2 − ηtκ(ρ − Λ) ∥h(θt)∥1
+
++ ηt(Gf + ρJ 1)
+
+δ ∥et∥ + (Lf + ρL h, 1)G2
+
+2δ2 η2 
+
+> t
+
+. (46) Choose ρ > Λ and define 
+
+c∗ := min 
+
+ 1
+
+G + δ , κ (ρ − Λ) 
+
+
+
+, Be := Gf + ρJ 1
+
+δ , Bη := (Lf + ρL h, 1)G2
+
+2δ2 .
+
+Then (46) implies 
+
+Ψρ(θt+1 ) ≤ Ψρ(θt) − c∗ηt
+
+ ∥rt∥2 + ∥h(θt)∥1
+
+ + Beηt∥et∥ + Bη η2 
+
+> t
+
+. (47) Summing (47) from t = 1 to T , we get 
+
+c∗
+
+> T
+
+X
+
+> t=1
+
+ηt
+
+ ∥rt∥2 + ∥h(θt)∥1
+
+ ≤ Ψρ(θ1) − Ψρ(θT +1 ) + BeTX
+
+> t=1
+
+ηt∥et∥ + BηTX
+
+> t=1
+
+η2 
+
+> t
+
+.
+
+Since Ψρ is continuous on C, it is bounded below. Let 
+
+Ψ := inf  
+
+> θ∈C
+
+Ψρ(θ) > −∞ .
+
+Using Lemma 2, we obtain 
+
+> T
+
+X
+
+> t=1
+
+ηt∥et∥ ≤ Ce
+
+> T
+
+X
+
+> t=1
+
+η2 
+
+> t
+
++ η1nδ
+
+!
+
+.
+
+34 Therefore, 
+
+c∗
+
+> T
+
+X
+
+> t=1
+
+ηt
+
+ ∥rt∥2 + ∥h(θt)∥1
+
+ ≤ Ψρ(θ1) − Ψ + BeCe
+
+> T
+
+X
+
+> t=1
+
+η2 
+
+> t
+
++ η1nδ
+
+!
+
++ BηTX
+
+> t=1
+
+η2 
+
+> t
+
+.
+
+Thus 
+
+> T
+
+X
+
+> t=1
+
+ηt
+
+ ∥rt∥2 + ∥h(θt)∥1
+
+ ≤ B0 + B1
+
+> T
+
+X
+
+> t=1
+
+η2 
+
+> t
+
+, (48) where 
+
+B0 := Ψρ(θ1) − Ψ + BeCeη1n/δ c∗
+
+, B1 := BeCe + Bη
+
+c∗
+
+.
+
+This proves the first claim. Finally, let ST := PTt=1 ηt. Since 
+
+ST min 
+
+> 1≤t≤T
+
+ ∥rt∥2 + ∥h(θt)∥1
+
+ ≤
+
+> T
+
+X
+
+> t=1
+
+ηt
+
+ ∥rt∥2 + ∥h(θt)∥1
+
+ ,
+
+dividing (48) by ST gives 
+
+min 
+
+> 1≤t≤T
+
+ ∥rt∥2 + ∥h(θt)∥1
+
+ ≤ B0 + B1
+
+PTt=1 η2
+
+> t
+
+ST
+
+.
+
+By Assumption 2, P 
+
+> t
+
+η2 
+
+> t
+
+< ∞. Hence 
+
+min 
+
+> 1≤t≤T
+
+ ∥rt∥2 + ∥h(θt)∥1
+
+ = O
+
+ 1
+
+ST
+
+
+
+.
+
+This completes the proof. 35

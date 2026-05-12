@@ -1,0 +1,1757 @@
+Title: Solving Max-Cut to Global Optimality via Feasibility-Preserving Graph Neural Networks
+
+URL Source: https://arxiv.org/pdf/2605.07113v1
+
+Published Time: Mon, 11 May 2026 00:31:15 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# Solving Max-Cut to Global Optimality via Feasibility-Preserving Graph Neural Networks 
+
+Hao Chen 1∗ Chendi Qian 2∗ Christopher Morris 2 Andrea Lodi 3 Can Li 11Davidson School of Chemical Engineering, Purdue University 
+
+> 2
+
+Faculty of Computer Science, RWTH Aachen University 
+
+> 3
+
+Jacobs Technion-Cornell Institute, Cornell Tech 
+
+{chen4433, canli}@purdue.edu {chendi.qian@log, morris@cs}.rwth-aachen.de andrea.lodi@cornell.edu 
+
+> ∗
+
+Equal contribution. 
+
+# Abstract 
+
+Exact solution of hard combinatorial optimization problems often relies on strong convex relaxations, but solving these relaxations repeatedly inside a branch-and-bound algorithm can be prohibitively expensive. Hence, we consider this chal-lenge for Max-Cut problem (Max-Cut), where branch and bound commonly uses semidefinite programming (SDP) relaxations to bound subproblems. We propose a Max-Cut-specific graph neural network that serves as a principled, lightweight neural proxy for these SDP solvers and can be plugged directly into an exact branch-and-bound framework. The proposed architecture has update steps of complexity 
+
+O(n2 + ne ), and predicts both primal- and dual-feasible SDP solutions. The primal SDP solutions yield feasible Max-Cut solutions via the Goemans–Williamson algorithm. In addition, it is trained in a self-supervised fashion without requir-ing solved SDP relaxations as labels. Empirically, we show that our architecture can substantially reduce the cost of bounding in exact Max-Cut solving by up to 10 .6× compared with using the state-of-the-art SDP solver Mosek. Our work highlights the potential of learned, validity-preserving surrogates for accelerating exact optimization over structured convex relaxations. 
+
+# 1 Introduction 
+
+Combinatorial optimization (CO) is a field at the intersection of optimization, operations research, discrete mathematics, and computer science, with many high-impact real-world applications, in-cluding routing, scheduling, and network design [ 45 ]. In practice, however, optimization instances are rarely arbitrary, i.e., they typically arise from structured, application-specific instance distribu-tions. Classical exact solvers are largely distribution-agnostic and therefore do not explicitly exploit recurring structure in the instances they encounter [10]. This observation has motivated a growing line of work on combining exact optimization with data-driven prediction. The central idea is to leverage machine learning to infer useful algorithmic information from previously seen instances while preserving the correctness guarantees of the underlying solver. In this context, graph neural networks (GNNs), and message-passing neural networks (MPNNs) [ 74 , 32 ] in particular, are a natural choice, i.e., they are permutation-equivariant, naturally represent variable-constraint interactions, and can process instances of varying size. Here, prior work has shown encouraging results for linear programming [ 19 , 70 ] and mixed-integer linear programming, e.g., in branching [ 21 , 31 , 61 ], primal solution prediction [ 43 ], and cut selection [ 23 ,53, 65]; see Cappart et al. [15] for thorough survey. 
+
+> Preprint.
+> arXiv:2605.07113v1 [cs.LG] 8 May 2026
+
+Many practically important optimization problems, however, go beyond the linear setting. In partic-ular, semidefinite programming (SDP) relaxations play a central role in hard discrete optimization problems, yet repeatedly solving SDPs inside an exact branch-and-bound algorithm remains com-putationally demanding [ 79 , 84 , 81 , 37 , 72 ]. Here, we study the Max-Cut problem (Max-Cut), a canonical NP -complete problem with numerous applications, e.g., in statistical physics and circuit layout design [ 9, 66 ]. Exact solution of Max-Cut can be achieved via branch and bound, where each search-tree node is bounded by solving the SDP relaxation of the corresponding subproblem. Although these SDP bounds are often strong, recomputing them throughout the search is typically the primary computational bottleneck, even with state-of-the-art SDP solvers such as Mosek [6]. 
+
+Contributions Hence, our goal is to replace the expensive SDP solvers with a learned neural proxy that remains compatible with exact optimization. Building on recent principled progress on solving SDPs with expressive GNNs [ 69 ], we propose a sparsity-aware Max-Cut-specific GNN architecture that predicts feasible primal and dual solutions to the SDP relaxation and integrates directly into an exact branch-and-bound framework. Unlike most prior learning-to-optimize approaches, which learn policies to guide branch and bound while leaving the bounding step to a conventional solver [ 31 , 43 ,65 ], our method targets the bounding computation itself. That is, by learning valid bounds rather than relying solely on heuristic decisions, we preserve the performance guarantees of the exact algorithm while substantially reducing overall computing time; see Figure 1 for an overview of our proposed framework. Concretely, our main contributions are as follows. 1. We propose a Max-Cut-specific GNN architecture with update step complexity O(n2 + ne ),where n denotes the number of vertices and e the number of edges, reducing the O(n3)
+
+bottleneck of prior work [69]. 2. Our architecture predicts both primal-feasible and dual-feasible solutions for the Max-Cut SDP relaxation. Feasibility is enforced by construction, so the predicted dual solution yields a valid upper bound and can be directly integrated into the branch and bound. 3. The architecture is trained in a self-supervised fashion, directly on Max-Cut instances, without requiring solved SDP relaxations for supervision. 4. We integrate the learned predictor into an exact branch-and-bound framework for Max-Cut and show speed-ups up to 10 .6× over the same framework using the state-of-the-art interior-point method solver Mosek [ 6 ]. To the best of our knowledge, this is the first branch-and-bound implementation that uses a neural network solely to evaluate the problem relaxation. 
+
+Our work establishes that Max-Cut SDP bounds can be learned efficiently, predicted feasibly, and integrated into exact branch and bound to accelerate solving while retaining correctness guarantees, suggesting a broader blueprint for learned surrogates across a large class of structured convex optimization problems. Notably, this is the first result of this type in the literature for the exact solution of a (hard) integer programming problem, setting the stage for a remarkably deeper integration between learning and discrete optimization. 
+
+1.1 Related work GNNs MPNNs [ 32 , 74 ] have been extensively studied. Spatial MPNNs [ 11 , 26 , 36 , 80 , 86 ] follow the message-passing paradigm introduced by Gilmer et al. [32] . However, standard MPNNs are fundamentally limited by the expressivity of the 1-dimensional Weisfeiler–Leman ( 1-WL ) test [ 86 , 58 ], motivating various more expressive architectures, most notably higher-order GNNs [58 , 59 , 57 , 60 ]. 
+
+GNN for (combinatorial) optimization In combinatorial optimization, GNNs have demonstrated significant potential. For instance, in the context of linear programs (LPs) and mixed-integer linear programs (MILPs), GNNs serve a critical role by encoding the underlying problem structure into a constraint-variable bipartite graph [ 31 , 24 , 19 , 43 , 70 ]. Theoretically, a growing body of literature has analyzed the expressivity required for GNNs to approximate the solutions of LPs [ 19 , 20 , 70 , 48 , 50 ,51 ], quadratic programs (QPs) [ 22 , 85 , 67 ], second-order cone programs (SOCPs) [ 52 ], and, most recently, linear semidefinite programs [ 69 ]. Closely related is Yau et al. [87] , which aligns GNNs with low-rank SDP relaxations to generate rounded heuristic solutions for Max-CSP. In contrast, we 2explicitly approximate the continuous SDP relaxation to accelerate exact Max-Cut branch-and-bound algorithms. 
+
+Neural branching Branch and bound [ 2, 1] is the foundational algorithm for exactly solving MILPs. To accelerate it, early machine learning methods learned surrogate scores [ 4] or ranking functions [ 42 ]for branching. More recently, Gasse et al. [31] trained an MPNN to directly imitate solver-branching behavior, replacing the costly strong-branching score computation. Subsequent works by Zarpellon et al. [88] , Lin et al. [56] have extended this by incorporating richer topological information from the search tree. On the theoretical perspective, Chen et al. [21] and Zhou et al. [89] investigated the expressivity required for effective variable selection, concluding that 1-WL -equivalent architectures are inherently inadequate. For a comprehensive survey, please refer to [75 , 18 ]. Despite these advances, existing methods only predict which variable to branch on while still relying on classical LP solvers, and a branch-and-bound algorithm fully based on neural networks has yet to be developed. 
+
+Learning for constrained optimization Another closely related line of work focuses on learning near-optimal solutions directly. Various methods have been proposed to ensure feasible or close-to-feasible predictions for constrained optimization problems. A naive approach is to incorporate penalty functions for constraint violations [ 28 , 63 , 70 , 76 ]. More advanced methods include gradient descent correction [ 25 ], gauge function [ 49 , 78 ], homomorphic projection [ 54 , 55 ], decision rule [ 30 ], differentiable projection layer [ 5, 3, 17 ], and search in feasible region [ 68 , 71 ]. In parallel with these structural enforcements, several works have investigated primal-dual Lagrangian methods to ensure feasibility [ 29 , 64 , 77 , 46 ]. In the context of Max-Cut SDP relaxations, Yau et al. [87] successfully enforces primal feasibility via a low-rank factorization combined with normalization. Drawing inspiration from the architectural guarantees of Yau et al. [87] and the dual perspectives of Tanneau and Van Hentenryck [77] , our work develops a feasible, self-supervised learning framework tailored specifically for Max-Cut SDPs. 
+
+Global solvers for Max-Cut Over the years, many SDP-based branch-and-bound methods have been developed to solve Max-Cut problems to global optimality. These methods strengthen the basic SDP relaxation in [ 33 ] by incorporating cutting planes (cuts), known as odd-cycle inequalities [ 38 ]. Solvers such as BiqMac [ 73 ], BiqBin [ 35 ], BiqCrunch [ 47 ], and MADAM [ 40 ] follow this approach. However, the number of triangle inequalities, which are the lowest-order odd-cycle inequalities, scales as O(n3), making it impractical to include all of them explicitly. Consequently, these methods rely on first-order algorithms, such as bundle methods, combined with heuristics that selectively add a small subset of cuts. In contrast, our proposed method does not incorporate such cuts and is therefore not directly comparable to these solvers in their most advanced configurations. To provide a fair assessment, we benchmark against these solvers both with and without cutting planes enabled in Section D.6. 
+
+1.2 Background The Max-Cut problem Let G := ( V, E ) be an undirected graph with nodes V (|V | := n) and edge weights wij ∈ R for {i, j } ∈ E. The Max-Cut problem seeks to partition the nodes into two disjoint sets to maximize the sum of the weights of the edges crossing the cut. By assigning a binary variable 
+
+xi ∈ {− 1, 1} to each node to indicate its partition, the problem can be formulated as the quadratic integer program 
+
+max 
+
+> x∈{− 1,1}n
+
+12
+
+X
+
+> {i,j }∈ E
+
+wij (1 − xixj ) = 14 x⊺Lx , (1) where L is the graph Laplacian. Alternatively, using the adjacency matrix as the coefficient matrix 
+
+C, this is equivalent to minimizing x⊺Cx .
+
+Semidefinite relaxation Because the integer formulation is NP -complete, a standard practice is to utilize its (SDP) relaxation [ 33 ]. By relaxing the scalar xi ∈ {− 1, 1} to a unit vec-tor vi ∈ Rn such that ∥vi∥ = 1 , we define a positive semidefinite (PSD) matrix X ∈ Sn
+
+> +
+
+31                         
+
+> 1
+> 11
+> Bound
+> fθ
+> SDP =4
+> Branch
+> Bound
+> 1
+> 1−1
+> fθ
+> SDP =2
+> UB =4
+> 1
+> 11
+> fθ
+> SDP =2.25
+> UB =2.25
+> Data Generation
+> 11
+> 11
+> 11
+> 11
+> Max-cut specific SDP
+> ˆy1
+> ˆy2
+> ˆy3
+> ˆy4
+> ˆS11
+> ˆS22
+> ˆS33
+> ˆS44
+> ˆS=C−Diag (ˆy)
+> Feasible GNN Prediction
+> o1
+> o2
+> o3
+> o4
+> 1−1
+> 11
+> −11
+> 11
+> 11
+> 11
+> Dual
+> Primal
+> Radial
+> Projection
+> Factorization
+
+ˆyfeas ˆSfeas ˆX  
+
+> Training: Self-Supervised Learning
+> Inference: Valid Upper Bound
+
+Figure 1: Overview of our neural SDP surrogate for Max-Cut. (1) Data Generation: Subgraphs are generated dynamically from random branch-and-bound search trees. (2) GNN Prediction: 
+
+MC -MPNN predicts unconstrained primal and dual features. (3) Feasibility Guarantee: A radial projection shifts the ˆy and ˆS to the feasible region, while the primal matrix is factorized by construc-tion. The resulting valid bounds are used to aggressively prune the search tree during exact inference. 
+
+where Xij = v⊺ 
+
+> i
+
+vj . The primal and dual formulations of the Max-Cut SDP relaxation are 
+
+max 
+
+> X∈Sn
+> +
+
+⟨L, X⟩ (2a) s.t. diag( X) = e, (2b) 
+
+min 
+
+> y∈Rn,S∈Sn
+> +
+
+⟨e, y⟩ (2c) s.t. L − Diag( y) + S = 0 . (2d) To analyze this theoretically, we can view Equation (2b) as a specific instance of the standard linear SDP form, min X∈Sn 
+
+> +
+
+⟨C, X⟩ s.t. A(X) = b. Here, C is the objective matrix, and the linear operator A : Sn → Rm maps the matrix to m constraints via A(X) =   ⟨A1, X⟩ , . . . , ⟨Am, X⟩ ⊺.For Max-Cut, the constraints are strictly uniform and diagonal (i.e., Xii = 1 ), meaning m = n and the constraint matrices Ak are simply single-entry indicator matrices. 
+
+Expressive GNN for Max-Cut SDP The 1-WL test [ 82 , 13 ] iteratively refines a node’s color based on the multiset of its neighbors’ colors via an injective function, i.e., ctv := hash (ct−1 
+
+> v
+
+, {{ct−1 
+
+> u
+
+| u ∈
+
+N (v)}}), where {{. . . }} denotes a multiset. MPNNs are recognized as the neural instantiation of the 1-WL test [ 86 , 58 ]. In each layer t > 0, an MPNN updates a node’s feature htv by aggregating messages from its local neighborhood N (v) as 
+
+mtv = AGG tn n ht−1 
+
+> v
+
+, ht−1 
+
+> u
+
+, w vu 
+
+ | u ∈ N (v)
+
+oo 
+
+, htv = UPD t ht−1 
+
+> v
+
+, mtv
+
+,
+
+where AGG t and UPD t are parameterized functions, e.g., neural networks. For higher expressivity, the 
+
+1-WL extends to k-WL and k-FWL ; see Section A.1 for more detailed background of WL hierarchy. As shown in Qian and Morris [69] , representing SDPs necessitates higher-order expressivity equiva-lent to the 2-FWL test; thereby, the VC -2-FWL framework has been established. It initializes variable embeddings v0 
+
+> ij
+
+from the objective C and constraint embeddings c0 
+
+> k
+
+from the bounds b as 
+
+v0 
+
+> ij
+
+:= init v(Cij , Ii=j ), c0 
+
+> k
+
+:= init c(bk) (3) and applies the following joint update: 
+
+vtij := hash 
+
+
+
+vt−1 
+
+> ij
+
+, {{vt−1 
+
+> uj
+
+, vt−1 
+
+> iu
+
+}} | u ∈ [n] , (Ak,ij , ct−1 
+
+> k
+
+) | k ∈ N (ij )
+
+
+
+ctk := hash 
+
+
+
+ct−1 
+
+> k
+
+,   Ak,ij , vt−1
+
+> ij
+
+ | (i, j ) ∈ N (k)
+
+
+
+.
+
+The update step incurs heavy computational complexity of O(n3 + nnz (A)) per update step for general linear SDP, motivating the derivation of a sparsity-aware variant; see Section 2.1. 4Branch and Bound To solve the Max-Cut in (1) to global optimality, the branch-and-bound (B&B) method is typically used [ 73 ]. The branch step recursively decomposes a graph into two smaller ones, where one of the vertices is assigned to one partition or the other. As shown in Figure 1, the vertices can be contracted to produce smaller equivalent graphs with updated edge weights wij . Most standard Max-Cut solvers, such as BiqMac [ 73 ], follow this contraction-based approach to recursively reduce the graph size by one. The bound step solves the SDP relaxation of the resulting subproblems to provide an upper bound f ∗
+
+> SDP
+
+, while the best feasible cut x ∈ {− 1, 1}n gives a lower bound fLB .The Goemans–Williamson algorithm [ 33 ], which is based on the primal SDP solution, is typically used to obtain good feasible Max-Cut solutions. Hence, the B&B method progressively closes the gap, and a B&B node can be safely pruned whenever f ∗ 
+
+> SDP
+
+< f LB + 1 .
+
+# 2 A principled GNN architecture to learn feasible bounds 
+
+In this work, we demonstrate that by exploiting the uniform diagonal structure of the Max-Cut relaxation, we can safely bypass this general formulation. We propose a highly optimized, sparsity-aware architecture that preserves the necessary higher expressivity while dramatically reducing the computational bottleneck for branch-and-bound integration. 
+
+2.1 Max-Cut-specific GNN 
+
+Here, we propose a Max-Cut-specific algorithm and its corresponding neural architecture. To that, we first observe that for the Max-Cut problem, the constraints uniformly depend on diagonals. This coincides with the diagonal indicator at the variable node initialization in Equation (3), meaning the constraints are uniquely and sufficiently marked. Consequently, we can safely drop the corresponding constraint nodes. By removing redundant constraint nodes, this simplification yields our first specific architecture, Max-Cut Weisfeiler–Leman ( MC -WL ). The algorithm initializes variables following Equation (3), with the color update step defined following, where ⊕ denotes any choice of injective and order-invariant aggregation function, e.g., multiset hashing or element-wise summation in neural networks: 
+
+MC -WL : vtij := hash 
+
+
+
+vt−1 
+
+> ij
+
+, vt−1 
+
+> uj
+
+⊕ vt−1 
+
+> iu
+
+| u ∈ [n]
+
+
+
+.
+
+In addition, we notice that the objective matrix C is often sparse. In fact, based on the proof of the expressivity of the VC -2-FWL , the variable update can be reformulated to be sparsity-aware by incorporating C directly into the message passing, resulting in a variant: 
+
+δ-MC -WL : vtij := hash 
+
+
+
+vt−1 
+
+> ij
+
+,(vt−1 
+
+> iu
+
+, C uj ) | u ∈ [n], C uj ̸ = 0 
+
+⊕(vt−1 
+
+> uj
+
+, C iu ) | u ∈ [n], C iu ̸ = 0 
+
+
+
+. (4) The connection of the multisets via the order-invariant ⊕ is to guarantee symmetry vtij = vtji .To determine the running-time complexity of δ-MC -WL , we analyze its aggregation steps. The initialization and update is on every index (i, j ) ∈ [n]2, taking O(n2) time. Furthermore, the sparse attribute aggregations filter exclusively for the non-zero entries of C. For a given column j, let dj be its number of non-zero entries. Computing the multiset (vt−1 
+
+> iu
+
+, C uj ) | u ∈ [n], C uj ̸ = 0 for all n
+
+rows requires O(n·dj ) operations. Summing this cost across all columns yields O(n P dj ) = O(ne ),where e is the total number of non-zero entries. This concludes the overall running-time complexity per update step, which is O(n2 + ne ).The following results show that δ-MC -WL is expressive enough to represent the optimal solution of a Max-Cut instance. 
+
+Theorem 2.1. Let X∗ ∈ Sn 
+
+> +
+
+and y∗ ∈ Rn denote the optimal primal and dual solutions for a given Max-Cut SDP relaxation. For any indices (i, j ) and (p, q ), if the stable colors produced by δ-MC -WL 
+
+satisfy v∞ 
+
+> ij
+
+= v∞ 
+
+> pq
+
+, then the corresponding primal entries satisfy X∗ 
+
+> ij
+
+= X∗ 
+
+> pq
+
+. Furthermore, if the diagonal stable colors satisfy v∞ 
+
+> kk
+
+= v∞ 
+
+> ll
+
+, then the dual solution satisfies y∗ 
+
+> k
+
+= y∗ 
+
+> l
+
+.
+
+Building on Qian and Morris [69] , we can neuralize the algorithms defined above into specific neural network architectures. The variable features are all initialized as h0 
+
+> ij
+
+:= INIT (Cij , Ii=j ) ∈ Rd, where 
+
+INIT is a parameterized function. 5First, translating MC -WL into the MC -MPNN architecture, we encode the pairwise ⊕ operation with a MAP function and the outer multiset aggregation with a neural network MSG , using sum aggregation for both operations: 
+
+MC -MPNN htij := UPD t ht−1 
+
+> ij
+
+, X
+
+> u∈[n]
+
+MSG t
+
+MAP t  ht−1
+
+> uj
+
+ + MAP t  ht−1
+
+> iu
+
+!
+
+.
+
+To make the architecture objective-aware, we neuralize δ-MC -WL by embedding the matrix entries 
+
+C directly into the message passing. Merging both multisets after the MSG function results in the 
+
+δ-MC -MPNN update: 
+
+δ-MC -MPNN htij := UPD t ht−1 
+
+> ij
+
+, X   
+
+> u:Ciu ̸=0
+
+MSG t ht−1 
+
+> uj
+
+, C iu 
+
+ + X   
+
+> u:Cuj ̸=0
+
+MSG t ht−1 
+
+> iu
+
+, C uj 
+
+!
+
+.
+
+In Section B.2 we prove that the above architectures can be expressive enough to approximate the optimal solution of a Max-Cut SDP. 
+
+2.2 Enforce feasibility 
+
+Let hTij denote the final feature tensor produced after T GNN layers. Because the variables operate on the matrix space, we first extract node-level representations hi by aggregating the symmetric pairwise embeddings across the rows (or columns). From these node features, we employ two independent multi-layer perceptron (MLP) heads to formulate the primal and dual predictions. For the primal variable, an MLP projects hi into a lower-dimensional embedding, which is subse-quently ℓ2-normalized to yield a unit vector oi ∈ Rr such that ∥oi∥2 = 1 . The primal matrix is then constructed via the inner product ˆXij := o⊺ 
+
+> i
+
+oj , a formulation that structurally guarantees positive semidefiniteness. This prediction is trained by directly optimizing Equation (2a). For the dual problem, a separate MLP maps hi to an unconstrained scalar prediction ˆyi ∈ R.However, for the Max-Cut SDP relaxation (2) , dual feasibility requires the slack matrix to be positive semidefinite: S ∈ Sn
+
+> +
+
+. The raw network outputs ˆy typically violate this condition. To enforce dual feasibility, we evaluate the predicted slack matrix using the equality constraint (2d) as 
+
+ˆS := Diag( ˆ y) − L, and apply a radial projection. By uniformly shifting the dual variables by the magnitude of the most negative eigenvalue of ˆS 1, we guarantee a valid, feasible dual solution, 
+
+ˆyfeas := ˆ y + max {0, −λmin ( ˆS)}e,
+
+based on which we can directly optimize with Equation (2c) during training. Crucially, directly optimizing these objectives aligns seamlessly with our theoretical analysis. To guarantee uniqueness for symmetry analysis, Theorem 2.1 isolates the minimum Frobenius norm solution, ensuring that nodes indistinguishable by δ-MC -WL share identical values. In contrast, our self-supervised learning (SSL) framework optimizes the objective directly without this regularization, allowing for a more flexible optimization search space. Nevertheless, because the predicted solution is parameterized by the structurally refined colorings of δ-MC -WL , it inherently preserves the necessary matrix symmetries within this broader space. 
+
+2.3 Branch and bound baseline and GNN-enhanced variants 
+
+We consider three B&B solvers for Max-Cut: (i) a vanilla, SDP solver-based B&B solver; (ii) a hybrid B&B solver; and (iii) a neural B&B solver. For completeness, the Section A.2 provides additional background on B&B with the pseudo code of the three solvers shown in Algorithm 1. In the vanilla solver (i), each node is evaluated by solving the SDP relaxation with Mosek to obtain a valid upper bound. The resulting primal SDP solution is then rounded by the Goemans–Williamson algorithm to obtain a feasible cut, which can be used to potentially update the incumbent lower bound. Nodes are selected using a best-bound-first strategy, and branching is performed on the most fractional variable. This solver serves as our standard SDP-based baseline. 
+
+> 1In practice, the spectral decomposition needs to be done only once per instance and is not the computational bottleneck.
+
+6The first GNN-enhanced variant is the hybrid solver (ii) that uses the GNN as an early-fathoming oracle before invoking Mosek. Because the proposed GNN predicts a dual-feasible solution by construction, its output always provides a valid upper bound. If this bound already satisfies the pruning condition, the node is fathomed immediately, and the Mosek evaluation is skipped. Otherwise, Mosek is invoked, and the algorithm proceeds exactly as in the vanilla solver. The second GNN-enhanced variant is the fully neural solver (iii), in which both primal and dual solutions are produced by the GNN. The predicted dual-feasible solution provides a valid upper bound, while the predicted primal-feasible solution is passed to the Goemans–Williamson algorithm to obtain feasible cuts. Thus, the SDP relaxation is never solved by Mosek. Moreover, because GNN inference is lightweight, many child nodes can be collected, batched as graphs, and evaluated in parallel, enabling substantially faster node enumeration while preserving the validity of the bounds. 
+
+# 3 Experimental study 
+
+The ultimate goal of our architecture is to accelerate exact combinatorial optimization. In this section, we rigorously assess the practical utility of our proposed framework by answering the following key questions: 
+
+Q1 Do the Max-Cut specific GNNs, especially sparsity-aware formulations, yield measurable, practical improvements in computational efficiency? 
+
+Q2 How does our neural SDP predictor compare against state-of-the-art classical solvers when integrated into a Max-Cut B&B pipeline? 
+
+3.1 Experiment design Comparison of GNN variants on uniform dataset To address Q1 , we directly compare the predic-tive performance of MC -MPNN and δ-MC -MPNN on synthetic graphs. We generate three distinct datasets of Erd˝ os–Rényi (ER) graphs [ 27 ] – the most common graphs for Max-Cut benchmarking – varying the number of nodes N ∈ { 50 , 100 } and the edge probabilities p ∈ { 0.1, 0.5}. Each dataset contains 10 000 instances and is partitioned into training, validation, and test sets at an 8:1:1 ratio. Because our framework utilizes SSL loss, the training phase is entirely unsupervised and requires no ground-truth labels. While our training dynamics largely follow Qian and Morris [69] , we adapt the framework for SSL by directly optimizing the dual objective. Finally, to evaluate the predictive accuracy of our models, we compute the exact labels for the test set using the Mosek solver [ 6 ]. We compare the models using the averaged relative objective gap over the test set: |(obj − obj ∗) /obj ∗| · 100% , where obj is the predicted value and obj ∗ is the ground-truth. 
+
+B&B experiments on Max-Cut dataset For Q2 , we evaluate the three variants of B&B described in Section 2.3: (i) a vanilla SDP-based B&B solver using Mosek as baseline; (ii) a hybrid B&B solver that uses GNN for early pruning and invokes Mosek if the node is not pruned; (iii) a neural B&B solver in which the GNN produces lower bounds and upper bounds. To justify our choice of Mosek as the underlying SDP solver for these evaluations, we carried out ablation experiments comparing multiple SDP solvers in Section D.1. For the neural solver, we test both sequential evaluation (no batch) and batched evaluation with batch sizes K ∈ { 8, 16 , 32 }. In batched evaluation, the solver instead selects up to K active nodes from the priority queue before performing inference. After branching on these nodes, the resulting 2K child-node subgraphs are collected into a mini-batch and evaluated together by the GNN. The predicted bounds are then assigned back to the corresponding child nodes, after which the usual pruning and queue-update steps are applied. Ablation studies of different batch sizes are shown in Sections D.5 and D.6. Experiments were conducted on AMD EPYC 7662 CPU and NVIDIA L40S GPU. In every epoch, we generate 20 ER seed graphs on the fly from the same distribution of a target instance family. To mimic the subproblems encountered during the B&B tree, for each seed graph, we sample 20 random branching trajectories until 3 free variables and expand them into 20 × | N − 2|
+
+subgraphs subject to successive node contractions. The B&B solvers are tested on unseen benchmark instances from Max-Cut libraries reported in [ 73 , 35 ], including (1) g05_N for N ∈ { 60 , 80 , 100 }
+
+with edge probability 0.5 and edge weights in {0, 1}, (2) pm1s_N for N ∈ { 80 , 100 } with edge probability 0.1 and edge weights in {− 1, 0, 1}; (3) w01_N for N ∈ { 100 } with edge probability 0.1
+
+7with integer edge weights in [−10 , 10] . The model trained within g05_100 distribution is tested on 
+
+g05_60 , g05_80 , and g05_100 , while the remaining models are trained and tested on their respective distributions. 
+
+3.2 Results Q1: Comparison of GNN variants Table 1 demonstrates the objective gaps and the computational overheads during training. Notably, δ-MC -MPNN and MC -MPNN exhibit comparable predictive accuracy and training time across all datasets, though δ-MC -MPNN requires slightly less VRAM. Therefore, we frame our contributions along two parallel tracks: δ-MC -WL establishes the theory that sub-cubic complexity is possible for Max-Cut SDPs, laying the foundation for future sparse-optimized hardware. Meanwhile, MC -MPNN and δ-MC -MPNN both serve as competitive realizations of our theory, emerging as the most practical and efficient choices for deployment. Table 1: Training computational overhead, measured in seconds per epoch and VRAM usage allocated, alongside predictive performance on the test set, averaged over 3 random seeds. The best results are highlighted in bold. Target Model Problems                        
+
+> N=50, p=0.1 N=50, p=0.5 N=100, p=0.1 Obj gap (%) MC -MPNN 0.126 ±0.005 0.101 ±0.001 0.598 ±0.005
+> δ-MC -MPNN 0.128 ±0.005 0.099 ±0.001 0.628 ±0.004
+> Time sec/epoch MC -MPNN 6.5 6.3 27.9
+> δ-MC -MPNN 6.0 6.3 28.2 VRAM (GB) MC -MPNN 23.6 23.6 82.0
+> δ-MC -MPNN 21.6 21.6 81.6
+
+Additional ablation studies, including sensitivity analyses of network depth, out-of-distribution generalization, and normalization strategies ( LayerNorm , GraphNorm etc.), are provided in Section D. 
+
+Q2: Branch-and-bound experiments We first conduct a controlled experiment to isolate the effect of the GNN-predicted upper bounds. In this experiment, we disable the Goemans–Williamson rounding step in all three B&B solvers (i)–(iii) and initialize the global lower bound with the true optimal Max-Cut value at the root node. This setup removes the influence of primal heuristics and incumbent updates, so differences in performance can be attributed directly to the quality of the upper bounds used for fathoming. The complete heuristic-free B&B statistics for all three solvers are provided in Section D.5. In Table 2, we highlight that the hybrid solver (ii) predicts sufficiently tight upper bounds to identify more than 83% of SDP-prunable nodes during B&B. Table 2: Average fraction of SDP-prunable nodes pruned by GNN in the B&B without Goemans– Williamson algorithm using the hybrid solver on established instances. The best-performing configu-ration, MC -MPNN + LayerNorm , is used for the hybrid solver. Instance Family Method % Nodes Pruned by GNN 
+
+g05_60 Hybrid 85.5% 
+
+g05_80 Hybrid 86.8% 
+
+g05_100 Hybrid 83.8% Having isolated the effect of upper-bound quality, we next evaluate whether the learned bounds remain useful in a full B&B pipeline where incumbent solutions are generated dynamically. For this experiment, we focus on variants (i) and (iii): the vanilla solver and the fully neural solver. In both cases, feasible Max-Cut solutions are obtained via the Goemans–Williamson algorithm, using primal SDP solutions from Mosek for the vanilla solver and from the GNN for the neural solver. The results are reported in Table 3, where the neural solver uses the best-performing configuration selected in the ablation studies in Section D.6: MC -MPNN with LayerNorm and batched inference of size 32. 8Overall, the neural solver evaluates slightly more nodes than the vanilla SDP-based solver, reflecting the fact that its learned bounds are somewhat less tight than the exact SDP solver. However, this modest increase in tree size is more than offset by the much lower cost of each node evaluation. This per-node cost reduction is driven by two complementary effects. First, the GNN replaces repeated SDP solves with lightweight inference. Second, batching enables multiple GNNs to be evaluated together in a single mini-batch, which improves hardware utilization. The speed-ups are consistent across all tested instance families and become more pronounced on larger instances, where SDP solves are increasingly expensive. The additional ablation studies of the two complementary effects are provided in Sections D.5 and D.6. The strong performance of the model trained on g05_100 -in-distribution graphs when tested on 
+
+g05_60 and g05_80 suggests that the learned SDP proxy effectively transfers across graph sizes within the same instance family. This generalization is nontrivial because, although the training data contain contracted subgraphs of comparable sizes, they are typically denser and no longer have purely binary edge weights. A more detailed analysis of generalization is provided in Section D.4. Table 3: Branch-and-bound results on established instances. The #node and time are averages over each instance family. The best-performing configuration, MC -MPNN + LayerNorm with batched inference of size 32 , is reported for the neural solver. Instance Family Method # Nodes Evaluated Solving Time (s) Speed-up ( ×)
+
+g05_60 Vanilla 3566 53.1 1Neural 4562 9.5 5.6 
+
+g05_80 Vanilla 49128 1170.3 1Neural 53975 155.7 7.5 
+
+g05_100 Vanilla 1087290 40930.1 1Neural 1272801 4509.3 9.1 
+
+pm1s_80 Vanilla 25656 609.5 1Neural 27809 80.8 7.5 
+
+pm1s_100 Vanilla 254408 10382.5 1Neural 302314 1058.2 9.8 
+
+w01_100 Vanilla 269407 11348.6 1Neural 305720 1073.9 10.6 
+
+# 4 Conclusion 
+
+We introduced a feasibility-preserving GNN proxy for the semidefinite relaxations arising in exact Max-Cut branch and bound. By exploiting the sparse structure of the Max-Cut SDP, our architecture avoids the cubic bottleneck of more general GNNs for SDP while retaining the expressivity needed to represent optimal primal and dual solutions. The resulting model predicts primal-feasible and dual-feasible SDP solutions by construction, enabling valid upper bounds and self-supervised training without requiring solved SDP instances as labels. Empirically, our results show that learned SDP bounds can be sufficiently accurate to substantially reduce the cost of bounding in branch and bound. In particular, the proposed neural solver accelerates SDP-based exact Max-Cut solving by up to 
+
+10 .6× compared with the same framework using Mosek, while preserving correctness via dual feasibility. These findings suggest that learned solvers need not be limited to heuristic guidance, such as branching or cut selection, but can instead replace core relaxation computations when feasibility and validity are enforced through a tailored GNN architecture. 
+
+Limitations and possible future directions The proposed framework exhibits two primary limita-tions. First, its reliance on generating and training on in-distribution data restricts the model’s ability to generalize to out-of-distribution graphs. To address this, we plan to explore foundation models pretrained across diverse graph classes. Second, although our neural solver effectively accelerates exact combinatorial optimization, it does not yet consistently surpass state-of-the-art classical exact solvers such as BiqCrunch [ 47 ], which have benefited from decades of research on Max-Cut and 9derive much of their strength from advanced branch-and-cut paradigms. To bridge this performance gap, we aim to investigate tighter integration between neural SDP solvers and classical cutting-plane methods. 
+
+# Acknowledgments and Disclosure of Funding 
+
+C.L. would like to acknowledge the financial support from the Office of Naval Research (ONR) award N000142412641. A.L. is grateful for the support of ONR, award N00014-24-1-2645. C.M. and C.Q. are partially funded by a DFG Emmy Noether grant (468502433) and RWTH Junior Principal Investigator Fellowship under Germany’s Excellence Strategy 10 References 
+
+[1] T. Achterberg. Constraint integer programming . PhD thesis, 2007. 3 [2] T. Achterberg, T. Koch, and A. Martin. Branching rules revisited. Operations Research Letters ,33(1):42–54, 2005. 3 [3] A. Agrawal, B. Amos, S. Barratt, S. Boyd, S. Diamond, and J. Z. Kolter. Differentiable convex optimization layers. Advances in Neural Information Processing Systems , 2019. 3 [4] A. M. Alvarez, Q. Louveaux, and L. Wehenkel. A machine learning-based approximation of strong branching. INFORMS Journal on Computing , 29(1):185–195, 2017. 3 [5] B. Amos and J. Z. Kolter. Optnet: Differentiable optimization as a layer in neural networks. In 
+
+International Conference on Machine Learning . PMLR, 2017. 3 [6] M. ApS. Mosek optimizer api for python. Version , 9(17):6–4, 2022. 2, 7, 22 [7] J. L. Ba, J. R. Kiros, and G. E. Hinton. Layer normalization. arXiv preprint arXiv:1607.06450 ,2016. 24 [8] L. Babai. Lectures on graph isomorphism. University of Toronto, Department of Computer Science. Mimeographed lecture notes, October 1979, 1979. 16 [9] F. Barahona, M. Grötschel, M. Jünger, and G. Reinelt. An application of combinatorial optimization to statistical physics and circuit layout design. Operations Research , 36(3): 493–513, 1988. doi: 10.1287/opre.36.3.493. 2 [10] Y. Bengio, A. Lodi, and A. Prouvost. Machine learning for combinatorial optimization: a methodological tour d’horizon. European Journal of Operational Research , 290(2):405–421, 2021. 1 [11] X. Bresson and T. Laurent. Residual gated graph ConvNets. arXiv preprint arXiv:1711.07553v2 ,2017. 2 [12] S. Burer and R. D. Monteiro. A nonlinear programming algorithm for solving semidefinite programs via low-rank factorization. Mathematical programming , 95(2):329–357, 2003. 22 [13] J.-Y. Cai, M. Fürer, and N. Immerman. An optimal lower bound on the number of variables for graph identification. Combinatorica , 12(4):389–410, 1992. 4, 16 [14] T. Cai, S. Luo, K. Xu, D. He, T.-y. Liu, and L. Wang. Graphnorm: A principled approach to accelerating graph neural network training. In International Conference on Machine Learning ,2021. 24 [15] Q. Cappart, D. Chételat, E. B. Khalil, A. Lodi, C. Morris, and P. Veliˇ ckovi´ c. Combinatorial optimization and reasoning with graph neural networks. Journal of Machine Learning Research ,24(130):1–61, 2023. 1 [16] A. Chambolle and T. Pock. On the ergodic convergence rates of a first-order primal–dual algorithm. Mathematical Programming , 159(1):253–287, 2016. 20 [17] B. Chen, P. L. Donti, K. Baker, J. Z. Kolter, and M. Bergés. Enforcing policy feasibility constraints through differentiable projection for energy optimization. In Proceedings of the Twelfth ACM International Conference on Future Energy Systems , pages 199–210, 2021. 3 [18] X. Chen, J. Liu, and W. Yin. Learning to optimize: A tutorial for continuous and mixed-integer optimization. Science China Mathematics , 67(6):1191–1262, 2024. 3 [19] Z. Chen, J. Liu, X. Wang, and W. Yin. On representing linear programs by graph neural networks. In The Eleventh International Conference on Learning Representations , 2023. 1, 2 [20] Z. Chen, J. Liu, X. Wang, and W. Yin. On representing mixed-integer linear programs by graph neural networks. In The Eleventh International Conference on Learning Representations , 2023. 211 [21] Z. Chen, J. Liu, X. Chen, X. Wang, and W. Yin. Rethinking the capacity of graph neural networks for branching strategy. Advances in Neural Information Processing Systems , 2024. 1, 3[22] Z. Chen, X. Chen, J. Liu, X. Wang, and W. Yin. Expressive power of graph neural networks for (mixed-integer) quadratic programs. In Forty-second International Conference on Machine Learning , 2025. 2 [23] A. Deza and E. B. Khalil. Machine learning for cutting planes in integer programming: A survey. In IJCAI , 2023. 1 [24] J.-Y. Ding, C. Zhang, L. Shen, S. Li, B. Wang, Y. Xu, and L. Song. Accelerating primal solution findings for mixed integer programs based on solution prediction. In AAAI , 2020. 2 [25] P. Donti, D. Rolnick, and J. Z. Kolter. DC3: A learning method for optimization with hard constraints. In International Conference on Learning Representations , 2021. 3 [26] D. Duvenaud, D. Maclaurin, J. Aguilera-Iparraguirre, R. Gómez-Bombarelli, T. Hirzel, A. Aspuru-Guzik, and R. P. Adams. Convolutional networks on graphs for learning molecular fingerprints. arXiv preprint arXiv:1509.09292 , 2015. 2 [27] P. Erd˝ os and A. Rényi. On random graphs i. Publ. math. debrecen , 6(290-297):18, 1959. 7 [28] F. Fioretto, T. W. Mak, and P. Van Hentenryck. Predicting ac optimal power flows: Combining deep learning and lagrangian dual methods. In Proceedings of the AAAI conference on artificial intelligence , volume 34, pages 630–637, 2020. 3 [29] F. Fioretto, P. Van Hentenryck, T. W. Mak, C. Tran, F. Baldo, and M. Lombardi. Lagrangian duality for constrained deep learning. In Joint European conference on machine learning and knowledge discovery in databases , pages 118–135. Springer, 2020. 3 [30] G. E. C. Flores, H. Chen, and C. Li. Enforcing hard linear constraints in deep learning models with decision rules. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. 3 [31] M. Gasse, D. Chételat, N. Ferroni, L. Charlin, and A. Lodi. Exact combinatorial optimization with graph convolutional neural networks . Curran Associates Inc., Red Hook, NY, USA, 2019. 1, 2, 3 [32] J. Gilmer, S. S. Schoenholz, P. F. Riley, O. Vinyals, and G. E. Dahl. Neural message passing for quantum chemistry. In International Conference on Machine Learning , 2017. 1, 2 [33] M. X. Goemans and D. P. Williamson. Improved approximation algorithms for maximum cut and satisfiability problems using semidefinite programming. Journal of the ACM (JACM) , 42 (6):1115–1145, 1995. 3, 5 [34] M. Grohe. Descriptive complexity, canonisation, and definable graph structure theory . Cam-bridge University Press, 2017. 16 [35] N. Gusmeroli, T. Hrga, B. Lužar, J. Povh, M. Siebenhofer, and A. Wiegele. Biqbin: a par-allel branch-and-bound solver for binary quadratic problems with linear constraints. ACM Transactions on Mathematical Software (TOMS) , 48(2):1–31, 2022. 3, 7, 22, 25 [36] W. Hamilton, Z. Ying, and J. Leskovec. Inductive representation learning on large graphs. 
+
+NeurIPS , 2017. 2 [37] Q. Han, C. Li, Z. Lin, C. Chen, Q. Deng, D. Ge, H. Liu, and Y. Ye. A low-rank admm splitting approach for semidefinite programming. INFORMS Journal on Computing , 2025. 2 [38] C. Helmberg and F. Rendl. Solving quadratic (0, 1)-problems by semidefinite programs and cutting planes. Mathematical programming , 82(3):291–315, 1998. 3 [39] R. A. Horn and C. R. Johnson. Topics in matrix analysis . Cambridge university press, 1994. 17, 19 12 [40] T. Hrga and J. Povh. Madam: a parallel exact solver for max-cut based on semidefinite programming and admm. Computational Optimization and Applications , 80:347–375, 2021. ISSN 1573-2894. doi: 10.1007/s10589-021-00310-6. 3 [41] N. Immerman and E. Lander. Describing graphs: A first-order approach to graph canonization. In Complexity Theory Retrospective: In Honor of Juris Hartmanis on the Occasion of His Sixtieth Birthday, July 5, 1988 , pages 59–81, 1990. 16 [42] E. Khalil, P. Le Bodic, L. Song, G. Nemhauser, and B. Dilkina. Learning to branch in mixed integer programming. In Proceedings of the AAAI conference on artificial intelligence ,volume 30, 2016. 3 [43] E. B. Khalil, C. Morris, and A. Lodi. Mip-gnn: A data-driven framework for guiding combina-torial solvers. In AAAI , 2022. 1, 2 [44] D. P. Kingma and J. Ba. Adam: A method for stochastic optimization. In ICLR , 2015. 22 [45] B. Korte and J. Vygen. Combinatorial Optimization: Theory and Algorithms . Springer, 5th edition, 2012. 1 [46] J. Kotary and F. Fioretto. Learning constrained optimization with deep augmented lagrangian methods. arXiv preprint arXiv:2403.03454 , 2024. 3 [47] N. Krislock, J. Malick, and F. Roupin. Biqcrunch: A semidefinite branch-and-bound method for solving binary quadratic problems. ACM Trans. Math. Softw. , 43(4), Jan. 2017. ISSN 0098-3500. doi: 10.1145/3005345. 3, 9, 27 [48] B. Li, L. Yang, Y. Chen, S. Wang, H. Mao, Q. Chen, Y. Ma, A. Wang, T. Ding, J. Tang, and R. Sun. Pdhg-unrolled learning-to-optimize method for large-scale linear programming. In 
+
+Proceedings of the 41st International Conference on Machine Learning , ICML’24. JMLR.org, 2024. 2 [49] M. Li, S. Kolouri, and J. Mohammadi. Learning to solve optimization problems with hard linear constraints. IEEE Access , 11:59995–60004, 2023. ISSN 21693536. doi: 10.1109/access.2023. 3285199. 3 [50] Q. Li, T. Ding, L. Yang, M. Ouyang, Q. Shi, and R. Sun. On the power of small-size graph neural networks for linear programming. In NeurIPS , 2024. 2 [51] Q. Li, M. Ouyang, T. Ding, Y. Wang, Q. Shi, and R. Sun. Towards explaining the power of constant-depth graph neural networks for structured linear programming. In ICLR , 2025. 2 [52] R. Li, E. Liang, and M. Chen. On the expressivity of GNN for solving second order cone programming. In NeurIPS Workshop on GPU-Accelerated and Scalable Optimization , 2025. 2 [53] S. Li, W. Ouyang, M. B. Paulus, and C. Wu. Learning to configure separators in branch-and-cut. In NeurIPS , 2023. 1 [54] E. Liang, M. Chen, and S. Low. Low complexity homeomorphic projection to ensure neural-network solution feasibility for optimization over (Non-)Convex set. In International Conference on Machine Learning . PMLR, 2023. 3 [55] E. Liang, M. Chen, and S. H. Low. Homeomorphic projection to ensure neural-network solution feasibility for constrained optimization. Journal of Machine Learning Research , 25:1–55, 2024. 3[56] J. Lin, J. Zhu, H. Wang, and T. Zhang. Learning to branch with tree-aware branching transform-ers. Knowledge-Based Systems , 252:109455, 2022. 3 [57] H. Maron, H. Ben-Hamu, H. Serviansky, and Y. Lipman. Provably powerful graph networks. In 
+
+NeurIPS , 2019. 2, 21 [58] C. Morris, M. Ritzert, M. Fey, W. L. Hamilton, J. E. Lenssen, G. Rattan, and M. Grohe. Weisfeiler and Leman go neural: Higher-order graph neural networks. In AAAI , 2019. 2, 4 13 [59] C. Morris, G. Rattan, and P. Mutzel. Weisfeiler and Leman go sparse: Towards higher-order graph embeddings. In NeurIPS , 2020. 2 [60] C. Morris, G. Rattan, S. Kiefer, and S. Ravanbakhsh. SpeqNets: Sparsity-aware permutation-equivariant graph networks. In ICML , 2022. 2 [61] V. Nair, S. Bartunov, F. Gimeno, I. von Glehn, P. Lichocki, I. Lobov, B. O’Donoghue, N. Son-nerat, C. Tjandraatmadja, P. Wang, R. Addanki, T. Hapuarachchi, T. Keck, J. Keeling, P. Kohli, I. Ktena, Y. Li, O. Vinyals, and Y. Zwols. Solving mixed integer programs using neural networks. 
+
+CoRR , abs/2012.13349, 2020. 1 [62] B. O’Donoghue. Operator splitting for a homogeneous embedding of the linear complementarity problem. SIAM Journal on Optimization , 31(3):1999–2023, 2021. 22 [63] X. Pan, M. Chen, T. Zhao, and S. H. Low. Deepopf: A feasibility-optimized deep neural network approach for ac optimal power flow problems. IEEE Systems Journal , 17(1):673–683, 2022. 3 [64] S. Park and P. Van Hentenryck. Self-supervised primal-dual learning for constrained optimiza-tion. In AAAI , 2023. 3 [65] M. B. Paulus, G. Zarpellon, A. Krause, L. Charlin, and C. Maddison. Learning to cut by looking ahead: Cutting plane selection via imitation learning. In K. Chaudhuri, S. Jegelka, L. Song, C. Szepesvari, G. Niu, and S. Sabato, editors, Proceedings of the 39th International Conference on Machine Learning , volume 162 of Proceedings of Machine Learning Research ,pages 17584–17600. PMLR, 17–23 Jul 2022. 1, 2 [66] S. Poljak and Z. Tuza. The max-cut problem — a survey. In Special Year on Combinatorial Optimization . American Mathematical Society, 1995. 2 [67] C. Qian and C. Morris. Principled data augmentation for learning to solve quadratic program-ming problems. arXiv preprint arXiv:2506.01728 , 2025. 2 [68] C. Qian and C. Morris. Towards graph neural networks for provably solving convex optimization problems. arXiv preprint arXiv:2502.02446 , 2025. 3 [69] C. Qian and C. Morris. On the expressive power of gnns to solve linear sdps. arXiv preprint arXiv:2604.27786 , 2026. 2, 4, 5, 7, 17, 20, 21, 24 [70] C. Qian, D. Chételat, and C. Morris. Exploring the power of graph neural networks in solving linear optimization problems. In AISTATS , 2024. 1, 2, 3 [71] A. Rashwan, K. Briggs, C. Budd, and L. M. Kreusser. Enforcing convex constraints in graph neural networks. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2026. 3 [72] F. Rendl, G. Rinaldi, and A. Wiegele. A branch and bound algorithm for max-cut based on combining semidefinite and polyhedral relaxations. In International Conference on Integer Programming and Combinatorial Optimization , pages 295–309. Springer, 2007. 2 [73] F. Rendl, G. Rinaldi, and A. Wiegele. Solving Max-Cut to optimality by intersecting semidefinite and polyhedral relaxations. Math. Programming , 121(2):307, 2010. 3, 5, 7, 22, 25 [74] F. Scarselli, M. Gori, A. C. Tsoi, M. Hagenbuchner, and G. Monfardini. The graph neural network model. IEEE Transactions on Neural Networks , 20(1):61–80, 2008. 1, 2 [75] L. Scavuzzo, K. Aardal, A. Lodi, and N. Yorke-Smith. Machine learning augmented branch and bound for mixed integer linear programming. Mathematical Programming , pages 1–44, 2024. 3 [76] B. Tang, E. B. Khalil, and J. Drgona. Learning to optimize for mixed-integer non-linear pro-gramming with feasibility guarantees. In Workshop on Differentiable Learning of Combinatorial Algorithms , 2025. 3 [77] M. Tanneau and P. Van Hentenryck. Dual lagrangian learning for conic optimization. NeurIPS ,2024. 3 14 [78] J. Tordesillas, J. P. How, and M. Hutter. Rayen: Imposition of hard convex constraints on neural networks. arXiv preprint arXiv:2307.08336 , 2023. 3 [79] L. Vandenberghe and S. Boyd. Semidefinite programming. SIAM review , 38(1):49–95, 1996. 2 [80] P. Veliˇ ckovi´ c, G. Cucurull, A. Casanova, A. Romero, P. Liò, and Y. Bengio. Graph attention networks. In International Conference on Learning Representations , 2018. 2 [81] Y. Wang, H. Lan, and Y. Ye. A tuning-free primal-dual splitting algorithm for large-scale semidefinite programming. arXiv preprint arXiv:2402.00311 , 2024. 2, 20 [82] B. Weisfeiler and A. Leman. The reduction of a graph to canonical form and the algebra which appears therein. nti, Series , 2(9):12–16, 1968. 4, 16 [83] Z. Wen, D. Goldfarb, and W. Yin. Alternating direction augmented lagrangian methods for semidefinite programming. Mathematical Programming Computation , 2(3):203–230, 2010. 22 [84] H. Wolkowicz, R. Saigal, and L. Vandenberghe. Handbook of semidefinite programming: theory, algorithms, and applications , volume 27. Springer Science & Business Media, 2012. 2 [85] C. Wu, Q. Chen, A. Wang, T. Ding, R. Sun, W. Yang, and Q. Shi. On representing convex quadratically constrained quadratic programs via graph neural networks. Transactions on Machine Learning Research , 2025. ISSN 2835-8856. 2 [86] K. Xu, W. Hu, J. Leskovec, and S. Jegelka. How powerful are graph neural networks? In 
+
+International Conference on Learning Representations , 2019. 2, 4 [87] M. Yau, N. Karalias, E. Lu, J. Xu, and S. Jegelka. Are graph neural networks optimal approxi-mation algorithms? NeurIPS , 2024. 2, 3 [88] G. Zarpellon, J. Jo, A. Lodi, and Y. Bengio. Parameterizing branch-and-bound search trees to learn branching policies. In Proceedings of the aaai conference on artificial intelligence ,volume 35, pages 3931–3939, 2021. 3 [89] J. Zhou, Y. Wang, and P. Li. Branching strategies based on subgraph gnns: A study on theoretical promise versus practical reality. arXiv preprint arXiv:2512.09355 , 2025. 3 15 A Extended Background 
+
+A.1 Higher-Order Weisfeiler-Leman 
+
+Let n ≥ 1 and [n] := {1, . . . , n }. We denote multisets with {{. . . }}. A labeled graph G = ( V, E, l )
+
+consists of a finite node set V , an edge set E, and a labeling function l : V → N. The neighborhood of a node v ∈ V is defined as N (v) := {u ∈ V | (u, v ) ∈ E}. Two graphs G and H are isomorphic (G ≃ H) if there exists an adjacency- and label-preserving bijection between their node sets. For 
+
+k-tuples v, w ∈ V k, we say they share the same atomic type, denoted atp (v) = atp (w), if the coordinate mapping vi 7 → wi induces a partial isomorphism. The 1-Weisfeiler-Leman ( 1-WL ) algorithm, also known as color refinement, is a standard heuristic for testing graph isomorphism [ 82 ]. It determines if two graphs are non-isomorphic by iteratively updating node colors based on local neighborhoods. Initialized with c0 
+
+> v
+
+:= l(v), the color of node v
+
+at iteration t > 0 is updated via an injective hash function: 
+
+ctv := hash  ct−1 
+
+> v
+
+, ct−1 
+
+> u
+
+| u ∈ N (v) .
+
+The algorithm terminates when the partition of colors stabilizes, i.e., ctv = ctw ⇐⇒ ct+1  
+
+> v
+
+= ct+1 
+
+> w
+
+for all v, w ∈ V , yielding a stable coloring c∞ 
+
+> v
+
+. If two graphs yield a differing number of nodes for any stable color, 1-WL successfully distinguishes them [13]. To distinguish more complex symmetries where 1-WL fails, the hierarchy generalizes to k-tuples where k ≥ 2, yielding the k-dimensional WL ( k-WL ) and its folklore variant ( k-FWL ) [ 8, 41 , 13 , 34 ]. Both algorithms initialize tuple colors using their atomic types: c0 
+
+> v
+
+:= atp (v). They differ primarily in how they aggregate information when substituting a node w ∈ V into the j-th position of v,denoted as ϕj (v, w ) := ( v1, . . . , v j−1, w, v j+1 , . . . , v k).The k-FWL algorithm captures the joint configuration of these substitutions across all tuple positions simultaneously: 
+
+ct 
+
+> v
+
+:= hash 
+
+
+
+ct−1 
+
+> v
+
+,
+
+nn 
+
+ct−1
+
+> ϕ1(v,w )
+
+, . . . , ct−1 
+
+> ϕk(v,w )
+
+
+
+| w ∈ V
+
+oo 
+
+.
+
+In contrast, standard k-WL aggregates the multiset of each substitution position independently :
+
+ct 
+
+> v
+
+:= hash 
+
+
+
+ct−1 
+
+> v
+
+,
+
+
+
+{{ct−1 
+
+> ϕ1(v,w )
+
+| w ∈ V }}, . . . , {{ct−1  
+
+> ϕk(v,w )
+
+| w ∈ V }}
+
+ 
+
+.
+
+Both algorithms iterate until the tuple colors stabilize. We quantify expressive power using refinement relations. An algorithm A refines B, denoted A ⊑ B ,if A can distinguish all pairs of graphs that B can distinguish. Strict refinement is denoted as A ⊏ B.Because k-FWL aggregates joint neighborhood structures rather than marginal distributions, it is strictly more expressive than k-WL for k ≥ 2. Specifically, k-FWL is proven to be equivalent in power to (k+1) -WL [13, 34], establishing the following strict expressivity hierarchy: 
+
+· · · ≡ (k + 1) -FWL ⊏ (k + 1) -WL ≡ k-FWL ⊏ k-WL ≡ (k−1) -FWL ⊏ . . . 
+
+A.2 Branch-and-Bound Method 
+
+The branch-and-bound method is a tree-search algorithm for solving combinatorial optimization problems exactly. As shown in Algorithm 1, the solver starts with the SDP relaxation of the Max-Cut Problem at the B&B root node, and repeatedly selects an active node from the queue to create subproblems. By default, we select the node with the highest upper bound to explore. Each subproblem is generated by branching on an unfixed variable in the current graph. In our implementation, the branching variable is chosen by the most-fractional rule. The branching variable is then fixed to the two possible partitions, producing two child nodes. The subproblem associated with each child node is relaxed and evaluated as an SDP. This returns an upper bound together with a primal SDP solution. The Goemans–Williamson algorithm then rounds this primal solution to a feasible cut. Specifically, the primal solution is factorized as X = V V T
+
+with row vectors vi. Random vectors r are sampled to induce a partition, where the variables with 16 {i|v⊤ 
+
+> i
+
+r ≥ 0} can be assigned to one partition and the remaining variables are assigned to the other. The feasible cut is then further improved by a local search that flips individual variables to increase the lower bound. If the new cut is better, the incumbent will be updated. Since the SDP relaxation provides an upper bound on the best-cut value achievable by the current subproblem, this child node can be safely pruned whenever its SDP optimal objective value is no better than the incumbent lower bound. The pruning condition is UB c < LB + 1 , as all edge weights are integers. In this case, neither this node nor any of its descendants can yield a better feasible cut. Otherwise, the node remains active and is added back to the queue. In this work, we consider three branch-and-bound solvers: (i) a vanilla SDP-based B&B solver; (ii) a hybrid B&B solver; and (iii) a neural B&B solver. While the vanilla solver uses Mosek to solve the SDP relaxation at the node-evaluation step, where UB c = f ∗
+
+> SDP
+
+, the hybrid and neural solvers apply the proposed GNN to predict a dual-feasible solution and generate a valid upper bound such that 
+
+f ∗ 
+
+> SDP
+
+≤ fGNN . Therefore, the same pruning condition can be applied directly if fGNN < LB+1 . The hybrid solver uses the GNN for early fathoming. At each node, the GNN is queried first to produce 
+
+fGNN . If this bound already prunes the node, the exact SDP evaluation with Mosek will be bypassed. Otherwise, Mosek is invoked to compute the tighter bound, fSDP , and the algorithm proceeds exactly as in the vanilla solver. As a result, the hybrid solver preserves the same branch-and-bound tree, but changes the cost of node evaluation. The nodes pruned by GNN avoid solving the SDP with Mosek, whereas surviving nodes incur the cost of both GNN inference and the subsequent Mosek solve. In contrast, the neural solver differs more significantly from the vanilla solver. The Mosek solve is removed entirely from this solver, and the GNN is responsible for the prediction of both primal and dual solutions. Specifically, the neural solver considers UB c = fGNN and uses the predicted primal solution in the Goemans–Williamson algorithm. These changes can alter node priorities in the queue and branching decisions, resulting in a different branch-and-bound tree. Despite this different search trajectory, the neural solver can explore nodes much more efficiently by combining lightweight GNN inference with batched evaluation of child nodes. 
+
+# B Omitted proofs 
+
+In the following, we outline proofs omitted from the main paper. 
+
+B.1 Proof of Theorem 2.1 Theorem B.1 (Restatement of Theorem 2.1) . Let X∗ ∈ Sn 
+
+> +
+
+and y∗ denote the optimal primal and dual solutions, respectively, for a given instance of the Max-Cut SDP relaxation. For any indices 
+
+(i, j ) and (p, q ), if the stable colors produced by δ-MC -WL satisfy v∞ 
+
+> ij
+
+= v∞ 
+
+> pq
+
+, then the corresponding primal entries satisfy X∗ 
+
+> ij
+
+= X∗ 
+
+> pq
+
+. Furthermore, if the diagonal stable colors satisfy v∞ 
+
+> kk
+
+= v∞ 
+
+> ll
+
+, then the dual solution satisfies y∗ 
+
+> k
+
+= y∗ 
+
+> l
+
+.
+
+We first prove a lemma that our δ-MC -WL refines the spectral property of a symmetric matrix, similar to VC -2-FWL in prior work [69], but different in derivation details. 
+
+Lemma B.2. Let M ∈ Sn be a symmetric matrix with spectral decomposition 
+
+M =
+
+> m
+
+X
+
+> k=1
+
+λkPk
+
+where λ1 > λ 2 · · · > λ m are the non repeating eigenvalues, and Pk are Frobenius covariants [ 39 ,p. 437], i.e., the symmetric matrices describing the projection onto the eigenspace of eigenvalue λk.The stable coloring v∞ are produced by the multiset δ-MC -WL algorithm: 
+
+v0 
+
+> ij
+
+:= hash (Mij , Ii=j )
+
+vtij := hash 
+
+
+
+vt−1 
+
+> ij
+
+, (vt−1 
+
+> iu
+
+, M uj ) | u ∈ [n], M uj ̸ = 0 ⊕ (vt−1 
+
+> uj
+
+, M iu ) | u ∈ [n], M iu ̸ = 0 
+
+
+
+where Ii=j is a diagonal indicator which takes value 1 if i = j otherwise 0. The following result holds: 
+
+v∞ 
+
+> ij
+
+= v∞ 
+
+> pq
+
+=⇒ (Pk)ij = ( Pk)pq , for all k ∈ [m].
+
+17 Algorithm 1 branch and bound for Max-Cut 
+
+Require: Problem P , relaxation method R ∈ { VANILLA , HYBRID , NEURAL }, top K nodes  
+
+> 1:
+
+Q ← ∅ ▷ Queue  
+
+> 2:
+
+(UB r , x r ) ← EVALUATE NODE (P, R) ▷ Root upper bound  
+
+> 3:
+
+xheur  
+
+> r
+
+← GW-A LGORITHM (xr ) 
+
+> 4:
+
+xLB ← xheur  
+
+> r
+
+, LB ← xheur  
+
+> r
+
+Lr xheur  
+
+> r
+
+▷ Best solution and lower bound  
+
+> 5:
+
+PUSH (Q, r ) 
+
+> 6:
+
+while Q̸ = ∅ do  
+
+> 7:
+
+N ← POP MANY (Q, K ) ▷ Best (top K, if R = NEURAL ) upper bound first  
+
+> 8:
+
+C ← [ ]  
+
+> 9:
+
+for all n ∈ N do  
+
+> 10:
+
+if LB + 1 ≤ UB n then  
+
+> 11:
+
+j∗ ← MOST FRACTIONAL (n) 
+
+> 12:
+
+(cdown , c up ) ← BRANCH (n, j ∗) 
+
+> 13:
+
+C ← APPEND (C, c down , c up ) 
+
+> 14:
+
+end if  
+
+> 15:
+
+end for  
+
+> 16:
+
+for all c ∈ C do  
+
+> 17:
+
+(UB c, x c) ← EVALUATE NODE (c, R) ▷ Parallel if R = NEURAL ; sequential otherwise  
+
+> 18:
+
+xheur  
+
+> c
+
+← GW-A LGORITHM (xc) ▷ Parallel if R = NEURAL ; sequential otherwise  
+
+> 19:
+
+if xheur  
+
+> c
+
+Lcxheur  
+
+> c
+
+> LB then  
+
+> 20:
+
+xLB ← xheur  
+
+> c
+
+, LB ← xheur  
+
+> c
+
+Lcxheur  
+
+> c
+
+▷ Update lower bound  
+
+> 21:
+
+end if  
+
+> 22:
+
+if UB c < LB + 1 then  
+
+> 23:
+
+PRUNE NODE (c) ▷ Prune by optimality  
+
+> 24:
+
+else  
+
+> 25:
+
+PUSH (Q, c ) 
+
+> 26:
+
+end if  
+
+> 27:
+
+end for  
+
+> 28:
+
+end while  
+
+> 29:
+
+return (xLB , LB) 
+
+Proof. The proof is based on the fact that the spectral projectors Pk are polynomials in M via Sylvester’s formula. We say a coloring v refines a matrix A, defined as: 
+
+vij = vpq =⇒ Aij = Apq .
+
+We proceed by induction to demonstrate that the multiset aggregation effectively simulates matrix multiplication: if the δ-MC -WL coloring at an iteration refines the entries of M d, the next iteration refines M d+1 . Consequently, the stable coloring refines any polynomial of M , and by extension, naturally refines all the specific polynomials defining the spectral projectors. At initialization t = 0 , the coloring of v0 refines M 1 naturally, as they are injectively defined by M .Besides, v0 also refines M 0 = I, because of the diagonal indicator Ii=j .Assume that at iteration t, the coloring vt refines the matrix power M d:
+
+vtij = vtpq =⇒  M d 
+
+> ij
+
+=  M d 
+
+> pq
+
+, for all i, j, p, q. 
+
+We show that the next iteration vt+1 will refine M d+1 :
+
+vt+1  
+
+> ij
+
+= vt+1  
+
+> pq
+
+=⇒  M d+1  
+
+> ij
+
+=  M d+1  
+
+> pq
+
+.
+
+18 Specifically, we have the following derivation for δ-MC -WL :
+
+vt+1  
+
+> ij
+
+= vt+1 
+
+> pq
+
+=⇒ (vtiu , M uj ) | u ∈ [n], M uj ̸ = 0 ⊕ (vtuj , M iu ) | u ∈ [n], M iu ̸ = 0 =
+
+(vtpu , M uq ) | u ∈ [n], M uq ̸ = 0 ⊕ (vtuq , M pu ) | u ∈ [n], M pu ̸ = 0 (i) 
+
+=⇒ (( M d)iu , M uj ) | u ∈ [n], M uj ̸ = 0 ⊕ (( M d)uj , M iu ) | u ∈ [n], M iu ̸ = 0 =
+
+(( M d)pu , M uq ) | u ∈ [n], M uq ̸ = 0 ⊕ (( M d)uq , M pu ) | u ∈ [n], M pu ̸ = 0 (ii) 
+
+=⇒ (M d)iu Muj | u ∈ [n], M uj ̸ = 0 ⊕ (M d)uj Miu | u ∈ [n], M iu ̸ = 0 =
+
+(M d)pu Muq | u ∈ [n], M uq ̸ = 0 ⊕ (M d)uq Mpu | u ∈ [n], M pu ̸ = 0 (iii) 
+
+=⇒
+
+ X   
+
+> u:Muj ̸=0
+
+(M d)iu Muj 
+
+ ⊕
+
+ X   
+
+> u:Miu ̸=0
+
+(M d)uj Miu 
+
+
+
+=
+
+ X   
+
+> u:Muq ̸=0
+
+(M d)pu Muq 
+
+ ⊕
+
+ X   
+
+> u:Mpu ̸=0
+
+(M d)uq Mpu 
+
+ (iv) 
+
+=⇒
+
+ X   
+
+> u:Muj ̸=0
+
+(M d)iu Muj + X   
+
+> u:Muj =0
+
+(M d)iu Muj 
+
+
+
+⊕
+
+ X   
+
+> u:Miu ̸=0
+
+(M d)uj Miu + X  
+
+> u:Miu =0
+
+(M d)uj Miu 
+
+
+
+=
+
+ X   
+
+> u:Muq ̸=0
+
+(M d)pu Muq + X   
+
+> u:Muq =0
+
+(M d)pu Muq 
+
+
+
+⊕
+
+ X   
+
+> u:Mpu ̸=0
+
+(M d)uq Mpu + X  
+
+> u:Mpu =0
+
+(M d)uq Mpu 
+
+ (v) 
+
+=⇒ X
+
+> u
+
+(M d)iu Muj 
+
+!
+
+⊕ X
+
+> u
+
+(M d)uj Miu 
+
+!
+
+= X
+
+> u
+
+(M d)pu Muq 
+
+!
+
+⊕ X
+
+> u
+
+(M d)uq Mpu 
+
+!
+
+=⇒ (M dM )ij ⊕ (M M d)ij = ( M dM )pq ⊕ (M M d)pq 
+
+=⇒ (M d+1 )ij = ( M d+1 )pq .
+
+Among the derivations, (i) holds because it is a partial definition; (i) to (ii) holds because vt
+
+refines M d by hypothesis; (ii) to (iii) holds because of injectivity, if the injective function of 
+
+hash (a, b ) = hash (c, d ), then hash (a · b) = hash (c · d); (iii) to (iv) also holds because of injectivity; if two multisets of real values are equal, then the sum aggregation of their elements must also be equal; (iv) to (v) is straightforward because it is adding zeros to (iv). Therefore, vt+1  
+
+> ij
+
+= vt+1  
+
+> pq
+
+=⇒  M d+1  
+
+> ij
+
+=  M d+1  
+
+> pq
+
+.By induction, the stable coloring v∞ refines M d for all d ∈ N. Consequently, it also refines any matrix polynomial p(M ) = P∞ 
+
+> d=0
+
+adM d. This holds because the expressivity to distinguish the structural features of individual powers M d implies the ability to distinguish their linear combi-nations. The real-valued matrix M is symmetric and diagonalizable, therefore we apply spectral decomposition M = Pmk=1 λkPk, where matrices Pk are given by the Sylvester’s formula [ 39 ,p. 437]: 
+
+Pk = Y 
+
+> j̸=k
+
+M − λj I
+
+λk − λj
+
+.
+
+19 Because each Pk is a polynomial in M , the stable coloring v∞ refines each Pk. Thus, it holds for all k that v∞ 
+
+> ij
+
+= v∞ 
+
+> pq
+
+=⇒ (Pk)ij = ( Pk)pq .Next, we adapt the proof of VC -2-FWL to fit δ-MC -WL , using the PDHG algorithm as a proof technique. As SDPs can have multiple solutions, which complicates analysis, we also adopt the assumption of Qian and Morris [69] that the SDP has a unique solution with the minimum Frobenius norm. Our work for Max-Cut relaxations is a special case of SDPs, as the A is a diagonal operation. We define the operator: diag : Sn → Rn, diag (X) = ( X11 , X 22 , . . . , X nn )⊺
+
+and its adjoint: Diag : Rn → Sn, Diag (y) = 
+
+
+
+y1 0 · · · 
+
+0 y2 · · · 
+
+. . . 0
+
+· · · 0 yn
+
+ .
+
+The PDHG updates for the Frobenius-regularized SDP are given by Qian and Morris [69]: 
+
+Xt+1 := Proj Sn
+
+> +
+
+ Xt − αtDiag (yt) − αtC
+
+1 + αtε
+
+
+
+yt+1 := yt + βtdiag  Xt+1 + θt
+
+ Xt+1 − Xt − βtb.
+
+(5) The Proj function projects a symmetric matrix X ∈ Sn onto the PSD cone by finding the closest PSD matrix XSn 
+
+> +
+
+that minimizes the Frobenius norm distance ∥XSn 
+
+> +
+
+− X∥F . Given the spectral decomposition of the input matrix X = Pni=1 λiviv⊤ 
+
+> i
+
+, where λi are the real eigenvalues and vi are the corresponding orthonormal eigenvectors. The projected matrix is then reconstructed by truncating any negative eigenvalues to zero: XSn 
+
+> +
+
+= Pni=1 max( λi, 0) · viv⊤ 
+
+> i
+
+.For any ε > 0, the SDP problem has a unique primal solution X∗. And if ε → 0, it reduces to normal linear SDP. We initialize with X0 = 0n×n and y0 = 0m.Now we proceed with our proof. 
+
+Proof of Theorem 2.1. We provide a constructive proof by simulating the primal-dual hybrid gradient (PDHG) algorithm [ 16 , 81 ]. We show that the stable coloring of δ-MC -WL refines every update of the PDHG algorithm, which is proven to converge in Qian and Morris [69], Wang et al. [81]. Our goal is to show that for all t ≥ 0, the stable δ-MC -WL coloring on variable and constraint nodes refines the intermediate primal-dual solutions of PDHG updates: 
+
+v∞ 
+
+> ij
+
+= v∞ 
+
+> pq
+
+=⇒ Xtij = Xtpq 
+
+v∞ 
+
+> kk
+
+= v∞ 
+
+> ll
+
+=⇒ ytk = ytl .
+
+Before the inductive step, we establish three key facts derived from the properties of the stable coloring. 
+
+Fact 1 Since the stable coloring v∞ refines the initial coloring v0, and v0 is defined by C, it holds that v∞ 
+
+> ij
+
+= v∞ 
+
+> pq
+
+=⇒ Cij = Cpq . Furthermore, by applying Lemma B.2 to C, if its spectral decomposition is given by C = P 
+
+> h
+
+λhPh, then the projection matrices also respect the coloring: 
+
+∀h : v∞ 
+
+> ij
+
+= v∞ 
+
+> pq
+
+=⇒ (Ph)ij = ( Ph)pq . Besides, we notice that the constraints are uniform for Max-Cut, i.e., b = e, therefore, it does not contribute to separation power. 
+
+Fact 2 We notice that the diagonal and off-diagonal elements receive a different set of colors at the initialization, due to the diagonal indicator I, and their color sets remain disjoint throughout the update of δ-MC -WL .
+
+Proof by induction We now prove the theorem by induction on t. At initialization t = 0 , we have 
+
+X0 = 0 and y0 = 0. The implications v∞ 
+
+> ij
+
+= v∞ 
+
+> pq
+
+=⇒ X0 
+
+> ij
+
+= X0 
+
+> pq
+
+and v∞ 
+
+> kk
+
+= v∞ 
+
+> ll
+
+=⇒ y0 
+
+> k
+
+= y0
+
+> l
+
+hold trivially. 20 Suppose the hypothesis holds for iteration t ≥ 0. We show it holds for iteration t + 1 .
+
+1. For diagonal ones 
+
+During the primal update 
+
+Xt+1 := Proj Sn
+
+> +
+
+ Xt − αtDiag (yt) − αtC
+
+1 + αtε
+
+
+
+,
+
+consider the term inside the PSD projection in: 
+
+Zt := Xt − αtDiag (yt) − αtC
+
+1 + αtε ,
+
+since Xt and Diag (yt) (by hypothesis), C (by Fact 1), are all refined by the coloring v∞,their linear combination Zt also is. With Fact 2, one can easily verify this by inspecting the diagonal and off-diagonal elements separately. For off-diagonals i̸ = j and p̸ = q, if 
+
+v∞ 
+
+> ij
+
+= v∞ 
+
+> pq
+
+, then (Xt − αtC)ij = ( Xt − αtC)pq . And for diagonals, if v∞ 
+
+> kk
+
+= v∞ 
+
+> ll
+
+, then 
+
+(Xt − αtDiag (yt) − αtC)kk = ( Xt − αtDiag (yt) − αtC)ll .Then, the update is Xt+1 = Proj Sn 
+
+> +
+
+(Zt). The PSD projection depends only on the spectral decomposition. Specifically, spectral decomposition is performed on Zt, and the Frobenius covariants corresponding to negative eigenvalues are removed. By Lemma B.2, we know ∀(i, j, p, q ) : v∞ 
+
+> ij
+
+=
+
+v∞ 
+
+> pq
+
+=⇒ Xt+1  
+
+> ij
+
+= Xt+1  
+
+> pq
+
+, that is, v∞ refines Xt+1 .Finally, in the dual update step, we evaluate the term inside the operator diag: 
+
+W t+1 := Xt+1 + θt
+
+ Xt+1 − Xt .
+
+Since both Xt+1 and Xt are refined by v∞, so is W t+1 . Therefore, diag (W t+1 ) is naturally refined by (v∞ 
+
+> 11
+
+, · · · , v∞
+
+> nn
+
+)⊺. Since yt (by hypothesis) and b (by Fact 1) are both refined by the coloring 
+
+(v∞ 
+
+> 11
+
+, · · · , v∞
+
+> nn
+
+)⊺, the sum yt+1 is refined by the coloring. In summary, we have proven by induction that if the stable coloring v∞ refines Xt and yt in the PDHG algorithm, they also refine Xt+1 and yt+1 .Since PDHG is guaranteed to converge to X∗ and y∗, this completes the proof. 
+
+B.2 Proof of Neuralization Proposition B.3. There exists a set of parameters for the functions INIT , UPD , MSG , and MAP such that the neural architectures MC -MPNN and δ-MC -MPNN possess maximal expressivity equivalent to their corresponding algorithms. 
+
+The proof follows the universal approximation arguments for multiset functions established in Qian and Morris [69]. 
+
+Proof. To prove that the neural architectures achieve the exact expressive power of their corresponding 
+
+WL algorithms, we rely on the universal approximation of injective multiset functions. Following Qian and Morris [69] and Maron et al. [57] , let X be a space of bounded multisets. There exists a continuous, injective function parameterized by an MLP that maps any bounded multiset to a unique real-valued vector representation. 
+
+Since our architectures are deterministic unrollings of the MC -WL and δ-MC -WL algorithms, they cannot distinguish variables that the WL tests cannot. Thus, we only need to show that the neural networks are at most as expressive as the WL injective hash functions, meaning that the neural network layers can injectively simulate them. 
+
+MC -MPNN can be derived from VC -2-FWL [ 69 ], the aggregation simply replaces the standard bipartite, variable-to-constraint message passing with variable-to-variable topology. The sum over 
+
+u ∈ [n] combined with the MLPs MSG and MAP injectively encodes the neighborhood multisets, identical to the variable-node update proof in Qian and Morris [69]. For the sparse variant δ-MC -MPNN , the algorithm aggregates over conditionally filtered multisets based on the sparse topology of C. The neural formulation handles this by explicitly masking the 21 messages: X 
+
+> u∈[n]
+> Ciu ̸=0
+
+MSG t ht−1 
+
+> uj
+
+, C iu 
+
+
+
+Because the matrix entries Ciu belong to a compact space, the MSG function can be parameterized to injectively map the pair (ht−1 
+
+> uj
+
+, C iu ) to a latent vector. The summation over the non-zero indices perfectly implements the multiset encoding of the sparse neighbors. Finally, the update function 
+
+UPD t concatenates the outputs of these independent multiset summations and injectively maps them to the next layer’s feature space. Therefore, there exists a set of weights for which the neural architectures perfectly simulate the injective hash functions of their WL algorithms, establishing equivalent expressive power. 
+
+# C Details of experiment design 
+
+Comparison of GNN variants on uniform dataset All GNN variants are set to 10 layers with a hidden dimension of 128. The models are trained using the Adam optimizer [ 44 ] with default hyperparameters and batch size of 128. Experiments were conducted on a compute cluster equipped with four NVIDIA L40S GPUs. We train for a maximum of 1000 epochs, using a scheduler that decays the learning rate if the averaged dual objective on the validation set fails to improve for 100 consecutive epochs. To prevent overfitting, early stopping is triggered after 200 epochs without validation improvement. We report the results averaged over 3 random initialization seeds. Despite the sparsity of the underlying graphs, we implement δ-MC -MPNN using dense matrix multiplications, as modern GPUs are heavily optimized for dense operations, and we find they process them significantly faster than batched sparse-matrix alternatives. 
+
+B&B experiments on Max-Cut dataset The GNN used in B&B experiments are set to 6 layers with a hidden dimension of 96. With a batch size of 32 , We first train the GNN with dual heads for 
+
+1000 epochs under the same protocol, then freeze these parameters and train the primal heads for another 200 epochs with patience 100 . In the Section 3, each benchmark instance family contains ten different instances. We solve all instances to global optimality without a timeout and report the average number of evaluated nodes and solving time. 
+
+# D Additional experiments 
+
+D.1 Ablation: Choice of SDP solver 
+
+To justify our selection of Mosek [ 6 ] as our primary classical solver, we conduct an empirical performance comparison across the Max-Cut instances from Rendl et al. [73] , Gusmeroli et al. [35] .Specifically, we evaluate the computational time required to solve the SDP relaxation at the root node using three distinct optimization paradigms: SDPLR, a non-linear approach based on the Burer-Monteiro method [ 12 ]; Mosek [ 6], a state-of-the-art interior-point method; and SCS [ 62 ], a first-order solver utilizing the ADMM algorithm [ 83 ]. The experiments are conducted on the AMD EPYC 7662 CPU. The solving times are summarized in Table 4. As demonstrated in Table 4, Mosek consistently outperforms both the first-order and Burer-Monteiro methods by a substantial margin across all evaluated instance sizes and densities. This superior computational efficiency strongly motivates our exclusive use of Mosek for exact SDP evaluations throughout our branch-and-bound framework. 
+
+D.2 Ablation: Number of layers 
+
+We identify a key structural limitation of δ-MC -MPNN at shallow depths. As shown in Table 5, 
+
+δ-MC -MPNN yields a significantly higher objective gap than MC -MPNN when utilizing only 4 layers. Although this gap becomes marginal in deeper networks, MC -MPNN consistently performs better. This difference intuitively stems from how each architecture expands its structural receptive field. Because MC -MPNN jointly aggregates pairs of previous embeddings, it simulates matrix multiplication. At layer t, it effectively refines C2t
+
+. Conversely, δ-MC -MPNN aggregates features 22 Table 4: Comparison of mean solving times (in seconds) for the root-node SDP relaxation across various Max-Cut instance families. Instance Family Mosek SCS SDPLR g05_60 0.0146 0.1040 0.1423 g05_80 0.0235 0.2135 0.2023 g05_100 0.0380 0.4145 0.3018 g05_180 0.1208 2.0893 1.0229 pm1s_80 0.0221 0.1760 0.1521 pm1s_100 0.0347 0.3192 0.1792 pm1s_180 0.1135 1.7188 0.4433 pw01_100 0.0376 0.7706 0.1894 pw01_180 0.1158 3.7741 0.5261 pw05_100 0.0399 0.9922 0.3982 pw05_180 0.1268 7.0904 1.4823 pw09_100 0.0408 1.1123 0.3519 pw09_180 0.1307 6.4214 1.1196 w01_100 0.0373 0.6187 0.1872 w01_180 0.1179 9.5305 0.5013 w05_100 0.0384 1.0688 0.3590 w05_180 0.1230 4.9640 1.3138 w09_100 0.0393 0.9056 0.3445 w09_180 0.1265 4.7360 1.0651 with the static matrix C, restricting its refinement to Ct+1 at layer t. Therefore, while δ-MC -MPNN 
+
+remains theoretically valuable, the rapid field expansion of MC -MPNN makes it more favorable when network depth is limited. Table 5: Relative objective gap (%) under varying network depths on the N = 100 , p = 0 .1 ER graph dataset. Model # Layers 
+
+4 6 10 
+
+MC -MPNN 0.931 ±0.001 0.656 ±0.002 0.598 ±0.005 
+
+δ-MC -MPNN 1.403 ±0.004 0.872 ±0.002 0.628 ±0.004 
+
+D.3 Ablation: OOD size generalization 
+
+To evaluate the out-of-distribution (OOD) size generalization of our architectures, we test models trained on smaller ER graph instances with N = 100 against progressively larger graphs ( N = 150 
+
+and N = 200 ) while maintaining the edge probability p = 0 .1. As detailed in Table 6, both 
+
+MC -MPNN and δ-MC -MPNN exhibit a steady increase in the relative objective gap as the graph size scales up, highlighting the inherent difficulty of zero-shot size extrapolation. While both architectures degrade on larger instances, MC -MPNN consistently shows a lower objective gap across all tested sizes, confirming that it is better equipped to generalize to unseen, larger-scale topologies. Table 6: Size generalization performance (relative objective gap %) on larger graphs. Models were evaluated on N ∈ { 150 , 200 } with fixed edge probability p = 0 .1.Dataset MC -MPNN δ-MC -MPNN 
+
+N=100, p=0.1 0.598 ±0.005 0.628 ±0.004 
+
+N=150, p=0.1 2.545 ±0.476 3.201 ±0.547 
+
+N=200, p=0.1 4.089 ±0.453 4.712 ±0.466 
+
+23 D.4 Ablation: Variants of normalization and GNNs 
+
+To further understand the architectural sensitivities of our model, we conducted an ablation study evaluating the impact of different normalization strategies. As mentioned in the Qian and Morris [69] , they add normalization layers between GNN updates to stabilize training. For a mini-batch of B graphs, variable embeddings are zero-padded to form a uniform tensor of shape B × nmax × nmax × d, where nmax is the maximum graph size in the batch and d is the feature dimension. Because the update MLPs contain biases, padded entries can distort normalization statistics. To investigate this, we formalize and ablate three normalization strategies: The SpatialNorm layer normalizes each feature channel f ∈ [d] across the entire padded spatial grid. The mean μf and variance σ2 
+
+> f
+
+are computed as: 
+
+μf = 1
+
+n2
+
+> max nmax
+
+X
+
+> i=1
+> nmax
+
+X
+
+> j=1
+
+hij,f , σ2 
+
+> f
+
+= 1
+
+n2
+
+> max nmax
+
+X
+
+> i=1
+> nmax
+
+X
+
+> j=1
+
+(hij,f − μf )2. (6) Features are then standardized and shifted via learnable parameters γf , β f ∈ R:
+
+ˆhij,f = γf
+
+ hij,f − μf
+
+q
+
+σ2 
+
+> f
+
++ ϵ
+
+ + βf , (7) where ϵ is a numerical stability constant. Crucially, because statistics are aggregated over the fixed 
+
+nmax × nmax grid, the presence of zero-padding for graphs where the true size n < n max inherently skews the normalization. As a baseline, we use LayerNorm [ 7], which operates independently on each variable node hij ∈ Rd.It computes the mean μij and variance σ2 
+
+> ij
+
+exclusively across the feature dimension d:
+
+μij = 1
+
+d
+
+> d
+
+X 
+
+> f=1
+
+hij,f , σ2 
+
+> ij
+
+= 1
+
+d
+
+> d
+
+X 
+
+> f=1
+
+(hij,f − μij )2. (8) The vector is then scaled using learnable parameters γ, β ∈ Rd:
+
+ˆhij = γ ⊙
+
+ hij − μij 1
+
+q
+
+σ2 
+
+> ij
+
++ ϵ
+
+ + β, (9) Since it is performed per-node, LayerNorm is topology-agnostic. Consequently, it is completely immune to the zero-padding artifacts that degrade SpatialNorm .We also evaluate GraphNorm [ 14 ]. Unlike SpatialNorm , GraphNorm dynamically flattens the tensor to strictly isolate valid (unpadded) nodes. Let Vg = {(i, j ) | i, j ∈ [n]} denote the actual node indices for a graph g of size n. GraphNorm computes statistics for each channel f exclusively over this valid set: 
+
+μg,f = 1
+
+|V g |
+
+X
+
+> (i,j )∈V g
+
+hij,f , σ2 
+
+> g,f
+
+= 1
+
+|V g |
+
+X
+
+> (i,j )∈V g
+
+(hij,f − μg,f )2. (10) Valid features are then normalized using a learnable mean-scaling parameter αf alongside γf , β f ∈ R:
+
+ˆhij,f = γf
+
+ hij,f − αf μg,f 
+
+q
+
+σ2 
+
+> g,f
+
++ ϵ
+
+ + βf . (11) By explicitly masking padded entries, GraphNorm calculates the true statistics of each graph, completely isolating it from padding-induced distortions. We trained the network on the Branch-and-Bound dataset with root nodes of ER graphs ( N =100 , p = 0 .5) across various graph sizes using LayerNorm , GraphNorm , SpatialNorm , and an unnormalized baseline ( NoNorm ), analyzing both the absolute and relative dual objective gaps on 24 10 1 10 2          
+
+> Num nodes
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Abs. dual obj. gap
+> LayerNorm
+> GraphNorm
+> SpatialNorm
+> No Norm
+> 10 110 2
+> Num nodes
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Rel. dual obj. gap
+> LayerNorm
+> GraphNorm
+> SpatialNorm
+> No Norm
+
+Figure 2: Effect of normalization layers on objective gaps. The absolute (left) and relative (right) dual objective gaps across different numbers of nodes in the test set are shown in the plots. the test set. As illustrated in Figure 2, the techniques exhibit two fundamentally different scaling behaviors. SpatialNorm yields highly suboptimal performance on small graphs (e.g., fewer than 50 nodes) because the excessive zero-padding heavily distorts its spatial statistics. Consequently, it shows a distinct downward trend in error as the node count increases and the padding ratio drops. In contrast, LayerNorm , GraphNorm , and NoNorm display the exact opposite trajectory. All three achieve exceptionally low objective gaps on small graphs but exhibit a steady, monotonic increase in error as the topology expands. Interestingly, the surprisingly competitive performance of NoNorm 
+
+demonstrates that our proposed architecture is inherently well-conditioned, effectively learning the underlying SDP mapping without strictly requiring intermediate normalization to stabilize training. Ultimately, despite these divergent initial trajectories, all configurations tightly converge to a similar performance baseline as the graph size approaches 100 nodes and padding vanishes. To complement our theoretical analysis, we empirically contrast the MC -MPNN and δ-MC -MPNN 
+
+variants across different normalization layers. After training on the Branch-and-Bound dataset, we assess their generalization on test instances of varying sizes. As shown in Figure 3, the scaling trend remains highly consistent between the two architectures. However, δ-MC -MPNN demonstrates com-paratively weaker convergence on larger graphs, resulting in worse performance than its MC -MPNN 
+
+counterpart, which is consistent with our ablation of the number of layers. We further tested the network with LayerNorm , GraphNorm , and NoNorm , as well as MC -MPNN 
+
+and δ-MC -MPNN in established Max-Cut datasets [ 73 , 35 ]. Instance families cover a diverse range of graph sizes, densities, and edge weights: (1) g05_n (edge probability 0.5) for n ∈ { 60 , 80 , 100 , 180 }
+
+with edge weights in {0, 1}; (2) pm1s_n (edge probability 0.1) for n ∈ { 80 , 100 , 180 } with edge weights in {− 1, 0, 1}; (3) w0d_n for n ∈ { 100 , 180 } and d ∈ { 1, 5, 9} (edge probability 0.1, 0.5, 0.9) with integer edge weights in [−10 , 10] ; (4) pw0d_n for n ∈ { 100 , 180 } and d ∈ { 1, 5, 9} (edge probability 0.1, 0.5, 0.9) with integer edge weights in [0 , 10] . Notably, among these families, only 
+
+g05_100 aligns with the training distribution. The proposed GNN is trained on graphs with n = 100 
+
+nodes, edge probability 0.5, and edge weights in {0, 1}, together with contracted subgraphs generated along random branching trajectories. As a result of contraction, these smaller subgraphs are typically denser than 0.5 and no longer uniformly weighted in {0, 1}.We evaluated the out-of-distribution generalization of the proposed GNN by measuring the objective gap of the SDP relaxation of these instances in Figure 4. LayerNorm and NoNorm consistently achieves better objective gap on in-training-distribution instances ( g05_100 ) and near-training-distribution instances ( g05_60 , g05_80 ). Similarly, the dense MC -WL variant outperforms the 
+
+δ-MC -WL variant on these same families. However, LayerNorm exhibits significantly worse gener-alization than GraphNorm in out-of-distribution instances ( pm1s_n , pw0d_n , w0d_n ). In particular, 
+
+LayerNorm does not generalize when only the graph size differs ( g05_180 ), while all other configu-rations can result in reasonably small objective gaps. However, if the GNN with LayerNorm and 
+
+MC -WL is trained within a distribution where graphs are sparse and edge weights are sampled from a broader range, it still generalizes well to larger graphs as shown in Figure 5. Under GraphNorm ,25 10 4   
+
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Abs. dual obj. gap
+
+GraphNorm LayerNorm No Norm  
+
+> 10 110 2
+
+Num nodes      
+
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> Rel. dual obj. gap
+> 10 110 2
+
+Num nodes  
+
+> 10 110 2
+
+Num nodes 
+
+> MC-WL
+> -MC-WL
+
+Figure 3: Performance of MC -MPNN and δ-MC -MPNN under different normalizations. Absolute (top) and relative (bottom) dual objective gaps evaluated on the test set. 
+
+Figure 4: Effect of normalization layers and layer variants on objective gaps, trained within the distribution of g05_100 and subproblems. The average relative dual objective gaps across different instance families are shown in the plots. the generalization of MC -WL variant is slightly better when the edge-weight distribution is relatively narrow ( g05 , pm1s , pwd ), and slightly worse when the edge-weight distribution is wider ( wd ). Across all configurations, the smallest objective gaps are typically achieved in instance families with edge probability 0.5 ( g05_n , pw05_n , w05_n ), followed by those with edge probability 0.9 ( pw09_n ,
+
+w09_n ). In contrast, sparse instances with edge probability 0.1 ( pm1s_n , pw01_n , w01_n ) have the worst objective gaps. This trend aligns with the training distribution, which consists of 100-node 50% 
+
+density graphs and contracted subgraphs that are usually denser than 50% .26 Figure 5: Effect of training distribution on objective gaps, with LayerNorm and MC -WL . The average relative dual objective gaps across different instance families are shown in the plots. 
+
+D.5 Ablation: Branch-and-bound experiments without Goemans–Williamson algorithm 
+
+We consider B&B experiments without Goemans–Williamson algorithm to evaluate the impact of learned upper bounds only. By explicitly setting the lower bound to the optimal objective value at the root node, we eliminate the role of primal heuristics in the comparison. The following experiments are performed on the AMD EPYC 7662 CPU and NVIDIA A100 GPU. Table 7: Branch-and-bound results without Goemans–Williamson algorithm on established instances. The Hybrid and GNN methods utilize the MC -MPNN + LayerNorm model. The best results across all configurations are highlighted. Instance Family Method Top-K # Nodes Evaluated Solving Time (s)                                     
+
+> g05_60
+> Vanilla -3566 36.4 Hybrid 13566 44.8 Neural 14562 42.5 Neural 32 4563 15.1
+> g05_80
+> Vanilla -49128 796.8 Hybrid 149128 805.0 Neural 153970 507.8 Neural 32 53975 224.4
+> g05_100
+> Vanilla -1087290 25580.0 Hybrid 11087290 26215.0 Neural 11272820 12508.0 Neural 32 1272807 6116.3
+
+D.6 Ablation: Additional branch-and-bound experiments with Goemans–Williamson algorithm 
+
+This section reports results of additional branch-and-bound experiments in the standard setting. In particular, we explore and compare the impact of different GNN variants, normalization choices, and top-K selection on the neural solver. The following experiments are performed on the AMD EPYC 7662 CPU and NVIDIA L40S GPU. As an additional reference, we report results using BiqCrunch [ 47 ], a highly optimized state-of-the-art exact solver for Max-Cut. It is crucial to note, however, that the full BiqCrunch algorithm is not directly comparable to our proposed framework. BiqCrunch is a sophisticated branch-and-cut solver whose main performance advantage comes from dynamically strengthening the continuous SDP relaxation with separated triangle inequalities. Rather than adding all such inequalities upfront, it iteratively identifies the most violated ones and maintains a compact working set of useful cuts. The resulting strengthened SDP bounds are computed efficiently using a specialized quasi-Newton 27 method. In contrast, the core algorithmic contribution of our work is a neural surrogate designed strictly to accelerate the evaluation of the base SDP relaxation during node enumeration, rather than to replace polyhedral cutting-plane machinery. Extending our GNN architecture to explicitly incorporate or predict such triangle inequalities remains a promising direction for future work .To establish a fair comparison of the underlying bounding mechanisms, we additionally evaluated BiqCrunch with its triangle inequalities disabled. Under this pure B&B setting, BiqCrunch becomes significantly less competitive than both our baseline and our neural solver. Without the benefit of the cuts, its quasi-Newton optimizer is less efficient at solving the basic unstrengthened SDP than the interior-point methods utilized by Mosek. Therefore, the vanilla B&B solver equipped with Mosek remains the most appropriate, direct, and rigorous baseline for evaluating the acceleration provided by our neural SDP surrogate. Across the near-distribution families g05_60 Table 8 and g05_80 Table 9, as well as the in-distribution 
+
+g05_100 Table 10 instances, the combination of the MC -MPNN variant and LayerNorm consis-tently yields the strongest branch-and-bound performance. Notably, the neural solver successfully generalizes to smaller subproblems without requiring retraining, demonstrating robust inference efficiency. The practical computational advantage becomes increasingly pronounced as the graph size grows, the neural solver achieves a substantial 5.58 × speedup on g05_60 , and reaches an impressive 
+
+9.1× acceleration over the vanilla solver on the g05_100 instances. Interestingly, even though NoNorm can achieve a smaller objective gap than LayerNorm at the initial root node see Figure 4, LayerNorm performs significantly better once the GNN is dynamically deployed deeper inside the branch-and-bound tree. This implies that LayerNorm is highly effective at keeping the feature distributions stable and closer to the training distribution during subsequent branching steps. Furthermore, the batched comparison confirms that batched node evaluation is another major source of acceleration. However, this speedup does not scale linearly with K; while increasing K continues to improve total running time, it yields diminishing returns once K is sufficiently large, e.g., K = 32 .Finally, for extended evaluations demonstrating the solver’s performance on sparser and out-of-distribution instance families, please refer to the results for pm1s_80 Table 11, pm1s_100 Table 12, and w01_100 Table 13 detailed below. Table 8: Additional branch-and-bound results on g05_60 instance family. The neural network is trained on graphs in distribution of g05_100 . The best results across all neural solver configuration are highlighted. Method Top-K # Nodes Evaluated Solving Time (s) Speed-up ( ×)Vanilla - 3566 53.1 1.00 BiqCrunch (w/o cuts) - 3918 153.9 0.34 BiqCrunch (w/ cuts) - 7 2.3 26.50                                                        
+
+> MC -MPNN +LayerNorm
+> 14562 34.2 1.55 84562 10.0 5.30 32 4562 9.5 5.58
+> δ-MC -MPNN +LayerNorm
+> 14617 33.6 1.58 84618 10.3 5.15 32 4618 9.7 5.46
+> MC -MPNN +GraphNorm
+> 14663 42.2 1.26 84663 11.3 4.69 32 4663 10.4 5.10
+> MC -MPNN +NoNorm
+> 15291 39.3 1.35 85291 11.8 4.49 32 5291 11.0 4.82
+> MC -MPNN +SpatialNorm
+> 15211 41.8 1.27 86511 14.7 3.61 32 9600 19.3 2.75
+
+28 Table 9: Additional branch-and-bound results on g05_80 instance family. The neural network is trained on graphs in the distribution of g05_100 . The best results across all neural solver configura-tions are highlighted. Method Top-K # Nodes Evaluated Solving Time (s) Speed-up ( ×)Vanilla - 49128 1170.3 1.00 BiqCrunch (w/o cuts) - 48633 3746.3 0.31 BiqCrunch (w/ cuts) - 49 22.0 53.20                                                        
+
+> MC -MPNN +LayerNorm
+> 153969 444.9 2.63 853973 156.3 7.49 32 53975 155.7 7.52
+> δ-MC -MPNN +LayerNorm
+> 164437 494.7 2.37 864461 175.2 6.68 32 64474 179.8 6.51
+> MC -MPNN +GraphNorm
+> 161250 595.7 1.96 861243 197.1 5.94 32 61251 203.3 5.76
+> MC -MPNN +NoNorm
+> 165593 581.1 2.01 865596 190.5 6.14 32 65596 189.0 6.19
+> MC -MPNN +SpatialNorm
+> 159094 521.8 2.24 877691 213.4 5.48 32 120523 314.3 3.72
+
+Table 10: Additional branch-and-bound results on g05_100 instance family. The neural network is trained on graphs in the distribution of g05_100 . The best results across all neural solver configura-tions are highlighted. Method Top-K # Nodes Evaluated Solving Time (s) Speed-up ( ×)Vanilla - 1087290 40930.1 1.00 BiqCrunch (w/ cuts) - 390 270.7 151.20                      
+
+> MC -MPNN +LayerNorm 11272822 11791.0 3.47 32 1272801 4509.3 9.08
+> δ-MC -MPNN +LayerNorm 32 1660692 5716.0 7.16
+> MC -MPNN +GraphNorm 32 1326781 5438.9 7.53
+
+Table 11: Additional branch-and-bound results on pm1s_80 instance family. The neural network is trained on graphs in the distribution of pm1s_80 . The best results across all neural solver configura-tions are highlighted. Method Top-K # Nodes Evaluated Solving Time (s) Speed-up ( ×)Vanilla - 25656 609.5 1.00 BiqCrunch (w/ cuts) - 2 1.2 507.92 
+
+MC -MPNN + LayerNorm 1 27809 212.5 2.87 32 27809 80.8 7.54 
+
+Table 12: Additional branch-and-bound results on pm1s_100 instance family. The neural network is trained on graphs in the distribution of pm1s_100 . The best results across all neural solver configurations are highlighted. Method Top-K # Nodes Evaluated Solving Time (s) Speed-up ( ×)Vanilla - 254408 10382.5 1.00 BiqCrunch (w/ cuts) - 13 11.7 887.39 
+
+MC -MPNN + LayerNorm 1 302311 2518.5 4.12 32 302314 1058.2 9.81 
+
+29 Table 13: Additional branch-and-bound results on w01_100 instance family. The neural network is trained on graphs in the distribution of w01_100 . The best results across all neural solver configura-tions are highlighted. Method Top-K # Nodes Evaluated Solving Time (s) Speed-up ( ×)Vanilla - 269407 11348.6 1.00 BiqCrunch (w/ cuts) - 4 4.1 2767.95          
+
+> MC -MPNN +LayerNorm 1305716 2689.8 4.22 32 305720 1073.9 10.57
+
+30

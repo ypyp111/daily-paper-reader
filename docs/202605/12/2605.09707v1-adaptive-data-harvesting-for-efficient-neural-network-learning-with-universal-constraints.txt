@@ -1,0 +1,469 @@
+Title: Adaptive Data Harvesting for Efficient Neural Network Learning with Universal Constraints
+
+URL Source: https://arxiv.org/pdf/2605.09707v1
+
+Published Time: Tue, 12 May 2026 01:48:56 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# Adaptive Data Harvesting for Efficient Neural Network Learning with Universal Constraints 
+
+Siteng Kang Xinhua Zhang 
+
+University of Illinois Chicago 
+
+{skang98, zhangx }@uic.edu 
+
+Preprint 
+
+# Abstract 
+
+Training neural networks to satisfy universal constraints over continuous domains poses unique challenges. Common examples in-clude Lyapunov Neural Networks (Lyapunov NNs) and Physics-Informed Neural Networks (PINNs), where analytical solutions are gener-ally either unavailable or overly restrictive. Sample-based methods are therefore com-monly used to enforce these constraints, and the choice of samples has a substantial im-pact on convergence speed, stability, and so-lution quality. Most existing methods rely on fixed heuristics or handcrafted rules, and are suboptimal in practice. In this paper, we aim to improve upon them by learning— from data and experience—how to dynam-ically and iteratively adjust the samples in response to the model’s evolving learning per-formance. Trained by reinforcement learning, the learned policy improves empirical con-straint satisfaction on test problems while significantly improving efficiency. We vali-date the approach on both Lyapunov NNs and PINNs, and demonstrate its broader ap-plicability to domains where adaptive input selection is essential for effective training. 
+
+# 1 Introduction 
+
+Many neural network applications are governed by universal constraints that must be satisfied across con-tinuous input domains. Two prominent examples are Lyapunov Neural Networks (Lyapunov NNs), which learn Lyapunov functions to certify the stability of non-linear dynamical systems, and Physics-Informed Neural Networks (Raissi et al., 2019, PINNs), which enforce physical laws encoded as partial differential equations (PDEs). A defining challenge in these settings is that the underlying constraints—such as the Lyapunov de-crease condition or PDE residuals in PINNs—must hold throughout the entire input space, not just at isolated points. Since the input space is infinite, exhaustive verification of universal constraints is infeasible. As a result, training relies on selecting a representative set of collocation points to guide optimization. The quality, distribution, and adaptivity of these points di-rectly influence the model’s ability to generalize—that is, to satisfy the constraints at unseen locations. Poorly chosen samples may lead to localized overfitting and instability, while effectively chosen samples improve training efficiency, convergence speed, and overall solu-tion fidelity. Lyapunov Neural Networks aim to certify stability by ensuring the Lyapunov condition holds throughout a continuous state space. Early work by Richards et al. (2018) proposed an iterative scheme that expands level sets and samples new points from the expanded safe regions. Subsequent methods (Chang et al., 2019; Dai et al., 2021) introduced counterexample-guided updates to improve training efficiency. Abate et al. (2020) formalized this approach with theoretical guarantees, while Wu et al. (2023b) incorporated a buffer mech-anism to retain and reuse previously identified coun-terexamples. Despite these advances, existing methods still rely on manually tuned expansion rules or com-putationally expensive verification procedures, which limit the adaptability and scalability in practice. A similar challenge arises in the PINN literature. Early methods (Raissi et al., 2019) adopted fixed sampling strategies such as uniform grids or random draws. While simple to implement, these methods may under-represent regions of interest or yield uneven spatial coverage. Quasi-random schemes such as Sobol (1967) or Halton (1960) sequences offer better coverage but remain static and model-agnostic. To improve perfor-mance, adaptive techniques like Residual-based Adap-tive Sampling (RAD) (Wu et al., 2023a) have been proposed, where sampling density is adjusted based on 
+
+> arXiv:2605.09707v1 [cs.LG] 10 May 2026 Adaptive Data Harvesting for Efficient Neural Network Learning with Universal Constraints
+
+local residual magnitudes. Other works have explored adversarial sampling (Tang et al., 2024), importance sampling based on residuals or gradients (Li et al., 2025), and multi-stage training schemes (Wang and Lai, 2024). While these heuristics improve local sam-ple efficiency, they typically rely on fixed rules or handcrafted criteria and are not designed to adapt continuously to the evolving training dynamics. 
+
+In this work , we propose a general framework that adaptively integrates heuristic sampling meth-ods through a policy-driven selection mechanism. To this end, we formulate the process of selecting multi-ple batches of training points as a sequential decision-making problem, where a learned policy iteratively chooses samples from a dynamic candidate pool based on the feedback from the current model state. This de-sign enables the selection strategy to evolve over time, continuously adjusting to training dynamics and model uncertainty. Unlike static heuristics or fixed schedules, our approach is model-agnostic, supports training with standard reinforcement learning (RL) algorithms such as TD3 (Fujimoto et al., 2018) and SAC (Haarnoja et al., 2018), and requires no task-specific modifications. We evaluate this framework on both Lyapunov NNs and PINNs, showing consistent improvements in conver-gence speed and final accuracy compared to baselines. Our results highlight the benefit of coupling adaptive sampling with policy-driven selection in universally constrained neural networks and suggest broader ap-plicability to other data-centric training pipelines. 
+
+# 2 Preliminary 
+
+The proposed framework can be applied to a range of domains, including Lyapunov-based stability certi-fication, Physics-Informed Neural Networks, nonneg-ative function learning (Kim, 2024), Lipschitz conti-nuity (Virmaux and Scaman, 2018), etc. This work focuses on the first two domains, leaving the rest to future work. We will first contextualize our approach by reviewing relevant prior methods in these areas. 
+
+2.1 Lyapunov Neural Network 
+
+We begin by examining Lyapunov Neural Networks, where effective input sampling strategies are critical for robustly certifying stability in control systems. Lya-punov NNs are neural-network-based representations of Lyapunov functions —a scalar, positive definite func-tion that decreases along the trajectories of a dynamical system. Such a function certifies that the system state will asymptotically converge to an equilibrium (w.l.o.g., the origin). Specifically, we consider a deterministic, 
+
+Algorithm 1 ROA Classifier Training (Richards et al., 2018) 
+
+Require: closed-loop dynamics f ψ , expansion multi-plier α > 1, simulation horizon T
+
+Ensure: Lyapunov NN vθ for testing dynamics  
+
+> 1:
+
+Initialize Lyapunov NN vθ and safety level c0. 
+
+> 2:
+
+for k = 0 to # ROA resample do  
+
+> 3:
+
+Sample a subset from Vθ (αc k), and denote it as 
+
+X. 
+
+> 4:
+
+Forward simulate the batch for T steps: S ←{x ∈ X : f ψ 
+
+> (T)
+
+(x) ∈ Vθ (ck)}. 
+
+> 5:
+
+Train vθ on X using hinge loss, with S as the positive example set, and X\S the negative set.  
+
+> 6:
+
+ck+1 ← max x∈S vθ (x).  
+
+> 7:
+
+end for 
+
+discrete-time dynamical system: 
+
+xt+1 = f ψ (xt), (1) where xt ∈ X represents the system state, t ∈ N is the time step, and ψ is a fixed policy. Let Sψ denote the true region of attraction (ROA): the set of all states that converge to zero and remain in a bounded neighborhood of 0 under the policy ψ. The goal is to learn a Lyapunov function vθ (x), parameterized by a neural network with weights θ, that certifies as large a subset of Sψ to be safe as possible. According to Lyapunov’s Stability Theorem Kalman and Bertram (1960), if vθ is positive definite and ∆ vθ (x) := vθ (f ψ (x)) − vθ (x) < 0 for all x̸ = 0 such that vθ (x) ≤ c, then the sublevel set 
+
+Vθ (c) = {x : vθ (x) ≤ c} is an invariant safe set, i.e., 
+
+Vθ (c) ⊆ Sψ .Training a Lyapunov NN is a non-standard learning problem: instead of minimizing prediction error, the goal is to satisfy inequality constraints throughout a continuous state space. Since exact verification is in-tractable, sampling becomes necessary. A well-chosen set of sample states must sufficiently cover both the core and the boundary of the ROA, particularly the regions where the Lyapunov condition is hardest to satisfy. Richards et al. (2018) addressed this challenge via an iterative algorithm that formulates ROA estimation as a binary classification problem. At each iteration, they evaluate the current Lyapunov candidate vθ on a batch of sampled states, labeling them as safe or unsafe de-pending on whether their simulated trajectories satisfy the Lyapunov condition. Then, they expand the safe level set Vθ (ck) by a fixed expansion multiplier α > 1, and draw new samples from this expanded region. A classification loss is used to update θ, and the process repeats. Algorithm 1 shows their training procedure. Siteng Kang, Xinhua Zhang 
+
+In practice, however, the selection of α can be highly delicate, requiring adaptation across the training pro-cess. An overly conservative value leads to slow progress, while an overly aggressive value generates unsafe samples. Therefore, our framework will for-mulate the process as a sequential decision-making problem. We train an RL agent to dynamically select the expansion multiplier α, enabling the sampling strat-egy to adapt continuously based on the evolving model state and training feedback. This removes the need for manual heuristics or external falsifiers and promotes more efficient and robust training. 
+
+2.2 Physics-Informed Neural Network 
+
+We now turn to Physics-Informed Neural Networks, another domain where effective sampling of input points significantly impacts training efficiency and accuracy. Partial differential equations (PDEs) are mathematical equations that describe how physical quantities such as heat, fluid velocity, or electromagnetic fields evolve over space and time. Despite their ubiquity in modeling real-world phenomena, solving PDEs is notoriously difficult, especially in high dimensions or with complex boundary conditions, due to the need for fine-grained discretizations and numerical stability. Physics-Informed Neural Networks (Raissi et al., 2019, PINNs) are deep learning models designed to solve PDEs by embedding the underlying physical laws di-rectly into the learning objective. Unlike traditional numerical methods, PINNs approximate the solution 
+
+u(x) with a neural network uθ (x), trained by minimiz-ing the residual of PDEs at selected points, known as 
+
+collocation points .We consider the general form of a forward PDE problem parameterized by λ on a domain Ω ∈ IR d,
+
+f (x; u, λ ) := f
+
+
+
+x; ∂u ∂x 1
+
+, · · · , ∂2u∂x 1∂x d
+
+, · · · ; λ
+
+
+
+= 0 ,
+
+(2) where the output of f is a vector to encode multiple equalities. Here the equality needs to be satisfied uni-versally for all x ∈ Ω. Higher order partial derivatives are also admissible. Let the boundary conditions be 
+
+B(u, x) = 0. PINN is trained by using a loss function over a set of collocation points X = Xf
+
+S Xb, where 
+
+Xf is sampled inside the domain and Xb is sampled on the boundaries: 
+
+Lλ(θ; X) := X
+
+> x∈Xf
+
+∥f (x; uθ , λ )∥2 + w X
+
+> x∈Xb
+
+B(uθ , x)2.
+
+(3) Our work introduces a reinforcement learning frame-work that formulates collocation selection as a sequen-tial decision-making problem. An RL agent dynam-ically selects training points from an evolving candi-date set at each iteration, using the feedback from the current model to optimize for long-term training effi-ciency. The framework is model-agnostic, compatible with standard RL algorithms such as TD3 and SAC, and continuously adapts to the changing training land-scape. We will empirically show that it consistently outperforms both static baselines (uniform, random, Sobol, Halton) and adaptive heuristics such as RAD in convergence speed and final solution accuracy. 
+
+Parameterization of the sampler. In the most general sense, a sampler is meant to draw upon the entire space where the universal constraint concerns. To reduce variance, Richards et al. (2018) effectively pa-rameterized the sampling distribution using αc k (step 3 of Algorithm 1). We will adopt the same approach and task the RL agent to propose α. Similarly, instead of directly parameterizing a distribution on the collo-cation space of PINN, we resort to a mixture of expert model that leverages the samplers from existing litera-ture, and task the RL agent to propose their mixture weights. These designs allow considerable flexibility for problem-specific customization. 
+
+# 3 Adaptive Data Harvesting Framework 
+
+Our framework consists of two interacting compo-nents: an outer RL agent that guides the training of an evolving inner optimization entity (e.g., Lyapunov NN or a PINN). We formulate the outer RL compo-nent as a Markov Decision Process (MDP), defined by 
+
+M = ( S, A, P, R, γ, μ 0), where S denotes the state space representing the current state of the inner optimiza-tion entity, and A is the action space encompassing all possible sampled batches of training examples (or their distribution parameterization). The transition function 
+
+P : S×A×S → [0 , 1] models how the inner optimization entity evolves in response to selected actions, while the reward function R : S × A → IR quantifies the effec-tiveness of the selected examples. The discount factor 
+
+γ ∈ [0 , 1) controls the trade-off between immediate and future rewards, and μ0 : S → IR specifies the initial state distribution. We next detail how to apply this RL-based framework to train Lyapunov NNs and PINNs. 
+
+3.1 Application to Lyapunov function learning 
+
+We next show how adaptive data harvesting can be applied to learning a Lyapunov function vθ (x) with parameter θ, certifying a large subset of Sψ as safe. To Adaptive Data Harvesting for Efficient Neural Network Learning with Universal Constraints 
+
+Algorithm 2 RL-Guided Adaptive Expansion ROA 
+
+Require: Testing dynamics f ψtest , simulation horizon 
+
+T , initialization method D
+
+Ensure: Lyapunov NN vθ for testing dynamics  
+
+> 1:
+
+Initialize RL policy π. // Training  
+
+> 2:
+
+for t = 1 to RL episode do  
+
+> 3:
+
+Initialize random training dynamics f ψ , Lya-punov NN vθ , safe level c0. 
+
+> 4:
+
+for k = 1 to ROA resample do  
+
+> 5:
+
+Generate multiplier based on training state: 
+
+αk = π(sk).  
+
+> 6:
+
+Sample a batch of points from the expanded region Vθ (αkck), and denote it as X. 
+
+> 7:
+
+Forward simulate the batch for T steps: 
+
+S ← { x ∈ X : f ψT (x) ∈ Vθ (ck)}. 
+
+> 8:
+
+Train vθ on X using labels yi = +1 for xi ∈ S,
+
+yi = −1 otherwise.  
+
+> 9:
+
+ck+1 ← max x∈S vθ (x), compute rk, update π. 
+
+> 10:
+
+end for  
+
+> 11:
+
+end for  
+
+> 12:
+
+Initialize Lyapunov NN vθ , safe level c0.// Testing  
+
+> 13:
+
+for k = 1 to ROA resample do  
+
+> 14:
+
+Generate multiplier based on training state αk =
+
+π(sk).  
+
+> 15:
+
+Sample a batch of points from the expanded region Vθ (αkck), and denote it as X. 
+
+> 16:
+
+Forward simulate the batch for T steps: S ←{x ∈ X : f ψtest  
+
+> T
+
+(x) ∈ Vθ (ck)}. 
+
+> 17:
+
+Train vθ on X using labels yi = +1 for xi ∈ S,
+
+yi = −1 otherwise.  
+
+> 18:
+
+ck+1 ← max x∈S vθ (x).  
+
+> 19:
+
+end for 
+
+this end, we introduce an RL agent that adaptively selects the expansion multiplier αk at each iteration based on the current state of training. As shown in Algorithm 2, the RL policy π observes feedback sk—such as the ratio of safe to unsafe samples—and outputs an expansion factor αk = π(sk). After each update to the Lyapunov network, a reward rk is computed based on the estimated ROA volume, and the policy π
+
+is updated accordingly. This approach enables dynamic control over the data sampling radius, leading to more adaptive and efficient training. Our experiments show that this adaptive strategy accelerates convergence and results in larger certified ROA regions compared to baselines with a fixed value of α .
+
+3.2 Application to PINN 
+
+We summarize in Algorithm 3 the full training and testing procedure for the outer RL-based collocation sampler π and the inner optimization entity (a PINN). 
+
+Algorithm 3 RL-based collocation selector for PINN 
+
+Require: n samplers {S1: n}
+
+Ensure: trained RL policy π 
+
+> 1:
+
+Initialize RL policy π. // Training  
+
+> 2:
+
+for t = 1 to # RL episode do  
+
+> 3:
+
+Initialize a PINN uθ with parameter θ, and ran-domly sample a PDE with parameter λ. 
+
+> 4:
+
+for i = 1 to PINN resample do  
+
+> 5:
+
+for j in 1 to n (# base samplers) do  
+
+> 6:
+
+Sample collocations Xj with sampler Sj (uθ ) 
+
+> 7:
+
+Compute the PDE Residual res [j] for Xj as 
+
+Lλ(uθ ; Xj ).  
+
+> 8:
+
+end for  
+
+> 9:
+
+Generate sampler ratio: 
+
+a = ( a1, a 2, . . . , a n) ∼ π(a|s = res[1 : n]).  
+
+> 10:
+
+Create collocation set Xπ by drawing colloca-tions from X1: n according to a. 
+
+> 11:
+
+Update θ according to Lλ(uθ ; Xπ ) for a pre-specified number of steps.  
+
+> 12:
+
+Randomly generate test collocations Xrandom . 
+
+> 13:
+
+r ← negative error of uθ on Xrandom ,and update π by an off-line RL method.  
+
+> 14:
+
+end for  
+
+> 15:
+
+end for  
+
+> 16:
+
+Initialize a PINN uθ with parameter θ.// Testing  
+
+> 17:
+
+for i = 1 to PINN resample do  
+
+> 18:
+
+for j in 1 to n (# base sampler) do  
+
+> 19:
+
+Sample collocations Xj using sampler Sj (uθ ).  
+
+> 20:
+
+Compute the PDE Residual res [j] for Xj as 
+
+Lλtest (uθ ; Xj ).  
+
+> 21:
+
+end for  
+
+> 22:
+
+Generate sampler ratio: 
+
+a = ( a1, a 2, . . . , a n) ∼ π(a|s = res[1 : n]).  
+
+> 23:
+
+Create collocation set Xπ by drawing collocations from X1: n according to a. 
+
+> 24:
+
+Update θ according to Lλtest (uθ ; Xπ ) for a pre-specified number of steps.  
+
+> 25:
+
+end for 
+
+At each RL training episode, a new PDE is sampled with parameter λ, and we initialize a new PINN with parameter θ. During each collocation resampling step, we generate multiple candidate collocation sets using a collection of n base samplers (e.g., those reviewed in Section 1), and evaluate the PDE residual on each set. The resulting residuals collectively form the state provided to the RL agent, which uses its policy π to produce a set of mixing weights, representing the sam-pling ratios across the baseline samplers. Collocation points are then drawn from the baseline samplers ac-Siteng Kang, Xinhua Zhang  
+
+> (a) Testing safe set fraction after RL agent training (b) Testing safe set fraction after resampling step 10
+
+Figure 1: Testing safe set fraction on Lyapunov-NN compared with baseline α
+
+cording to the selected ratio, and are used to update the PINN parameters θ by optimizing the objective in (3) . Afterwards, the performance of the resulting PINN is evaluated over a newly sampled set of col-locations Xrandom . Here, we use the error, averaged over Xrandom , comparing the learned PINN uθ with the (near) ground-truth PINN u, which can be obtained ei-ther by closed form, or by running any standard PINN solver to high accuracy. The negative error serves as the reward signal to update the policy π by any RL method such as SAC. During testing, we apply the learned policy π to a held-out PDE with parameter λtest . At each resampling iteration, the RL agent observes the residuals from candidate collocation sets and selects a sampling ratio, which is used to construct the collocation set for PINN training. 
+
+# 4 Experimental Results 
+
+In this section, we empirically evaluate the effective-ness of our proposed framework for adaptive sample selection. We conduct experiments on four benchmark environments: Lyapunov Neural Network (on the In-verted Pendulum benchmark (Richards et al., 2018)), PINN-Diffusion, PINN-Wave, and PINN-Burgers (from the PINN-sampling benchmark (Wu et al., 2023a)). Fol-lowing standard evaluation protocols, each experiment is repeated with 5 random seeds, and we report the mean performance across trials. For the Lyapunov neural network training, we eval-uate our approach on the classic inverted pendulum benchmark, following the setup described by Richards et al. (2018). The environment models a single-link pendulum actuated by a torque-limited motor, with dynamics governed by 
+
+ml 2 ¨ϕ = mgl sin ϕ − β ˙ϕ + τ, (4) where ϕ is the angular displacement from the upright equilibrium, τ is the input torque, m is the pendulum mass, g is the gravitational acceleration, l is the pole length, and β is the friction coefficient. The continuous-time dynamics are discretized using a fixed time step of 0.01 seconds. The control input is subject to saturation, 
+
+τ ∈ [−¯τ , ¯τ ], reflecting physical actuator limits; as a re-sult, the pendulum cannot be recovered once it strays too far from the vertical position. To stabilize the sys-tem, a linear quadratic regulator is applied around the upright equilibrium, yielding a local closed-loop ROA. Within this ROA, the controller ensures convergence to the equilibrium, but outside it, the limited actua-tion cannot compensate for the nonlinear dynamics, the pendulum falls down, and the system trajectories inevitably diverge from the equilibrium. Training a Lyapunov certificate is especially difficult at the edge of the true region of attraction, since states can lie arbitrarily close to the safe/unsafe boundary and small classification errors can flip them between recovery and failure. 
+
+4.1 Lyapunov Neural Network 
+
+We train the Lyapunov neural network on inverted pen-dulum benchmark for 100 iterations and update the safe level set (i.e., perform resampling) every 10 iterations. The RL agents are trained for 12,500 episodes, using an action space corresponding to the expansion multiplier 
+
+α, bounded within the interval [1.1, 2.0]. During RL training, the pendulum’s pole length l is randomized to encourage robustness, while evaluation is performed using a fixed pole length shared across all test runs and baseline methods. As shown in Figure 1a, both RL-based adaptive expansion policies outperform the fixed-multiplier baselines in terms of resulting safe set fraction. Figure 1b further illustrates the progressive improvement throughout the RL training process. To better understand why our agents outperform the Adaptive Data Harvesting for Efficient Neural Network Learning with Universal Constraints  
+
+> (a) Testing safe ratio before RL agent training (b) Testing safe ratio after RL agent training
+
+Figure 2: Ratio of safe samples on Lyapunov NN compared with baseline α 
+
+> (a) Before RL agent training (b) After RL agent training
+
+Figure 3: Testing PINN error for PINN-Diffusion compared with baselines collocation selectors baselines, we visualize the ratio of sampled points that are verified as safe before and after training the RL agent. As shown in Figure 2, the untrained agents per-form comparably to the median of the fixed-multiplier baselines. After training, however, the agents learn to expand more aggressively during the early stages, allowing them to rapidly approach the boundary of the true safe set. In later iterations, the policies be-come more conservative, maintaining the ratio of safe samples close to 50%, which supports stable expansion. These results further highlight the effectiveness of our framework across a variety of learning settings. 
+
+4.2 PINN-Diffusion 
+
+We construct the first PINN environment based on the one-dimensional diffusion equation: 
+
+∂u ∂t = ∂2u∂x 2 − (z2π2 − 1) e−t sin( zπx ), (5) 
+
+x ∈ [−1/z, 1/z ], t ∈ [0 , 1] (6) where z is a tunable constant used for environment randomization. The initial and boundary conditions are given by 
+
+u(x, 0) = sin( zπx ), (7) 
+
+u(−1/z, t ) = u(1 /z, t ) = 0 , (8) respectively. This PDE admits an explicit solution: 
+
+u(x, t ) = sin (zπx )e−t. We compare our proposed framework against four random or quasi-random base-lines, one manually defined adaptive sampling method, and a uniform mixture over all baselines. For each col-location selection strategy, the PINN is trained using 50 residual points, which are resampled every 1,000 iterations over a total of 10,000 iterations. The RL agent is trained for 150,000 episodes using different environment randomization parameters z, and all collo-cation selectors are evaluated using a shared test value of z. As shown in Figure 3a, before RL training, the performance of the RL-based collocation selector is comparable to the uniform mixture of baselines. After training, however, both RL agents (TD3 and SAC; Fig-ure 3b) significantly outperform all baselines in terms of PINN error on testing collocations. This demonstrates the effectiveness of our framework. Additionally, Fig-ure 4 shows that after just 50,000 RL episodes, our agent already surpasses all baselines in terms of testing PINN error after 10,000 PINN iterations - providing Siteng Kang, Xinhua Zhang 
+
+Figure 4: Testing PINN error for PINN-Diffusion after 10,000 PINN iterations additional evidence of the proposed framework’s effi-ciency. To further examine how the RL agent adapts to the environment, we train the PINN using collocation sets selected by the TD3 agent after 150,000 RL episodes. At each resampling step, we also generate collocation sets using baseline selectors, as well as intermediate versions of the TD3 agent trained for fewer episodes. For each collocation sets, we compute and plot both the PDE residual and the PINN error. As shown in Figure 5a, the RAD baseline tends to produce col-location points with the highest PDE residuals. In contrast, Figure 5b shows that the fully trained TD3 agent selects points that yield the higher PINN error, highlighting how the proposed framework identifies challenging regions to improve training efficiency. 
+
+4.3 PINN-Wave 
+
+We perform a similar experiment on the following one-dimensional wave equation: 
+
+∂2u∂t 2 − 4z2 ∂2u∂x 2 = 0 , x ∈ [0 , 1] , t ∈ [0 , 1] , (9) where z is an integer parameter used to randomize the environment. The initial and boundary conditions are defined as: 
+
+u(x, 0) = sin( πx ) + 12 sin(4 πx ), (10) 
+
+∂u ∂t (x, 0) = 0 , u (0 , t ) = u(1 , t ) = 0 , (11) respectively. The exact solution to this PDE is given by: 
+
+u(x, t ) = sin( πx ) cos(2 zπt ) + 12 sin(4 πx ) cos(8 zπt ).
+
+(12) 
+
+> (a) Training PDE residual
+> (b) Training PINN error
+
+Figure 5: Training PDE residual and PINN error from different collocation selectors. For each collocation selection strategy, the PINN is trained using 50 residual points, resampled every 100 iterations over a total of 1,000 training steps. The RL agents are trained for 150,000 episodes with vary-ing environment randomization parameters z, and all collocation selectors are evaluated using a shared test value of z. As shown in Figure 6a, after 150,000 RL training episodes, both TD3 and SAC agents signifi-cantly outperform all baselines. Additionally, we report the testing PINN error at resampling step 10 during RL training in Figure 6b, which shows a consistent improvement trend despite higher variance. This fur-ther demonstrates the effectiveness of the proposed framework. 
+
+4.4 PINN-Burgers 
+
+We perform a similar experiment on the following Burg-ers’ equation: 
+
+∂u ∂t + u ∂u ∂x = z ∂2u∂x 2 , x ∈ [−1, 1] , t ∈ [0 , 1] , (13) where z is a random viscosity parameter used to ran-domize the environment. The initial and boundary Adaptive Data Harvesting for Efficient Neural Network Learning with Universal Constraints  
+
+> (a) Testing PINN error after RL agent training (b) Testing PINN error at resampling step 10
+
+Figure 6: Testing PINN error on PINN-Wave compared with baselines collocation selectors  
+
+> (a) Testing PINN error after RL agent training (b) Testing PINN error at resampling step 10
+
+Figure 7: Testing PINN error on PINN-Burgers compared with baselines collocation selectors conditions are defined as: 
+
+u(x, 0) = − sin( πx ), (14) 
+
+u(−1, t ) = u(1 , t ) = 0 , (15) respectively. Unlike the other experiments, the Burgers’ equation does not admit a closed-form solution. To address this, we first train a PINN for an extended number of steps to obtain a high-quality approximate solution, which is then used as a reference during RL training and evaluation. For each collocation selection strategy, the PINN is trained using 50 residual points, resampled every 100 iterations over a total of 1,000 training steps. The RL agents are trained for 150,000 episodes with varying environment randomization parameters z, and all col-location strategies are evaluated on a shared test value of z.As shown in Figure 7a, both TD3 and SAC agents outperform all baseline methods after 150,000 episodes. We also report the PINN testing error at resampling step 10 during RL training in Figure 7b, which illus-trates the performance trajectory during training. 
+
+# 5 Conclusion 
+
+We presented a general framework for adaptive training input selection in neural networks governed by universal constraints. Our approach formulates the input selec-tion process as a Markov Decision Process, allowing a learned policy to adjust in real time to evolving model states and training dynamics. By casting the problem as a sequential decision-making task, the framework supports efficient, data-centric optimization in non-stationary settings. Unlike prior methods based on static sampling rules or handcrafted heuristics, our ap-proach is model-agnostic. We evaluate the framework on Lyapunov NNs and PINNs, demonstrating consis-tent gains in convergence speed and solution quality over baselines. These results highlight the benefits of adaptive data selection in constraint-driven learning and suggest opportunities for broader application and future optimization. Siteng Kang, Xinhua Zhang 
+
+# References 
+
+Abate, A., Ahmed, D., Giacobbe, M., and Peruffo, A. (2020). Formal synthesis of lyapunov neural networks. 
+
+IEEE Control Systems Letters , 5(3):773–778. Chang, Y.-C., Roohi, N., and Gao, S. (2019). Neural lyapunov control. Advances in neural information processing systems , 32. Dai, H., Landry, B., Yang, L., Pavone, M., and Tedrake, R. (2021). Lyapunov-stable neural-network control. 
+
+arXiv preprint arXiv:2109.14152 .Fujimoto, S., Hoof, H., and Meger, D. (2018). Address-ing function approximation error in actor-critic meth-ods. In Proceedings of the 35th International Confer-ence on Machine Learning (ICML) , pages 1587–1596. PMLR. Haarnoja, T., Zhou, A., Abbeel, P., and Levine, S. (2018). Soft actor-critic: Off-policy maximum en-tropy deep reinforcement learning with a stochastic actor. In Proceedings of the 35th International Con-ference on Machine Learning (ICML) , pages 1861– 1870. PMLR. Halton, J. H. (1960). On the efficiency of certain quasi-random sequences of points in evaluating multi-dimensional integrals. Numerische Mathematik , 2:84– 90. Kalman, R. E. and Bertram, J. E. (1960). Control system analysis and design via the “second method” of lyapunov: Ii—discrete-time systems. Journal of Basic Engineering , 82(2):394–400. Kim, H. (2024). Inverse m-kernels for linear universal approximators of non-negative functions. In Ad-vances in Neural Information Processing Systems .Li, H., Zhang, Y., Wu, Z., Wang, Z., and Wu, T. (2025). An importance sampling method for generating opti-mal interpolation points in training physics-informed neural networks. Mathematics , 13(1):150. Raissi, M., Perdikaris, P., and Karniadakis, G. E. (2019). Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equa-tions. Journal of Computational physics , 378:686– 707. Richards, S. M., Berkenkamp, F., and Krause, A. (2018). The lyapunov neural network: Adaptive stability certification for safe learning of dynamical systems. In Conference on Robot Learning (CoRL) ,pages 466–476. Sobol, I. M. (1967). On the distribution of points in a cube and the approximate evaluation of integrals. 
+
+Ussr Computational Mathematics and Mathematical Physics , 7:86–112. Tang, K., Zhai, J., Wan, X., and Yang, C. (2024). Adversarial adaptive sampling: Unify pinn and op-timal transport for the approximation of pdes. In 
+
+International Conference on Learning Representa-tions (ICLR) .Virmaux, A. and Scaman, K. (2018). Lipschitz regu-larity of deep neural networks: analysis and efficient estimation. In Advances in Neural Information Pro-cessing Systems .Wang, Y. and Lai, C.-Y. (2024). Multi-stage neural net-works: Function approximator of machine precision. 
+
+Journal of Computational Physics , 504:112865. Wu, C., Zhu, M., Tan, Q., Kartha, Y., and Lu, L. (2023a). A comprehensive study of non-adaptive and residual-based adaptive sampling for physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 403:115671. Wu, J., Clark, A., Kantaros, Y., and Vorobeychik, Y. (2023b). Neural lyapunov control for discrete-time systems. Advances in neural information processing systems , 36:2939–2955.

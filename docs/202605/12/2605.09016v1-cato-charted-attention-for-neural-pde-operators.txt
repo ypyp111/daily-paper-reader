@@ -1,0 +1,1827 @@
+Title: CATO: Charted Attention for Neural PDE Operators
+
+URL Source: https://arxiv.org/pdf/2605.09016v1
+
+Published Time: Tue, 12 May 2026 01:16:10 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# CATO: Charted Attention for Neural PDE Operators 
+
+Chun-Wun Cheng 
+
+DAMTP University of Cambridge 
+
+cwc56@cam.ac.uk 
+
+Sifan Wang 
+
+Institute for Foundations of Data Science Yale University 
+
+sifan.wang@yale.edu 
+
+Carola-Bibiane Schönlieb 
+
+DAMTP University of Cambridge 
+
+cbs31@cam.ac.uk 
+
+Angelica I. Aviles-Rivero ∗
+
+Yau Mathematical Sciences Center Tsinghua University 
+
+aviles-rivero@tsinghua.edu.cn 
+
+## Abstract 
+
+Neural operators have emerged as powerful data-driven solvers for PDEs, offer-ing substantial acceleration over classical numerical methods. However, existing transformer-based operators still face critical challenges when modeling PDEs on complex geometries: directly processing over massive mesh points is computation-ally expensive, while operating in raw discretization coordinates may obscure the intrinsic geometry where physical interactions are more naturally expressed. To address these limitations, we introduce the Charted Axial Transformer Operator (CATO), a geometry-adaptive and derivative-aware neural operator for PDEs on general geometries. Instead of applying attention directly in the physical coordinate system, CATO learns a continuous latent chart that maps mesh coordinates into a learned chart space, where chart-conditioned axial attention efficiently captures long-range dependencies with reduced computational cost. In addition, CATO introduces a derivative-aware physics loss for steady-state PDEs that jointly super-vises solution values, mesh-consistent gradients, and an auxiliary flux-like field, improving physical fidelity and reducing oversmoothing. We further provide a theoretical approximation result showing that, under a favorable chart, charted axial attention can represent low-rank axial solution operators with controlled error, and that small chart perturbations induce bounded approximation degradation. CATO achieves the best performance across all evaluated datasets, yielding an average improvement of approximately 26.76% over the strongest competing baselines while reducing the number of parameters by 81.98%. These results highlight the effectiveness of learning geometry-adaptive charts and derivative-aware physical supervision for accurate and efficient PDE operator learning. 
+
+## 1 Introduction 
+
+Many real-world phenomena, including turbulence and atmospheric circulation, are governed by partial differential equations (PDEs) [ 7]. Classical numerical methods, such as finite element and spectral methods [ 24 , 6], can produce highly accurate solutions, but they are often computation-ally expensive and therefore poorly suited to real-time prediction or many-query scenarios. This computational bottleneck has motivated growing interest in data-driven alternatives. The increasing availability of high-fidelity simulation data, together with advances in deep learning, has enabled the development of learned surrogate solvers that trade a modest loss in accuracy for substantial gains 
+
+> ∗Corresponding author. Preprint.
+> arXiv:2605.09016v1 [cs.AI] 9 May 2026
+
+in computational efficiency. Unlike classical solvers, which typically solve each new PDE instance from scratch, learned surrogates amortize computation costs across many related problem settings. Neural operators [ 21 , 28 , 18 , 30 , 2, 5 , 27 , 4] have emerged as a promising data-driven alternative by learning mappings between function spaces directly from data. They enable fast inference and generalization across resolutions and have been successfully applied to weather forecasting [22 , 13 ], medical imaging [ 9, 12 ], and scientific modeling [ 11 , 33 ]. Transformer-based approaches [3, 20 , 14 , 10 , 31 , 30 , 32 , 26 ] have further improved the modeling of nonlocal interactions, but remain challenged by computational cost and the difficulty of capturing meaningful geometric structure on large meshes. A central limitation of existing methods is that they often operate directly in discretization coordinates, which may be poorly aligned with the intrinsic geometry of the underlying physical process. Consequently, the operator can appear unnecessarily complex, making it more difficult to learn compact and efficient representations. 
+
+We hypothesize that this coordinate mismatch is a central bottleneck in neural operator learning. To address this, we learn a geometry-adaptive coordinate chart before applying attention, transforming the operator into a representation that is easier to approximate. Concretely, we propose the Charted Axial Transformer Operator (CATO) , which maps the physical domain into a continuous chart space and performs attention in this adapted geometry. On grids and structured meshes, where chart coordinates provide an ordered factorization, CATO applies axial attention along coordinate directions with a lightweight local operator, capturing both long-range dependencies and local structure without incurring the cost of full attention. On unstructured point clouds, we instead use CATO-PC, a topology-aware variant that replaces axial attention with KNN-based local aggregation and global irregular attention. In addition, CATO incorporates derivative-aware supervision for steady-state PDEs by jointly predicting the solution and a flux representation, improving physical fidelity and stability. More generally, many PDEs on curved domains admit a low-rank or separable structure when expressed in a coordinate system aligned with the physics. By learning this coordinate system end-to-end, CATO shifts the burden from the attention mechanism to a simple learned embedding. This is fundamentally different from prior work that either fixes the coordinate system or compresses tokens without reparameterizing the geometry. Our contributions are summarized as follows: We identify coordinate mismatch as a fundamental bottleneck in neural operator learning, where models must simultaneously learn geometry and solution structure. We show that adapting the coordinate system can reduce the effective complexity of the operator. We propose the Charted Axial Transformer Operator (CATO) , which learns a continuous coordinate chart Φchart and applies axial attention in this space, transforming a general nonlocal operator into an approximately separable (axial low-rank) form that can be efficiently approximated. We establish that CATO provably approximates charted axial low-rank operators with explicit error bounds yielding both approximation guarantees and stability to chart perturbations. Across six PDE benchmarks, CATO achieves an average 26 .76% error reduction (up to 52 .74% ), while using 81 .98% fewer parameters and training up to 3.5× faster than prior methods. 
+
+## 2 Related Work 
+
+Neural PDE Solvers. Classical numerical methods (finite difference, finite element, spectral) remain the gold standard for accuracy, but their computational cost prohibits real -time and many - query applications. Early deep learning approaches, such as Physics -Informed Neural Networks (PINNs) [1], incorporate PDE residuals directly into the loss, enabling unsupervised training but often suffering from training instability and spectral bias. Operator learning offers an alternative paradigm: learn a mapping between function spaces directly from paired data. DeepONet [ 21 ] first demonstrated this idea. FNO [ 17 ] introduced global convolution in the spectral domain, achieving resolution invariance. Subsequent works improved expressivity and efficiency: U -FNO [ 28 ] and U - NO [ 23 ]added multi -scale paths; Geo -FNO [ 16 ] learned deformations to handle irregular geometries; GINO [ 18 ] extended to 3D point clouds; LSM [ 29 ] leveraged latent spectral representations; WMT [ 8 ] used wavelet decompositions. Despite their success, most of these methods assume regular grids or rely on hand-crafted deformations; none adapt the coordinate system dynamically for attention. 2Learned Chart 
+
+> Token Embedding
+
+# ... Axial Attention (row) 
+
+> Axial Attention (column)
+> Local Operator
+> Coordinates
+> Source/Coefficient
+> Output
+> CATO Block (repeated L times)
+> LayerNorm
+> MLP
+> Physical Loss
+
+Figure 1: CATO architecture overview. Coordinates and source features are embedded with a learned chart, processed by repeated CATO blocks combining axial attention and local operators, and trained with a physics-informed loss to predict the output field. 
+
+Transformer-Based Neural Operators. Due to the fact that self-attention can be viewed as a learnable nonlocal integral operator, transformers have been an essential stride into neural PDE solving. Specific techniques like the Galerkin Transformer [ 3 ], which implemented kernels in a linear attention without softmax, and models such as HT-Net [ 20 ], OFormer [ 14 ], GNOT [ 10 ], ONO [ 31 ], and FactFormer [ 15 ] used hierarchical, linear, orthogonal, or factorized approaches to provide a better trade-off between accurate long-range interaction modeling while maintaining computational efficiency. These approaches showed that attention-based architectures can be successful in learning PDE solution operators. SAOT [ 32 ] combines Fourier attention for global patterns with Wavelet attention for local, high-frequency details. Transolver [ 30 ] uses discrete slices to form physical attention, while our method maps the original mesh into a continuous chart space with axial attention. 
+
+Comparison with Existing Methods. CATO differs fundamentally from the above methods. While Transolver compresses physical tokens, it still operates in raw coordinates; SAOT mixes Fourier and wavelet attention but does not reparameterize geometry; OFormer and GNOT rely on fixed positional encodings. CATO instead learns a continuous geometry chart Φchart and applies axial attention in that adapted space – reducing complexity to O(HW (H + W )) and aligning attention with the PDE’s natural low - rank structure. Additionally, CATO introduces a derivative - aware loss that supervises both solution values and a gradient -like flux, improving sharpness on distorted meshes – a feature absent in all prior transformer - based operators. We provide theoretical guarantees that learning a chart reduces the effective operator complexity and that small chart errors cause only linear degradation. 
+
+## 3 Methodology 
+
+Problem statement. In neural operator learning, we consider operator approximation on a two-dimensional structured mesh of resolution H × W , with N = HW nodes. For each sample, let X = {xij }H,W i=1 ,j =1 ∈ R2, denote the physical coordinates of the mesh nodes, and let F =
+
+{fij }H,W i,j =1 ∈ Rdf , denote optional node-wise auxiliary inputs, such as coefficients, source terms, or other field descriptors. The objective is to learn a solution operator Gθ : ( X, F) 7 → u, where the target scalar field is given by u = {uij } ∈ RH×W . The model predicts the scalar solution field 
+
+ˆu ∈ RB×N ×1. During training, it also produces an auxiliary vector field ˆq ∈ RB×N ×2, which is supervised using the spatial gradient of the target field. Thus, this auxiliary head can be interpreted as a gradient-like flux proxy. 
+
+3.1 Charted Axial Transformer Operator (CATO) Block 
+
+For each node, the physical coordinate and optional auxiliary features are concatenated: zin  
+
+> ij
+
+=[xij , fij ] if df > 0, xij otherwise . These inputs are lifted into a higher latent space of dimension C
+
+by a two-layer MLP: h(0)  
+
+> ij
+
+= Φ pre (zin  
+
+> ij
+
+) = W2 σ(W1zin  
+
+> ij
+
++b1)+ b2,. The initial hidden representation can be written as: H(0) ∈ RB×H×W ×C .3Learnable geometry chart. The physical grid is typically constructed as a discrete representation of the computational domain, rather than being induced by the PDE itself. Its primary role is to encode the domain geometry and boundary structure, not necessarily the intrinsic coordinate system in which the solution operator is most naturally expressed. Consequently, the raw Cartesian coordinates (x, y )
+
+may be poorly aligned with the dominant directions of variation in the solution, particularly on curved or non-uniform meshes. They may also encode redundant geometric information, entangle relevant and irrelevant directions for attention, and force the model to compensate for mesh distortion before learning the underlying operator. This motivates performing attention in a learned, geometry-adapted coordinate system, rather than assuming that the physical mesh coordinates are aligned with the intrinsic geometry of the solution operator. We introduce a learned chart that maps each physical coordinate to a continuous latent 2D chart space. ζij = ( ξij , η ij ) = Φ chart (xij ), with Φchart (x) = tanh( V2 SiLU( V1x + c1) + c2). Hence, 
+
+(ξij , η ij ) ∈ [−1, 1] 2. ξ ij is used for row attention while ηij is used for column attention. We do not require Φchart to be globally invertible; instead, it is used as a learned continuous coordinate system for positional encoding and attention. 
+
+Continuous rotary positional encoding (RoPE) Discrete positional encoding only encodes token features while neglecting the relative distance of tokens. However, closer points in PDEs will have a stronger influence, indicating that relative distances are an important factor in solving PDEs. To mitigate this limitation, we use continuous RoPE, which not only retains token information but also preserves relative distance relationships. The axial attention layers use continuous RoPE, where the positional variable is not a discrete token index but a real-valued chart coordinate. For each head dimension pair r = 0 , 1, . . . , dh 
+
+> 2
+
+− 1, define the angular frequency ωr = θ−2r/d h ,where θ > 0 is the RoPE base parameter. The rotary transform matrix is defined as: 
+
+Rr (p)
+
+ z2r
+
+z2r+1 
+
+
+
+=
+
+cos( ωr p) − sin( ωr p)sin( ωr p) cos( ωr p)
+
+  z2r
+
+z2r+1 
+
+
+
+.
+
+Applying this over all channel pairs gives eq = R(p)q, ek = R(p)k. Then we can define the attention score as: (R(pi)qi)T (R(pj )kj ) = qTi R(pj − pi)kj which contains both token feature and relative distance features. In addition, the input p is a coordinate, which is a continuous input of the position. Continuous position functions impose a smooth geometric structure on attention. Nearby positions change by small rotations, which often matches the real structure of sequences better than a purely index-based view. 
+
+Charted axial self-attention. After obtaining the learned chart, we apply multi-head self-attention separately along the row and column directions. The row-wise and column-wise attention outputs are then summed to form the final axial attention representation. Specifically, let the hidden representation at a node be hij ∈ RC . Queries, keys, and values are computed as qij = WQhij , kij = WK hij , vij = WV hij . With M attention heads and head dimension dh = C/M , these are split as q(m) 
+
+> ij
+
+, k(m) 
+
+> ij
+
+, v(m) 
+
+> ij
+
+∈ Rdh , m = 1 , . . . , M .We first compute the row attention. For a fixed row i, the tokens {hij }Wj=1 form a 1D sequence. The horizontal chart coordinate ξij is used in RoPE: eq(m) 
+
+> ij
+
+= R(ξij )q(m) 
+
+> ij
+
+, ek(m) 
+
+> ij
+
+= R(ξij )k(m) 
+
+> ij
+
+. The row-attention can be computed as: Attn row (h)ij = Wrow 
+
+> O
+
+LMm=1 
+
+PWt=1 α(m)
+
+> i,j,t
+
+v(m)
+
+> it
+
+
+
+, where α(m)
+
+> i,j,t
+
+is the attention weight that is computed by softmax. Similarly, we compute the column attention output as: Attn col (h)ij = Wcol 
+
+> O
+
+LMm=1 
+
+PHs=1 β(m)
+
+> i,j,s
+
+v(m)
+
+> sj
+
+
+
+, where β(m) 
+
+> i,j,s
+
+are the corresponding softmax-normalized column-attention weights. The final output is the sum of row and column outputs: A(h, ζ) = Attn row (h; ξ) + Attn col (h; η).To complement the nonlocal attention, we further introduce a local depthwise operator: L(h) = PWConv  GELU(DWConv( h)) , where DWConv denotes a depthwise k × k convolution and 
+
+PWConv a 1 × 1 pointwise convolution. It acts as a learned local stencil operator. We now define the CATO block as follows. Given hidden state H(ℓ), we compute 
+
+eH(ℓ) = H(ℓ) + A
+
+
+
+LN( H(ℓ)), ζ
+
+
+
++ L
+
+
+
+LN( H(ℓ))
+
+
+
+. (1) 4A second residual update is then applied: H(ℓ+1) = eH(ℓ) + MLP 
+
+
+
+LN( eH(ℓ))
+
+
+
+, where MLP denotes a feed-forward network. We then stack L blocks. After L CATO blocks, a final layer normalization is applied: H(L) ← LN( H(L)).The final latent state is mapped to two outputs. The scalar solution prediction is ˆuij = w⊤ 
+
+> u
+
+h(L) 
+
+> ij
+
++ bu.The auxiliary vector output is ˆqij = Wq h(L) 
+
+> ij
+
++ bq , ˆqij ∈ R2. Therefore, the model predicts both a scalar field ˆu and a gradient-like flux field ˆq.For inputs without a canonical grid structure (e.g., point clouds), the row–column factorisation required by axial attention is not defined. In this setting, we retain the learned chart as the core representation, but replace axial attention with a geometry-aware attention operator defined on local neighborhoods. This results in a point-cloud variant (CATO-PC) that preserves the chart-based formulation while adapting the interaction mechanism to the input topology. 
+
+3.2 Physical Loss 
+
+Instead of predicting only u (pressure or scalar field), we also predict a gradient proxy as an auxiliary output. This tends to improve sharp features, reduce oversmoothing, and stabilize learning when data is limited. We construct it as follows. Let the coordinate at node (i, j ) be xij = (xij , y ij ). Define centered differences ∆iuij = ui+1 ,j − ui−1,j , ∆j uij = ui,j +1 − ui,j −1, and ∆ixij =
+
+xi+1 ,j − xi−1,j , ∆j xij = xi,j +1 − xi,j −1. Let ∆ixij = ( a, b ), ∆j xij = ( c, d ), and rewrite it in linear-system form: 
+
+∆iuij 
+
+∆j uij 
+
+
+
+≈
+
+a bc d
+
+  ux
+
+uy
+
+
+
+> ij
+
+.
+
+We can obtain the solution by solving the linear system and we get: ux = ∆iuij d−∆j uij bad −bc , uy =    
+
+> −∆iuij c+∆ juij aad −bc
+
+. This gives the discrete gradient approximation (ux, u y ). |ad − bc | > 0 ensures the system is non-singular; otherwise, the local mesh directions are linearly dependent and the gradient is not uniquely defined. Physical supervision enforces consistency in both function values and spatial derivatives, leading to improved fidelity of local structures and reduced smoothing bias. 
+
+Training objective. The training loss combines value accuracy, gradient matching, auxiliary flux supervision, and consistency between the flux head and the gradient implied by the predicted scalar field. The total loss is defined as follows: L = Lval + λg Lgrad + λf Lflux + λcLcons , where λg , λf ,and λc control the relative contributions of the gradient, flux, and consistency terms. First, the value loss measures the relative L2 error between the predicted and reference scalar fields: 
+
+Lval = 1
+
+> B
+
+PBb=1 
+
+∥ˆu(b)−u(b)∥2
+
+∥u(b)∥2+ε , where B is the batch size and ε > 0 ensures numerical stability. To incorporate derivative information, we reconstruct gradients on the structured mesh as ∇u =Grad( u, X), ∇ˆu = Grad(ˆ u, X), where X denotes the mesh coordinates. The gradient-matching loss is then defined as Lgrad = 1
+
+> BN
+
+PBb=1 
+
+PNn=1 ∥∇ ˆub,n − ∇ ub,n ∥22.The auxiliary vector head ˆq is directly supervised by the target gradient through the flux loss: Lflux =
+
+> 1
+> BN
+
+PBb=1 
+
+PNn=1 ∥ˆqb,n − ∇ ub,n ∥22 . To enforce compatibility between the scalar and auxiliary outputs, we further introduce the consistency loss: Lcons = 1
+
+> BN
+
+PBb=1 
+
+PNn=1 ∥ˆqb,n − ∇ ˆub,n ∥22 .Together, these objectives provide field-level, derivative-level, and consistency supervision, promoting accurate and spatially coherent predictions. 
+
+Overall design. As show in figure 1, the overall architecture of CATO is designed as a geometry-adaptive neural operator for solving PDEs on general domains. The model first embeds the input mesh coordinates and optional physical features into a latent representation. A learned chart module then maps the original physical coordinates into a continuous chart space, where stacked CATO blocks apply axial self-attention to efficiently capture long-range dependencies. Each block also includes a lightweight local operator to model nearby spatial interactions. Finally, the processed representation 5is decoded into the target solution field and an auxiliary gradient-like flux field, improving both prediction accuracy and physical consistency. 
+
+3.3 Theoretical underpinning 
+
+Why should learning a geometry chart help? A raw Cartesian grid often does not align with the intrinsic directions of a PDE solution—for example, flow along a curved pipe or around an airfoil. In such cases, the solution operator may be approximately separable along coordinate directions when expressed in a suitable coordinate system, yet appear complex in the original (x, y ) coordinates. CATO’s core hypothesis is that, by learning a coordinate chart ζ = Φ chart (x) and applying axial attention in this chart space, the operator can be transformed into a representation that is significantly easier to approximate. We now formalise this intuition. For the theoretical analysis, we consider a CATO block with setting: dropout is set to zero, LayerNorm is replaced by the identity, and the local depthwise branch is deactivated. For clarity, we state the results for a scalar input field f ∈ RH×W ;the extension to vector-valued fields follows analogously. Given a chart ζij = ( ξij , η ij ) = Φ chart (xij ) ∈ K ⊂ [−1, 1] 2, and a one-block of CATO acts as 
+
+H(0)  
+
+> ij
+
+= Φ pre (xij , f ij ) ∈ RC , eH = H(0) + A(H(0) , ζ ), H(1) = eH + MLP( eH), followed by a linear readout NΘ(f, X )ij = w⊤
+
+> out
+
+H(1)  
+
+> ij
+
++ bout . Then we have the following definition and lemma. 
+
+Definition 3.1 (Charted axial low-rank operator) . Let BM := {f ∈ RH×W : ∥f ∥2 ≤ M }. We say that an operator eGΦ : BM → RH×W is (Rξ , R η , ε rk )-charted axial low-rank (with respect to the chart 
+
+ζ) if there exist continuous functions ar , b r , c s, d s, ℓ : K → R, r = 1 , . . . , R ξ , s = 1 , . . . , R η ,and an operator R such that eGΦ = Tζ + R, where (Tζ f )ij = PRξ 
+
+> r=1
+
+ar (ζij )
+
+ 1
+
+> W
+
+PWt=1 br (ζit )fit 
+
+
+
++
+
+PRη 
+
+> s=1
+
+cs(ζij )
+
+ 1
+
+> H
+
+PHp=1 ds(ζpj )fpj 
+
+
+
++ ℓ(ζij )fij , and ∥R f ∥2 ≤ εrk ∥f ∥2 for all f ∈ BM .
+
+Lemma 3.2 (Neural realization of charted axial finite-rank operators) . Let Tζ : BM → RH×W be given by (Tζ f )ij = PRξ 
+
+> r=1
+
+ar (ζij )
+
+ 1
+
+> W
+
+PWt=1 br (ζit )fit 
+
+
+
++ PRη 
+
+> s=1
+
+cs(ζij )
+
+ 1
+
+> H
+
+PHp=1 ds(ζpj )fpj 
+
+
+
++
+
+ℓ(ζij )fij , where ar , b r , c s, d s, ℓ are continuous on K. Then for every εnn > 0, there exist a hidden width C and parameters of a one-block core CATO with Rξ row heads and Rη column heads such that sup f ∈BM ∥N Θ(f, X ) − T ζ f ∥2 ≤ εnn .
+
+This result shows that the CATO block can approximate any finite-rank charted axial operator to arbitrary accuracy. The proof constructs row and column attention heads that perform the required directional averaging operations across the chart coordinates. 
+
+Lemma 3.3 (Lipschitz stability with respect to chart perturbations) . Let Tζ be as in Lemma 3.2, and as-sume in addition that the coefficient functions are bounded and Lipschitz: ∥ar ∥∞ ≤ Ar , ∥br ∥∞ ≤
+
+Br , ∥cs∥∞ ≤ Cs, ∥ds∥∞ ≤ Ds, ∥ℓ∥∞ ≤ L0, and Lip( ar ) ≤ Lar , Lip( br ) ≤
+
+Lbr , Lip( cs) ≤ Lcs , Lip( ds) ≤ Lds , Lip( ℓ) ≤ Lℓ. Let another chart bζij ∈ K satisfy 
+
+max i,j ∥bζij − ζij ∥ ≤ δ. Define Tbζ by replacing ζ with bζ in the formula for Tζ . Then, for every 
+
+f ∈ BM , ∥T bζ f −T ζ f ∥2 ≤ Cchart δ∥f ∥2, where Cchart = PRξ
+
+> r=1
+
+(Lar Br +Ar Lbr )+ PRη
+
+> s=1
+
+(Lcs Ds +
+
+CsLds ) + Lℓ. In particular, sup f ∈BM ∥T bζ f − T ζ f ∥2 ≤ Cchart M δ .
+
+In particular, if the learned chart is δ-close to the ideal chart, the induced operator error grows at most linearly with δ. This guarantees stability with respect to chart perturbations, ensuring that small errors in the learned chart do not significantly degrade the resulting operator. 
+
+Theorem 3.4 (Approximation of charted axial low-rank operators by one-block CATO) . Let eGΦ :
+
+BM → RH×W be (Rξ , R η , ε rk )-charted axial low-rank as defines in Definition 3.1. Then for every 
+
+εnn > 0, there exists a hidden width C and parameters of a one-block core CATO with Rξ row heads and Rη column heads such that sup f ∈BM ∥N Θ(f, X ) − eGΦf ∥2 ≤ εrk M + εnn . Moreover, if the hypotheses of Lemma 3.3 hold and max i,j ∥bζij − ζij ∥ ≤ δ, then one can choose a one-block core CATO of the same axial size such that sup f ∈BM ∥N Θ(f, X ) − eGΦf ∥2 ≤ εrk M + Cchart M δ + εnn .
+
+In particular, we show that learning a coordinate chart can transform a complex operator into one that is effectively low-rank and therefore efficiently approximable. The proofs of Lemma 3.2, Lemma 3.3, 6and Theorem 3.4 are provided in the Appendix B. Together, these results show that an appropriate coordinate system can simplify the target operator. When the operator has a simpler structure in chart space, CATO can represent it effectively; moreover, if the learned chart is sufficiently close to the ideal chart, the additional error remains small. Thus, chart learning is beneficial because it reduces the effective complexity of the operator class encountered by the network. This provides a theoretical explanation for why learning a chart can improve neural operator learning: when the chart renders the operator approximately axial and low-complexity, CATO achieves a small approximation error. 
+
+## 4 Experiment Results 
+
+Benchmarks, baselines and implementation details. We cover a wide range of different repre-sentative datasets, including Darcy and Navier-Stokes [ 17 ], in the regular grid setting. In addition, we compared the method across irregular geometries, including Airfoil, Plasticity, and Pipe [ 16 ], all defined on structured meshes, and Elasticity [ 16 ], represented as point clouds. More details can be found in the appendix C. We compared CATO against 15 baselines that covered a wide range of neural operators, including frequency-based and transformer-based. For the frequency-based model, we compared FNO [ 17 ], U-FNO [ 28 ], WMT [ 8], F-FNO [ 25 ], U-NO [ 23 ]. GEO-FNO [ 16 ] and LSM [ 29 ]. For the transformer-based method, we compared with Galerkin [ 3], HT-NET [ 20 ], OFormer [ 14 ], GNOT [ 10 ], FactFormer [ 15 ], ONO [ 31 ], Transolver [ 30 ] and SAOT[ 32 ]. For a fair comparison with Transolver, we set both the number of attention heads and the number of layers to 8. For all methods, we conduct all experiments on a single NVIDIA A100 40GB GPU. 
+
+Architecture by geometry type. CATO is a geometry-first framework built around a learned chart, with the attention operator instantiated according to the input topology. For regular grid or structured mesh, the inputs have a regular-grid or structured-mesh layout, so we use the charted axial CATO block from Section 3.1. For Elasticity, the input is an unordered point cloud with 972 nodes, where no canonical row-column factorization exists. We therefore use CATO-PC, a geometry-aware point-cloud variant. CATO-PC keeps the same learned chart as the core geometric representation, but replaces axial row/column attention with chart-conditioned physical attention for global operator modeling and a KNN-based local operator for neighborhood-level interactions. This is a deliberate topology-aware instantiation rather than a change in the central idea: across all datasets, CATO first learns a geometry-adaptive chart, and only the attention pattern is adapted to the data structure. This makes the point-cloud experiment a strength, as it demonstrates that chart learning generalizes beyond the axial-attention architecture. Additional details are provided in the Appendix D.4. 
+
+Main results. Table 1 presents a comprehensive comparison of CATO with standard and recent neural operators on six representative benchmarks covering point clouds, structured meshes, and regular grids. Across all datasets, CATO attains the lowest relative L2 error, demonstrating consistent superiority over both frequency-domain methods and attention-based architectures. Notably, although recent approaches such as Transolver and SAOT already provide strong performance, CATO further improves upon these competitive baselines and exhibits the most balanced accuracy across hetero-geneous discretizations, geometries, and physical regimes. On average, CATO reduces the relative error by approximately 27% compared with the strongest competing method. The gains are particu-larly pronounced on challenging fluid and nonlinear material benchmarks, including Navier–Stokes, where the error decreases from 0.0675 to 0.0319 (52 .7% reduction), and Plasticity, where the error decreases from 0.0009 to 0.0005 (44 .4% reduction). CATO also yields consistent improvements on Elasticity ( 0.0081 → 0.0070 ), Airfoil ( 0.0049 → 0.0041 ), Pipe ( 0.0050 → 0.0038 ), and Darcy (0.0049 → 0.0042 ). These results suggest that CATO is not specialized to a particular discretization type or PDE family, but instead provides a robust and broadly applicable operator-learning framework. Overall, the superior and stable performance across both solid- and fluid-mechanics benchmarks highlights the effectiveness of CATO in learning accurate surrogate solution operators for diverse scientific computing problems. Figure 2 presents a qualitative comparison of prediction results on two challenging fluid-dynamics benchmarks: Navier-Stokes flow and Airfoil flow. CATO’s predictions are visually closer to the ground truth than both Transolver and SAOT, especially around turbulent vortices in Navier-Stokes and shock/wake regions near the airfoil, where its error maps are much lighter and more localized. This shows that CATO captures complex fluid dynamics and sharp physical transitions more accurately. More visualization results are available in the Appendix E. 7Table 1: Experimental results are compared across different methods and PDE types. The results are reported as relative L2 errors. Green indicates the best result, while underlining indicates the second-best result. (*) indicates that the result was reproduced by us. 
+
+Model Structured Mesh Regular Grid Point Cloud 
+
+Plasticity Airfoil Pipe NS Darcy Elasticity FNO (2021) [17] / / / 0.1556 0.0108 /WMT (2021) [8] 0.0076 0.0075 0.0077 0.1541 0.0082 0.0359 U-FNO (2022) [28] 0.0039 0.0269 0.0056 0.2231 0.0183 0.0239 GEO-FNO (2022) [16] 0.0074 0.0138 0.0067 0.1556 0.0108 0.0229 U-NO (2023) [23] 0.0034 0.0078 0.0100 0.1713 0.0113 0.0258 F-FNO (2023) [25] 0.0047 0.0078 0.0070 0.2322 0.0077 0.0263 LSM (2023) [29] 0.0025 0.0059 0.0050 0.1535 0.0065 0.0218 Galerkin (2021) [3] 0.0120 0.0118 0.0098 0.1401 0.0084 0.0240 HT-Net (2022) [19] 0.0333 0.0065 0.0059 0.1847 0.0079 /OFormer (2023) [14] 0.0017 0.0183 0.0168 0.1705 0.0124 0.0183 GNOT (2023) [10] 0.0336 0.0076 0.0047 0.1380 0.0105 0.0086 FactFormer (2023) [15] 0.0312 0.0071 0.0060 0.1214 0.0109 /ONO (2024) [31] 0.0048 0.0061 0.0052 0.1195 0.0076 0.0118 Transolver* (2024) [30] 0.0013 0.0053 0.0050 0.0920 0.0058 0.0081 SAOT* (2026) [32] 0.0009 0.0049 0.0061 0.0675 0.0049 0.0085 
+
+CATO (Ours) 0.0005 0.0041 0.0038 0.0319 0.0042 0.0070 Error Reduction ( ↓) 44.44% 16.33% 19.15% 52.74% 14.29% 13.58% Airfoil       
+
+> Error Maps
+> Ground Truth Tranolver SAOT Ours
+> NS
+> Error Maps
+> Ground Truth Tranolver SAOT Ours
+
+Figure 2: Visual comparison on Navier–Stokes and Airfoil benchmarks. Top: ground truth and predictions from Transolver, SAOT, and our method. Bottom: corresponding error maps 
+
+Scaling & efficiency. To further assess the scalability of CATO on the Darcy, we systematically evaluate its performance under variations in training sample size, spatial resolution, network depth, and embedding dimension. As shown in Figure 3, CATO consistently achieves lower relative L2
+
+error than SAOT across all data regimes, demonstrating superior data efficiency and robustness. Under resolution scaling, CATO maintains a clear performance advantage as the grid resolution increases and continues to benefit from finer discretizations, indicating strong generalization capability across spatial scales. In addition, CATO remains stable across changes in the number of layers and embedding dimensions, whereas SAOT consistently exhibits higher error under the same settings. These results demonstrate that CATO scales reliably across data, resolution, architecture depth, and feature dimension, highlighting its effectiveness as a robust and efficient neural operator for PDE. To further analyze the computational efficiency of the proposed model, we present its efficiency met-rics in Figure 4 (a) and (b) compared with Transolver and SAOT on the Darcy and Pipe benchmarks. Specifically, on the Darcy benchmark, our model achieves substantially lower computational cost, reducing the number of parameters by around 85% and GFLOPs by 69% compared to SAOT. On the Pipe benchmark, our model further demonstrates clear efficiency gains, achieving the lowest GFLOPs and shortest training time among all compared methods. In addition, the bubble size indicates that our model uses fewer parameters than both baselines, showing that it is more compact while remaining 8200 400 600 800 1000           
+
+> Number of Training Samples
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> Relative L2 (×10  3)
+> 85 2106 2141 2211 2
+> Resolution
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 4812 16 20
+> Number of Layers
+> 3
+> 4
+> 5
+> 6
+> 7
+> 64 96 128
+> Embedding Dimension
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> CATO (Ours) SAOT
+
+Figure 3: Model scaling performance on Darcy flow. We compare our method with SAOT across training sample size, resolution, layer count, and embedding dimension. 
+
+Figure 4: (a) and (b) show the efficiency on Darcy and Pipe in terms of training time per epoch, number of parameters, and GFLOPs. (c) and (d) show the physical grid and learned chart space computationally efficient. These results highlight the favorable efficiency of our model in terms of training time, computational cost, and parameter count across different PDE benchmarks. 
+
+Model analysis. Figure 4c–d illustrates the transformation from the physical grid to the learned chart space. The learned chart acts as a geometry-adaptive coordinate system that concentrates resolution along dynamically significant directions while flattening variations induced by the underlying physics. This transformation simplifies the operator representation, making it more structured and easier to approximate than in the original coordinate space. To quantify this effect, we analyze the learned chart via principal component analysis. We observe that 94 .0% of the variance is captured by the first principal component, while the second accounts for only 6.0% . This strong anisotropy indicates that the learned chart collapses the original two-dimensional domain onto a nearly one-dimensional manifold, aligned with the dominant physical direction (e.g., pressure gradient in Darcy flow). The participation-ratio effective dimension of 1.126 further confirms that the intrinsic dimensionality is significantly reduced. This directly supports our theoretical hypothesis: the learned chart induces a low-dimensional, approximately separable structure in which the solution operator becomes easier to approximate, explaining why axial attention is particularly effective in the chart space. Finally, we compare against a coordinate-normalization baseline that removes translation and scaling while preserving the original coordinate structure. Normalization yields an error of 0.0045 , whereas the learned chart achieves 0.0041 . This demonstrates that the gains arise from learning a geometry-adaptive representation, rather than simple rescaling, and validates that chart learning provides a complementary source of improvement beyond architectural design. 
+
+## 5 Conclusion 
+
+This paper presents CATO, a charted axial transformer operator for solving PDEs on general geome-tries. By learning a continuous geometry-adaptive chart, applying efficient axial attention in chart space, and incorporating local operators with mixed-form value and derivative supervision, CATO captures both long-range physical interactions and local differential structures. Experiments on six PDE benchmarks show that CATO consistently achieves state-of-the-art accuracy across regular grids, structured meshes, and point clouds, while theoretical analysis supports its ability to approximate low-complexity solution operators under a favorable chart. More broadly, CATO highlights the importance of learning coordinate representations for neural operator design. These results suggest 9that coordinate-aware attention may provide a scalable and physically meaningful framework for scientific machine learning. 
+
+Limitations. While CATO demonstrates strong performance on 2D PDE benchmarks, extending the approach to large-scale 3D and multiphysics settings remains future work. 
+
+## Acknowledgments 
+
+CWC is supported by the Swiss National Science Foundation (SNSF) under grant number 20HW-1_220785. It also acknowledge CMI, University of Cambridge. CBS acknowledges support from the Philip Leverhulme Prize, the Royal Society Wolfson Fellowship, the EPSRC advanced career fellow-ship EP/V029428/1, EPSRC grants EP/S026045/1 and EP/T003553/1, EP/N014588/1, EP/T017961/1, the Wellcome Innovator Awards 215733/Z/19/Z and 221633/Z/20/Z, CCMI and the Alan Turing Institute. AIAR gratefully acknowledges the support of the Yau Mathematical Sciences Center, Tsinghua University. This work is also supported by the Tsinghua University Dushi Program. 
+
+## References 
+
+[1] Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics ,378:686–707, 2019. 2 [2] Andrey Bryutkin, Jiahao Huang, Zhongying Deng, Guang Yang, Carola-Bibiane Schönlieb, and Angelica I Aviles-Rivero. Hamlet: Graph transformer neural operator for partial differential equations. In International Conference on Machine Learning , pages 4624–4641. PMLR, 2024. 2[3] Shuhao Cao. Choose a transformer: Fourier or galerkin. Advances in neural information processing systems , 34:24924–24940, 2021. 2, 3, 7, 8 [4] Chun-Wun Cheng, Bin Dong, Carola-Bibiane Schönlieb, and Angelica I Aviles-Rivero. Pde solvers should be local: Fast, stable rollouts with learned local stencils. arXiv preprint arXiv:2509.26186 , 2025. 2 [5] Chun-Wun Cheng, Jiahao Huang, Yi Zhang, Guang Yang, Carola-Bibiane Schönlieb, and Angelica I Aviles-Rivero. Mamba neural operator: Who wins? transformers vs. state-space models for pdes. Journal of Computational Physics , page 114567, 2025. 2 [6] Bruno Costa. Spectral methods for partial differential equations. CUBO, A Mathematical Journal , 6(4):1–32, 2004. 1 [7] Lokenath Debnath. Linear partial differential equations. In Nonlinear partial differential equations for scientists and engineers , pages 1–147. Springer, 2012. 1 [8] Gaurav Gupta, Xiongye Xiao, and Paul Bogdan. Multiwavelet-based operator learning for differential equations. Advances in neural information processing systems , 34:24048–24062, 2021. 2, 7, 8 [9] Sidaty El Hadramy, Nazim Haouchine, Michael Wehrli, and Philippe C Cattin. Noir: Neural operator mapping for implicit representations. arXiv preprint arXiv:2603.13118 , 2026. 2 [10] Zhongkai Hao, Zhengyi Wang, Hang Su, Chengyang Ying, Yinpeng Dong, Songming Liu, Ze Cheng, Jian Song, and Jun Zhu. Gnot: A general neural operator transformer for operator learning. In International Conference on Machine Learning , pages 12556–12569. PMLR, 2023. 2, 3, 7, 8 [11] Maximilian Herde, Bogdan Raoni´ c, Tobias Rohner, Roger Käppeli, Roberto Molinaro, Em-manuel De Bezenac, and Siddhartha Mishra. Poseidon: Efficient foundation models for pdes. 
+
+Advances in Neural Information Processing Systems , 37:72525–72624, 2024. 2 10 [12] Armeet Singh Jatyani, Jiayun Wang, Ryan Y Lin, Valentin Duruisseaux, and Anima Anandku-mar. Coarse-to-fine 3d mri reconstruction via 3d neural operators. In NeurIPS 2025 Workshop for Imageomics: Discovering Biological Knowledge from Images Using AI . 2 [13] Jussi Leinonen, Boris Bonev, Thorsten Kurth, and Yair Cohen. Modulated adaptive fourier neural operators for temporal interpolation of weather forecasts. arXiv preprint arXiv:2410.18904 ,2024. 2 [14] Zijie Li, Kazem Meidani, and Amir Barati Farimani. Transformer for partial differential equations’ operator learning. arXiv preprint arXiv:2205.13671 , 2022. 2, 3, 7, 8 [15] Zijie Li, Dule Shu, and Amir Barati Farimani. Scalable transformer for pde surrogate modeling. 
+
+Advances in Neural Information Processing Systems , 36:28010–28039, 2023. 3, 7, 8 [16] Zongyi Li, Daniel Zhengyu Huang, Burigede Liu, and Anima Anandkumar. Fourier neural operator with learned deformations for pdes on general geometries. Journal of Machine Learning Research , 24(388):1–26, 2023. 2, 7, 8, 21, 22 [17] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differen-tial equations. arXiv preprint arXiv:2010.08895 , 2020. 2, 7, 8, 22, 24 [18] Zongyi Li, Nikola Kovachki, Chris Choy, Boyi Li, Jean Kossaifi, Shourya Otta, Moham-mad Amin Nabian, Maximilian Stadler, Christian Hundt, Kamyar Azizzadenesheli, et al. Geometry-informed neural operator for large-scale 3d pdes. Advances in Neural Information Processing Systems , 36:35836–35854, 2023. 2 [19] Xinliang Liu, Bo Xu, Shuhao Cao, and Lei Zhang. Mitigating spectral bias for the multiscale operator learning. Journal of Computational Physics , 506:112944, 2024. 8 [20] Xinliang Liu, Bo Xu, and Lei Zhang. Ht-net: Hierarchical transformer based operator learning model for multiscale pdes. 2022. 2, 3, 7 [21] Lu Lu, Pengzhan Jin, and George Em Karniadakis. Deeponet: Learning nonlinear operators for identifying differential equations based on the universal approximation theorem of operators. 
+
+arXiv preprint arXiv:1910.03193 , 2019. 2 [22] Jaideep Pathak, Shashank Subramanian, Peter Harrington, Sanjeev Raja, Ashesh Chattopadhyay, Morteza Mardani, Thorsten Kurth, David Hall, Zongyi Li, Kamyar Azizzadenesheli, et al. Fourcastnet: A global data-driven high-resolution weather model using adaptive fourier neural operators. arXiv preprint arXiv:2202.11214 , 2022. 2 [23] Md Ashiqur Rahman, Zachary E Ross, and Kamyar Azizzadenesheli. U-no: U-shaped neural operators. arXiv preprint arXiv:2204.11127 , 2022. 2, 7, 8 [24] Pavel ˆSolín. Partial differential equations and the finite element method . John Wiley & Sons, 2005. 1 [25] Alasdair Tran, Alexander Mathews, Lexing Xie, and Cheng Soon Ong. Factorized fourier neural operators. arXiv preprint arXiv:2111.13802 , 2021. 7, 8 [26] Sifan Wang, Jacob H Seidman, Shyam Sankaran, Hanwen Wang, George J Pappas, and Paris Perdikaris. Cvit: Continuous vision transformer for operator learning. arXiv preprint arXiv:2405.13998 , 2024. 2 [27] Yuan Wang, Surya T Sathujoda, Krzysztof Sawicki, Kanishk Gandhi, Angelica I Aviles-Rivero, and Pavlos G Lagoudakis. A fourier neural operator approach for modelling exciton-polariton condensate systems. Communications Physics , 2025. 2 [28] Gege Wen, Zongyi Li, Kamyar Azizzadenesheli, Anima Anandkumar, and Sally M Benson. U-fno—an enhanced fourier neural operator-based deep-learning model for multiphase flow. 
+
+Advances in Water Resources , 163:104180, 2022. 2, 7, 8 11 [29] Haixu Wu, Tengge Hu, Huakun Luo, Jianmin Wang, and Mingsheng Long. Solving high-dimensional pdes with latent spectral models. arXiv preprint arXiv:2301.12664 , 2023. 2, 7, 8[30] Haixu Wu, Huakun Luo, Haowen Wang, Jianmin Wang, and Mingsheng Long. Transolver: A fast transformer solver for pdes on general geometries. arXiv preprint arXiv:2402.02366 , 2024. 2, 3, 7, 8, 24 [31] Zipeng Xiao, Zhongkai Hao, Bokai Lin, Zhijie Deng, and Hang Su. Improved operator learning by orthogonal attention. arXiv preprint arXiv:2310.12487 , 2023. 2, 3, 7, 8, 23 [32] Chenhong Zhou, Jie Chen, and Zaifeng Yang. Saot: An enhanced locality-aware spectral transformer for solving pdes. In Proceedings of the AAAI Conference on Artificial Intelligence ,volume 40, pages 28928–28936, 2026. 2, 3, 7, 8 [33] Hang Zhou, Yuezhou Ma, Haixu Wu, Haowen Wang, and Mingsheng Long. Unisolver: Pde-conditional transformers towards universal neural pde solvers. arXiv preprint arXiv:2405.17527 ,2024. 2 12 CATO: Charted Attention for Neural PDE Operators – Appendix 
+
+## Contents 
+
+A Table of Notation 13 B Further Theoretical Results 16 C Benchmarks Details 21 D Implementation details 23 
+
+D.1 Training Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23 D.2 Hyperparameters and architecture details . . . . . . . . . . . . . . . . . . . . . . . 23 D.3 Evaluation Metric . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 D.4 CATO-PC . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 
+
+E More visualization and ablation study 24 F Broad Impact 26 
+
+## A Table of Notation 
+
+Table 2: Notation used throughout the paper. 
+
+Symbol Description Shape / Domain Mesh, inputs, and outputs 
+
+Ω Physical domain on which the PDE is defined. Ω ⊂ R2
+
+H, W Number of mesh points along the two structured mesh directions. Positive integers 
+
+N Total number of spatial nodes. N = HW B Batch size. Positive integer 
+
+(i, j ) Two-dimensional mesh index. 1 ≤ i ≤ H, 1 ≤
+
+j ≤ Wn Flattened node index. 1 ≤ n ≤ N
+
+xij Physical coordinate of node (i, j ). We write 
+
+xij = ( xij , y ij ) to distinguish the vector coordinate from its scalar components. 
+
+R2
+
+X Collection of all mesh coordinates. {xij }i,j , or 
+
+RB×N ×2
+
+fij Optional node-wise auxiliary input features, such as coefficients, source terms, or field descriptors. 
+
+Rdf
+
+F Collection of auxiliary input features over all mesh nodes. 
+
+RB×N ×df
+
+df Dimension of the auxiliary input feature vector. Nonnegative integer 
+
+zin  
+
+> ij
+
+Input token at node (i, j ), formed by concatenating coordinate and auxiliary features. 
+
+[xij , fij ] if df > 0;otherwise xij 
+
+Continued on next page 
+
+13 Symbol Description Shape / Domain 
+
+u Ground-truth scalar solution field. RH×W or 
+
+RB×N ×1
+
+ˆu Predicted scalar solution field. RH×W or 
+
+RB×N ×1
+
+ˆq Auxiliary vector output used as a gradient-like flux proxy. 
+
+RB×N ×2
+
+∇u Spatial gradient of the target scalar field. RB×N ×2
+
+∇ˆu Reconstructed spatial gradient of the predicted scalar field. 
+
+RB×N ×2
+
+Gθ Learned neural solution operator mapping mesh coordinates and optional features to the solution field. 
+
+(X, F ) 7 → ˆu
+
+CATO architecture 
+
+Φpre Input lifting network that maps each input token to the latent feature space. MLP 
+
+C Latent embedding dimension. Positive integer 
+
+H(ℓ) Hidden representation after the ℓ-th CATO block. RB×H×W ×C
+
+h(ℓ) 
+
+> ij
+
+Hidden feature vector at node (i, j ) after layer ℓ. RC
+
+L Number of stacked CATO blocks. Positive integer 
+
+LN( ·) Layer normalization. –
+
+MLP( ·) Pointwise feed-forward network used inside each block. –
+
+DWConv Depthwise convolution used in the local operator branch. 
+
+k × k convolution 
+
+PWConv Pointwise convolution used in the local operator branch. 
+
+1 × 1 convolution 
+
+wu, b u Linear readout parameters for the scalar prediction head. 
+
+wu ∈ RC
+
+Wq , bq Linear readout parameters for the auxiliary flux head. 
+
+Wq ∈ R2×C
+
+Learned chart and positional encoding 
+
+Φchart Learned continuous chart mapping physical coordinates to latent chart coordinates. 
+
+R2 → [−1, 1] 2
+
+ζij Learned chart coordinate of node (i, j ). (ξij , η ij ) ∈
+
+[−1, 1] 2
+
+ξij First chart coordinate, used for row-wise axial attention. 
+
+[−1, 1] 
+
+ηij Second chart coordinate, used for column-wise axial attention. 
+
+[−1, 1] 
+
+K Compact chart domain containing all learned chart coordinates. 
+
+K ⊂ [−1, 1] 2
+
+V1, V 2, c 1, c 2 Parameters of the chart MLP. –
+
+θ RoPE base parameter. θ > 0
+
+ωr Angular frequency for the r-th RoPE channel pair. ωr = θ−2r/d h
+
+R(p) Continuous rotary positional encoding matrix evaluated at position p.Block-diagonal rotation matrix 
+
+p Continuous positional input to RoPE; in CATO this is a chart coordinate. 
+
+p = ξij or p = ηij 
+
+Charted axial attention 
+
+M Number of attention heads. Positive integer 
+
+dh Per-head dimension. dh = C/M WQ, W K , W V Query, key, and value projection matrices. –
+
+Continued on next page 
+
+14 Symbol Description Shape / Domain 
+
+qij , kij , vij Query, key, and value vectors at node (i, j ). RC before head splitting 
+
+q(m) 
+
+> ij
+
+, k(m) 
+
+> ij
+
+, v(m) 
+
+> ij
+
+Query, key, and value vectors for attention head m. Rdh
+
+˜q(m) 
+
+> ij
+
+, ˜k(m) 
+
+> ij
+
+RoPE-rotated query and key vectors. Rdh
+
+α(m) 
+
+> i,j,t
+
+Row-attention weight from node (i, j ) to node (i, t )
+
+in head m.Softmax-normalized 
+
+β(m) 
+
+> i,j,s
+
+Column-attention weight from node (i, j ) to node 
+
+(s, j ) in head m.Softmax-normalized 
+
+Attn row (h; ξ) Row-wise axial attention using the chart coordinate 
+
+ξ.–
+
+Attn col (h; η) Column-wise axial attention using the chart coordinate η.–
+
+A(h, ζ) Charted axial attention output, defined as the sum of row and column attention. 
+
+Attn row (h; ξ) + Attn col (h; η)
+
+W row  
+
+> O
+
+, W col  
+
+> O
+
+Output projections for row and column attention. –
+
+Physical loss and discrete gradients 
+
+∆iuij Centered finite difference of u along the first mesh direction. 
+
+ui+1 ,j − ui−1,j 
+
+∆j uij Centered finite difference of u along the second mesh direction. 
+
+ui,j +1 − ui,j −1
+
+∆ixij Centered coordinate difference along the first mesh direction. 
+
+xi+1 ,j − xi−1,j 
+
+∆j xij Centered coordinate difference along the second mesh direction. 
+
+xi,j +1 − xi,j −1
+
+a, b, c, d Components of the local coordinate-difference vectors, with ∆ixij = ( a, b ) and ∆j xij = ( c, d ).Scalars 
+
+ux, u y Reconstructed physical gradient components at node 
+
+(i, j ).Scalars 
+
+ad − bc Determinant of the local coordinate-difference matrix. Nonzero determinant ensures a locally nonsingular gradient reconstruction. Scalar 
+
+Grad( u, X ) Mesh-consistent gradient reconstruction operator applied to scalar field u on mesh X.
+
+RB×N ×2
+
+Lval Relative L2 value loss between ˆu and u. Scalar 
+
+Lgrad Gradient-matching loss between ∇ˆu and ∇u. Scalar 
+
+Lflux Auxiliary flux loss between ˆq and ∇u. Scalar 
+
+Lcons Consistency loss between ˆq and ∇ˆu. Scalar 
+
+λg , λ f , λ c Weights for the gradient, flux, and consistency losses. Nonnegative scalars 
+
+L Total training loss. Lval + λg Lgrad +
+
+λf Lflux + λcLcons 
+
+ε Small numerical constant used for stable relative-error computation. Positive scalar 
+
+Theory 
+
+f Scalar input field used in the theoretical analysis. RH×W
+
+BM L2-bounded input ball used in the approximation analysis. 
+
+{f ∈ RH×W :
+
+∥f ∥2 ≤ M }
+
+M Radius of the input ball BM . Positive scalar 
+
+eGΦ Target operator expressed with respect to a chart. BM → RH×W
+
+Tζ Finite-rank charted axial operator associated with chart ζ.
+
+BM → RH×W
+
+R Residual operator in the charted axial low-rank decomposition. 
+
+eGΦ = Tζ + R
+
+Continued on next page 
+
+15 Symbol Description Shape / Domain 
+
+Rξ , R η Row-wise and column-wise axial ranks; equivalently, the number of row and column components in the theoretical decomposition. Positive integers 
+
+ar , b r Continuous coefficient functions used in the row-wise part of Tζ .
+
+K → R
+
+cs, d s Continuous coefficient functions used in the column-wise part of Tζ .
+
+K → R
+
+ℓ Continuous coefficient function for the local pointwise term in Tζ .
+
+K → R
+
+mr (i; f ) Row-wise averaged feature in the theoretical construction. 
+
+> 1
+> W
+
+PWt=1 br (ζit )fit 
+
+ns(j; f ) Column-wise averaged feature in the theoretical construction. 
+
+> 1
+> H
+
+PHp=1 ds(ζpj )fpj 
+
+εrk Error of the charted axial low-rank approximation. Nonnegative scalar 
+
+εnn Neural approximation error of the one-block CATO realization. Positive scalar 
+
+NΘ Neural operator realized by a one-block CATO core followed by a linear readout. 
+
+BM → RH×W
+
+ˆζij Perturbed or learned approximation of the ideal chart coordinate. 
+
+K ⊂ [−1, 1] 2
+
+δ Maximum chart perturbation size. max i,j ∥ˆζij − ζij ∥
+
+Ar , B r , C s, D s, L 0 Uniform bounds on the coefficient functions 
+
+ar , b r , c s, d s, ℓ , respectively. Nonnegative scalars 
+
+Lar , L br , L cs , L ds , L ℓ Lipschitz constants of the coefficient functions 
+
+ar , b r , c s, d s, ℓ , respectively. Nonnegative scalars 
+
+Cchart Stability constant controlling the effect of chart perturbations on the axial operator. 
+
+PRξ
+
+> r=1
+
+(Lar Br +
+
+Ar Lbr ) + 
+
+PRη
+
+> s=1
+
+(Lcs Ds +
+
+CsLds ) + Lℓ
+
+## B Further Theoretical Results 
+
+In this section, we will provide the complete proof of Lemma 1, Lemma 2, and Theorem 1. 
+
+Lemma B.1 (Neural realization of charted axial finite-rank operators) . Let Tζ : BM → RH×W be given by 
+
+(Tζ f )ij =
+
+> Rξ
+
+X
+
+> r=1
+
+ar (ζij )
+
+ 1
+
+W
+
+> W
+
+X
+
+> t=1
+
+br (ζit )fit 
+
+
+
++
+
+> Rη
+
+X
+
+> s=1
+
+cs(ζij )
+
+ 1
+
+H
+
+> H
+
+X
+
+> p=1
+
+ds(ζpj )fpj 
+
+
+
++ ℓ(ζij )fij , (2) 
+
+where ar , b r , c s, d s, ℓ are continuous on K. Then for every εnn > 0, there exist a hidden width C
+
+and parameters of a one-block core CATO with Rξ row heads and Rη column heads such that 
+
+sup  
+
+> f∈BM
+
+∥N Θ(f, X ) − T ζ f ∥2 ≤ εnn . (3) 
+
+Proof. We first define the row part and column part of the operator: 
+
+mr (i; f ) := 1
+
+W
+
+> W
+
+X
+
+> t=1
+
+br (ζit )fit , ns(j; f ) := 1
+
+H
+
+> H
+
+X
+
+> p=1
+
+ds(ζpj )fpj , (4) Then we can write the output of Tζ as follows: 
+
+(Tζ f )ij =
+
+> Rξ
+
+X
+
+> r=1
+
+ar (ζij ) mr (i; f ) + 
+
+> Rη
+
+X
+
+> s=1
+
+cs(ζij ) ns(j; f ) + ℓ(ζij )fij . (5) 16 We can choose any compact set X ⊂ R2 that containing all mesh {xij }. Since Φchart and 
+
+ar , b r , c s, d s, ℓ are continuous, and we know that the composition of two functions is also con-tinuous, then we know that the following functions on X × [−M, M ] are also continuous: 
+
+g(P ) 
+
+> r
+
+(x, z ) := ar (Φ chart (x)) , g(U ) 
+
+> r
+
+(x, z ) := br (Φ chart (x)) z, g(Q) 
+
+> s
+
+(x, z ) := cs(Φ chart (x)) , g(V ) 
+
+> s
+
+(x, z ) := ds(Φ chart (x)) z, (6) 
+
+g(Λ) (x, z ) := ℓ(Φ chart (x)) , g(Z)(x, z ) := z. 
+
+Furthermore, let 
+
+Ar := ∥ar ∥∞, Br := ∥br ∥∞, Cs := ∥cs∥∞, Ds := ∥ds∥∞, L0 := ∥ℓ∥∞. (7) Define the compact set 
+
+D := 
+
+> Rξ
+
+Y
+
+> r=1
+
+[−Ar − 1, A r + 1] ×
+
+> Rξ
+
+Y
+
+> r=1
+
+[−Br M − 1, B r M + 1] ×
+
+> Rη
+
+Y
+
+> s=1
+
+[−Cs − 1, C s + 1] 
+
+×
+
+> Rη
+
+Y
+
+> s=1
+
+[−DsM − 1, D sM + 1] × [−L0 − 1, L 0 + 1] × [−M − 1, M + 1] .
+
+(8) On compact set D, we define the following function: 
+
+F  (pr )Rξ
+
+> r=1
+
+, (ur )Rξ
+
+> r=1
+
+, (qs)Rη
+
+> s=1
+
+, (vs)Rη
+
+> s=1
+
+, λ, z  := 
+
+> Rξ
+
+X
+
+> r=1
+
+pr ur +
+
+> Rη
+
+X
+
+> s=1
+
+qsvs + λz. (9) Since F is continuous on the compact set D, it is uniformly continuous. Hence there exists τ ∈ (0 , 1) 
+
+such that whenever y, ey ∈ D satisfy 
+
+∥y − ey∥∞ ≤ τ, (10) we have 
+
+|F (y) − F (ey)| ≤ εnn 
+
+2√N . (11) Assume that there exists a hidden width C large enough so that distinct scalar channels can be reserved for 
+
+{Pr , U r , M r }Rξ
+
+> r=1
+
+, {Qs, V s, N s}Rη
+
+> s=1
+
+, Λ, Z, O. (12) By universal approximation for pointwise MLPs on compact sets, choose Φpre so that for every (i, j )
+
+and every f ∈ BM , the designated channels of H(0)  
+
+> ij
+
+= Φ pre (xij , f ij ) satisfy 
+
+|Pr,ij − ar (ζij )| ≤ τ, |Ur,ij − br (ζij )fij | ≤ τ, (13) 
+
+|Qs,ij − cs(ζij )| ≤ τ, |Vs,ij − ds(ζij )fij | ≤ τ, (14) 
+
+|Λij − ℓ(ζij )| ≤ τ, |Zij − fij | ≤ τ, (15) while the summary and output channels are initialized exactly to zero: 
+
+Mr,ij = 0 , Ns,ij = 0 , Oij = 0 . (16) We next construct the axial attention block. For each of the Rξ row heads, set the query and key projections to zero. After continuous RoPE, the rotated queries and keys remain zero, so all row-attention logits are zero and the softmax weights are uniform: 
+
+α(r) 
+
+> i,j,t
+
+= 1
+
+W for all i, j, t. (17) Choose the value projection of row head r to select the designated scalar channel Ur and set all other value coordinates of that head to zero. Then the scalar output of row head r at node (i, j ) is 
+
+bmr (i; f ) = 1
+
+W
+
+> W
+
+X
+
+> t=1
+
+Ur,it . (18) 17 Hence 
+
+bmr (i; f ) − mr (i; f ) = 1
+
+W
+
+> W
+
+X
+
+> t=1
+
+
+
+Ur,it − br (ζit )fit 
+
+
+
+≤ 1
+
+W
+
+> W
+
+X
+
+> t=1
+
+τ = τ. (19) Choose the row output projection so that the output of row head r is written into the reserved summary channel Mr and all other row-output channels are zero. Similarly, for each of the Rη column heads, set the query and key projections to zero, so that the column-attention weights are uniform: 
+
+β(s) 
+
+> i,j,p
+
+= 1
+
+H for all i, j, p. (20) Choose the value projection of column head s to select channel Vs, and let the column output projection write the result into the reserved summary channel Ns. Then the scalar output of column head s at node (i, j ) is 
+
+bns(j; f ) = 1
+
+H
+
+> H
+
+X
+
+> p=1
+
+Vs,pj , (21) and therefore 
+
+bns(j; f ) − ns(j; f ) = 1
+
+H
+
+> H
+
+X
+
+> p=1
+
+
+
+Vs,pj − ds(ζpj )fpj 
+
+
+
+≤ τ. (22) By construction, the axial block writes only into the summary channels Mr , N s. Therefore, after the residual update 
+
+eH = H(0) + A(H(0) , ζ ), (23) the channels Pr , Q s, Λ, Z remain unchanged, the output channel O remains zero, and the summary channels satisfy 
+
+fMr,ij = bmr (i; f ), eNs,ij = bns(j; f ). (24) For each node (i, j ), define the exact tuple 
+
+yij (f ) := 
+
+
+
+(ar (ζij )) Rξ
+
+> r=1
+
+, (mr (i; f )) Rξ
+
+> r=1
+
+, (cs(ζij )) Rη
+
+> s=1
+
+, (ns(j; f )) Rη
+
+> s=1
+
+, ℓ (ζij ), f ij 
+
+
+
+, (25) and the approximate tuple 
+
+byij (f ) := 
+
+
+
+( ePr,ij )Rξ
+
+> r=1
+
+, ( fMr,ij )Rξ
+
+> r=1
+
+, ( eQs,ij )Rη
+
+> s=1
+
+, ( eNs,ij )Rη
+
+> s=1
+
+, eΛij , eZij 
+
+
+
+. (26) From the construction above, every component differs by at most τ , hence 
+
+∥byij (f ) − yij (f )∥∞ ≤ τ. (27) Therefore, by the choice of τ ,
+
+|F (byij (f )) − F (yij (f )) | ≤ εnn 
+
+2√N . (28) Since 
+
+F (yij (f )) = ( Tζ f )ij , (29) it remains to approximate F pointwise from the channels of eH.By universal approximation on compact sets, choose the pointwise block MLP so that its O-channel output satisfies 
+
+ΨO ( eHij ) − F (byij (f )) ≤ εnn 
+
+2√N (30) uniformly over all admissible eHij , while all other MLP output channels are identically zero. Since the O-channel of eH is zero, the residual update 
+
+H(1) = eH + MLP( eH) (31) 18 yields 
+
+|H(1)  
+
+> ij,O
+
+− (Tζ f )ij | ≤ εnn 
+
+√N . (32) Finally, choose the readout to select the O-channel: 
+
+wout = eO , bout = 0 . (33) Then, for every f ∈ BM ,
+
+∥N Θ(f, X ) − T ζ f ∥22 =
+
+> H
+
+X
+
+> i=1
+> W
+
+X
+
+> j=1
+
+|H(1)  
+
+> ij,O
+
+− (Tζ f )ij |2 ≤ N · ε2nn 
+
+N = ε2nn . (34) Thus 
+
+sup  
+
+> f∈BM
+
+∥N Θ(f, X ) − T ζ f ∥2 ≤ εnn . (35) 
+
+Lemma B.2 (Lipschitz stability with respect to chart perturbations) . Let Tζ be as in Lemma B.1, and assume in addition that the coefficient functions are bounded and Lipschitz: 
+
+∥ar ∥∞ ≤ Ar , ∥br ∥∞ ≤ Br , ∥cs∥∞ ≤ Cs, ∥ds∥∞ ≤ Ds, ∥ℓ∥∞ ≤ L0, (36) 
+
+and 
+
+Lip( ar ) ≤ Lar , Lip( br ) ≤ Lbr , Lip( cs) ≤ Lcs , Lip( ds) ≤ Lds , Lip( ℓ) ≤ Lℓ. (37) 
+
+Let another chart bζij ∈ K satisfy 
+
+max  
+
+> i,j
+
+∥bζij − ζij ∥ ≤ δ. (38) 
+
+Define Tbζ by replacing ζ with bζ in the formula for Tζ . Then, for every f ∈ BM ,
+
+∥T bζ f − T ζ f ∥2 ≤ Cchart δ∥f ∥2, (39) 
+
+where 
+
+Cchart =
+
+> Rξ
+
+X
+
+> r=1
+
+(Lar Br + Ar Lbr ) + 
+
+> Rη
+
+X
+
+> s=1
+
+(Lcs Ds + CsLds ) + Lℓ. (40) 
+
+In particular, 
+
+sup  
+
+> f∈BM
+
+∥T bζ f − T ζ f ∥2 ≤ Cchart M δ. (41) 
+
+Proof. For each r = 1 , . . . , R ξ , define 
+
+(T ζr f )ij = ar (ζij )
+
+ 1
+
+W
+
+> W
+
+X
+
+> t=1
+
+br (ζit )fit 
+
+
+
+, (T bζr f )ij = ar (bζij )
+
+ 1
+
+W
+
+> W
+
+X
+
+> t=1
+
+br (bζit )fit 
+
+
+
+. (42) Also define 
+
+mr (i; f ) := 1
+
+W
+
+> W
+
+X
+
+> t=1
+
+br (ζit )fit , bmr (i; f ) := 1
+
+W
+
+> W
+
+X
+
+> t=1
+
+br (bζit )fit . (43) Then 
+
+(T bζr f − T ζr f )ij =  ar (bζij ) − ar (ζij ) bmr (i; f ) + ar (ζij )  bmr (i; f ) − mr (i; f ). (44) Since ar is Lipschitz and br is bounded, 
+
+|ar (bζij ) − ar (ζij )| ≤ Lar δ, | bmr (i; f )| ≤ Br
+
+W
+
+> W
+
+X
+
+> t=1
+
+|fit | ≤ Br
+
+√W ∥fi, :∥2. (45) Since br is Lipschitz, 
+
+|br (bζit ) − br (ζit )| ≤ Lbr δ, (46) 19 and therefore 
+
+| bmr (i; f ) − mr (i; f )| = 1
+
+W
+
+> W
+
+X
+
+> t=1
+
+ br (bζit ) − br (ζit )fit 
+
+≤ Lbr δW
+
+> W
+
+X
+
+> t=1
+
+|fit |≤ Lbr δ
+
+√W ∥fi, :∥2.
+
+(47) Hence 
+
+|(T bζr f − T ζr f )ij | ≤ δ
+
+√W (Lar Br + Ar Lbr )∥fi, :∥2. (48) Squaring and summing over j and then i gives 
+
+∥T bζr f − T ζr f ∥2 ≤ δ(Lar Br + Ar Lbr )∥f ∥2. (49) Similarly, for each s = 1 , . . . , R η , define 
+
+(Sζs f )ij = cs(ζij )
+
+ 1
+
+H
+
+> H
+
+X
+
+> p=1
+
+ds(ζpj )fpj 
+
+
+
+, (Sbζs f )ij = cs(bζij )
+
+ 1
+
+H
+
+> H
+
+X
+
+> p=1
+
+ds(bζpj )fpj 
+
+
+
+. (50) Repeating the same argument along columns yields 
+
+∥Sbζs f − Sζs f ∥2 ≤ δ(Lcs Ds + CsLds )∥f ∥2. (51) For the local term, define 
+
+(Lζ f )ij := ℓ(ζij )fij , (Lbζ f )ij := ℓ(bζij )fij . (52) Then 
+
+|(Lbζ f − Lζ f )ij | = |ℓ(bζij ) − ℓ(ζij )| | fij | ≤ Lℓδ|fij |, (53) and thus 
+
+∥Lbζ f − Lζ f ∥2 ≤ Lℓδ∥f ∥2. (54) Since 
+
+Tζ =
+
+> Rξ
+
+X
+
+> r=1
+
+T ζr +
+
+> Rη
+
+X
+
+> s=1
+
+Sζs + Lζ , Tbζ =
+
+> Rξ
+
+X
+
+> r=1
+
+T bζr +
+
+> Rη
+
+X
+
+> s=1
+
+Sbζs + Lbζ , (55) the triangle inequality gives 
+
+∥T bζ f − T ζ f ∥2 ≤
+
+> Rξ
+
+X
+
+> r=1
+
+∥T bζr f − T ζr f ∥2 +
+
+> Rη
+
+X
+
+> s=1
+
+∥Sbζs f − Sζs f ∥2 + ∥Lbζ f − Lζ f ∥2. (56) Using the bounds above yields 
+
+∥T bζ f − T ζ f ∥2 ≤ Cchart δ∥f ∥2. (57) If f ∈ BM , then ∥f ∥2 ≤ M , so 
+
+∥T bζ f − T ζ f ∥2 ≤ Cchart M δ. (58) Taking the supremum over f ∈ BM proves the last claim. 
+
+Theorem B.3 (Approximation of charted axial low-rank operators by one-block CATO) . Let eGΦ :
+
+BM → RH×W be (Rξ , R η , ε rk )-charted axial low-rank as defines in Definition 3.1. Then for every 
+
+εnn > 0, there exists a hidden width C and parameters of a one-block core CATO with Rξ row heads and Rη column heads such that 
+
+sup  
+
+> f∈BM
+
+∥N Θ(f, X ) − eGΦf ∥2 ≤ εrk M + εnn .
+
+20 Moreover, if the hypotheses of Lemma B.2 hold and 
+
+max  
+
+> i,j
+
+∥bζij − ζij ∥ ≤ δ, 
+
+then one can choose a one-block core CATO of the same axial size such that 
+
+sup  
+
+> f∈BM
+
+∥N Θ(f, X ) − eGΦf ∥2 ≤ εrk M + Cchart M δ + εnn .
+
+Proof. By Definition 1, 
+
+eGΦ = Tζ + R, ∥R f ∥2 ≤ εrk ∥f ∥2 for all f ∈ BM . (59) For the first claim, Lemma B.1 implies that for every εnn > 0 there exists a hidden width C and parameters of a one-block core CATO such that 
+
+sup  
+
+> f∈BM
+
+∥N Θ(f, X ) − T ζ f ∥2 ≤ εnn . (60) Therefore, for every f ∈ BM ,
+
+∥N Θ(f, X ) − eGΦf ∥2 ≤ ∥N Θ(f, X ) − T ζ f ∥2 + ∥R f ∥2
+
+≤ εnn + εrk ∥f ∥2
+
+≤ εnn + εrk M. 
+
+(61) Taking the supremum over f ∈ BM gives 
+
+sup  
+
+> f∈BM
+
+∥N Θ(f, X ) − eGΦf ∥2 ≤ εrk M + εnn . (62) For the second claim, let Tbζ be obtained from Tζ by replacing ζ with bζ. Applying Lemma B.1 to Tbζ
+
+yields a one-block core CATO such that 
+
+sup  
+
+> f∈BM
+
+∥N Θ(f, X ) − T bζ f ∥2 ≤ εnn . (63) Then for every f ∈ BM ,
+
+∥N Θ(f, X ) − eGΦf ∥2 ≤ ∥N Θ(f, X ) − T bζ f ∥2 + ∥T bζ f − T ζ f ∥2 + ∥R f ∥2. (64) By Lemma B.2, 
+
+∥T bζ f − T ζ f ∥2 ≤ Cchart δ∥f ∥2 ≤ Cchart M δ, (65) and by Definition 1, 
+
+∥R f ∥2 ≤ εrk ∥f ∥2 ≤ εrk M. (66) Therefore 
+
+∥N Θ(f, X ) − eGΦf ∥2 ≤ εnn + Cchart M δ + εrk M. 
+
+Taking the supremum over f ∈ BM yields 
+
+sup  
+
+> f∈BM
+
+∥N Θ(f, X ) − eGΦf ∥2 ≤ εrk M + Cchart M δ + εnn .
+
+This completes the proof. 
+
+## C Benchmarks Details 
+
+In this section, we provide a summary of the dataset and the details of each dataset. In Table 3, we provide the details of different types of PDEs. Then we provide the formulation of different PDEs. 
+
+Plasticity This benchmark evaluates a model’s ability to predict the future deformation of a plastic material subjected to impact from an arbitrarily shaped die applied from above [ 16 ]. In each case, the input is the die geometry, discretized on a structured mesh and represented as a tensor of size 
+
+101 × 31 . The target output is the deformation field at each mesh point over the next 20 time steps. This output is represented as a tensor of size 20 ×101 ×31 ×4, where the final dimension corresponds to deformation components in four directions. The dataset contains 900 samples with distinct die shapes for training and 80 additional samples for testing. 21 Table 3: Benchmark datasets used in the experiments. Here, N denotes the spatial resolution and Nt
+
+denotes the temporal dimension. 
+
+Type Benchmark Geometry Task: input → out-put 
+
+N Nt Train/Test 
+
+Regular grid Darcy Grid Diffusion coef-ficient → fluid pressure 
+
+85 × 85 – 1000 /200 
+
+NS Grid Past velocity → fu-ture velocity 
+
+64 × 64 10 1000 /200 
+
+Structured mesh Airfoil Mesh Mesh points →
+
+Mach number 
+
+221 × 51 – 1000 /200 
+
+Pipe Mesh Mesh points → fluid velocity 
+
+129 × 129 – 1000 /200 
+
+Plasticity Mesh Mesh points →
+
+mesh deformation 
+
+101 × 31 20 900 /80 
+
+Point cloud Elasticity Cloud Structure → inner stress 
+
+972 – 1000 /200 
+
+Airfoil This benchmark focuses on predicting the Mach number field induced by different airfoil geometries, following [16]. Each airfoil shape is represented on a structured mesh of size 221 × 51 ,and the target output is the Mach number evaluated at every mesh point. All airfoil geometries are generated by deforming the baseline NACA-0012 profile provided by the National Advisory Committee for Aeronautics. In total, 1,000 airfoil designs are used for training, while an additional 200 samples are reserved for testing. 
+
+Pipe This benchmark considers the prediction of the horizontal fluid velocity field from the geometry of a pipe, following [ 16 ]. For each sample, the pipe domain is represented using a structured mesh of size 129 × 129 . The input is therefore a tensor of size 129 × 129 × 2, where the last dimension stores the two-dimensional coordinates of each mesh point. The target output is the horizontal velocity value at every mesh location, represented as a tensor of size 129 × 129 × 1. The dataset contains 1,000 pipe geometries for training and 200 additional geometries for testing, generated by varying the pipe centerline. 
+
+Navier-Stokes This benchmark studies the prediction of incompressible viscous fluid dynamics on a unit torus, following [ 17 ]. The fluid is assumed to have constant density, with the viscosity fixed at 
+
+10 −5. The velocity field is discretized on a regular grid of size 64 × 64 . Given the flow observations from the previous 10 time steps, the task is to forecast the fluid evolution over the next 10 time steps. The dataset consists of 1,000 fluid trajectories with different initial conditions for training, together with 200 additional trajectories for testing. 
+
+Darcy This benchmark evaluates the modeling of fluid flow through porous media, following [ 17 ]. The original simulation domain is discretized on a regular grid of size 421 × 421 , which is downsampled to 85 × 85 for the main experiments. For each sample, the model takes the porous medium structure as input and predicts the corresponding pressure field over the grid. The dataset includes 1,000 training samples with varying medium structures, and an additional 200 for testing. 
+
+Elasticity This benchmark investigates the prediction of internal stress fields in elastic materials from their underlying structural geometry, following [ 16 ]. Each material sample is represented by 972 discretized points. The model input is a tensor of size 972 × 2, where each row encodes the two-dimensional coordinates of a point. The target output is the corresponding stress value at each point, represented as a tensor of size 972 × 1. The dataset contains 1,000 material structures for training and 200 additional structures for testing. 22 Table 4: Training configurations used by all baselines. Training settings follow previous work without extra tuning. For Darcy, an additional spatial gradient regularization term lgdl is adopted following ONO.                                                     
+
+> Benchmark Loss Epochs LR Optimizer Batch Scheduler
+> Darcy l2+ 0 .1lgdl 500 5×10 −4AdamW 4OneCycleLR Navier–Stokes Rel. L2500 5×10 −4AdamW 2OneCycleLR Elasticity Rel. L2500 10 −3AdamW 1OneCycleLR Plasticity Rel. L2500 10 −3AdamW 8OneCycleLR Airfoil Rel. L2500 10 −3AdamW 4OneCycleLR Pipe Rel. L2500 10 −3AdamW 4OneCycleLR
+
+Table 5: Architecture configurations used by our method across benchmarks.                                           
+
+> Benchmark Layers Embed. Dim Heads Grad weight Flux weight Consist weight
+> Darcy 896 80.2 0.2 0.05 Navier–Stokes 8128 8000Elasticity 8144 8000Plasticity 8160 8000Airfoil 8128 80.2 0.2 0.05 Pipe 896 80.2 0.2 0.05
+
+## D Implementation details 
+
+In this section, we provide an overview of the experiment setup, the hyperparameters of our method, the baselines, and the evaluation metrics. 
+
+D.1 Training Details 
+
+Table 3 provides a detailed summary of the data geometry, task, and numbers of training and testing samples. Table 4 provides the training configuration used for all baselines. It summarizes the training configurations used for different methods across the benchmark datasets. To ensure a fair comparison, all baselines and benchmarks are trained under consistent settings, with our method using fewer or comparable parameters than transformer-based baselines. Across all datasets, training employs a relative ℓ2 loss. For the Darcy benchmark, following ONO [ 31 ], an additional spatial gradient regularization term ℓgdl is included, yielding the objective 
+
+ℓ2 + 0 .1 ℓgdl . (67) All models are trained for 500 epochs using the AdamW optimizer, with the learning rate scheduled using OneCycleLR. 
+
+D.2 Hyperparameters and architecture details 
+
+As shown in Table 5, we set the number of layers and heads to 8, consistent with Transolver and SAOT. In addition, we apply the physical loss to the Darcy, Airfoil, and Pipe models, which are time-independent PDEs. Grad weight is used to weight the gradient-matching loss between the approximated gradient and the true gradient. A larger value encourages the predicted solution to have more accurate spatial derivatives. Flux weight means the weight of the flux loss between the predicted flux and the true gradient. A larger value encourages the predicted flux field to directly match the target physical gradient. Consistent weight means the consistency loss between the predicted flux and the predicted gradient. A larger value encourages the predicted flux to be consistent with the predicted solution itself. 23 D.3 Evaluation Metric 
+
+To evaluate predictive accuracy on standard partial differential equation (PDE) benchmarks, we adopt the mean relative ℓ2 error [ 17 ] as the primary performance measure. This metric is widely used for assessing the discrepancy between predicted and reference physical fields and is reported consistently across all experiments. Formally, the evaluation loss is defined as 
+
+L = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+Gθ (ai) − G †(ai) 2
+
+∥G †(ai)∥2
+
+, (68) where N denotes the number of test samples, Gθ (ai) is the model prediction corresponding to the input ai, and G†(ai) represents the associated ground-truth solution. The normalization by G†(ai) 2
+
+accounts for differences in the magnitude and resolution scale of the target fields, thereby enabling a fair and comparable assessment across heterogeneous PDE benchmarks. 
+
+D.4 CATO-PC 
+
+For point-cloud inputs, the row–column factorization required by charted axial attention is unavailable. We therefore introduce CATO-PC, an irregular-mesh variant that retains the learned chart ζi =Φchart (xi) but replaces structured axial attention with a combination of irregular physics attention from [ 30 ] and local chart-conditioned message passing. Given an unordered point set X = {xi}Ni=1 ,optional features F = {fi}Ni=1 , and chart coordinates ζi ∈ [−1, 1] dζ , the input token is lifted as 
+
+h(0)  
+
+> i
+
+= Φ pre 
+
+ [ρ(xi), f i, ζ i] + Φ cb (ζi),
+
+where fi is omitted when no auxiliary feature is provided. A K-nearest-neighbor graph is constructed in the physical coordinate space. For each edge (i, j ), we define 
+
+gij = [ xj − xi, ∥xj − xi∥2, ζ j − ζi],
+
+and compute local messages 
+
+mij = σ Wc¯hi + W∆(¯hj − ¯hi) + Φ geo (gij ) , ¯hi = LN( hi).
+
+The local operator aggregates messages by both soft attention and max pooling: 
+
+Lpc (H, X, ζ )i = Φ out 
+
+ X 
+
+> j∈N K(i)
+
+αij mij , max   
+
+> j∈N K(i)
+
+mij 
+
+ ,
+
+where 
+
+αij = softmax j∈N K (i)
+
+ w⊤ 
+
+> s
+
+mij 
+
+√C
+
+
+
+.
+
+Each block then updates the hidden state by 
+
+H(ℓ, 1) = H(ℓ) + γattn ⊙ A irr 
+
+ LN( H(ℓ)),H(ℓ, 2) = H(ℓ, 1) + γloc ⊙ L pc 
+
+ LN( H(ℓ, 1) ), X, ζ ,H(ℓ+1) = H(ℓ, 2) + γmlp ⊙ MLP  LN( H(ℓ, 2) ).
+
+The final representation is mapped to the solution prediction ˆui = Φ u(¯hi), and optionally to an auxiliary flux-like field ˆqi = Φ q (¯hi). In this way, CATO-PC preserves the learned chart mechanism of CATO while adding topology-aware local interactions suitable for irregular meshes and unordered point clouds. 
+
+## E More visualization and ablation study 
+
+In this section, we provide more ablation studies and visualization. 24 200 400 600 800 1000         
+
+> Number of Training Samples
+> 4
+> 6
+> 8
+> 10
+> 12
+> Relative L2 (×10  3)
+> 4812 16 20
+> Number of Layers
+> 5
+> 10
+> 15
+> 20
+> 32 64 96 128
+> Embedding Dimension
+> 4
+> 6
+> 8
+> CATO (Ours) Trans
+
+Figure 5: Model scaling performance on Pipe. We compare our method with Transolver across training sample size, layer count, and embedding dimension. 
+
+Figure 6: Visual comparison on Darcy and Plas benchmarks. The top row shows the ground truth and predictions from Transolver, SAOT, and our method. The bottom row presents the corresponding error maps for each prediction method. 
+
+Figure 7: Teaser visualization on the Navier–Stokes benchmark. Comparison of ground truth, SAOT prediction, CATO prediction, and their corresponding error maps across multiple test cases. CATO produces predictions closer to the ground truth and yields smaller, more localized errors than SAOT, indicating improved accuracy in capturing complex flow structures. 25 F Broad Impact 
+
+This work introduces CATO, a deep learning-based solver with broad applicability across scientific and engineering problems. Although CATO is not designed for social-domain applications such as large language models or image generation, its computational capabilities may benefit a wide range of real-world settings, including weather forecasting, biomedical imaging, industrial simulation, and engineering optimization. Its broader impact lies in enabling more efficient, scalable, and accurate computational modeling for applications with significant scientific, industrial, and societal relevance. 26
