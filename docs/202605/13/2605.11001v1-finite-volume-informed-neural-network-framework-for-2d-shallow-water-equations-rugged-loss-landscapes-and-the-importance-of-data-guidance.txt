@@ -1,0 +1,660 @@
+Title: Finite Volume-Informed Neural Network Framework for 2D Shallow Water Equations: Rugged Loss Landscapes and the Importance of Data Guidance
+
+URL Source: https://arxiv.org/pdf/2605.11001v1
+
+Published Time: Wed, 13 May 2026 00:05:18 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+manuscript submitted to 
+
+# Finite Volume-Informed Neural Network Framework for 2D Shallow Water Equations: Rugged Loss Landscapes and the Importance of Data Guidance 
+
+Xiaofeng Liu 1,2
+
+> 1
+
+Department of Civil and Environmental Engineering, Pennsylvania State University, University Park, PA, USA 
+
+> 2
+
+Institute for Computational and Data Sciences, Pennsylvania State University, University Park, PA, USA 
+
+Key Points:  
+
+> •
+
+A differentiable well-balanced Roe finite-volume loss is introduced for 2D shallow-water PINNs on unstructured meshes  
+
+> •
+
+The loss landscape of physics-only FVM-PINN is rugged with many shallow min-ima which nearly satisfy PDEs  
+
+> •
+
+Data guidance, even with sparse measurements, breaks the degeneracy and is es-sential for convergence to the correct solution 
+
+Corresponding author: Xiaofeng Liu, xzl123@psu.edu 
+
+–1– 
+
+> arXiv:2605.11001v1 [cs.LG] 9 May 2026 manuscript submitted to
+
+Abstract 
+
+Physics-informed neural networks (PINNs) are a simple surrogate-modelling paradigm for partial differential equations, but their standard strong-form residual formulation is ill suited to the shallow water equations (SWE). It cannot enforce local conservation, han-dle discontinuities, or leverage the boundary-conforming unstructured meshes used in real-world applications. We introduce “Data-Guided FVM-PINN”, a framework that re-places the strong-form residual with a differentiable, well-balanced Roe Riemann-solver finite-volume (FVM) loss evaluated on unstructured meshes. The major finding is that physics-only FVM-PINN training often fails on realistic 2D problems: the network col-lapses to a trivial low-momentum state that nearly satisfies the FVM-PINN residual but bears no resemblance to the true flow. A loss-landscape diagnostic shows that the FVM-PINN loss at zero momentum is only about 7 × larger than at the trained solution, a shal-low basin that an ordinary optimizer falls into; adding even sparse data turns this into a 310 × separation, breaking the degeneracy. On a 2D block-in-channel benchmark, just 200 random velocity measurements drop the velocity-field L2 error by 22 × versus physics-only; 50 measurements still deliver a 7 × reduction. A controlled ablation isolates the con-tribution of the FVM-PINN loss: it reduces velocity-field L2 by ∼23% in the sparse-data regime and is essentially neutral when dense reference data is available. On a real-world Savannah River reach (1306 cells, 3600 s simulation, five Manning zones), the framework constructs an accurate surrogate from SRH-2D anchor data, with time-window decom-position reducing error monotonically via progressive initial-condition handoff. 
+
+Plain Language Summary 
+
+Floods, storm surges, tsunami inundation, lake and reservoir circulation, and other free-surface water flows across the geosciences are routinely simulated by numerical solvers that work on unstructured meshes. While accurate, these solvers must be re-run from scratch for every new scenario and are difficult to combine with field measurements. Neural-network surrogates promise much faster predictions and built-in sensitivity analysis, but the standard physics-informed neural network does not respect mass and momentum con-servation and is poorly suited to the kind of meshes used for real-world applications. We replace the physics constraint of the neural network with a finite-volume balance eval-uated on real meshes from the popular SRH-2D model. Our central finding is that the physics constraint alone is not enough: the network can collapse to a trivial near-zero-flow state that nominally satisfies the equations but does not match reality, and even a small number of velocity measurements is sufficient to break this degeneracy and pin the network to the correct solution. For long-time simulations of a real river reach, splitting the time interval into shorter windows that hand off initial conditions to one another fur-ther improves accuracy. The same methodology is directly applicable to other depth-averaged flow problems such as coastal storm surge, tsunami inundation, and lake or reservoir cir-culation. 
+
+1 Introduction 
+
+The shallow water equations (SWEs) are a backbone mathematical model across water resources and geophysical fluid dynamics. They describe free-surface flow in rivers, estuaries, coastal areas, lakes, and urban flood plains; and geophysical hazards such as glacial-lake-outburst floods and dam-break waves. The SWEs, in their various simpli-fied forms, also underpin the surface-water routing schemes embedded in hydrologic land-surface models and Earth-system models, where they provide the dynamical bridge be-tween continental hydrology, coastal oceans, and the climate system. Operational fore-casting, climate-impact assessment, and risk mapping across these domains all rely on the SWEs as a workhorse model, and improvements in how the SWEs are solved prop-agate directly to operational practice across many fields. 
+
+> –2– manuscript submitted to
+
+Numerical models based on the finite volume method (FVM), such as HEC-RAS, SRH-2D, and LISFLOOD (Brunner, 1995; Lai, 2010, 2008; Van Der Knijff et al., 2010), provide accurate solutions on arbitrary unstructured meshes and are the standard tools in fluvial hydraulics and coastal flows for flood-hazard assessment, infrastructure design, floodplain mapping, and coastal-inundation studies. Despite their accuracy, FVM solvers have fundamental limitations from a machine-learning and inverse-problem perspective. Each new set of boundary conditions, initial conditions, or parameter values requires an independent simulation. Analytic gradients of the solution with respect to inputs and parameters are not easily available. And real-time inference is infeasible for operational forecasting and ensemble-scale uncertainty quantification. These limitations place the SWEs at the centre of the recent push toward physics-aware machine learning and differentiable computation for flow modelling (Liu & Song, 2025). Physics-informed and operator-learning surrogates promise gradient-bearing, fast-to-evaluate alternatives to traditional hyperbolic solvers, with direct applications to in-verse problems, sensitivity analysis, parameter calibration, and data assimilation across the geophysical domains listed above. Realizing this promise on realistic application con-figurations, which often include non-trivial bathymetry, multiple roughness regions, and shock-like features, requires a discretisation-faithful coupling of conservation-law struc-ture with neural surrogates on the unstructured meshes used by operational hydrolog-ical and hydraulics models. This direction is part of a broader move toward differentiable Earth-system components, in which each block of a coupled hydrologic-coastal-climate pipeline becomes gradient-aware and amenable to ensemble data assimilation, inverse problems, and uncertainty quantification at scale (Shen et al., 2023). The 2D SWEs on unstructured meshes is one of the first such components for which a fully differentiable, well-balanced, shock-capturing neural surrogate is within reach (Liu & Song, 2025). Among many approaches for constructing neural surrogate, physics-informed neu-ral networks (PINNs) (Raissi et al., 2019) are perhaps the simplest one. This work uses PINN. However, the methodology can be extended to other approaches such as neural operator learning with moderate ease. PINN offers a complementary capability: a neu-ral network parameterises the solution Q(x, t ) and is trained by minimising a loss that encodes the partial differential equations (PDEs), boundary/initial conditions, and avail-able observations. Once trained, the network evaluates at arbitrary space-time points in milliseconds, provides analytic gradients, and can be differentiated with respect to un-known physical parameters for inversion. However, standard PINNs have well-known weak-nesses that become critical for the SWEs: (i) the strong-form residual assumes smooth solutions, but SWE solutions routinely contain discontinuities; (ii) minimising a point-wise residual provides no guarantee that mass or momentum is locally and globally con-served; (iii) there is no mechanism to enforce the entropy condition that distinguishes physical shocks from non-physical ones; and (iv) PINNs operate on scattered collocation points with no notion of mesh connectivity, making it difficult to leverage the boundary-conforming unstructured meshes used in practice. In the literature, a first wave of work has applied PINNs to the SWE using the strong-form PDE residual on collocation points. Bihlo and Popovych (2022) solved the SWE on the sphere with a multi-model time-windowing approach, and Dazzi (2024) treated the SWE with topography while discussing data assimilation as a secondary feature. Brecht et al. (2025) extended PINNs to tsunami inundation modelling, and Tian et al. (2025) addressed the 2D SWE with rainfall and terrain source terms. Qi et al. (2024) demon-strated data-free PINNs for the 2D SWE on simple analytical benchmarks. None of these works addresses cell-wise conservation, shock capturing through Riemann solvers, or boundary-conforming unstructured meshes, which are the three properties that together define the real-world application setting we target. A second line of work has begun to address these limitations by replacing the strong-form PDE residual with finite-volume- or Godunov-based losses. Wei, Zhou, et al. (2025) 
+
+> –3– manuscript submitted to
+
+and Wei, Fan, et al. (2025) replaced automatic differentiation with FVM discretisation for incompressible flows on structured grids, achieving substantial speedups. Cassia and Kerswell (2025) introduced Godunov loss functions using the HLLC Riemann solver for the 2D compressible Euler equations, demonstrating shock-capturing ability unavailable from strong-form PINNs. Su et al. (2024) used Gauss’s theorem to reduce the order of the required derivatives, Mei et al. (2024) embedded a differentiable FVM solver for het-erogeneous PDEs, and Zhu et al. (2026) developed a U-Net with an FVM loss for the compressible Euler system. For 1D problems, Urb´ an and Pons (2025) incorporated Roe’s Riemann solver for hydrodynamics, Oubarka et al. (2026) proposed weak-form and entropy-aware PINNs on mesh-free control volumes, and Patsatzis et al. (2025) introduced GoRINNs, which combine shallow neural networks with Godunov-type FVM schemes to learn un-known flux closures, demonstrated on 1D systems including the SWE. All of these meth-ods either operate on structured Cartesian grids, are mesh-free, or are restricted to 1D, and none targets the 2D SWEs on unstructured meshes, which is the standard config-uration in real-world applications. A complementary literature documents failure modes of standard PINNs for stiff or hyperbolic systems and proposes alternative formulations. Krishnapriyan et al. (2021) characterised optimisation failures of strong-form PINNs and proposed time-marching curricula as a remedy. For hyperbolic conservation laws specifically, De Ryck et al. (2024) introduced wPINNs - weak PINNs that penalise a dual-norm residual - and proved they approximate the entropy solution; their construction is mesh-free and tested on Burg-ers’ equation. Jagtap et al. (2020) introduced conservative PINNs (cPINNs) on discrete domains, and Patel et al. (2022) proposed thermodynamically consistent space-time control-volume PINNs for hyperbolic systems, enforcing conservation in ways conceptually re-lated to but distinct from our face-based Roe formulation. The failure mode we docu-ment in this work is complementary to these: rather than incorrect wave speeds, we iden-tify a trivial low-momentum minimum of the FVM residual that the optimizer falls into in the absence of supervisory data, which is a structural property of any cell-conservation loss whose face flux contributions vanish at zero velocity. The original PINN formulation (Raissi et al., 2019) supports observational data as an additional loss term, primarily as a feature for inverse problems. For forward prob-lems on simple geometries, data is conventionally treated as optional. For FVM-PINN on the realistic 2D SWEs, we instead show that data is essential: it is the mechanism that breaks the trivial-minimum degeneracy and guides the optimizer out of shallow basins in the loss landscape. We additionally quantify the contribution of the FVM residual it-self across data densities through physics-on/off ablations. This contribution-decomposition methodology, to our knowledge, has not been applied to FVM-PINN training before. To address the limitations described above, the contributions of this work are as follows. We propose Data-Guided FVM-PINN, a framework that retains the conservation-enforcing properties of an FVM-based loss while incorporating observational or simu-lation data for robust convergence on realistic problems. Specifically, (i) we construct a differentiable, well-balanced Roe approximate Riemann solver of Rogers et al. (2003) and Liu and Song (2025), working directly on the perturbation-form state Q = [ ξ, uh, vh ]; unlike all prior FVM-PINN methods (Wei, Zhou, et al., 2025; Wei, Fan, et al., 2025; Su et al., 2024; Mei et al., 2024; Zhu et al., 2026; Cassia & Kerswell, 2025), which operate on structured Cartesian grids and target either incompressible flows or compressible Eu-ler systems, our framework natively supports unstructured meshes; (ii) we document and quantitatively diagnose a physics-only failure mode in which the FVM residual loss ad-mits a near-trivial low-momentum minimum that the optimizer easily falls into, produc-ing solutions that nearly satisfy conservation but bear no resemblance to the true flow; a loss-landscape diagnostic (Section 6.1) shows the FVM basin at zero momentum is only 7× deeper than at the trained solution while the data loss separates the two states; (iii) we show that sparse observational data is sufficient to break the trivial-minimum degen-
+
+> –4– manuscript submitted to
+
+eracy in the 2D SWEs; and (iv) we apply the framework to a 1 km Savannah River reach using SRH-2D anchor data as supervision, where time-window decomposition reduces error monotonically through progressive IC handoff. The remainder of the paper is organised as follows. Section 2 describes the 2D SWEs in perturbation form, the FVM discretisation, and the standard PINN formulation. Sec-tion 3 presents the FVM-PINN formulation including data-guided training. Section 4 describes the scalability strategies. Section 5 reports the numerical experiments. Sec-tion 6 discusses the loss-landscape diagnostic and the regime-dependent contribution of the FVM residual. Section 7 reflects on the limitations of the present work and outlines future directions. Section 8 concludes. 
+
+2 Governing Equations, FVM Discretisation, and PINN Formulation 
+
+2.1 The 2D Shallow Water Equations in Perturbation Form 
+
+We adopt the well-balanced perturbation form of the 2D SWEs introduced by Rogers et al. (2003) and used in the universal-SWE differentiable solver of Liu and Song (2025). The schematic of the 2D SWEs in perturbation form is shown in Figure 1(a). The con-served variables are 
+
+Q =
+
+
+
+ξuh vh 
+
+ , ξ(x, t ) = h(x, t ) − hs(x), (1) where h is the water depth, hs = max(0 , w s−zb) is the still-water depth above the bed elevation zb for a chosen reference water-surface elevation ws, and ξ is the free-surface perturbation. x = ( x, y ) denotes the spatial coordinates. The benefit of equation (1) over the standard [ h, hu, hv ] form is that ξ ≈ 0 at lake-at-rest, making the well-balanced property an algebraic identity rather than a numerical near-cancellation.   
+
+> Figure 1. Schematic of the 2D shallow water equations: (a) the physical domain and defini-tions, and (b) the unstructured finite-volume mesh with face-based fluxes.
+
+In conservation form, the SWEs read 
+
+∂Q
+
+∂t + ∂F(Q)
+
+∂x + ∂G(Q)
+
+∂y = S(Q), (2) with fluxes and source term (Liu & Song, 2025) 
+
+F =
+
+
+
+uh u2h + 12 g(ξ2 + 2 ξh s)
+
+uvh 
+
+ , G =
+
+
+
+vh uvh v2h + 12 g(ξ2 + 2 ξh s)
+
+ , S =
+
+
+
+0
+
+−τbx /ρ − g ξ S 0x
+
+−τby /ρ − g ξ S 0y
+
+ ,
+
+(3) 
+
+> –5– manuscript submitted to
+
+where g is gravitational acceleration, ρ is the water density, S0x,y = −∂z b/∂x, y are bed slopes, and the bed shear stress is parameterised through Darcy–Weisbach friction (τbx , τ by ) = ρ 
+
+> 8
+
+f pu2 + v2 (u, v ), f = 8gn 2
+
+h1/3 , (4) with n the Manning roughness coefficient. The magnitude of the velocity vector u =(u, v ) is √u2 + v2.The reformulated pressure flux 12 g(ξ2+2 ξh s) in equation (3) arises from the source-term split 
+
+gh ∂ξ ∂x = ∂∂x 
+
+ 12 g(ξ2 + 2 ξh s) − gh ∂z b
+
+∂x (5) introduced by Rogers et al. (2003). Equation (5) guarantees that the Roe flux of Sec-tion 2.2 balances the bed-slope source exactly when ξ = 0 and u = v = 0, so a quies-cent state remains undisturbed under arbitrary topography. The system is hyperbolic with eigenvalues λ1,2,3 = un − c, u n, u n + c, un = u · n, c = √gh .Integrating equation (2) over a control volume Ω i and applying the divergence the-orem yields the integral law 
+
+ddt 
+
+Z
+
+> Ωi
+
+Q dA +
+
+I
+
+> ∂Ωi
+
+F(Q), G(Q) · n dℓ =
+
+Z
+
+> Ωi
+
+S(Q) dA, (6) which holds even when Q is discontinuous on ∂Ωi. Equation (6) is the foundation of FVM-PINN loss developed in Section 3. 
+
+2.2 Finite Volume Discretisation 
+
+Equation (6) can be discretised on an unstructured mesh (Figure 1(b)). Approx-imating the cell-average ¯Qi ≈ Qi and face integrals by midpoint quadrature gives the semi-discrete system 
+
+Ai
+
+d ¯Qi
+
+dt + X 
+
+> f∈∂Ωi
+
+ˆFf ℓf = Ai ¯Si, (7) where Ai is the cell area, ℓf the face length, and ˆFf an approximate Riemann flux eval-uated at face f using left and right cell-average states. For face f with outward unit normal n = ( nx, n y ), define the face-normal veloc-ity un = u n x + v n y and tangential velocity ut = −u n y + v n x. The Roe flux is ˆFRoe  
+
+> f
+
+= 12
+
+Fn(QL) + Fn(QR) − 123X
+
+> k=1
+
+|˜λk| ˜αk ˜rk, (8) where Fn = Fnx +Gny is the face-normal flux assembled from the perturbation-form fluxes (3), and the Roe averages are ˜un =
+
+√hL uLn + √hR uRn
+
+√hL + √hR
+
+, ˜ut =
+
+√hL uLt + √hR uRt
+
+√hL + √hR
+
+, ˜c =
+
+q
+
+g hL+hR 
+
+> 2
+
+. (9) The eigenvalues ˜λ1,2,3 = ˜ un − ˜c, ˜un, ˜un + ˜ c, wave strengths ˜ αk, and right eigenvectors ˜rk follow the standard 2D-SWE Roe decomposition (Toro, 2001), with a Harten–Hyman entropy fix to prevent non-physical expansion shocks. Wall and inlet/outlet boundaries are handled via ghost cell states. 
+
+2.3 Physics-Informed Neural Networks 
+
+PINNs (Raissi et al., 2019) parameterise the solution as a neural network Qθ (x, t ), in our case an MLP that outputs the perturbation-form state [ ξ, uh, vh ], and train by minimising: 
+
+LPINN = λPDEs LPDEs + λBC LBC + λIC LIC , (10) 
+
+> –6– manuscript submitted to
+
+where LPDEs penalises the pointwise strong-form PDE residual at collocation points. The BC and IC losses are LBC and LIC , respectively. The weights λPDEs , λBC , and λIC bal-ance the contributions of each loss term. While this is effective for smooth flows, it has critical deficiencies for hyperbolic systems such as the SWEs (see Table 1).  
+
+> Table 1. Weaknesses of standard strong-form PINNs for the SWEs.
+
+Weakness Consequence for SWEs 
+
+Assumes smooth solutions SWEs produce hydraulic jumps, bores, and wet-dry fronts where pointwise residuals are ill-defined No conservation guarantee Mass may not be conserved; physically inadmissible in hydrodynamics No upwinding Without entropy-satisfying fluxes, non-physical expansion shocks can emerge Mesh agnostic Cannot exploit boundary-conforming unstructured meshes No wave-speed awareness Hyperbolic information propagation at c = √gh ± u is not encoded 
+
+3 FVM-PINN Formulation 
+
+3.1 Network Architecture 
+
+We parameterise the solution as a neural network with inputs ( x, y, t ) and outputs 
+
+Qθ = [ ξ, uh, vh ] in the perturbation form. The scheme of the FVM-PINN architecture is illustrated in Figure 2. Predicting ξ rather than h directly preserves the well-balanced property of the Roe solver: for the lake-at-rest condition, the network only has to match 
+
+ξ = 0 and zero momentum, a quantitatively easier target than matching the spatially varying still-water depth hs(x). To improve the learning of spatially varying features, we apply a Fourier feature embedding (Tancik et al., 2020) before the first hidden layer: 
+
+γ(x, y, t ) = cos( B [x, y, t ]⊤), sin( B [x, y, t ]⊤)⊤ ∈ R2m, (11) where B ∈ Rm×3 is fixed at initialisation with entries drawn from a zero-mean Gaus-sian distribution N (0 , σ 2). m is the number of Fourier features. The embedded vector feeds into an L-layer MLP with tanh activations and residual connections. A softplus activation on the recovered depth h = ξ + hs enforces h ≥ 0 at output time, while in-puts are z-score normalised on ( x, y, t ). 
+
+3.2 FVM-Informed Loss 
+
+The total loss has four terms: 
+
+Ltotal = λfvm −pinn Lfvm −pinn + λBC LBC + λIC LIC + λdata Ldata . (12) where Lfvm −pinn is the FVM residual loss defined below. In contrast to the strong-form residual LPDEs in the standard PINN loss shown in equation (10), Lfvm −pinn enforces the integral (weak) form of the SWEs through the FVM-PINN residual evaluated on cell-averaged states. Ldata is a data-fitting loss defined in Section 3.3 with weight λdata .At each training step, we sample nt time levels {tk} uniformly from [ t0, T ], where 
+
+k = 0, . . . , n t − 1. For each time level, the network predicts cell-centre states Qi =
+
+Qθ (xi, y i, t k) for all cells i. Based on the FVM discretisation and the Roe solver, the PDE loss for cell i at time tk is 
+
+Ri(tk) = ∂Qi
+
+∂t tk
+
++ 1
+
+Ai
+
+X 
+
+> f∈∂Ωi
+
+ˆFRoe  
+
+> f
+
+(QL(f ), QR(f ), nf ) ℓf − Si(tk), (13)   
+
+> –7– manuscript submitted to
+> Figure 2. Schematic of the FVM-PINN architecture and loss components.
+
+where ∂Qi/∂t is computed via automatic differentiation through the network, and ˆFRoe 
+
+is the Roe flux in equation (8). Assuming there are nc cells, the total FVM-PINN (PDE) loss is then the summation of the FVM loss for each cell and time level: 
+
+Lfvm −pinn = 1
+
+ntncntX
+
+> k=1
+> nc
+
+X
+
+> i=1
+
+Ai ∥Ri(tk)∥2 . (14) The boundary conditions are enforced as follows. For wall boundaries, ghost-cell reflection enforces zero normal velocity. For open BCs (inlet discharge, exit water depth), the prescribed values replace the ghost state in the Roe flux computation. In addition to the enforcement of boundary conditions during the FVM discretisation, an additional soft BC penalty term LBC is applied at boundary face centres, which measures the de-viation from the prescribed boundary values. Our experiments show that this additional penalty term improves convergence, especially at sparse data densities, by providing a stronger gradient signal at the boundaries. The initial condition loss LIC penalises the mismatch between the network predic-tion and the initial state Q0 
+
+> i
+
+at t = t0:
+
+LIC = 1
+
+ncncX
+
+> i=1
+
+Qθ (xi, y i, t 0) − Q0 
+
+> i
+> 2
+
+. (15) 
+
+3.3 Data-Guided Training 
+
+The FVM-PINN, BC, and IC losses define a physics-only training objective. Math-ematically, SWEs with proper boundary conditions and initial conditions define a well-posed problem. However, in Section 5.3 we show that this physics-only formulation may converge to trivial solutions on realistic 2D problems due to rugged loss landscape. To overcome this, we introduce a data loss as an additional training signal to guide the op-timizer out of shallow basins in the loss landscape. The data loss is defined as a weighted 
+
+> –8– manuscript submitted to
+
+mean squared error between the network prediction and available observations or ref-erence data: 
+
+Ldata = 1
+
+NdNdX
+
+> j=1
+
+Qθ (xj , t j ) − Qobs 
+
+> j
+> 2
+> Mj
+
+, (16) where {(xj , t j , Qobs  
+
+> j
+
+)} are observational or reference data points expressed in the same perturbation form as the network output, and Mj is a per-point diagonal mask that se-lects which components are observed (e.g. velocity only, depth only, or both). We consider two data sources that are commonly available in practice: 1. Sparse measurements. Point velocity or depth measurements from field sen-sors, ADCPs, or remote sensing. Typically Nd ∼ O(10 2) scattered points at one or a few time instants. The mask Mj reflects which variables the sensor records. 2. Multi-snapshot reference data. Cell-averaged states from a calibrated numer-ical model (e.g., SRH-2D) at several output time steps. This corresponds to the surrogate-from-simulator paradigm: the user has a trusted but expensive model and wants a fast neural surrogate. Typically Nd = nc×nsnap with nsnap ∼ 5–10. In addition to externally-provided data, a third practical option is an in-loop FVM “teacher”: instead of loading reference data from files, the same well-balanced Roe FVM scheme used in Lfvm −pinn is run as a forward solver from the IC at training time, pro-ducing nsnap snapshots that the network is distilled against. The marching forward in time is achieved by using a predictor-corrector (Heun) scheme. This is functionally a spe-cial case of multi-snapshot reference data - the snapshots happen to be self-generated rather than imported - and we show in Section 5.3 (BIC-D vs BIC-H) that the two are interchangeable at the dense-data limit. The “FVM teacher” variant is most useful when an external solver run is expensive or unavailable. The combined loss in equation (12) with λdata > 0 serves a dual purpose: it pulls the optimizer out of the trivial low-momentum basin of the FVM-PINN loss (Section 6.1) and anchors the network to observed physics. Crucially, the FVM-PINN loss remains active. It imposes conservation and upwinding at all space-time points, not just the data locations, so the physics loss extrapolates conservation constraints to unobserved regions in a way pure data-fitting cannot. The relative weight of the two main losses, i.e., λfvm −pinn 
+
+and λdata , is treated as a hyperparameter; the ablation in Section 5.3 (BIC-G/H, com-paring λfvm −pinn = 0 to λfvm −pinn = 1 at fixed λdata ) shows that the FVM contribu-tion is largest at sparse data densities and diminishes as data density grows. Following standard PINN practice (Raissi et al., 2019; Lu et al., 2021), we train in two phases: (1) Adam with optional step-decay learning rate for fast progress, and (2) L-BFGS for fine-grained convergence near the minimum. 
+
+4 Scalability Strategies 
+
+Each FVM-PINN training step evaluates the residual in equation (13) on every cell at every sampled time level, requiring nc×nt network forward passes per step together with automatic differentiation through them to obtain ∂Q/∂t . The autograd graph that records these operations for backpropagation occupies O(nc×nt) memory and becomes a bottleneck for larger meshes ( nc > 10 4) or longer simulations ( T ≳ 10 3 s, in which many time levels nt must be sampled). Of the strategies we have implemented to ad-dress this, the one we demonstrate in this paper is sequential time-window decomposi-tion; two additional capabilities, cell mini-batching with stencil expansion and gradient checkpointing, are available in the framework but are not included to reduce the paper’s length. 
+
+> –9– manuscript submitted to
+
+4.1 Sequential Time-Window Decomposition 
+
+The time interval [ t0, T ] is partitioned into N sub-intervals (“windows”). Each win-dow trains an independent network on its own short horizon, and the initial condition for window k is provided by the terminal state of window k − 1: 
+
+Q(k) 
+
+> i
+
+(xi, y i, t k−1) = Q(k−1)  
+
+> θ
+
+(xi, y i, t k−1). (17) where tk−1 is the boundary between window k − 1 and window k (the end of one, the start of the next). This handoff enforces temporal causality (Mattey & Ghosh, 2022). PINN training over a long single window tends to under-fit late-time states because the optimiser never gets a chance to focus on them; the partition converts a hard long-horizon problem into a chain of well-conditioned short-horizon problems. Warm-start initialisa-tion (window k’s weights from window k−1) accelerates convergence. The cost is wall-clock because windows must be trained sequentially. The accuracy benefit is demonstrated in Section 5.4 (SR-C/D). 
+
+4.2 Other Available Options 
+
+Two additional strategies are implemented in the codebase and were used in pre-liminary studies but are not the focus of this paper. Cell mini-batching with stencil ex-pansion samples a random subset Ibatch of cells at each step and includes the 1-ring sten-cil (all face-neighbours) in the forward pass; memory cost scales linearly in the sampling fraction f , and the stencil-expansion step is essential to preserve the exact cell-flux bal-ance the Roe solver requires. Gradient checkpointing (Chen et al., 2016) recomputes in-termediate activations during the backward pass, reducing the peak memory of the per-step autograd graph from O(Ln c) to O(√Ln c) at the cost of one additional forward pass per gradient step, where L is the depth of the MLP. Both are orthogonal to time-windowing and to each other. 
+
+5 Numerical Experiments 
+
+We organise the experiments in four parts: (1) validation on problems with exact or well-characterised reference solutions ( §5.1–5.2); (2) data-guided training ablation on a 2D benchmark ( §5.3); (3) real-world application to the Savannah River ( §5.4); (4) scal-ability strategy comparison ( §5.5). All experiments use double precision (float64) and the two-phase Adam + L-BFGS training protocol. Default network and training hyperparameters are listed in Table A1 (Appendix A). All implementations used PyTorch. Random seeds for PyTorch, NumPy, and CUDA are fixed across all runs to support reproducibility; the specific seed values are documented in the per-case YAML configurations released with the companion code repository. The wall time, obtained on a computer with NVIDIA Quadro RTX 4000 GPU, is reported to show the computational cost. 
+
+5.1 Case 1: 1D Dam-Break Validation 
+
+We validate the FVM-PINN formulation on a 1D dam-break problem with an ex-act analytical solution (Stoker, 1957; Toro, 2001). The domain is [0 , 20] m with the dam at x = 10 m. Initial depths are hL = 2 .0 m and hR = 0 .5 m with zero initial veloci-ties. The simulation end time is T = 1 s. The domain is discretised into 100 equal-width cells (modelled as a thin 2D strip of width 0.2 m to exercise the 2D FVM machinery). No measurement or reference data is used. The training has 5000 Adam steps with η =10 −3 decayed by ×0.9 every 1000 steps, 5 random time samples per step (no L-BFGS, since the 1D residual is already small). 
+
+> –10–
+
+manuscript submitted to 
+
+Figure 3 shows the predicted and exact water depth and velocity profiles at t =1 s. The network correctly captures the left rarefaction fan, the contact wave, and the right-moving shock. Table 2 quantifies the errors in L2 and L∞ norms, showing good agreement with the exact solution. For this simple case, the FVM-PINN formulation demon-strates excellent performance in capturing the essential features of the flow dynamics. 
+
+Table 2. Case 1: 1D dam-break accuracy at t = 1 s ( nc = 100 cells). 
+
+L2(h)( m) L2(u)( m/s ) L∞(h)( m)FVM-PINN 5.91e-2 1.96e-1 2.46e-1 0 5 10 15 20       
+
+> x(m)
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> h (m)
+> Water depth
+> Exact FVM-PINN
+> 0510 15 20
+> x(m)
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> u (m/s)
+> Velocity
+> Exact FVM-PINN
+
+Figure 3. Case 1: 1D dam-break. FVM-PINN predictions (blue) vs exact solution (red dashed) at t = 1 s. (a) water depth h(x), (b) velocity u(x). 
+
+5.2 Case 2: Transcritical Flow Over a Bump 
+
+In this case, a 25 m channel has a parabolic bed bump centred at x = 10 m. Sub-critical upstream flow transitions to supercritical over the bump crest, then jumps back to subcritical downstream. This case tests both the bed-slope source-term split in equa-tion (5) (well-balanced reconstruction) and Manning friction. Specific inlet discharge q =0.18 m 2/s, exit water-surface elevation ws = 0 .33 m, Manning’s n = 0 .02. Training is over T = 72 s. For FVM-PINN with data guide, the inner FVM solver (teacher) gen-erates a 51-snapshot trajectory which the network is distilled against. For FVM-PINN without data guide, the network is trained purely on the PDEs, BC, and IC losses. The reference solution is the analytical steady state of Goutal and Maurel (1997). The train-ing has 3000 Adam steps with η = 10 −3 decayed by ×0.9 every 2000 steps, followed by 200 L-BFGS steps. Other hyperparameters are shown in Table A1. Figure 4 shows the steady water surface elevation (WSE) profile at the final time step. FVM-PINN with data guide correctly captures the subcritical-to-supercritical tran-sition over the crest and the hydraulic jump downstream, achieving L2(h) = 1 .31 ×10 −2
+
+m and L2(u) = 1 .03 ×10 −1 m/s against the analytical solution. Without data guide, the network fails to converge to the correct solution and instead collapses to a trivial state where the WSE and velocity are almost uniform. This highlights the importance of data guidance for training stability and convergence in realistic 2D problems, which we sys-tematically study in the next section. 
+
+–11– manuscript submitted to   
+
+> Figure 4. Case 2: WSE profile over a parabolic bed bump at the final time step (steady state). (a) WSE, (b) velocity.
+
+5.3 Case 3: Data-Guided Training Ablation 
+
+This is the central experiment of the paper. We use a 2D block-in-channel (BIC) benchmark (15 m × 5 m rectangular channel with a block obstruction, 1326 unstructured cells) to systematically study the role of data in FVM-PINN training. The setup of the case is as follows. The block is 1 m wide and 0.5 m long, centred at ( x, y ) = (5 , 2.5) m. The initial condition is a quiescent state with uniform depth h =0.4 m. Inlet discharge Q = 0 .38 m 3/s, exit depth h = 0 .4 m, Manning’s n = 0 .03, simulation time T = 360 s. The channel bed is flat with an elevation zb(x) = 0 m. The block creates a truly 2D flow pattern with separation, recirculation, and wake effects. The SRH-2D steady-state solution at t = 360 s serves as the ground truth. All runs except BIC-D use the same network (6 layers × 128 units, 64 Fourier features) and the same standard-trainer schedule (8000 Adam + 500 L-BFGS steps); BIC-D uses the FVM teacher variant introduced in Section 3, which adds an inner FVM trajectory data gen-erator. All metrics in Table 3 are computed against SRH-2D. Table 3 summarises eight ablation run configurations. The matrix sweeps three axes: data quantity (none, 50 sparse, 200 sparse, dense SRH-2D/teacher snapshots, and a com-bined sparse + dense block), data quality (clean vs. 5% Gaussian noise on the sparse rows), and the role of the FVM-PINN residual itself (the data-only baselines BIC-G and BIC-H, with λfvm −pinn = 0). By analysing the results in Table 3, the corresponding flow fields shown in Fig. 6, and the bar chart and WSE profiles in Fig. 7, we draw the following conclusions:  
+
+> •
+
+Physics-only training fails (BIC-A). Without data guide, the optimizer converges to a near-uniform depth ( h ∈ [0 .396 , 0.400] m and near-zero momentum (with the only exception of the inlet region). The FVM-PINN loss is in fact small at this state. The trivial zero-momentum field nearly satisfies cell-wise conservation. But 
+
+L2(|u|) = 0 .166 confirms it bears no resemblance to the true flow field. Section 6.1 provides a quantitative loss-landscape diagnostic showing this is a shallow basin of the FVM-PINN loss that only the data loss can break out of.  
+
+> •
+
+Sparse measurements rescue the solution (BIC-B). Just 200 random velocity mea-surements drop L2(|u|) from 0 .166 to 7 .67 ×10 −3, a 22 × reduction on the metric that matters most. The FVM-PINN (PDEs) loss then enforces conservation and upwinding at all space-time points, propagating the data signal across the entire domain.  
+
+> •
+
+Graceful degradation with sparsity (BIC-C). Reducing the measurement count from 200 to 50 (4 × sparser) only triples the velocity error (from 7 .67 ×10 −3 to 2 .24 ×10 −2)
+
+> –12–
+
+manuscript submitted to 
+
+Figure 5. Case 3: Block-in-channel benchmark. (a) Case setup, (b) Unstructured mesh and 50 sparse data points, (c) Water depth result from SRH-2D, (d) Velocity result from SRH-2D, (e) Water depth result from FVM teacher, (f) Velocity result from FVM teacher. 
+
+Table 3. Case 3: Data-guidance ablation on block-in-channel. Errors are computed against SRH-2D at t = 360 s. All runs use the same network and the same Adam + L-BFGS sched-ule except BIC-D, which is guided by FVM teacher-generated solution trajectory snapshots (Section 3); BIC-G and BIC-H disable the FVM-PINN residual ( λfvm −pinn = 0) to isolate the contribution of the data loss. 
+
+Run Data mode Nd L2(h) (m) L2(|u|) (m/s) Wall time (s) 
+
+BIC-A None (physics only) 0 2.48e-3 1.66e-1 6,999 BIC-B Sparse velocity (200 pts) 200 4.51e-3 7.67e-3 6,909 BIC-C Sparse velocity (50 pts) 50 4.15e-3 2.24e-2 6,228 BIC-D Teacher-generated trajec-tory 31 snapshots 4.21e-4 6.88e-3 18,970 BIC-E Sparse velocity (200 pts) + dense snapshots 200 + 5 nc 3.25e-4 7.00e-3 6,051 BIC-F Sparse velocity (200 pts) + 5% noise 200 4.99e-3 1.18e-2 6,043 BIC-G Sparse velocity (200 pts), 
+
+λfvm −pinn =0 200 1.53e-3 9.95e-3 5,965 BIC-H Dense velocity, λfvm −pinn =0 5nc 2.74e-4 6.32e-3 5,778 
+
+–13– manuscript submitted to 
+
+Figure 6. Case 3: Water depth and velocity contours at steady state for the eight ablation runs. The reference solution is from SRH-2D. The four columns correspond to water depth, dif-ference in water depth from SRH-2D, velocity magnitude, and difference in velocity magnitude from SRH-2D. The rows correspond to the eight runs in Table 3. –14– manuscript submitted to 
+
+Figure 7. Case 3: Ablation summary and comparison: (a) L2(|u|) for the eight runs in Ta-ble 3 and (b) WSE profiles along the channel centreline for the same runs. The reference solution is from SRH-2D. –15– manuscript submitted to 
+
+and the qualitative wake structure is still recovered. Useful data densities for prac-tice, e.g., ADCP transects with O(10 2) measurements, are well within this regime.  
+
+> •
+
+FVM teacher distillation matches direct supervision (BIC-D). Distilling the net-work against an internally-generated FVM trajectory of 31 snapshots achieves L2(h) = 4.21 ×10 −4 and L2(|u|) = 6 .88 ×10 −3. This is essentially indistinguishable from BIC-H (direct supervision against the SRH-2D snapshots; see below), confirming that an in-loop FVM teacher and a pre-computed SRH-2D anchor are interchange-able as supervision sources at the dense-data limit. BIC-D is about 3 × slower be-cause each training step generates a fresh teacher snapshot.  
+
+> •
+
+Combined sparse + dense data gives state-of-the-art h accuracy (BIC-E). Adding both 200 sparse velocity measurements at the steady state and dense SRH-2D snap-shots over the transient brings L2(h) to 3 .25 ×10 −4, comparable to the dense-only data-fitting baseline BIC-H (2 .74 ×10 −4). The sparse and dense supervision are complementary in the sense that sparse pins the final state while dense constrains the path to it.  
+
+> •
+
+Noise sensitivity is real but bounded (BIC-F). Adding 5% Gaussian noise (in frac-tion of max |u|) to the same 200 sparse measurements degrades L2(|u|) from 7 .67 ×10 −3
+
+(BIC-B) to 1 .18 ×10 −2, a ∼50% increase. This is well above the BIC-G data-only baseline of 9 .95 ×10 −3 but still ∼14 × below BIC-A. Noise erodes some of the data-guidance benefit but does not push the optimizer back into the trivial basin.  
+
+> •
+
+The FVM-PINN loss is most valuable in the sparse regime. Comparing the no-physics ablations to their physics-on counterparts decomposes the contribution of 
+
+λfvm −pinn Lfvm −pinn . At sparse data, the FVM-PINN loss reduces L2(|u|) by ∼23% (BIC −G = 9 .95 ×10 −3 → BIC −B = 7 .67 ×10 −3). At dense data, BIC-H ( λfvm −pinn =0, dense data only) achieves L2(|u|) = 6 .32 ×10 −3 and L2(h) = 2 .74 ×10 −4, marginally better than the physics-on combined-data run BIC-E (7 .00 ×10 −3 and 3 .25 ×10 −4). With dense supervision on every cell, the data loss already provides the gradient signal the FVM-PINN loss would supply, so the loss’s marginal contribution ef-fectively vanishes. The implication is therefore not “the FVM-PINN loss is essen-tial” but “the FVM-PINN loss is essential at low data density and a diminishing-returns regulariser at high data density”. In practice, sparse field measurements are the common case, so the FVM-PINN loss is most useful where it is most needed. 
+
+5.4 Case 4: Savannah River Application 
+
+We apply the full framework to a ∼1 km reach of the Savannah River, discretised into 1,306 unstructured cells with non-trivial bathymetry (bed elevation 22.5–28.5 m) and five Manning roughness zones ( n = 0 .02–0 .05). Figure 8 shows the domain setup, bathymetry, and steady state flow field results from SRH-2D and FVM teacher. Bound-ary conditions are as follows: inlet discharge Q = 187 .4 m 3/s distributed across the in-let by conveyance, exit water surface elevation ws = 29 .3 m. The training interval is [0 , 3600] s and the flow reaches steady state at the end. The initial condition is a flat wa-ter surface at ws = 29 .3 m, a deliberately uninformed cold start that the network has to recover from. SRH-2D provides reference snapshots at five times t ∈ { 720 , 1440 , 2160 , 2880 , 3600 } s, all used as anchor data ( ξ, uh , vh on every cell). This case represents a practical surrogate-construction workflow: a modeler has a calibrated SRH-2D model and wants a fast neu-ral surrogate for rapid scenario exploration, sensitivity analysis, or real-time forecast-ing. The data of this case was originally from Lee et al. (2018) and has been used in sur-rogate modelling studies such as Liu et al. (2024) and Liu and Song (2025). Table 4 reports seven run configurations. SR-A is the physics-only baseline (no SRH-2D anchor, no sparse measurements, no teacher trajectory - a real-world counterpart to BIC-A). SR-B is the single-network standard trainer with the dense SRH-2D anchor; SR-C and SR-D apply the time-window strategy of Section 4.1 with 5 and 10 sub-networks, respectively. SR-E is the teacher-distillation variant introduced in Section 3: instead of 
+
+> –16–
+
+manuscript submitted to 
+
+Figure 8. Case 4: Savannah River. (a) Manning’s roughness zones, (b) Bathymetry, (c) Wa-ter depth from SRH-2D at steady state, (d) Velocity magnitude from SRH-2D at steady state, (e) Water depth from FVM teacher, and (f) Velocity magnitude from FVM teacher. –17– manuscript submitted to 
+
+consuming externally-provided SRH-2D anchor data, an in-loop FVM solver generates a reference trajectory from the same flat-WSE cold start, and the network is distilled against the cached snapshots (analogous to BIC-D in Case 3). SR-F uses only 200 sparse velocity measurements at t = 3600 s (no dense anchor); SR-G is a data-only ablation (λfvm −pinn = 0) using the same anchor data as SR-B. All errors are computed against SRH-2D results at t = 3600 s. 
+
+Table 4. Case 4: Savannah River results at t = 3600 s. Errors are L2 against SRH-2D results. 
+
+nc denotes the number of mesh cells (here nc = 1 ,306); Nd counts cell-wise data values across all anchor / teacher snapshots, except SR-F which uses point-wise sparse velocity data. SR-A is the physics-only baseline (no data of any kind), included to mirror the BIC-A vs. BIC-B–H contrast in Case 3.                                                   
+
+> Run Strategy Data mode NdL2(h) (m) L2(|u|) (m/s) Wall time (s)
+> SR-A Standard None (physics only) 01.44e-1 6.00e-1 7,381 SR-B Standard SRH-2D anchor (5 snap.) 5nc7.48e-2 3.20e-2 8,020 SR-C Window(5) SRH-2D anchor (5 snap.) 5nc6.77e-2 2.04e-2 17,200 SR-D Window(10) SRH-2D anchor (5 snap.) 5nc4.49e-2 1.31e-2 23,381 SR-E Teacher FVM trajectory (31 snap.) + SRH-2D anchor (5 snap.) (31+5) nc7.49e-2 3.56e-2 14,263 SR-F Standard Sparse velocity (200 pts) at
+> t=T
+> 200 1.83e-1 7.23e-2 7,065 SR-G Standard, λfvm −pinn =0 SRH-2D anchor (5 snap.) 5nc7.33e-2 3.16e-2 7,897
+
+The Savannah River results confirm that FVM-PINN can produce an accurate neu-ral surrogate for a real-world river reach. The results are shown in Table 4 and Figure 10. We have the following findings:  
+
+> •
+
+Physics-only training fails on the real reach. SR-A, which uses no data guidance whatsoever ( λdata = 0 with the SRH-2D anchor disabled), is included as a real-world counterpart to BIC-A. As in Case 3, the absence of any data signal lets the network drift toward a near-trivial state during the long 3600 s transient: the FVM residual, the inlet/exit BC loss, and the flat-WSE IC alone do not provide enough information to pin the temporal trajectory. This run is reported here to motivate the data-guided variants SR-B–SR-G; the rest of this discussion assumes some form of data guidance is available.  
+
+> •
+
+Time windowing helps monotonically with the number of windows. At t = 3600 s, 
+
+L2(h) drops from 0 .075 (SR-B, single network) to 0 .068 (SR-C, 5 windows) to 0 .045 (SR-D, 10 windows), a ∼1.7× accumulated improvement; L2(|u|) drops by ∼2.4×
+
+over the same sequence. The improvement increases over time: the windowed train-ers are within a few percent of the standard trainer at t = 720 s but open up a 2× gap by t = 3600 s (Fig. 10). The mechanism is the IC handoff (equation (17)): each window starts from a state already fitted by its predecessor, converting a hard 3600-s problem into a chain of well-conditioned sub-problems. With 10 windows the per-window interval is only 360 s, easy enough that the network reaches a tight local fit before the next handoff; per-window data starvation, i.e., only some win-dows contain a SRH-2D snapshot, is more than offset by the warm-start IC. One may expect that more windows would eventually hurt accuracy through accumu-lated handoff errors; the empirical evidence we report here contradicts that ex-pectation up to at least 10 windows on this case.  
+
+> •
+
+FVM teacher distillation is viable and matches direct anchoring at single-network resolution. SR-E, which replaces the external SRH-2D anchor with an in-loop FVM teacher trajectory, achieves L2(h) = 7.49 ×10 −2 and L2(|u|) = 3.56 ×10 −2 at 
+
+t = 3600 s, effectively indistinguishable from the standard SRH-2D-anchored SR-B baseline (7 .48 ×10 −2 and 3 .20 ×10 −2, respectively) and clearly worse than the 
+
+–18– manuscript submitted to 
+
+Figure 9. Case 4: Water depth and velocity contours at steady state for the seven ablation runs. The reference solution is from SRH-2D. The four columns correspond to water depth, dif-ference in water depth from SRH-2D, velocity magnitude, and difference in velocity magnitude from SRH-2D. The rows correspond to the runs in Table 4. –19– manuscript submitted to 
+
+Figure 10. Case 4: L2 error at each reference time ( t ∈ { 720 , 1440 , 2160 , 2880 , 3600 } s) for the physics-only baseline (SR-A), the standard trainer (SR-B), Window(5) (SR-C), Window(10) (SR-D), and the FVM teacher (SR-E). The windowed trainers’ improvement over the single-network baseline grows monotonically with t thanks to progressive IC handoff, while the single-network trainer’s error is nearly constant in t.–20– manuscript submitted to 
+
+windowed SR-C/D runs. The Savannah River teacher does inherit a small veloc-ity bias from the FVM solver itself: the FVM teacher solution is not perfectly iden-tical to SRH-2D on this real-world reach (cf. Fig. 8c–f), but at single-network res-olution that bias is comparable to the residual error already present in SR-B. The FVM teacher variant is therefore especially useful for operational deployments where running a calibrated SRH-2D model is impractical (the in-loop FVM generator is self-contained), and on cases where a calibrated solver is available, the windowed runs (SR-C/D) remain the higher-accuracy choice.  
+
+> •
+
+Sparse-only data is insufficient on a real river. SR-F (200 sparse velocity measure-ments at t = 3600 s only) achieves L2(h) = 0 .18 and L2(|u|) = 0 .072 at the fi-nal time, much worse than the dense-anchor SR-B baseline. The transient is more dramatically degraded: at t = 720 s the network’s depth error is 1 .8 m, i.e., the sparse end-time measurement cannot constrain the path the network takes from a flat-WSE IC to the steady state. On real-world reaches with non-trivial topog-raphy and multiple Manning zones, dense multi-snapshot reference data spanning the full time window is necessary.  
+
+> •
+
+The FVM-PINN loss is a marginal regulariser at this data density. SR-G (same dense anchor as SR-B but with λfvm −pinn = 0) matches SR-B within statistical noise ( L2(h) = 0 .073 vs. 0 .075; L2(|u|) = 0 .032 vs. 0 .032), confirming the BIC-G/H finding from Case 3: at dense data the FVM-PINN loss contributes little above the data loss. The FVM-PINN loss’s value on real cases is therefore concentrated in the sparse-data regime (where it would be needed if SR-F had been run with 
+
+λfvm −pinn > 0, or in any operational setting with limited field measurements) and as a structural prior that keeps predictions physically consistent across the wet-dry fringe. 
+
+5.5 Scalability Strategies and Their Trade-offs 
+
+The framework implements three scalability strategies for handling larger meshes or longer simulations (Section 4): time-window decomposition, cell mini-batching with stencil expansion, and gradient checkpointing. The teacher-generated FVM trajectory is a fourth, complementary tool, but in our framework it is framed as a data-guidance variant (Section 3.3) rather than a scalability strategy per se, since its primary effect is to substitute for externally-provided supervision. Cases 3 and 4 exercise the time-window decomposition (SR-C/D) and the FVM teacher data guide (BIC-D, SR-E); mini-batching and gradient checkpointing are only documented in the companion code repository. Here we summarise the qualitative behaviour observed for the time-window strategy and the FVM teacher data guide:  
+
+> •
+
+For Case 4, time-window decomposition (Section 4.1) targets the accuracy axis of scalability rather than the memory axis: the per-step autograd graph still spans the entire mesh and the same number of time steps within each window, so the peak GPU footprint of SR-C/SR-D is essentially identical to the single-network SR-B (Fig. 11, ∼870 MiB vs. ∼900 MiB). What windowing buys, as Case 4 demon-strates, is a substantial accuracy gain on long-time problems thanks to the IC hand-off in equation (17): each sub-network is trained on a well-conditioned short-horizon sub-problem warm-started from its predecessor. The cost is wall-clock (each win-dow trains a fresh network sequentially), not GPU memory, for Case 4. One sce-nario that this work did not explore is the use of fewer time steps per window, which would reduce the per-window memory footprint and allow more windows to be used without increasing wall time; this is a promising direction for future work.  
+
+> •
+
+FVM teacher data guide (Section 3.3, BIC-D and SR-E) is roughly 3 × slower than direct standard training at comparable accuracy on the synthetic block-in-channel case (BIC-D matches the dense-anchor BIC-H), and on the real-world Savannah River case it matches the standard SRH-2D-anchored baseline SR-B almost ex-
+
+> –21– manuscript submitted to
+
+actly while remaining behind the windowed runs SR-C/D. It is most useful when the cost of a physics-based solver such as an SRH-2D reference run is prohibitive or not available, but a self-contained FVM teacher fits in memory; it also has a markedly smaller GPU memory footprint than the other runs shown in Fig. 11, which makes it the lightest-weight option for memory-constrained deployments. 
+
+6 Discussion 
+
+6.1 Why physics-only training may fail: a loss-landscape diagnostic 
+
+The failure of BIC-A is straightforward to describe. The network simply collapses to near-uniform depth with near-zero momentum. But it is worth quantifying why the FVM-PINN (PDEs) loss permits this state. We make the diagnosis directly visible in Figure 12. Starting from the trained BIC-B network (which has correctly learned the wake), we apply a one-parameter perturbation 
+
+Qαθ (x, t ) =  ξθ , α (uh )θ , α (vh )θ
+
+, (18) and sweep α ∈ [0 , 1.5], evaluating the FVM-PINN loss Lfvm −pinn and the data loss Ldata 
+
+on the same network at each α. α is a momentum scaling parameter: α = 1 is the trained solution; α = 0 is the trivial zero-momentum field with the trained depth (a deliber-ately constructed “trivial state” analogous to the BIC-A failure mode). The numerical signal is unambiguous. At α = 0, Lfvm −pinn = 3 .91 ×10 −3 ver-sus 5 .60 ×10 −4 at α = 1 with a ratio of about 7 .0. The data loss shows the opposite trend: at α = 0, Ldata = 6 .36 ×10 −3 versus 2 .05 ×10 −5 at α = 1 with a ratio of 310. Adding the data loss therefore multiplies the gradient signal toward α = 1 by roughly 44 × relative to physics alone. This is the mechanistic explanation for the BIC-A failure. A network parameter-ising low momentum throughout the domain satisfies dQ/dt ≈ 0 (the trivial state is quasi-steady) and P 
+
+> f
+
+ˆF ℓf ≈ 0 (zero face fluxes for zero velocity), so the FVM-PINN loss is small everywhere except at the inlet face where the boundary condition imposes a non-zero flow. The boundary loss is supported only on a few faces and is dominated numerically by the residual on nc × nt ∼ 10 5 interior collocation points. Data super-vision at interior points provides the missing gradient signal, which is exactly the role the FVM-PINN loss structurally cannot play on its own. 
+
+6.2 When does the FVM-PINN loss help? 
+
+The BIC-G/H and SR-G ablations decompose the contribution of the FVM-PINN loss itself. Comparing physics-on/off pairs at matched data density gives the following picture:  
+
+> •
+
+No data (BIC-A and SR-A): only the FVM-PINN loss acts; the optimizer falls into the trivial basin on both the synthetic block-in-channel and the real-world Savan-nah River cases. The FVM-PINN loss is necessary in the sense that without it the network is not trained at all, but it is not sufficient.  
+
+> •
+
+Sparse data ( ∼10 2 points): the FVM-PINN loss reduces L2(|u|) by ∼23% (BIC-B 7 .67 ×10 −3 vs. BIC-G 9 .95 ×10 −3). This is the regime where field-scale hydro-dynamics typically operates: ADCP transects, sparse PIV, and gauge data are fun-damentally sparse, and the FVM-PINN loss extends the data signal into unob-served regions.  
+
+> •
+
+Dense data (full SRH-2D snapshots): the FVM-PINN loss is essentially neutral (BIC-E vs. BIC-H differ at the third significant digit; SR-B vs. SR-G at the sec-ond). With supervision on every cell at multiple times, the data loss already pro-vides the gradient signal the FVM-PINN loss would supply. 
+
+> –22–
+
+manuscript submitted to 
+
+Figure 11. Case 4 GPU memory footprint of the seven Savannah River runs vs. wall-clock training time. (a) Running maximum of peak GPU memory since training started. Per-step memory is dominated by the autograd graph of the FVM-PINN loss evaluated over the full mesh at every Adam step. As a result, the strategies that evaluate the FVM residual every step (SR-A, SR-B, SR-F, SR-G) all reach ∼900 MiB peak. Time windowing (SR-C, SR-D) does not reduce peak memory in any meaningful way and reaches ∼870 MiB; the time-window strategy’s payoff is on the accuracy axis (Table 4, Fig. 10), not the memory axis. The only strategy that materially shrinks peak memory is teacher distillation (SR-E < 200 MiB): the Roe solver runs once up-front to produce cached snapshots, so the gradient computation never has to back-propagate through it. (b) Live GPU allocation, dominated by the network parameters and only weakly dependent on strategy ( ∼100 MiB across runs). –23– manuscript submitted to 
+
+Figure 12. Loss-landscape diagnostic on the BIC-B trained network (block-in-channel): (a) Lfvm −pinn (α) and Ldata (α) along the momentum-scaling line (18). (b) weighted total loss 
+
+λfvm −pinn Lfvm −pinn + λdata Ldata + · · · . The FVM-PINN loss at α = 0 (zero momentum) is only about 7 .0× larger than at the trained solution ( α = 1) – a shallow basin that an ordinary first-order optimizer can fall into from a wide range of initialisations. The data loss, in contrast, is about 310 × larger at α = 0 than at α = 1, providing the sharply localised attractor that breaks the degeneracy. –24– manuscript submitted to 
+
+Based on all above, the FVM-PINN loss is a regulariser whose marginal value is largest in the sparse-data regime, i.e., the regime where physical priors are most needed. 
+
+7 Limitations and Future Work 
+
+7.1 Limitations 
+
+Several limitations bound the conclusions of this work and define the operating regime in which the proposed framework is currently usable. The per-step autograd graph spans the entire mesh, so peak GPU memory grows linearly with nc. The largest case here (Sa-vannah River, nc = 1,306) fits on a Quadro RTX 4000; substantially larger meshes, e.g., 
+
+nc > 10 6, would require the cell mini-batching or gradient-checkpointing strategies de-scribed in Section 4 but not exercised in this paper. In addition, time-window decom-position trades wall-clock for accuracy: the N = 10 Savannah River run (SR-D) takes about 6 .5 hours on the same hardware. For long simulations or large parameter sweeps, the wall-clock cost is the binding constraint rather than the GPU memory. All four cases reach steady or quasi-steady states by the end of the training inter-val. Genuinely transient phenomena such as rapidly propagating flood waves on dry beds or storm-surge inundation with unsteadiness are not examined, and wet-dry-front prob-lems are outside the scope: the softplus on the recovered depth h enforces h ≥ 0 but the framework is not tested on overland flow with extensive dry zones. The Savannah River results use SRH-2D output as the reference solution. While SRH-2D is itself calibrated against field measurements, direct validation of FVM-PINN predictions against gauge or ADCP data on the same reach was not attempted here. 
+
+7.2 Future Work 
+
+The differentiable framework presented here opens several natural extensions. First, the FVM-PINN loss is independent of the surrogate parameterisation: it can be plugged into operator-learning architectures (DeepONet, Fourier neural operators) in place of the strong-form residual, yielding conservation-aware operator surrogates that generalise across boundary conditions and parameter values. This is particularly attrac-tive for ensemble-scale applications such as flood-frequency analysis or reservoir-operation optimisation, where many forward solves are required. Second, the differentiability of the entire pipeline, from network output through the Roe Riemann solver and back, means that inverse problems are immediately avail-able: Manning’s roughness inversion (Liu & Song, 2025), bathymetry inversion (Liu et al., 2024), and inlet-discharge calibration can all be posed as backpropagation through the same loss with the parameter of interest treated as a learnable input. Third, scaling to large operational meshes ( nc > 10 6) remains an open problem. Beyond the cell mini-batching strategy described in Section 4.2, domain decomposition along the lines of XPINN (Jagtap & Karniadakis, 2020) and graph-neural-network spa-tial encoders are promising directions for further reducing the per-step memory footprint. Finally, validation against field measurements (gauge time series, satellite altime-try, large-scale PIV) on real river reaches and storm-surge events would test the frame-work at the data-density regime it is ultimately targeted at, and would clarify how much of the SRH-2D-anchored accuracy reported here transfers to genuinely observation-supervised settings. 
+
+> –25– manuscript submitted to
+
+8 Conclusions 
+
+We presented Data-Guided FVM-PINN, a framework that combines a differentiable, well-balanced Roe Riemann finite-volume loss with observational or simulation data guid-ance for the 2D shallow water equations on unstructured meshes. Our main findings are as follows. Physics-only FVM-PINN may fail due to rugged loss landscapes. Without data guid-ance, the optimizer may collapse to a trivial low-momentum state that nearly satisfies cell-wise conservation but bears no resemblance to the true flow. A loss-landscape di-agnostic (Section 6.1) shows quantitatively why: the FVM-PINN loss at zero momen-tum is only ∼7× deeper than at the trained solution, a shallow basin that an ordinary first-order optimizer (e.g. Adam) falls into; data guidance separates the same two states by ∼310 × and breaks the degeneracy. Data-guided training is the practical remedy, with the FVM-PINN loss contribut-ing most in the sparse-data regime. Just 200 random velocity measurements drop L2(|u|)on the block-in-channel benchmark by 22 × (1 .66 ×10 −1 → 7.67 ×10 −3), and 50 mea-surements still deliver a 7 × reduction. Decomposing the FVM-PINN loss’s contribution by physics-on/off ablation shows it reduces L2(|u|) by ∼23% when data is sparse and is essentially neutral when dense reference data is available, a regulariser whose marginal value is largest exactly where physical priors are most needed. Modest measurement noise (5%) erodes some of the data-guidance benefit ( L2(|u|) rises by ∼50%) but does not push the optimizer back into the trivial basin. Real-world surrogate construction works, with monotonic gains from time-window decomposition. The framework handles a 1 km Savannah River reach (1 , 306 cells, five Manning zones, 3 , 600 s simulation) using SRH-2D anchor data; time-window decompo-sition reduces L2(h) monotonically from 0 .075 (single network) to 0 .068 (5 windows) to 0.045 (10 windows), driven by progressive IC handoff converting one long-time problem into a chain of well-conditioned sub-problems. These results recast the FVM-PINN narrative from “physics-loss is the key idea” to “physics-loss and data are complementary, with physics most valuable in the sparse regime and structural priors carrying the bulk of the load when data is dense.” Because the SWEs underpin a broad range of geophysical fluid applications, the data-guided FVM-PINN methodology and the ablation analysis introduced here are directly transferable to those settings; whether the FVM-PINN loss continues to add measurable value as field measurement densities grow, e.g., from satellite-derived water surface fields, large scale PIV, or remotely sensed coastal inundation, is an open question that our framework can answer. 
+
+Open Research Section 
+
+The FVM-PINN code, training configurations, and example SRH-2D case files sup-porting the conclusions of this study are publicly available at https://github.com/psu -efd/HydroNet and archived at Zenodo with DOI https://doi.org/10.5281/zenodo .20099995 . All figures and tables in this manuscript can be reproduced by running the example training scripts on the released configurations and applying the post-processing utilities included with the code release. 
+
+Conflict of Interest disclosure 
+
+The authors declare there are no conflicts of interest for this manuscript. 
+
+> –26– manuscript submitted to
+
+Acknowledgments 
+
+This work is supported by a seed grant from the Institute of Computational and Data Sciences at the Pennsylvania State University. 
+
+References 
+
+Bihlo, A., & Popovych, R. O. (2022). Physics-informed neural networks for the shallow-water equations on the sphere. Journal of Computational Physics , 456 ,111024. doi: 10.1016/j.jcp.2022.111024 Brecht, R., Cardoso-Bihlo, E., & Bihlo, A. (2025). Physics-informed neural networks for tsunami inundation modeling. Journal of Computational Physics , 536 ,114066. doi: 10.1016/j.jcp.2025.114066 Brunner, G. W. (1995). HEC-RAS River Analysis System. Hydraulic Reference Manual. Version 1.0. (Tech. Rep.). Hydrologic Engineering Center Davis CA. Cassia, R., & Kerswell, R. (2025). Godunov loss functions for modelling of hy-perbolic conservation laws. Computer Methods in Applied Mechanics and Engi-neering , 437 , 117782. doi: 10.1016/j.cma.2025.117782 Chen, T., Xu, B., Zhang, C., & Guestrin, C. (2016). Training deep nets with sublin-ear memory cost. arXiv preprint arXiv:1604.06174 .Dazzi, S. (2024). Physics-informed neural networks for the augmented system of shallow water equations with topography. Water Resources Research , 60 ,e2023WR036589. doi: 10.1029/2023WR036589 De Ryck, T., Mishra, S., & Molinaro, R. (2024). wPINNs: Weak physics-informed neural networks for approximating entropy solutions of hyperbolic conservation laws. SIAM Journal on Numerical Analysis , 62 (2), 811–841. Goutal, N., & Maurel, F. (1997). Proceedings of the 2nd workshop on dam-break wave simulation: A set of standard test cases for numerical models (Tech. Rep. No. HE-43/97/016/B). Electricit´ e de France, D´ epartement Laboratoire National d’Hydraulique. Jagtap, A. D., & Karniadakis, G. E. (2020). Extended physics-informed neural networks (XPINNs): A generalized space-time domain decomposition based deep learning framework for nonlinear partial differential equations. Communi-cations in Computational Physics , 28 (5), 2002–2041. Jagtap, A. D., Kharazmi, E., & Karniadakis, G. E. (2020). Conservative physics-informed neural networks on discrete domains for conservation laws: Ap-plications to forward and inverse problems. Computer Methods in Applied Mechanics and Engineering , 365 , 113028. doi: 10.1016/j.cma.2020.113028 Krishnapriyan, A., Gholami, A., Zhe, S., Kirby, R., & Mahoney, M. W. (2021). Characterizing possible failure modes in physics-informed neural networks. In 
+
+Advances in neural information processing systems 34 (neurips). 
+
+Lai, Y. G. (2008). SRH-2D version 2: Theory and user’s manual (Tech. Rep.). Den-ver, CO: U.S. Bureau of Reclamation, Technical Service Center. Lai, Y. G. (2010). Two-dimensional depth-averaged flow modeling with an unstruc-tured hybrid mesh. Journal of Hydraulic Engineering , 136 (1), 12–23. doi: 10 .1061/(ASCE)HY.1943-7900.0000134 Lee, J., Ghorbanidehno, H., Farthing, M. W., Hesser, T. J., Darve, E. F., & Kitani-dis, P. K. (2018). Riverine bathymetry imaging with indirect observations. 
+
+Water Resources Research , 54 , 3704-3727. doi: 10.1029/2017WR021649 Liu, X., & Song, Y. (2025). Scientific machine learning of flow resistance using universal shallow water equations with differentiable programming. Water Re-sources Research , 61 , e2025WR040265. doi: 10.1029/2025WR040265 Liu, X., Song, Y., & Shen, C. (2024). Bathymetry inversion using a deep-learning-based surrogate for shallow water equations solvers. Water Resources Re-search , 60 (3), e2023WR035890. 
+
+> –27– manuscript submitted to
+
+Lu, L., Meng, X., Mao, Z., & Karniadakis, G. E. (2021). DeepXDE: A deep learning library for solving differential equations. SIAM Review , 63 (1), 208–228. doi: 10.1137/19M1274067 Mattey, R., & Ghosh, S. (2022). A novel sequential method to train physics in-formed neural networks for Allen–Cahn and Cahn–Hilliard equations. Com-puter Methods in Applied Mechanics and Engineering , 390 , 114474. doi: 10.1016/j.cma.2021.114474 Mei, D., Zhou, K., & Liu, C.-H. (2024). Unified finite-volume physics informed neural networks to solve the heterogeneous partial differential equations. 
+
+Knowledge-Based Systems , 295 , 111831. doi: 10.1016/j.knosys.2024.111831 Oubarka, I., Kissami, I., Boubekeur, M., Benkhaldoun, F., Madrane, A., & Saadi, Z. (2026). Weak and entropy physics-informed neural networks for conservation laws. arXiv preprint arXiv:2603.24819 .Patel, R. G., Manickam, I., Trask, N. A., Wood, M. A., Lee, M., Tomas, I., & Cyr, E. C. (2022). Thermodynamically consistent physics-informed neural networks for hyperbolic systems. Journal of Computational Physics , 449 , 110754. doi: 10.1016/j.jcp.2021.110754 Patsatzis, D. G., di Bernardo, M., Russo, L., & Siettos, C. I. (2025). GoRINNs: Godunov-Riemann informed neural networks for learning hyperbolic con-servation laws. Journal of Computational Physics , 534 , 114002. doi: 10.1016/j.jcp.2025.114002 Qi, X., de Almeida, G. A. M., & Maldonado, S. (2024). Physics-informed neu-ral networks for solving flow problems modeled by the 2D shallow water equations without labeled data. Journal of Hydrology , 636 , 131263. doi: 10.1016/j.jhydrol.2024.131263 Raissi, M., Perdikaris, P., & Karniadakis, G. E. (2019). Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378 , 686–707. doi: 10.1016/j.jcp.2018.10.045 Rogers, B. D., Borthwick, A. G. L., & Taylor, P. H. (2003). Mathematical bal-ancing of flux gradient and source terms prior to using Roe’s approximate Riemann solver. Journal of Computational Physics , 192 (2), 422–451. doi: 10.1016/j.jcp.2003.07.020 Shen, C., Appling, A. P., Gentine, P., Bandai, T., Gupta, H., Tartakovsky, A., . . . Lawson, K. (2023). Differentiable modelling to unify machine learning and physical models for geosciences. Nature Reviews Earth & Environment , 4 ,552-567. doi: 10.1038/s43017-023-00450-9 Stoker, J. J. (1957). Water waves: The mathematical theory with applications . New York: Interscience Publishers. Su, Z., Liu, Y., Pan, S., Li, Z., & Shen, C. (2024). Finite volume physical informed neural network (FV-PINN) with reduced derivative order for incompressible flows. arXiv preprint arXiv:2411.17095 . doi: 10.48550/arXiv.2411.17095 Tancik, M., Srinivasan, P. P., Mildenhall, B., Fridovich-Keil, S., Raghavan, N., Sing-hal, U., . . . Ng, R. (2020). Fourier features let networks learn high frequency functions in low dimensional domains. In Advances in neural information processing systems (Vol. 33). Tian, Y., Ding, S., Huang, L., Su, G., & Chen, J. (2025). Physics-informed neural networks for solving the two-dimensional shallow water equations with ter-rain topography and rainfall source terms. Water Resources Research , 61 (9), e2025WR040052. doi: 10.1029/2025WR040052 Toro, E. F. (2001). Shock-capturing methods for free-surface shallow flows . Wiley. Urb´ an, J. F., & Pons, J. A. (2025). An approximate riemann solver approach in physics-informed neural networks for hyperbolic conservation laws. Physics of Fluids , 37 (9), 096114. Retrieved from https://doi.org/10.1063/5.0285282 
+
+doi: 10.1063/5.0285282 
+
+> –28–
+
+manuscript submitted to 
+
+Van Der Knijff, J., Younis, J., & De Roo, A. (2010). Lisflood: a gis-based dis-tributed model for river basin scale water balance and flood simulation. Inter-national Journal of Geographical Information Science , 24 (2), 189–212. Wei, C., Fan, Y., Wong, J. C., Ooi, C. C., Wang, H., & Chiu, P.-H. (2025). FFV-PINN: A fast physics-informed neural network with simplified finite volume discretization and residual correction. Computer Methods in Applied Mechanics and Engineering , 444 , 118139. Wei, C., Zhou, Y., Fan, Y., Liu, X., Li, C., Li, X., & Wang, H. (2025). Physics-informed neural network based on the finite volume method for solving forward and inverse problems. Physics of Fluids , 37 (8), 087190. Zhu, T., Si, B., Fu, L., & Lu, Y. (2026). SFVnet: Finite-volume informed U-net for compressible flow prediction with sparse data under ill-conditions. Journal of Computational Physics , 552 , 114696. doi: 10.1016/j.jcp.2026.114696 
+
+Appendix A Network Hyperparameters 
+
+Table A1. Network and training hyperparameters used in this paper. Cases 1–2 are 1D val-idation problems; Cases 3–4 are the 2D block-in-channel and Savannah River ablations. En-tries marked “–” indicate that the hyperparameter is not used by the trainer for that case. Case 2 (BP) is run in two configurations: a Standard trainer without data guide (uses the 
+
+λfvm −pinn /λ IC /λ BC /λ data block) and a Teacher trainer with FVM-trajectory distillation (uses the λphys /λ anchor block); both rows are populated for the BP column. Similarly, BIC-D (Case 3) and SR-E (Case 4) use the Teacher trainer. 
+
+Parameter Case 1 (DB) Case 2 (BP) Case 3 (BIC) Case 4 (SR) 
+
+Hidden dimension 64 64 128 128 Number of layers 5 6 6 6Fourier features 32 32 64 64 Fourier scale σ 2.0 1.0 1.0 0.5 Activation tanh tanh tanh tanh Residual connections No Yes Yes Yes Adam learning rate 10 −3 10 −3 10 −3 10 −3
+
+Adam decay factor ×0.9 – ×0.5 ×0.5Adam decay every 1000 – 2000 2500 Adam epochs ∗ 5000 3000 8000 3000–10000 L-BFGS epochs ∗ 0 200 500 200–500 Time samples per step 5 36 10 10 
+
+λfvm −pinn 1.0 1.0 1.0 (or 0) 1.0 (or 0) 
+
+λIC 20.0 10.0 10.0 10.0 
+
+λBC 5.0 30.0 30.0 30.0 
+
+λdata 0.0 0.0 10.0 (or 0) 10.0 FVM teacher trajectory λphys – 0.05 0.05 (BIC-D) 0.05 (SR-E) SRH-2D anchor λanchor – 0.0 0.1 (BIC-D) 1.0 (SR-E) 
+
+The hyperparameters in Table A1 reflect a balance between standard PINN prac-tice and per-case tuning, rather than exhaustive grid search. The two-phase Adam + L-BFGS training schedule follows the standard PINN protocol (Raissi et al., 2019; Lu 
+
+–29– manuscript submitted to 
+
+et al., 2021), and the Fourier-feature embedding (Tancik et al., 2020) mitigates the spec-tral bias of plain MLPs; its scale σ is the only architectural hyperparameter we tune per-case, based on the spatial frequency content of each problem (smaller σ for the larger Savannah River domain). The loss weights are fixed by order-of-magnitude scale-balancing of the typical loss-term values: λfvm −pinn = 1 .0 is the reference scale, λIC , λBC and λdata 
+
+are adjusted so they provide gradient signals of comparable magnitude. Adaptive loss-weighting schemes can be explored in future work.

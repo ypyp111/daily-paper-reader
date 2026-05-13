@@ -1,0 +1,1084 @@
+Title: M2A: Synergizing Mathematical and Agentic Reasoning in Large Language Models
+
+URL Source: https://arxiv.org/pdf/2605.09879v1
+
+Published Time: Tue, 12 May 2026 01:58:46 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# M2A: Synergizing Mathematical and Agentic Reasoning in Large Language Models 
+
+Junjian Wang 1∗ Xin Zhou 2† Qiran Xu 2 Kun Zhan 21Institute of Automation, Chinese Academy of Sciences 2Li Auto Inc. 
+
+wangjunjian2025@ia.ac.cn {zhouxin12,xuqiran,zhankun}@lixiang.com 
+
+## Abstract 
+
+While reasoning has become a central capability of large language models (LLMs), the reasoning patterns required for different scenarios are often misaligned. Mathe-matical reasoning typically relies on intrinsic logic to solve closed-world problems in a single response, whereas agentic reasoning requires not only internal reasoning but also multi-turn interaction with external environments, interleaving thought and action. This misalignment prevents mathematical and agentic reasoning from effectively benefiting from each other, often yielding unstable reasoning behav-ior and only limited performance gains under multi-task learning. In this paper, we propose M2A, a novel paradigm that synergizes mathematical and agentic reasoning via model merging. To avoid overfitting to superficial reasoning pat-terns under joint training, M2A operates directly in parameter space: it identifies the feature subspace critical for agent behavior, and merges the mathematical reasoning task vector only along its null space, thereby injecting reasoning ca-pability along directions that do not perturb agent behavior. Unlike SFT or RL, M2A requires no additional gradient-update and exposes the merging coefficient as a simple knob for controlling reasoning length. Experiments in a challeng-ing real-world coding agent setting show that our method effectively extends agentic reasoning depth and delivers substantial performance improvements. Ap-plied to a fine-tuned Qwen3-8B, M2A improves its SWE-Bench Verified resolved rate from 44.0% to 51.2% without retraining the model. Code is available at 
+
+https://github.com/laplucky/M2A.git .
+
+## 1 Introduction 
+
+Reasoning serves as the core of human intelligence, driving critical processes from problem-solving to strategic planning. In the realm of Large Language Models (LLMs), chain-of-thought prompting [ 37 , 16 ] shows that eliciting reasoning can unlock substantial gains on complex tasks, and recent large reasoning models [ 14 , 9 , 4] further advanced mathematical reasoning capability through reinforcement learning with verifiable rewards (RLVR), achieving strong performance in mathematics, competitive programming, and broader STEM domains. More recently, the frontier of reasoning has shifted beyond closed-world problem solving toward agentic reasoning , where models must reason while interacting with external environments over multiple turns [ 38 ]. Prior work such as ReAct [ 47 ] highlights that tightly coupling reasoning with action is essential for complex interactive tasks, making the improvement of agentic reasoning increasingly important for LLM-based agents. Although reasoning is crucial across many tasks, the behavior patterns required by different reasoning scenarios are often misaligned, particularly between mathematical reasoning and agentic reasoning. Mathematical reasoning is primarily a process of internal thinking : the model works in a relatively closed-world setting and aims to produce a complete solution in a single response [ 25 , 3 , 11 ]. In 
+
+> ∗Work done during the internship at Li Auto foundation model team.
+> †Corresponding author. Preprint. Work in progress.
+> arXiv:2605.09879v1 [cs.AI] 11 May 2026
+
+contrast, agentic reasoning is better characterized as a process of coordinating internal thinking with external action : the model must keep interacting with an open-world environment over multiple turns and decide when to think and when to act [ 47 , 29 , 38 ]. Such contrasts across task domains, interaction formats, and reasoning styles prevent multi-task learning from improving both capabilities together, and can even let mathematical reasoning patterns override agentic behaviors. Recent studies [ 11 , 18 , 33 ] and our experiments (Table 1) show a consistent pattern: multi-task SFT [ 11 ] or RL [ 33 ]boosts mathematical reasoning but barely helps on agent tasks. In this paper, we present M2A, a novel paradigm that synergizes mathematical and agentic reasoning in a training-free manner. To avoid fitting mismatched data distribution during multi-task training, 
+
+M2A couples the two capabilities directly in parameter space through model merging . While this mitigates the training-stage mismatch, finer-grained conflicts still remain in parameter space. Naively merging [ 13 , 40 , 7] a reasoning model into an agent model can overwrite the agent’s interaction behavior: the merged model reasons for substantially longer but interacts with the environment far less frequently, reducing external actions and ultimately degrading agent performance. This observation motivates us to reformulate our goal as a behavior-preserving capability integration problem —how to combine mathematical and agentic reasoning without disrupting the agent’s interaction pattern. Taking inspiration from [ 36 , 6, 12 ], M2A identifies the parameter subspace critical for agent behavior and applies null-space projection to the mathematical-reasoning update before merging it into the agent model, thereby integrating the two capabilities while minimally perturbing agentic behavior. To further mitigate capability conflicts at a finer granularity, we introduce an adaptive layer-wise merging coefficient mechanism , which additionally serves as a natural knob for adjusting reasoning length on top of existing models. Compared with costly SFT [ 34 , 32 ] or RL [ 31 , 19 ], M2A requires no further training to the existing model, and offers a simple yet effective mechanism for controlling reasoning length. We evaluate M2A and baselines on SWE-Bench Verified [ 15 ], a challenging coding-agent benchmark that requires resolving real-world GitHub issues. Our experiments show that multi-task SFT, while able to transfer superficial reasoning traces, fails to translate them into agent capability and can actively hurt agent performance. In contrast, M2A improves the Qwen3-8B baseline from 44.0% to 51.2% on SWE-Bench Verified, while growing the average per-step reasoning length from 253.3 to 327.4 tokens. More importantly, M2A makes this transfer controllable: we observe that the average reasoning length grows monotonically and nearly linear with the merging coefficient, turning the coefficient into a predictable knob for modulating agent reasoning behavior. The ablation study demonstrates the efficacy of each module within the M2A framework. Our analysis further reveals that M2A not only enhances per-step reasoning depth but also shifts the agent’s trajectory-level behavior toward more frequent external actions. Our contributions are as follows: (1) We propose M2A, a novel paradigm that synergizes mathematical reasoning and agentic reasoning in LLMs in a training-free manner. M2A preserves the agent’s external action behavior while injecting stronger internal reasoning through behavior-preserving null-space model merging. (2) On SWE-Bench Verified, M2A improves a fine-tuned Qwen3-8B from 44.0% to 51.2% resolved rate, consistently outperforming multi-task SFT and representative model-merging baselines. (3) We conduct systematic ablations and analysis to demonstrate the effectiveness of M2A, and show that merge strength serves as an effective control knob over reasoning length, enabling explicit control of the reasoning behavior. 
+
+## 2 Related Work 
+
+2.1 Generalization of LLM Reasoning 
+
+LLM reasoning has become a central mechanism for improving complex problem solving [ 37 ,14 , 9]. However, reasoning gains do not always generalize beyond the training domain [ 2 , 11 ]. Although mathematical reasoning is widely viewed as a general source of reasoning capability, math-specialized models often bring limited benefits to broader tasks such as scientific QA, coding, and agent planning [ 11 , 2]. Recent work therefore explores broader reasoning data and multi-domain RL objectives [ 30 , 22 , 25 , 27 , 33 ], but the resulting generalization remains sensitive to the target behavior. This limitation is especially pronounced for agentic reasoning. Prior studies show that math reasoning does not consistently improve broader LLM capabilities [ 11 ]; multi-task RL can improve several reasoning-intensive domains but does not reliably enhance agent performance [ 33 ]; 2and reasoning and tool-use behaviors may interfere under joint optimization [ 18 ]. These findings suggest that mathematical and agentic reasoning cannot be reliably combined by simply mixing their training data. Effective synergy requires strengthening internal thinking while preserving the external action behavior required by agents. This motivates our parameter-level approach, which integrates mathematical reasoning updates through behavior-preserving model merging rather than joint training. 
+
+2.2 Model Merging 
+
+Model merging aims to combine multiple fine-tuned models into a single model without additional training, reducing storage and computational costs [ 5, 21 , 26 , 43 ]. Early methods such as Model Soups [ 39 ] and Task Arithmetic [ 13 ] showed that weight averaging or task-vector composition can be effective when source models are sufficiently aligned. Later approaches, TIES-Merging [ 40 ] alleviates parameter interference via pruning, symbol election, and merging, DARE [ 48 ] enhances merged model robustness and base capabilities by randomly dropping and rescaling fine-tuning weights. Recent studies [ 45 , 49 , 50 ] have explored geometry and subspace-aware formulations to better preserve model structure during composition. RAIN-Merging [ 12 ] introduces null-space projected merging to preserve the thinking format of reasoning models while enhancing instruction-following ability. However, existing model merging methods are primarily designed for relatively aligned capabilities, and their calibration signals are tied to single-response formatting, making it difficult for them to capture the multi-turn behavior pattern. In contrast, M2A extends null-space projected merging to synergize mathematical and agentic reasoning by explicitly calibrating agent-critical behavioral features and adaptively controlling both merge layers and merge strength. 
+
+## 3 Methodology 
+
+In this section, we first define the problem setting for synergizing mathematical and agentic reasoning, and clarify why traditional multi-task learning and model merging are insufficient. We then introduce M2A, a novel paradigm that leverages null-space model merging to integrate mathematical reasoning into an agent model while maintaining its agent behavior pattern. 
+
+3.1 Problem Statement 
+
+We consider a multi-turn ReAct-style agent dataset Dagent and a single-turn mathematical reasoning dataset Dmath . Our goal is to obtain a single model that synergizes both capabilities, achieving strong performance on agent tasks while benefiting from mathematical reasoning. 
+
+Multi-task SFT A standard approach to combine the two capabilities is joint fine-tuning on 
+
+D = Dagent ∪ D math :
+
+LSFT (θ) = −E(x,y )∼D 
+
+
+
+> |y|
+
+X
+
+> t=1
+
+log πθ (yt | x, y <t )
+
+ , (1) with the hope that the long chain-of-thought behavior elicited by the math data can generalize to agentic reasoning [ 37 , 9 ]. However, the two data distributions diverge across task domains, interaction formats, and reasoning styles, causing joint optimization to fit surface-level patterns rather than transferable reasoning capabilities [ 22 , 11 ]. As a result, even if multi-task SFT successfully transfers the surface-level "long reasoning" style, this increased length provides little benefit to—and sometimes even degrades—actual agent performance. 
+
+Naive Model Merging A training-free alternative is model merging [ 39 , 13 , 40 ], which combines capabilities directly in parameter space and thereby avoids the data-level conflicts of joint optimization. Given the shared base model θ0, the task vectors ∆θagent = θagent − θ0 and ∆θreason = θreason − θ0, a naive merge: 
+
+θmerge = θagent + α∆θreason , (2) where α is a scalar controlling the strength of the injected reasoning signal. However, operating in parameter space alone is not sufficient [ 12 ]: naive merging treats all parameter directions equally, 3so ∆θreason may perturb the directions that govern the agent’s think–act–observe loop, causing the merged model θmerge to overthink instead of act, or to continue generating when it should seek environmental feedback. 
+
+3.2 M2A: Behavior-Preserving Reasoning Synergy 
+
+M2A formulates the synergy between mathematical and agentic reasoning as a behavior-preserving capability integration problem: how to combine mathematical and agentic reasoning without dis-rupting agent’s interaction pattern. M2A consists of three stages: (i) calibrating the agent-critical subspace from behavior markers, (ii) projecting the reasoning task vector onto the null space of agent-critical subspace to prevent overriding agentic behavior, and (iii) calibrating layer-wise merge coefficients and selecting compatible layers for merging. 
+
+3.2.1 Agent-Critical Behavior Calibration 
+
+The first stage of M2A is to identify the subspace that encodes agent-critical behaviors—the interaction patterns that a successful agent must preserve. If these behaviors are perturbed, the merged model may continue reasoning when it should act, or fail to respond appropriately to new observations. 
+
+Behavior Markers An agent’s think–act–observe behavior is most clearly reflected in when it switches between internal thinking and external action: starting or stopping reasoning, making tool calls, or pausing for external feedback [ 47 , 38 ]. These transitions appear in the trajectory as a few special tokens, and the activations around them carry the strongest signals of the agent’s interaction behavior. We therefore identify these transitions through a set of markers: 
+
+M = {<think> , </think> , <function= , </function> }, (3) These markers follow our agent’s chat template; other formats can be supported by redefining M.
+
+Agent-critical Subspace For each marker, we extract activations from its local neighborhood of r
+
+tokens, chosen to capture the transition from both sides: for start markers, the activations at positions 
+
+[tmarker , t marker + r] reflect the behavior after entering a new state; for end markers, the activations at positions [tmarker − r, t marker ] reflect the decision to exit the current state. For each layer l, we collect the corresponding input hidden states from the agent model into a calibration matrix: 
+
+C(l) = [ h(l)1 , h(l)2 , . . . , h(l) 
+
+> nl
+
+] ∈ Rd×nl . (4) where d is the hidden dimension and nl is the number of collected features. The subspace spanned by these calibration features: 
+
+S(l) 
+
+> agent
+
+= span (C(l)), (5) captures the representation directions most relevant to the agent’s think–act–observe behavior pattern. Details are provided in Appendix B. 
+
+3.2.2 Null-space Projected Merging 
+
+The second stage is to merge the reasoning task vector into the agent model without perturbing the agent-critical subspace S(l)
+
+> agent
+
+. Since model merging operates on every weight matrix of the LLM, for notational simplicity we use ∆W(l) 
+
+> reason
+
+to denote the reasoning task vector at layer l for any such matrix. For any protected feature hagent ∈ S(l)
+
+> agent
+
+, naive merging induces an undesired perturbation: 
+
+∆h = ∆ W(l)
+
+> reason
+
+hagent , (6) where ∆h̸ = 0 shifts the hidden representation away from its calibrated directions and can disrupt the agent’s think–act–observe behavior. To eliminate this perturbation, we seek a refined task vector 
+
+[∆W(l) 
+
+> reason
+
+that eliminates interference within the protected subspace S(l) 
+
+> agent
+
+while minimizing the deviation from the original reasoning behavior. This is formulated as a constrained optimization problem: 
+
+[∆W(l) 
+
+> reason
+
+= arg min  
+
+> W
+
+∥W − ∆W(l)
+
+> reason
+
+∥2 
+
+> F
+
+s.t. Wh = 0, ∀h ∈ S(l)
+
+> agent
+
+. (7) 4where ∥ · ∥ F denotes the Frobenius norm. To solve this problem, we resort to null-space projection [36 , 12 ]. Let Q(l) ∈ Rd×rl be an orthonormal basis of S(l) 
+
+> agent
+
+(e.g., obtained via SVD of C(l)), where 
+
+rl is the rank of S(l)
+
+> agent
+
+. The projector onto the orthogonal complement of S(l) 
+
+> agent
+
+is: 
+
+P(l) 
+
+> null
+
+= I − Q(l)Q(l)⊤, (8) and the refined task vector is obtained by projecting ∆W(l) 
+
+> reason
+
+along its input dimension: 
+
+[∆W(l) 
+
+> reason
+
+= ∆ W(l) 
+
+> reason
+
+P(l)
+
+> null
+
+. (9) For any h ∈ S(l)
+
+> agent
+
+, we can write h = Q(l)a for coefficient vector a. By the orthonormality of Q(l):
+
+[∆W(l)
+
+> reason
+
+h = ∆ W(l)
+
+> reason
+
+P(l)
+
+> null
+
+Q(l)a = ∆ W(l)
+
+> reason
+
+
+
+Q(l) − Q(l)Q(l)⊤Q(l)
+
+a = 0, (10) which means the projected task vector introduces no change to agent-critical direction. Moreover, 
+
+[∆W(l) 
+
+> reason
+
+is the Frobenius-optimal solution among all matrices satisfying this constraint. In this way, null-space projection selectively removes the components of ∆W(l) 
+
+> reason
+
+that conflict with agent behavior, while keeping the rest intact for reasoning integration. In practice, we implement this projection with an equivalent block-wise matrix-free solver to avoid explicitly materializing the full projector; see Appendix D. 
+
+3.2.3 Adaptive Layer-Wise Merging 
+
+In practice, null-space projection alone is insufficient. We find that the norms of ∆θ(l) 
+
+> agent
+
+and ∆θ(l)
+
+> reason
+
+vary substantially across layers (see Figure 9). Consequently, a uniform merge coefficient can cause the reasoning task vector to dominate the agent’s parameters, degrading its agentic behavior. We therefore explore the synergistic balance between internal thinking and external action by introducing two complementary mechanisms that control how much and where math reasoning is merged. 
+
+Merge Coefficient Calibration To address the scale imbalance, we introduce a layer-wise calibra-tion mechanism. We normalize the reasoning task vector to the same scale as the agentic baseline, ensuring the integration is balanced across all layers: 
+
+αl = β · ∥∆θ(l)
+
+> agent
+
+∥F
+
+∥∆θ(l)
+
+> reason
+
+∥F + ϵ . (11) where β is a global scaling factor and ϵ is a small constant for numerical stability. This calibration removes the need to hand-tune the merge coefficient [ 5, 40 , 42 ] layer by layer and turns β into a single interpretable hyperparameter: smaller β preserves the agent’s original interaction behavior, while larger β injects stronger mathematical reasoning. 
+
+Similarity-aware Layer Mask Even after scale calibration, merging layers with conflicting updates can still destabilize the agent. We therefore select only those layers where the two task vectors are directionally aligned. Specifically, we compute the cosine similarity sim (l) between ∆θ(l) 
+
+> agent
+
+and 
+
+∆θ(l)
+
+> reason
+
+, and retain layers whose similarity exceeds the global mean ¯sim :
+
+Ml = I
+
+h
+
+sim (l) > ¯sim 
+
+i
+
+. (12) where Ml ∈ { 0, 1} indicates whether layer l participates in the merge. This filters out layers where the two task vectors are less aligned, focusing the merge on regions with natural synergy and improving overall merging efficiency. 
+
+Final Merge Rule Combining null-space projection, layer-wise coefficient calibration, and similarity-aware layer mask, our final merge rule for each mergeable weight matrix at layer l
+
+is: 
+
+W(l) 
+
+> merge
+
+= W(l) 
+
+> agent
+
++ Ml αl [∆W(l)
+
+> reason
+
+. (13) In this way, M2A yields a merged model that synergizes mathematical and agentic reasoning: it strengthens internal reasoning while preserving the behaviorally important structure of multi-turn interaction. The layer-wise calibration also reduces coefficient sensitivity and exposes β as an explicit control knob for shaping merged model behavior. Implementation details for computing αl and Ml
+
+from layer-wise mergeable blocks are provided in Appendix D.1. 54 Experiments 
+
+4.1 Experimental Setup Baselines. We build our experiments on Qwen3-8B-Base [ 41 ] and compare our approach with two baseline families: SFT and model merging. Regarding SFT, we employ DeepSeek-R1-0528-Qwen3-8B as the Reasoning-8B model. We also train two additional models using Step-Fun’s SFT dataset 3: Agent-8B , trained on 30k curated coding-agent samples, and Multi-Task-8B , trained on a 60k mixture of coding-agent and math-reasoning data. For model merging, we adopt five representative baselines: Task Arithmetic [ 13 ], TIES-Merging [40 ], DARE [48 ], SLERP [7], and 
+
+RAIN-Merging [12 ]. We apply M2A on top of Agent-8B, and all model-merging baselines use Agent-8B and Reasoning-8B as their source models. Further details are provided in Appendix A. 
+
+Evaluation. We evaluate M2A and baselines on the challenging coding-agent benchmark SWE-Bench Verified [15 ] under the OpenHands scaffold [ 24 ], where each task requires the model to reason and interact with the environment to resolve real-world software engineering issues. We report the Resolved Rate as the metric of agent performance; unless otherwise specified, all reported results are averaged over three independent runs (Avg@3). We also evaluate mathematical reasoning on AIME2024 [3], AIME2025 [3], and MATH500 [10]. Details are shown in Appendix A. Table 1: Main results on SWE-Bench Verified. Avg. reasoning length is the number of reasoning tokens per step, and Avg. Step represents the number of turns the model interacts with the environment. Results are averaged over 3 runs, subscripts denote standard deviation.                                                                                                                           
+
+> Model Params Training Resolved Rate (%) ↑Avg. reasoning length Avg. Step Proprietary Models
+> OpenAI-GPT-5.2-Thinking [23] ––80 .0––Gemini-3.1-Pro [8] ––80 .6––Claude-Opus-4.6 [1] ––80 .8––
+> Open-Source Models
+> SWE-agent-LM-7B [44] 7B SFT 15 .2––SWE-Mirror-LM-7B [35] 7B SFT 22 .8––SWE-Dev-7B [34] 7B SFT + RL 23 .4––Klear-Agent-8B-RL [17] 8B SFT + RL 40 .4––SWE-AGILE [19] 8B SFT + RL 24 .1––SWE-Lego-Qwen3-8B [32] 8B SFT 42 .2––SERA-8B [28] 8B SFT 37 .1––DeepSWE-32B-Preview [20] 32B SFT + RL 42 .2––SWE-Lego-Qwen3-32B [32] 32B SFT 52 .6––SWE-World-32B-RL [31] 32B SFT + RL 55 .0––Kimi-Dev-72B [46] 72B SFT + RL 48 .6––
+> Our Implementations
+> Agent-8B 8B SFT 44 .0±0.9253 .3175 .3
+> Reasoning-8B 8B SFT 0.2±0.11800 .79.2
+> Multi-Task-8B 8B SFT 41 .1±1.4347 .4150 .1
+> Task Arithmetic [13] 8B Training-free 47 .6±0.9836 .987 .1
+> TIES-Merging [40] 8B Training-free 39 .0±0.9494 .6112 .1
+> DARE [48] 8B Training-free 22 .0±0.81219 .168 .6
+> SLERP [7] 8B Training-free 47 .2±0.7747 .487 .6
+> RAIN-Merging [12] 8B Training-free 43 .2±1.1262 .7170 .4
+> M2A-Agent-8B (Ours) 8B Training-free 51 .2±0.6(↑7.2) 327 .4178 .0
+
+4.2 Main Results 
+
+Table 1 shows the results of the proposed method and baselines. To provide a more comprehensive view of our method’s effectiveness, we additionally report the performance of various models and methods of different scales. From the results, we can find that: 
+
+> 3https://huggingface.co/datasets/stepfun-ai/Step-3.5-Flash-SFT
+
+6Multi-task SFT struggles to transfer mathematical reasoning to agentic reasoning under data-level mismatch. Multi-task SFT increases the average reasoning length from 253.3 to 347.4, yet the average number of interaction steps (Avg. Step) drops from 175.3 to 150.1 and the resolved rate decreases from 44.0% to 41.1%. In other words, the longer reasoning traces do not translate into better agentic problem solving; instead, the model interacts less with the environment and solves fewer tasks. This suggests that jointly optimizing over mathematical and agentic data only transfers the surface pattern of long reasoning; simply mixing math reasoning and agent data is therefore insufficient for reasoning synergy. 
+
+Naive model merging suffers from behavior pattern mismatch. The reasoning model and the agent model follow different behavior patterns: the former solves problems through single-turn internal thinking, while the latter must maintain a multi-turn think–act–observe loop with the environment. If merging methods operate directly in parameter space without distinguishing these behavior patterns, the merged model can be dominated by the single-turn reasoning behavior, empirically exhibit substantially longer reasoning length together with far fewer interaction steps. Task Arithmetic [ 13 ]and SLERP [7] do achieve modest gains over the base agent (47.6% and 47.2% vs. 44.0%), but this comes at the cost of nearly halving the interaction frequency (Avg. Step 87.6 vs. 175.3) and tripling the reasoning length. The merged models compensate for shorter interaction with longer single-turn thinking, rather than genuinely synergizing the two behaviors, and the gain is still noticeably below M2A. Less stable methods degrade further: TIES-Merging [ 40 ] drops to 39.0% (Avg. Step 112.1), and DARE [ 48 ] collapses to 22.0% with Avg. Step drops sharply to 68.6. RAIN-Merging [ 12 ] instead preserves the agent’s behavior, but for the same reason it barely injects any additional reasoning into the model, and its resolved rate (43.2%) shows no improvement over the base agent (44.0%). This indicates that preserving single-turn long reasoning pattern is insufficient for agents. Effective reasoning synergy requires jointly strengthening single-turn reasoning and preserving the multi-turn interaction behavior that drives external action. We carefully tuned the hyperparameters for the baselines, and additional experimental results are presented in the Appendix A.3. 
+
+M2A establishes a novel paradigm for synergizing mathematical and agentic reasoning. By addressing the mismatches identified above, M2A improves Agent-8B from 44.0% to 51.2% on SWE-Bench Verified, yielding a substantial +7.2 point gain. This result is even better than several larger models trained with SFT or RL. Compared with Multi-task SFT, M2A avoids joint optimization over the mismatched mathematical and agentic data. Compared with naive model merging, M2A further addresses the behavior pattern mismatch between single-turn mathematical reasoning and multi-turn agentic interaction by protecting agent-critical behavior directions through null-space projection. As a result, M2A strengthens internal thinking and preserves agentic interaction: Avg. reasoning length increases from 253.3 to 327.4, while Avg. Step remains high at 178.0. Consequently, M2A achieves the best agentic performance among all compared methods. These results suggest that mathematical and agentic reasoning are most effectively synergized when the integration mechanism enhances internal reasoning while preserving external action behavior. Beyond this, M2A requires no costly training, synergistically improves mathematical reasoning as well, and further offers a controllable mechanism for tuning reasoning length, as we demonstrate in later sections. 
+
+4.3 Synergistic Effect and Ablation Study Synergistic Improvement on Mathematical and Agentic Reasoning M2A is designed to syner-gize mathematical and agentic reasoning. This design suggests that the merged model should not only improve agentic tasks, but also strengthen the mathematical reasoning capability. Our experiments indicate that M2A produces a synergistic effect : the agent becomes better at interactive problem solv-ing while also gaining stronger intrinsic reasoning ability. As shown in Figure 1 (a), M2A consistently improves mathematical reasoning while also boosting SWE-Bench Verified performance. These gains indicate that the injected reasoning component remains effective for closed-world mathematical reasoning, while the null-space projection prevents it from overwriting the agent’s behavior pattern. In addition, IFEval remains nearly unchanged, suggesting that M2A does not noticeably degrade general instruction-following ability. Overall, these results show that M2A enables a synergistic enhancement of mathematical and agentic reasoning. 
+
+Ablation Study of M2A We ablate the three core components of M2A on SWE-Bench Verified. As shown in Figure 1 (b), the full method achieves the best performance, while removing any component weakens the gain. Without Merge Coefficient Calibration (w/o α), the merged model is no longer 7AIME24 AIME25 MATH500 IFEval 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Success Rate (%)
+
+Math General 
+
+> 30.0
+> 16.7
+> 79.3
+> 23.1
+> 40.0
+> 51.7
+> 85.4
+> 24.0
+> +10.0
+> +35.0
+> +6.1
+> +0.9
+
+(a)  
+
+> Base Agent M2A
+> Base Agent
+> M2A
+> w/o Mask
+> w/o α
+> w/o Null
+> 40
+> 42
+> 44
+> 46
+> 48
+> 50
+> 52
+> Resolved Rate (%)
+> 44.0
+> 51.2
+> 49.8
+> 47.7
+> 45.6
+
+(b) Figure 1: (a) The performance of M2A on mathematical and general capability benchmarks; (b) Ablation study of M2A on SWE-Bench Verified. properly calibrated to the agent model, making the merge less effective. Without the Similarity-aware Layer Mask (w/o Mask), M2A cannot filter layers where the agent and reasoning task vectors are less compatible, which also reduces performance. The most significant degradation comes from removing null-space projection (w/o Null). In this case, the model retains only a small improvement over the Base Agent, indicating that naive reasoning injection can interfere with the agent-critical behavior subspace. This validates the central mechanism of M2A: effective reasoning transfer requires preserving the agent-critical behavior, rather than simply increasing reasoning intensity. 
+
+4.4 Merge Strength as a Control Knob for Reasoning Behavior 
+
+Merge strength β controls the intensity of the projected reasoning update injected into the agent model, and provides M2A with a control knob for shaping merged model’s behavior pattern . As shown in Figure 2 (b), the average reasoning length per step grows approximately monotonically with 
+
+β, and becomes nearly linear in the high-performing region. This indicates that a simple parameter-space coefficient can be translated into predictable behavior-space control over reasoning intensity. Meanwhile, the stable high-performing region around medium merge strength reduces the burden of manual hyperparameter search. We use β = 0 .8 and β = 1 .2 as empirical transition points, dividing the sweep into three behavior regimes. This controllability distinguishes M2A from standard merging baselines. In Appendix A.3, we show that other model merging baselines do not provide a stable behavior-control interface: their reasoning length changes nonlinearly and can collapse abruptly. 0 0.2 0.4 0.6 0.8 1 1.2 1.4 1.6 1.8 2                           
+
+> Merge Strength β
+> 38
+> 40
+> 42
+> 44
+> 46
+> 48
+> 50
+> 52
+> Resolved Rate (%)
+> Low Medium High
+> Base-Agent
+> Sweet spot
+> (a)
+> M2A
+> Base-Agent
+> Sweet spot
+> 00.2 0.4 0.6 0.8 11.2 1.4 1.6 1.8 2
+> Merge Strength β
+> 250
+> 300
+> 350
+> 400
+> 450
+> 500
+> 550
+> Avg. reasoning length / step  Low Medium High
+> Base-Agent
+> Sweet spot
+> (b)
+> M2A
+> Base-Agent
+> Sweet spot
+> 00.3 0.5 0.8 11.1 1.2 1.3 1.4 1.5 2
+> Merge Strength β
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Termination Distribution (%)
+> (c)
+> Completed
+> Maximum prompt length exceeded
+> Maximum response length exceeded
+> Turn limit reached
+
+Figure 2: Effect of merge strength β on merged model behavior. (a) SWE-Bench Verified performance, (b) Avg. reasoning length per step, and (c) Termination Reason Distribution. In the Low Reasoning regime, the injected reasoning signal is weak. The model largely preserves the behavior pattern of the original agent, but its reasoning remains weak. As a result, it tends to act with limited analysis and has insufficient capacity to build a reliable understanding of complex software issues before intervention. 8As β enters the Medium Reasoning regime, the model exhibits the most effective behavior pattern .It gains stronger internal thinking while preserving the agent’s ability to interact with the environment. This regime does not simply increase reasoning length; it shifts the agent toward more evidence-aware decision making. The model can spend more computation on understanding the issue, collecting relevant context, and planning edits, without drifting away from the multi-turn behavior pattern. We provide a detailed analysis of this phenomenon in the next subsection. Importantly, performance remains consistently high across this interval, showing that M2A exposes a robust behavior-control 
+
+region rather than relying on a fragile coefficient. In the High Reasoning regime, further increasing β continues to lengthen reasoning traces but no longer improves performance. The model becomes overly dominated by internal thinking: it delays interaction, consumes more context, and is more likely to exceed its effective context-handling capacity. This is consistent with Figure 2(c), where high-β models show more failures caused by maximum prompt length exceeded. 
+
+4.5 Trajectory-Level Analysis: From Trial-and-Error Editing to Evidence-Grounded Action 
+
+To understand how M2A improves agent performance, we analyze trajectory-level behavior in Table 2. We observe two consistent shifts: (i) the agent reasons more at decision-critical steps (edit and late-stage synthesis), and (ii) it performs more search and inspection before editing, while issuing fewer and more concentrated edits overall. Together, these shifts suggest that M2A changes when and how the agent commits to an action — gathering more evidence before editing rather than probing through repeated edits. We refer to this as a shift from trial-and-error editing (frequent, exploratory edits with limited prior inspection) to evidence-grounded action (fewer edits preceded by more search and reasoning). Table 2: Trajectory-level changes in reasoning and action behavior after applying M2A. Relative change is computed as (M2A − Base) /Base .                                       
+
+> Metric Definition Base Agent M2A Rel. Change
+> Resolved Rate ↑Fraction of issues resolved. 44.0% 51.2% +16.4%
+> Reasoning at edit ↑Reasoning length tokens at edit steps. 305.3 401.4 +31.5%
+> Late-stage synthesis ↑Mean reasoning tokens near trajectory end. 189.6 230.7 +21.7%
+> Search before first edit ↑Search actions before the first edit. 19.5 25.3 +30.0%
+> Inspect before first edit ↑File inspections before the first edit. 10.4 12.3 +18.2%
+> Edit count ↓Edit operations per trajectory. 20.1 16.7 -17.0%
+> Unique edit files ↓Distinct files touched by edits. 6.3 6.0 -5.0%
+
+Regarding internal thinking, M2A strengthens reasoning at decision-critical stages. As shown in Table 2, the merged model reasons more at edit steps and shows stronger late-stage synthesis before finalizing a solution. This indicates that the additional reasoning is not merely front-loaded at the beginning of a trajectory, but remains active when the agent decides what to modify and how to complete the task. From the perspective of external action, M2A yields actions that are both highly selective and precisely targeted. Before the first edit, the agent performs more search and inspection, suggesting that it gathers more evidence before intervening. Meanwhile, it uses fewer edit operations and touches slightly fewer files. This suggests that M2A effectively mitigates blind trial-and-error behavior and encourages the agent to localize the problem before acting. 
+
+## 5 Conclusion 
+
+We introduced M2A, a novel paradigm for synergizing mathematical and agentic reasoning through behavior-preserving null-space model merging. By protecting agent-critical behavior while injecting mathematical reasoning, M2A avoids the data-level mismatch of Multi-task SFT and the behavior pattern mismatch of naive merging. Experiments on SWE-Bench Verified show that M2A improves Qwen3-8B from 44.0% to 51.2% without additional training, while also improving mathematical reasoning and enabling controllable reasoning behavior. These findings open a new direction for synergizing reasoning capabilities across fundamentally different behavior patterns. 9References 
+
+[1] Anthropic. Introducing claude opus 4.6. https://www.anthropic.com/news/ claude-opus-4-6 , February 2026. Accessed: 2026-04-25. [2] Haoyue Bai, Yiyou Sun, Wenjie Hu, Shi Qiu, Maggie Ziyu Huan, Peiyang Song, Robert Nowak, and Dawn Song. How and why llms generalize: A fine-grained analysis of llm reasoning from cognitive behaviors to low-level patterns. arXiv preprint arXiv:2512.24063 , 2025. [3] Mislav Balunovi´ c, Jasper Dekoninck, Ivo Petrov, Nikola Jovanovi´ c, and Martin Vechev. Math-arena: Evaluating llms on uncontaminated math competitions. arXiv preprint arXiv:2505.23281 ,2025. [4] Gheorghe Comanici, Eric Bieber, Mike Schaekermann, Ice Pasupat, Noveen Sachdeva, Inderjit Dhillon, Marcel Blistein, Ori Ram, Dan Zhang, Evan Rosen, et al. Gemini 2.5: Pushing the frontier with advanced reasoning, multimodality, long context, and next generation agentic capabilities. arXiv preprint arXiv:2507.06261 , 2025. [5] Guodong Du, Junlin Lee, Jing Li, Runhua Jiang, Yifei Guo, Shuyang Yu, Hanting Liu, Sim K Goh, Ho-Kin Tang, Daojing He, et al. Parameter competition balancing for model merging. 
+
+Advances in Neural Information Processing Systems , 37:84746–84776, 2024. [6] Junfeng Fang, Houcheng Jiang, Kun Wang, Yunshan Ma, Shi Jie, Xiang Wang, Xiangnan He, and Tat-Seng Chua. Alphaedit: Null-space constrained knowledge editing for language models. 
+
+arXiv preprint arXiv:2410.02355 , 2024. [7] Charles Goddard, Shamane Siriwardhana, Malikeh Ehghaghi, Luke Meyers, Vladimir Karpukhin, Brian Benedict, Mark McQuade, and Jacob Solawetz. Arcee’s mergekit: A toolkit for merging large language models. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing: Industry Track , pages 477–485, 2024. [8] Google DeepMind. Gemini 3.1 pro. https://deepmind.google/models/gemini/pro/ ,2026. Accessed: 2026-04-25. [9] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 , 2025. [10] Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt. Measuring mathematical problem solving with the math dataset. 
+
+arXiv preprint arXiv:2103.03874 , 2021. [11] Maggie Huan, Yuetai Li, Tuney Zheng, Xiaoyu Xu, Seungone Kim, Minxin Du, Radha Pooven-dran, Graham Neubig, and Xiang Yue. Does math reasoning improve general llm capabilities? understanding transferability of llm reasoning. arXiv preprint arXiv:2507.00432 , 2025. [12] Zhehao Huang, Yuhang Liu, Baijiong Lin, Yixin Lou, Zhengbao He, Hanling Tian, Tao Li, and Xiaolin Huang. Rain-merging: A gradient-free method to enhance instruction following in large reasoning models with preserved thinking format. arXiv preprint arXiv:2602.22538 , 2026. [13] Gabriel Ilharco, Marco Tulio Ribeiro, Mitchell Wortsman, Ludwig Schmidt, Hannaneh Ha-jishirzi, and Ali Farhadi. Editing models with task arithmetic. In The Eleventh International Conference on Learning Representations .[14] Aaron Jaech, Adam Kalai, Adam Lerer, Adam Richardson, Ahmed El-Kishky, Aiden Low, Alec Helyar, Aleksander Madry, Alex Beutel, Alex Carney, et al. Openai o1 system card. arXiv preprint arXiv:2412.16720 , 2024. [15] Carlos E Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir Press, and Karthik Narasimhan. Swe-bench: Can language models resolve real-world github issues? arXiv preprint arXiv:2310.06770 , 2023. [16] Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. Large language models are zero-shot reasoners. Advances in neural information processing systems ,35:22199–22213, 2022. 10 [17] Kwai-Klear. mini-swe-agent-plus: The 100-line AI agent that solves GitHub issues with text-edit tool. https://github.com/Kwai-Klear/mini-swe-agent-plus , 2025. GitHub Repository. [18] Yu Li, Mingyang Yi, Xiuyu Li, Ju Fan, Fuxin Jiang, Binbin Chen, Peng Li, Jie Song, and Tieying Zhang. Reasoning and tool-use compete in agentic rl: From quantifying interference to disentangled tuning. arXiv preprint arXiv:2602.00994 , 2026. [19] Shuquan Lian, Juncheng Liu, Yazhe Chen, Yuhong Chen, and Hui Li. Swe-agile: A soft-ware agent framework for efficiently managing dynamic reasoning context. arXiv preprint arXiv:2604.11716 , 2026. [20] M. Luo, N. Jain, J. Singh, S. Tan, A. Patel, Q. Wu, A. Ariyak, C. Cai, T. Venkat, S. Zhu, B. Athiwaratkun, M. Roongta, C. Zhang, L. E. Li, R. A. Popa, K. Sen, and I. Stoica. DeepSWE: Training a fully open-sourced, state-of-the-art coding agent by scaling RL. https://www. together.ai/blog/deepswe , July 2025. Together AI Blog post. [21] Qianli Ma, Dongrui Liu, Qian Chen, Linfeng Zhang, and Jing Shao. Led-merging: Mitigating safety-utility conflicts in model merging with location-election-disjoint. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 21749–21767, 2025. [22] Xueguang Ma, Qian Liu, Dongfu Jiang, Ge Zhang, Zejun Ma, and Wenhu Chen. General-reasoner: Advancing llm reasoning across all domains. arXiv preprint arXiv:2505.14652 ,2025. [23] OpenAI. Introducing gpt-5.2. https://openai.com/index/introducing-gpt-5-2/ , De-cember 2025. Accessed: 2026-04-25. [24] OpenHands Team. OpenHands critic 32b exp 20250417. https://huggingface.co/ OpenHands/openhands-critic-32b-exp-20250417 , 2025. Accessed: 2025-12-08. [25] Bo Pang, Deqian Kong, Silvio Savarese, Caiming Xiong, and Yingbo Zhou. Reasoning curriculum: Bootstrapping broad llm reasoning from math. arXiv preprint arXiv:2510.26143 ,2025. [26] Biqing Qi, Fangyuan Li, Zhen Wang, Junqi Gao, Dong Li, Peng Ye, and Bowen Zhou. Less is more: Efficient model merging with binary task switch. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 15265–15274, 2025. [27] Shyam Sundhar Ramesh, Xiaotong Ji, Matthieu Zimmer, Sangwoong Yoon, Zhiyong Wang, Haitham Bou Ammar, Aurelien Lucchi, and Ilija Bogunovic. Multi-task grpo: Reliable llm reasoning across tasks. arXiv preprint arXiv:2602.05547 , 2026. [28] Ethan Shen, Danny Tormoen, Saurabh Shah, Ali Farhadi, and Tim Dettmers. Sera: Soft-verified efficient repository agents. arXiv preprint arXiv:2601.20789 , 2026. [29] Noah Shinn, Federico Cassano, Ashwin Gopinath, Karthik Narasimhan, and Shunyu Yao. Reflexion: Language agents with verbal reinforcement learning. Advances in neural information processing systems , 36:8634–8652, 2023. [30] Yi Su, Dian Yu, Linfeng Song, Juntao Li, Haitao Mi, Zhaopeng Tu, Min Zhang, and Dong Yu. Crossing the reward bridge: Expanding rl with verifiable rewards across diverse domains. arXiv preprint arXiv:2503.23829 , 2025. [31] Shuang Sun, Huatong Song, Lisheng Huang, Jinhao Jiang, Ran Le, Zhihao Lv, Zongchao Chen, Yiwen Hu, Wenyang Luo, Wayne Xin Zhao, et al. Swe-world: Building software engineering agents in docker-free environments. arXiv preprint arXiv:2602.03419 , 2026. [32] Chaofan Tao, Jierun Chen, Yuxin Jiang, Kaiqi Kou, Shaowei Wang, Ruoyu Wang, Xiaohui Li, Sidi Yang, Yiming Du, Jianbo Dai, et al. Swe-lego: Pushing the limits of supervised fine-tuning for software issue resolving. arXiv preprint arXiv:2601.01426 , 2026. 11 [33] Haoqing Wang, Xiang Long, Ziheng Li, Yilong Xu, Tingguang Li, and Yehui Tang. To mix or to merge: Toward multi-domain reinforcement learning for large language models. arXiv preprint arXiv:2602.12566 , 2026. [34] Haoran Wang, Zhenyu Hou, Yao Wei, Jie Tang, and Yuxiao Dong. Swe-dev: Building software engineering agents with training and inference scaling. In Findings of the Association for Computational Linguistics: ACL 2025 , pages 3742–3761, 2025. [35] Junhao Wang, Daoguang Zan, Shulin Xin, Siyao Liu, Yurong Wu, and Kai Shen. Swe-mirror: Scaling issue-resolving datasets by mirroring issues across repositories. arXiv preprint arXiv:2509.08724 , 2025. [36] Shipeng Wang, Xiaorong Li, Jian Sun, and Zongben Xu. Training networks in null space of feature covariance for continual learning. In Proceedings of the IEEE/CVF conference on Computer Vision and Pattern Recognition , pages 184–193, 2021. [37] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. 
+
+Advances in neural information processing systems , 35:24824–24837, 2022. [38] Tianxin Wei, Ting-Wei Li, Zhining Liu, Xuying Ning, Ze Yang, Jiaru Zou, Zhichen Zeng, Ruizhong Qiu, Xiao Lin, Dongqi Fu, et al. Agentic reasoning for large language models. arXiv preprint arXiv:2601.12538 , 2026. [39] Mitchell Wortsman, Gabriel Ilharco, Samir Ya Gadre, Rebecca Roelofs, Raphael Gontijo-Lopes, Ari S Morcos, Hongseok Namkoong, Ali Farhadi, Yair Carmon, Simon Kornblith, et al. Model soups: averaging weights of multiple fine-tuned models improves accuracy without increasing inference time. In International conference on machine learning , pages 23965–23998. PMLR, 2022. [40] Prateek Yadav, Derek Tam, Leshem Choshen, Colin A Raffel, and Mohit Bansal. Ties-merging: Resolving interference when merging models. Advances in neural information processing systems , 36:7093–7115, 2023. [41] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388 , 2025. [42] Enneng Yang, Zhenyi Wang, Li Shen, Shiwei Liu, Guibing Guo, Xingwei Wang, and Dacheng Tao. Adamerging: Adaptive model merging for multi-task learning. arXiv preprint arXiv:2310.02575 , 2023. [43] Enneng Yang, Li Shen, Guibing Guo, Xingwei Wang, Xiaochun Cao, Jie Zhang, and Dacheng Tao. Model merging in llms, mllms, and beyond: Methods, theories, applications, and opportu-nities. ACM Computing Surveys , 58(8):1–41, 2026. [44] John Yang, Kilian Lieret, Carlos E Jimenez, Alexander Wettig, Kabir Khandpur, Yanzhe Zhang, Binyuan Hui, Ofir Press, Ludwig Schmidt, and Diyi Yang. Swe-smith: Scaling data for software engineering agents. arXiv preprint arXiv:2504.21798 , 2025. [45] Sihan Yang, Kexuan Shi, and Weiyang Liu. Orthogonal model merging. arXiv preprint arXiv:2602.05943 , 2026. [46] Zonghan Yang, Shengjie Wang, Kelin Fu, Wenyang He, Weimin Xiong, Yibo Liu, Yibo Miao, Bofei Gao, Yejie Wang, Yingwei Ma, et al. Kimi-dev: Agentless training as skill prior for swe-agents. arXiv preprint arXiv:2509.23045 , 2025. [47] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R Narasimhan, and Yuan Cao. React: Synergizing reasoning and acting in language models. In The eleventh international conference on learning representations , 2022. [48] Le Yu, Bowen Yu, Haiyang Yu, Fei Huang, and Yongbin Li. Language models are super mario: Absorbing abilities from homologous models as a free lunch. In Forty-first International Conference on Machine Learning , 2024. 12 [49] Haobo Zhang and Jiayu Zhou. Unraveling lora interference: Orthogonal subspaces for robust model merging. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 26459–26472, 2025. [50] Shenghe Zheng, Hongzhi Wang, Chenyu Huang, Xiaohui Wang, Tao Chen, Jiayuan Fan, Shuyue Hu, and Peng Ye. Decouple and orthogonalize: A data-free framework for lora merging. arXiv preprint arXiv:2505.15875 , 2025. 13 Appendix A Additional Experimental Details 
+
+A.1 SWE-Bench Verified Evaluation Setup Evaluation Dataset. We primarily evaluate agentic reasoning on SWE-Bench Verified [ 15 ], a human-validated subset of SWE-Bench consisting of 500 solvable instances curated from real-world GitHub issues. The benchmark spans 12 open-source Python repositories and is designed to assess the end-to-end issue resolution capability of LLM-based agents. Each instance provides a repository state and an issue description, and the agent is required to inspect the codebase, interact with the environment, modify relevant files, and submit a patch. A task is considered successfully resolved only if the submitted patch passes the official evaluation tests. 
+
+Evaluation Metric. We report the resolved rate as Avg@3 on SWE-Bench Verified. For each model, we run three independent trajectories under the same evaluation configuration and report the average resolved rate across the three runs. We also report Avg. reasoning length, computed as the average number of tokens in the model-generated chain-of-thought content, i.e., the <think> · · · 
+
+</think> block, over all steps. 
+
+Evaluation Environment. We use a self-hosted environment based on OpenHands. Specifically, all models are evaluated with the openhands scaffold and the Docker backend. To prevent reward hacking through repository history, we remove historical git logs from the evaluation repositories before running the agent. This ensures that the model cannot exploit commands such as inspecting pre-vious commits to obtain solution-relevant information, and must instead rely on code understanding, environment interaction, and patch generation. During SWE-Bench Verified evaluation, we use 8 × H200 GPUs. At inference time, YaRN RoPE scaling is set to 8.0, and the maximum context length is set to 262k tokens. The detailed configuration is shown in Table 3. Table 3: SWE-Bench Verified evaluation configuration. All models are evaluated with the same self-hosted OpenHands scaffold and Docker backend.                      
+
+> Item Configuration
+> Benchmark SWE-Bench Verified Metric resolved rate (Avg@3) Scaffold openhands
+> Environment Self-hosted environment Backend docker
+> Git history Removed before evaluation Evaluation GPUs 8×H200 RoPE scaling at inference YaRN, factor = 8.0 Maximum context length 262144 Maximum steps 400 Step timeout 600 s Trajectory timeout 14400 s Reward timeout 1200 s Maximum prompt length 262144 Maximum response length 81920 Temperature 0.7 Top-p1.0 Tool-call format native
+
+A.2 SFT Training Details 
+
+Table 4 reports the supervised fine-tuning settings for Agent-8B and Multi-Task-8B. Both models are trained with ms-swift from the same base model, Qwen3-8B-Base . To better align the training format with the ReAct-style think–act pattern, we process code-agent trajectories into an explicit 14 reasoning-and-action format: <think> reasoning and response </think> + <tool_call> · · · 
+
+</tool_call> . For long-context training, we use YaRN RoPE scaling with factor=4.0 and 
+
+type=yarn .Table 4: SFT training settings. Agent-8B is trained only on code-agent trajectories, while Multi-Task-8B is trained on a mixture of code-agent and mathematical reasoning trajectories.                              
+
+> Setting Agent-8B Multi-Task-8B
+> Base model Qwen3-8B-Base Qwen3-8B-Base
+> Training data 30k code-agent trajectories from Step-3.5-Flash-SFT 1
+> 30k code-agent trajectories and 30k mathematical reasoning trajectories from Step-3.5-Flash-SFT 1
+> Training framework ms-swift 2ms-swift 2
+> Optimizer Adam Adam Learning rate 5×10 −55×10 −5
+> Epochs 23Global batch size 64 64 Cutoff length 131072 131072 RoPE scaling YaRN, factor = 4.0, type = yarn YaRN, factor = 4.0, type = yarn
+> 1https://huggingface.co/datasets/stepfun-ai/Step-3.5-Flash-SFT
+> 2https://github.com/modelscope/ms-swift.git
+
+We verify that all training data used in this work have no instance-level overlap with SWE-Bench Verified. Specifically, the code-agent trajectories used to train Agent-8B and Multi-Task-8B do not contain any of the 500 SWE-Bench Verified evaluation instances. Therefore, the reported SWE-Bench Verified results are not affected by training-data leakage from the evaluation set. 
+
+A.2.1 Epoch Sweep for Multi-Task SFT 
+
+To rule out the possibility that the weak performance of Multi-Task-8B is simply caused by an under-tuned training schedule, we conduct an epoch sweep while keeping the training data mixture, base model, training framework, and other optimization settings unchanged. As shown in Table 5, increasing the number of epochs does not lead to a consistent improvement on SWE-Bench Verified. Multi-Task-8B obtains a resolved rate of 40.0 at 2 epochs, 41.1 at 3 epochs, 40.1 at 4 epochs, and 39.2 at 5 epochs. These results indicate that the limitation of multi-task SFT is not insufficient training, but rather the data-level mismatch introduced by jointly optimizing heterogeneous mathematical reasoning and multi-turn agent trajectories. Table 5: Epoch sweep for Multi-Task SFT on SWE-Bench Verified. We keep the data mixture and optimization settings fixed, and only vary the number of training epochs. Increasing training epochs does not effectively improve agent performance.      
+
+> Training Epochs Resolved Rate
+> 240.0 341.1 440.1 539.2
+
+A.3 Merging Hyperparameters 
+
+For all model-merging baselines, the source models are fixed to Agent-8B and Reasoning-8B. To ensure a fair comparison, we conduct a merge-coefficient sweep for each baseline method and report the best-performing sweet spot in the main results. Thus, the baseline numbers in Table 1 are not obtained from arbitrary default coefficients, but from the strongest setting found under the same SWE-Bench Verified evaluation protocol. Figures 3–6 show the merge-coefficient sweeps for Task Arithmetic, SLERP, TIES-Merging, and DARE. A consistent pattern is that these baselines are highly sensitive to the merge coefficient α.When α is small, the injected reasoning signal is weak and the model remains close to the original 15 0 0.2 0.4 0.6 0.8 1
+
+Merge Coefficient α
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Resolved Rate (%)
+> Base-Agent
+> Sweet spot
+
+(a)      
+
+> Task Arithmetic
+> Base-Agent
+> Sweet spot
+> 00.2 0.4 0.6 0.8 1
+
+Merge Coefficient α 
+
+> 0
+> 10000
+> 20000
+> 30000
+> 40000
+> 50000
+> 60000
+> 70000
+> 80000
+> Avg. CoT / Step (token)
+> Base-Agent Sweet spot
+
+(b) 
+
+> Task Arithmetic
+> Base-Agent
+> Sweet spot
+
+Figure 3: The effect of merge coefficient for Task Arithmetic. (a) SWE-Bench Verified performance, (b) Avg.CoT length per step 0 0.2 0.4 0.6 0.8 1
+
+Merge Coefficient α
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Resolved Rate (%)
+> Base-Agent
+> Sweet spot
+
+(a)      
+
+> SLERP
+> Base-Agent
+> Sweet spot
+> 00.2 0.4 0.6 0.8 1
+
+Merge Coefficient α 
+
+> 0
+> 10000
+> 20000
+> 30000
+> 40000
+> 50000
+> 60000
+> 70000
+> 80000
+> Avg. CoT / Step (token)
+> Base-Agent Sweet spot
+
+(b) 
+
+> SLERP
+> Base-Agent
+> Sweet spot
+
+Figure 4: The effect of merge coefficient for SLERP. (a) SWE-Bench Verified performance, (b) Avg.CoT length per step Agent-8B. As α increases to a narrow sweet spot, Task Arithmetic and SLERP can obtain moderate improvements. However, further increasing α quickly destabilizes the agent: the model becomes dominated by the single-turn mathematical reasoning pattern, produces extremely long reasoning traces, and often reaches the maximum response-length limit. This causes the agent to stop interacting effectively with the environment, leading to a sharp collapse in SWE-Bench Verified performance. This phenomenon highlights a key limitation of standard model merging. Although the merge coefficient α nominally controls the amount of reasoning-model update being added, it does not provide reliable control over the resulting behavior pattern. The average CoT length of the merged model does not scale smoothly or linearly with α; instead, it often stays close to the base agent in the low-coefficient region and then abruptly jumps to near the response-length limit. Such discontinuous behavior makes baseline merging difficult to tune and easy to collapse, especially in agentic settings where the model must repeatedly alternate between thinking, acting, and observing. In contrast, M2A exposes the global merge strength β as an effective behavior-control knob. As shown in Figure 2, increasing β leads to an approximately monotonic, and nearly linear in the high-performing region, growth of Avg. CoT per step. This means that M2A can translate a 16 0 0.2 0.4 0.6 0.8 1
+
+Merge Coefficient α
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Resolved Rate (%)
+> Base-Agent
+> Sweet spot
+
+(a)      
+
+> TIES-Merging
+> Base-Agent
+> Sweet spot
+> 00.2 0.4 0.6 0.8 1
+
+Merge Coefficient α
+
+> 0
+> 10000
+> 20000
+> 30000
+> 40000
+> 50000
+> 60000
+> 70000
+> 80000
+> Avg. CoT / Step (token)
+> Base-Agent Sweet spot
+
+(b) 
+
+> TIES-Merging
+> Base-Agent
+> Sweet spot
+
+Figure 5: The effect of merge coefficient for TIES-Merging. (a) SWE-Bench Verified performance, (b) Avg.CoT length per step 0 0.2 0.4 0.6 0.8 1
+
+Merge Coefficient α
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Resolved Rate (%)
+> Base-Agent
+> Sweet spot
+
+(a)      
+
+> DARE
+> Base-Agent
+> Sweet spot
+> 00.2 0.4 0.6 0.8 1
+
+Merge Coefficient α
+
+> 0
+> 10000
+> 20000
+> 30000
+> 40000
+> 50000
+> 60000
+> 70000
+> 80000
+> Avg. CoT / Step (token)
+> Base-Agent Sweet spot
+
+(b) 
+
+> DARE
+> Base-Agent
+> Sweet spot
+
+Figure 6: The effect of merge coefficient for DARE. (a) SWE-Bench Verified performance, (b) Avg.CoT length per step simple parameter-space coefficient into predictable behavior-space control over reasoning intensity. Moreover, M2A has a stable medium-reasoning region where performance remains consistently strong, reducing the burden of manual hyperparameter tuning. The comparison between Figures 2 and 3–6 therefore further demonstrates the advantage of M2A: it does not merely find a better merge coefficient, but changes the merge coefficient from a fragile tuning variable into a controllable interface for shaping post-merge agent behavior. For RAIN-Merging, we follow the parameter setting of the original method. Specifically, RAIN-Merging does not use the same manually swept scalar coefficient as Task Arithmetic, SLERP, TIES-Merging, or DARE. Instead, its merge coefficients are adaptively selected by the instruction-attention guided merging coefficient mechanism proposed in the paper [ 12 ]. We keep this design unchanged to faithfully evaluate RAIN-Merging under its intended configuration. 
+
+A.4 Average interaction steps under different merge strengths. 
+
+We further analyze how merge strength β affects the number of agent–environment interaction steps. As shown in Figure 7, the average number of steps per trajectory remains relatively stable across the 17 sweep, especially in the Low and Medium Reasoning regimes. This indicates that increasing β mainly controls the depth of internal reasoning, rather than suppressing the agent’s external interaction behavior. In the Medium Reasoning regime, where M2A achieves the best performance, the agent maintains a step count close to the Base Agent while producing longer and more useful reasoning traces. Therefore, the performance gain does not come from reducing interaction or prematurely terminating the trajectory, but from better coordinating reasoning with action. When β enters the High Reasoning regime, the average step count begins to decrease mildly due to exceeding maximum prompt length. Nevertheless, the step-count variation is much smoother than the abrupt behavior collapse observed in other merging baselines, further showing that M2A preserves the think–act–observe loop while exposing β as a control knob for reasoning behavior. 0 0.2 0.4 0.6 0.8 1 1.2 1.4 1.6 1.8 2                              
+
+> Merge Strength β
+> 38
+> 40
+> 42
+> 44
+> 46
+> 48
+> 50
+> 52
+> Resolved Rate (%)
+> Low Medium High
+> Base-Agent
+> Sweet spot
+> (a)
+> M2A
+> Base-Agent
+> Sweet spot
+> 00.2 0.4 0.6 0.8 11.2 1.4 1.6 1.8 2
+> Merge Strength β
+> 250
+> 300
+> 350
+> 400
+> 450
+> 500
+> 550
+> Avg. CoT / Step (token)
+> Low Medium High
+> Base-Agent
+> Sweet spot
+> (b)
+> M2A
+> Base-Agent
+> Sweet spot
+> 00.2 0.4 0.6 0.8 11.2 1.4 1.6 1.8 2
+> Merge Strength β
+> 0
+> 25
+> 50
+> 75
+> 100
+> 125
+> 150
+> 175
+> 200
+> Avg. Steps / Trajectory
+> Low Medium High
+> Base-Agent Sweet spot
+> (c)
+> M2A
+> Base-Agent
+> Sweet spot
+
+Figure 7: Effect of merge strength β on merged model behavior. (a) SWE-Bench Verified performance, (b) average reasoning length per step, and (c) average interaction steps per trajectory. 
+
+## B Calibration Set Construction 
+
+B.1 Agent Calibration Set 
+
+We construct the calibration set from model-generated code-agent trajectories. We randomly sample 100 code-agent trajectories from Scale-SWE model trajectories and set the maximum sequence length to 15k tokens during calibration preprocessing. The calibration set is used only to extract behavior-critical hidden states for M2A, and is not used for supervised fine-tuning or benchmark evaluation. We verify that these 100 calibration trajectories have no instance-level overlap with SWE-Bench Verified. In particular, none of the calibration trajectories corresponds to any of the 500 SWE-Bench Verified evaluation instances. This separation ensures that the calibration stage does not expose the model to evaluation issues or solution trajectories from the test benchmark. Each calibration example is organized into three fields: prompt , reasoning , and response . The 
+
+prompt contains the system prompt and the multi-turn conversation history before the current action. The reasoning field contains the model’s current-step internal thinking process, enclosed by <think> and </think> . The response field contains the model’s current-step external action, usually a tool call. Figure 8 gives a simplified example of the trajectory format. 
+
+B.2 Behavior Marker Set 
+
+Each calibration example is first formatted with the model’s chat template and then represented as the concatenation of the prompt, reasoning field, and response field. We locate behavior-transition markers in the tokenized sequence using character-to-token offset mapping. The marker set is not tied to a specific serialization format; instead, it is instantiated according to the tool-call format used by the agent trajectory. For XML-style tool calls, we use 
+
+Mxml = {<think> , </think> , <function= , </function> }, (14) while for native tool-call formats, we use 
+
+Mnative = {<think> , </think> , <tool_call> , </tool_call> }. (15) 18 {"prompt": "<|im_start|>system You are OpenHands agent, a helpful AI assistant that can interact with a computer to solve tasks. ... <|im_start|>user Now consider the following Github issue: ... <|im_start|>assistant", "reasoning": "<think> I need to understand the issue, inspect the repository, locate the relevant implementation, and decide which file should be modified. </think>", "response": "<tool_call> {\"name\": \"execute_bash\", \"arguments\": {\"command\": \"find /workspace/repo -type f | head\"}} </tool_call>" }
+
+Figure 8: Simplified example of a code-agent calibration trajectory. The prompt contains the system prompt and conversation history; the reasoning field contains the current-step internal thinking; and the response field contains the external tool call. When mixed formats are present, M2A uses the union of all supported markers, M = Mxml ∪Mnative .For a start marker at token position t, we collect the local neighborhood [t, t + r]; for an end marker, we collect [t − r, t ]. In the main experiments, we use r = 5 . This neighborhood construction captures the local representation changes when the model enters reasoning, exits reasoning, starts a tool call, or finishes an external action block. 
+
+B.3 Calibration Set Size Ablation 
+
+We further study the effect of calibration set size on M2A. All experiments use the same model, merge configuration, evaluation scaffold, and SWE-Bench Verified evaluation protocol; we only vary the number of calibration trajectories used to construct the agent-critical behavior subspace. As shown in Table 6, using only 50 trajectories already improves over the base agent, but the performance is lower than the default setting. Increasing the calibration set size to 100 trajectories yields the best resolved rate of 51.2%. Further increasing the calibration set to 200 or 300 trajectories does not bring additional improvement, while requiring more calibration computation. These results indicate that 100 trajectories are sufficient to capture the key behavior-critical directions for preserving the agent’s think–act–observe pattern. Therefore, we use 100 calibration trajectories in the main experiments, which provides the best trade-off between performance and efficiency. Table 6: Calibration set size ablation on SWE-Bench Verified.      
+
+> Calibration Set Size Resolved Rate (%)
+> 50 49.1 100 51.2
+> 200 51.0 300 50.8
+
+B.4 Calibration Window Radius Ablation 
+
+We further ablate the calibration window radius r, which determines how many neighboring tokens are collected around each behavior transition marker when constructing the agent-critical behavior subspace. This experiment examines whether M2A is sensitive to the local window used for behavior calibration. A very small window may miss the transition context around reasoning and tool-call 19 markers, while an overly large window may include task-specific semantic tokens that are less directly related to the agent’s think–act–observe behavior pattern. All experiments use the same model, calibration set size, merge configuration, and SWE-Bench Verified evaluation protocol; we only vary the radius r. As shown in Table 7, M2A is relatively robust to this hyperparameter. The resolved rate remains consistently high across different radius choices: r = 3 achieves 51.0%, r = 5 achieves 51.2%, and r = 10 still obtains 49.5%. All settings substantially outperform the base agent, indicating that the behavior-critical subspace can be reliably estimated from local marker neighborhoods and does not depend on a fragile radius choice. At the same time, a moderate radius performs best. The slightly lower performance at r = 3 suggests that a smaller window may not fully capture the local transition context, while the drop at r = 10 
+
+suggests that larger windows may introduce more task-specific or irrelevant trajectory tokens into the protected subspace. Therefore, we use r = 5 in the main experiments, as it provides the best performance while preserving robustness across nearby radius choices. Table 7: Calibration window radius ablation on SWE-Bench Verified.      
+
+> Window Radius rResolved Rate (%)
+> 351.0 551.2
+> 10 49.5
+
+## C Compute Resources 
+
+Table 8 reports the compute resources used in our experiments. M2A itself is training-free and does not require gradient updates, optimizer states, or rollout-based policy optimization. Its additional cost comes from forward-pass calibration and parameter-space merging. Table 8: Compute resources. We report the hardware, peak memory usage, and Wall-clock Time used for SFT and M2A merging.                      
+
+> Stage Hardware Peak Memory / GPU Time(hours)
+> Agent-8B SFT 32 ×H200 140 GB ≈30
+> Multi-Task-8B SFT 32 ×H200 140 GB ≈48
+> M2A calibration and merging 8×H200 50 GB ≈2
+
+## D Implementation Details of M2A 
+
+Orthonormal basis for the agent-critical subspace. The main text defines the agent-critical behavior subspace as 
+
+S(l)agent = span( C(l)), C(l) = [ h(l)1 , h (l)2 , . . . , h (l) 
+
+> nl
+
+] ∈ Rd×nl , (16) where each h(l) 
+
+> i
+
+is a hidden feature collected from the local neighborhood of a behavior-transition marker. Conceptually, an orthonormal basis Q(l) of this subspace can be obtained by a thin SVD: 
+
+C(l) = U (l)Σ(l)V (l)⊤. (17) We keep the left singular vectors corresponding to non-negligible singular values: 
+
+Q(l) = U (l), (18) In this explicit form, the null-space projector is 
+
+P (l)null = I − Q(l)Q(l)⊤, (19) and the behavior-preserving reasoning update for a weight matrix whose input dimension matches 
+
+S(l)agent is: 
+
+g∆W (l)reason = ∆ W (l)reason P (l)null . (20) 20 This yields 
+
+g∆W (l)reason h = 0 , ∀h ∈ S(l)agent , (21) which is the no-perturbation condition used in the main text. 
+
+Matrix-free implementation used in experiments. Although the above SVD form is useful for presenting the geometry of M2A, our implementation does not explicitly materialize Q(l) or P (l)null .This is mainly for efficiency: in a transformer layer, the protected constraints must be applied separately to multiple parameter blocks, including WQ, WK , WV , WO , Wgate , Wup , and Wdown ,and for attention projections the update is further processed head-wise. In the default setting, we merge all these components, denoted as qkvof .Instead, we implement the same null-space projection through block-wise linear constraint operators. For a mergeable block B in layer l, let 
+
+δB = vec(∆ WB ) (22) be the vectorized reasoning task update. We construct a linear operator AB from the same marker-neighborhood calibration features. The protected-subspace condition is then written as: 
+
+AB eδB = 0 . (23) The projected update is obtained by solving: 
+
+eδB = arg min  
+
+> z
+
+∥z − δB ∥22 s.t. AB z = 0 . (24) The closed-form solution is: 
+
+eδB = δB − A⊤ 
+
+> B
+
+(AB A⊤ 
+
+> B
+
+)−1AB δB . (25) For numerical stability, we use the ridge-stabilized form: 
+
+eδB = δB − A⊤ 
+
+> B
+
+(AB A⊤ 
+
+> B
+
++ λI )−1AB δB , (26) where λ = 10 −4 by default. This matrix-free formulation is equivalent to the explicit Q-based projection when AB spans the same protected feature subspace. In practice, AB is built from sampled marker-neighborhood constraints, so it provides an efficient sampled approximation to the ideal projection ∆W (l)reason (I − Q(l)Q(l)⊤). The implementation only requires products with AB and A⊤ 
+
+> B
+
+, avoiding the memory cost of constructing the full projector for every layer, head, and parameter block. 
+
+Block-wise projection details. The implementation applies the above projection block-wise. For attention projections, WQ, WK , and WV are sliced by head rows, while WO is sliced by head columns. For models with grouped-query attention, the key/value head corresponding to query head 
+
+h is selected by h mod Hkv . For FFN layers, the same projection principle is applied to Wgate , Wup ,and Wdown ; the down-projection update is internally transposed to match the solver layout and then transposed back before being added to the model. Small constraint systems are solved by dense linear solvers. When dense solving is unstable or memory-expensive, we fall back to conjugate gradient on (AB A⊤ 
+
+> B
+
++ λI ) with a maximum of 100 iterations and tolerance 10 −5. Thus, the implementation follows the null-space projected merging objective in the main text, but realizes it through an efficient matrix-free solver rather than explicitly computing Q(l) for every block. 
+
+D.1 Implementation Details of Adaptive Layer-Wise Merging Layer-wise task-vector aggregation. In the main text, ∆θ(l)agent and ∆θ(l)reason denote the layer-wise agent and reasoning task vectors. In implementation, each of them is represented as a collection of mergeable parameter blocks: 
+
+∆θ(l) 
+
+> x
+
+=
+
+n
+
+∆W (l)
+
+> x,p
+
+o 
+
+> p∈P (l)
+
+, x ∈ { agent , reason }, (27) where 
+
+∆W (l)agent ,p = W (l)agent ,p − W (l)base ,p , ∆W (l)reason ,p = W (l)reason ,p − W (l)base ,p . (28) Here P(l) contains all enabled mergeable blocks in layer l, including the Q/K/V/O attention pro-jections and the FFN gate/up/down projections. For attention modules, Q/K/V/O are computed head-wise; for FFN modules, the full projection matrices are used. 21 Merge coefficient calibration. The layer-wise Frobenius norm in Eq. (11) is computed by summing the squared norms over all enabled blocks: 
+
+∆θ(l) 
+
+> xF
+
+=
+
+ X
+
+> p∈P (l)
+
+∆W (l)
+
+> x,p
+> 2
+> F
+
+
+
+> 1/2
+
+, x ∈ { agent , reason }. (29) The calibrated coefficient is then computed as 
+
+αl = β ·
+
+∆θ(l)agent F
+
+∆θ(l)reason F
+
++ ϵ. (30) If the reasoning-vector norm is numerically close to zero, we set αl = 0 . This is the quantity visualized in Figure 9(a): the reasoning task vector often has a larger magnitude than the agent task vector, and αl rescales it to the layer-wise agent scale before merging. 
+
+Similarity-aware layer mask. In the main text, sim (l) denotes the cosine similarity between 
+
+∆θ(l)agent and ∆θ(l)reason . In implementation, this similarity is computed by aggregating all enabled mergeable blocks in layer l:
+
+sim (l) =
+
+P
+
+> p∈P (l)
+
+D
+
+∆W (l)agent ,p , ∆W (l)reason ,p 
+
+E
+
+> F
+
+∆θ(l)agent F
+
+∆θ(l)reason F
+
++ ϵ, (31) where P(l) denotes the set of mergeable parameter blocks in layer l, and ⟨A, B ⟩F = Tr( A⊤B) is the Frobenius inner product. The global similarity threshold is the mean similarity over all selected layers: 
+
+¯sim = 1
+
+|L| 
+
+X
+
+> l∈L
+
+sim (l), (32) where L is the set of selected layers. The binary layer mask is computed as 
+
+Ml = I
+
+h
+
+sim (l) > ¯sim 
+
+i
+
+. (33) Layers with Ml = 1 are merged after null-space projection, while layers with Ml = 0 are skipped and kept identical to the agent model. As illustrated in Figure 9(b), this mask selects similarity-aligned layers for reasoning injection and protects low-similarity layers from potentially conflicting updates. 0                
+
+> 15
+> 30
+> 45
+> 60
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0510 15 20 25 30 35
+> Magnitude
+> Layer index
+> αₗ
+> agent norm reason norm αₗ
+> (a)
+> 0.00
+> 0.03
+> 0.06
+> 0.09
+> 0510 15 20 25 30 35
+> Similarity
+> Layer index
+> merged layers
+> protected
+> (0 –13)
+> protected
+> (29 –35) (b)
+
+Figure 9: (a) αl is computed from the ratio between the layer-wise agent and reasoning task-vector norms. (b) Ml is obtained by layer-wise similarities. Green regions are merged layers, while blue regions are protected layers. 
+
+Reproducibility and numerical details. All models are loaded in bfloat16, while projection com-putations are performed in float32 by default. The implementation supports assigning Q/K, V/O, and FFN projection computations to different devices. To improve robustness for long trajecto-ries, calibration examples exceeding the maximum sequence length are skipped during constraint construction. 22 Chat template for multi-turn reasoning. Qwen3 models use a default chat template that com-presses historical assistant reasoning to save context length. Specifically, for previous assistant turns before the latest user query, the default template removes the content inside <think> ... </think> 
+
+and only keeps the final assistant response. While this design is efficient for ordinary dialogue, it can be suboptimal for multi-turn agent evaluation, because the agent may need to condition on its previous reasoning traces when planning subsequent tool calls, interpreting observations, or revising earlier decisions. To better evaluate the effect of reasoning integration in multi-turn agent settings, we modify the chat template to preserve historical reasoning traces. The key change is that, for every assistant message, if reasoning_content is available or can be parsed from <think> ... </think> , we explicitly serialize it back into the conversation: 
+
+assistant message ⇒ <think> reasoning_content </think> + final content . (34) In other words, we remove the default logic that only preserves reasoning after the latest non-tool user query. The modified template therefore keeps the full multi-turn reasoning history, including previous thought traces, tool calls, and tool responses. The tool-call format itself is unchanged. Function signatures are still provided inside 
+
+<tools> ... </tools> , tool invocations are serialized with <tool_call> ... </tool_call> , and en-vironment observations are returned inside <tool_response> ... </tool_response> . Thus, the modification only affects whether historical reasoning traces are retained, not the tool-use protocol. For fairness, all evaluated models use the same reasoning-preserving chat template. Therefore, the reported gains do not come from giving M2A a different conversation format. All models are evaluated under the same context-length limit, tool-call format, and trajectory construction protocol. 
+
+## E Limitations 
+
+Although M2A can be applied to diverse agentic tasks and larger model families, our experiments are limited by available computational resources. SWE-Bench Verified provides a challenging testbed for real-world coding agents. Therefore, we use Qwen3-8B and SWE-Bench Verified as a representative and resource-feasible setting to evaluate the effectiveness of behavior-preserving reasoning integration. Future work should further validate M2A across broader model scales and more diverse agent environments. In addition, while the merge strength β provides a practical interface for controlling reasoning intensity, the current regime boundaries are still empirically selected. Developing more principled criteria for choosing merge strength and merge layers would further improve the robustness of behavior-preserving reasoning integration. 
+
+## F Broader Impact 
+
+This work studies a training-free method for synergizing mathematical and agentic reasoning in large language models. Its potential positive impact is to improve the capability and efficiency of software engineering agents without requiring additional costly SFT or RL, making stronger agentic reasoning more accessible to researchers and practitioners with limited computational resources. By preserving multi-turn interaction behavior while enhancing internal reasoning, M2A may help build coding agents that perform more reliable debugging, code repair, and repository-level understanding. At the same time, stronger coding agents may also introduce risks if deployed without proper safeguards. More capable software agents could be misused to automate the generation of insecure code, discover or exploit vulnerabilities, or make unintended modifications in real-world codebases. In addition, because agentic systems interact with external environments, failures may propagate beyond text generation and affect files, repositories, or execution environments. Therefore, practical deployment should include sandboxed execution, human oversight for consequential changes, access control, logging, and security-oriented evaluation before use in real-world software systems. 23 G Qualitative Trajectory Case Study 
+
+G.1 Case Study 1 
+
+To better illustrate the behavioral change induced by M2A, we present a concrete SWE-Bench Verified case study from the same issue instance, where Agent-8B fails while M2A-Agent-8B succeeds. Both agents are evaluated under the same OpenHands scaffold and are given the same repository-level issue. The issue requires fixing a Sphinx autodoc bug: when Google-style docstrings are parsed by Napoleon, the return description is represented as :returns: , but the autodoc type-hint merger only recognizes :return: when deciding whether to add :rtype: under 
+
+autodoc_typehints_description_target = "documented" .
+
+Trajectory comparison on sphinx-doc/sphinx : autodoc_typehints_description_target 
+
+with Napoleon 
+
+Agent-8B baseline: failed trajectory 
+
+> Outcome: max prompt length exceeded
+
+Pattern 1: broad exploration without a stable problem representation. 
+
+> <think> The issue is about autodoc_typehints_description_target not working with Napoleon. Maybe the bug is in how Napoleon processes docstrings, or how autodoc merges fields. Let me inspect more files and tests. </think> <tool_call> grep -n "documented" /testbed/tests/test_ext_autodoc.py grep -rn "Returns:" /testbed/tests/roots/test-ext-autodoc/ grep -rn "def _process_docstring" /testbed/sphinx/ext/ </tool_call>
+
+Pattern 2: repeated uncertainty and delayed action. 
+
+> <think> Maybe there is no test covering Napoleon. Maybe the issue is that :rtype: is added but removed later. Maybe the output differs because of configuration. I am going in circles. </think>
+
+Pattern 3: context consumed before a reliable fix. 
+
+> <tool_call> create /testbed/reproduce_issue.py run reproduction inspect Napoleon processing inspect autodoc typehints search tests again ... </tool_call> termination_reason = max_prompt_length_exceeded reward = 0
+
+Interpretation. The baseline performs many exploratory actions but does not quickly compress the evidence into a precise root cause. Its trajectory is dominated by repeated search and hypothesis revision, causing the context to grow until the task fails. 24 M2A-Agent-8B: successful trajectory 
+
+> Outcome: resolved
+
+Pattern 1: evidence-grounded problem representation. 
+
+> <think> The bug is in documented-mode type-hint merging. Napoleon converts Google-style "Returns:" into a :returns: field, while autodoc checks only :return: when deciding whether the return value is documented. </think> <tool_call> grep -n "augment_descriptions_with_types" \ /testbed/sphinx/ext/autodoc/typehints.py </tool_call>
+
+Pattern 2: fewer but more targeted external actions. 
+
+> <edit> --- a/sphinx/ext/autodoc/typehints.py +++ b/sphinx/ext/autodoc/typehints.py - elif parts[0] == ’return’: + elif parts[0] in (’return’, ’returns’): has_description.add(’return’) - if name == ’return’: + if name in (’return’, ’returns’): continue </edit>
+
+Pattern 3: verification before finalization. 
+
+> <tool_call> python reproduce_issue.py python -m pytest tests/test_ext_autodoc_configs.py \ -k "description" -xvs </tool_call> Return type field FOUND. 1 passed. termination_reason = env_done reward = 1
+
+Interpretation. M2A first builds a compact causal explanation of the failure, then converts it into a minimal code change and verifies the result. This trajectory shows stronger internal reasoning without suppressing the external think–act–observe loop. 
+
+Key behavioral difference 
+
+The baseline follows an explore–revise–explore pattern: it repeatedly searches related code paths and tests, but fails to stabilize the root cause before exhausting the prompt budget. In contrast, M2A follows an understand–patch–verify pattern: it identifies the semantic mismatch between :return: and :returns: , performs a localized patch, and validates the fix. This supports the trajectory-level finding that M2A shifts the agent from early trial-and-error editing toward evidence-grounded action. 
+
+Figure 10: Qualitative trajectory comparison. Agent-8B fails by repeatedly exploring related code paths without forming a stable root-cause representation. M2A-Agent-8B succeeds by first identifying the Napoleon–autodoc field mismatch, then applying a minimal patch and verifying it. The example illustrates how M2A strengthens internal reasoning while preserving effective external action. 
+
+G.2 Case Study 2 
+
+We provide another representative trajectory comparison on a scikit-learn issue. The issue concerns an inconsistency in LogisticRegressionCV : when probabilistic scorers such as neg_log_loss are used with multi_class=’multinomial’ , the helper estima-tor inside _log_reg_scoring_path should use the same multi-class mode as the outer 
+
+LogisticRegressionCV . This case illustrates the behavioral difference between the base agent and 25 M2A. The base agent identifies the surface-level argument to add, but makes an incomplete edit that removes an existing constructor argument. In contrast, M2A first builds a more precise causal understanding of how scoring depends on predict_proba , and then translates this understanding into a minimal and semantics-preserving edit. 
+
+Agent-8B Baseline: Trial-and-Error Edit 
+
+Trajectory pattern. The base agent quickly identifies that multi_class is relevant, but does not fully preserve the semantics of the existing constructor call. Its external action is close to the suggested fix, yet it overwrites the existing fit_intercept argument. 
+
+Reasoning focus. 
+
+• Locates _log_reg_scoring_path .• Recognizes that multi_class should be passed. • Applies the edit without preserving all existing arguments. 
+
+Final patch. 
+
+- log_reg = LogisticRegression(fit_intercept=fit_intercept) + log_reg = LogisticRegression(multi_class=multi_class) 
+
+Key failure pattern. The agent performs a near-correct but incomplete edit: it adds the new ar-gument by replacing the constructor call rather than extending it. As a result, the patch loses 
+
+fit_intercept=fit_intercept , which changes the behavior of the helper estimator beyond the in-tended fix. 
+
+Outcome. Failed resolution. 
+
+M2A-Agent-8B: Evidence-Grounded Action 
+
+Trajectory pattern. M2A first reasons about the scoring path and the probability prediction mechanism before editing. It identifies that probabilistic scorers call predict_proba , whose behavior depends on the estimator’s multi_class setting. This leads to a focused and semantics-preserving patch. 
+
+Reasoning focus. 
+
+• Traces scoring(log_reg, X_test, y_test) .• Connects neg_log_loss to predict_proba .• Infers that multi_class must be inherited by the helper estimator. • Preserves the existing fit_intercept behavior. 
+
+Final patch. 
+
+- log_reg = LogisticRegression(fit_intercept=fit_intercept) + log_reg = LogisticRegression(fit_intercept=fit_intercept, + multi_class=multi_class) 
+
+Key success pattern. The edit is not merely longer or more verbose reasoning. The additional reasoning is used to construct a better problem representation, which is then converted into a smaller and more faithful external action. 
+
+Outcome. Successful resolution. 
+
+Figure 11: Trajectory comparison on a scikit-learn issue. The base agent exhibits a trial-and-error pattern: it identifies the relevant parameter but applies an incomplete edit that removes the existing fit_intercept argument. M2A instead performs evidence-grounded action: it reasons through the scoring and probability-prediction path, then applies a minimal patch that preserves the original constructor semantics while adding multi_class . This case supports our observation that M2A shifts agent behavior from early, surface-level editing toward evidence-grounded action. 26
