@@ -6,88 +6,73 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-13
-- 运行时间：2026-05-13 20:34:15 UTC
+- 最新运行日期：2026-05-14
+- 运行时间：2026-05-14 21:05:44 UTC
 - 运行状态：成功
-- 本次总论文数：22
-- 精读区：11
+- 本次总论文数：17
+- 精读区：6
 - 速读区：11
 
 ### 今日简报（AI）
-今日深挖 22 篇前沿成果，重点聚焦 AI 智能体在数值算法演进与复杂物理方程求解中的突破。
-推荐关注 GRAFT-ATHENA 展现的自我进化智能体团队，以及数据引导如何破解浅水方程神经网络训练中的损失景观难题。
-建议读者留意智能体正从简单任务执行转向数学推理与大规模搜索空间的自主迭代优化。
-- 详情：[/202605/13/README](/202605/13/README)
+今日深度研读 17 篇论文，重点聚焦物理信息神经网络（PINNs）在工业设计与理论泛化上的双重突破。
+满分成果展示了 PINNs 如何加速涡轮叶片设计并建立统一泛化框架，同时 AI 数学家助手正重塑科研协作模式。
+建议普通读者重点关注 AI 与物理建模、数学证明的深度融合，探索 Agent 辅助科研的新路径。
+- 详情：[/202605/14/README](/202605/14/README)
 
 ### 精读区论文标签
-1. [Finite Volume-Informed Neural Network Framework for 2D Shallow Water Equations: Rugged Loss Landscapes and the Importance of Data Guidance](/202605/13/2605.11001v1-finite-volume-informed-neural-network-framework-for-2d-shallow-water-equations-rugged-loss-landscapes-and-the-importance-of-data-guidance)  
+1. [A fast Physics-Informed Neural Networks based approach to the 2D design of turbine blades](/202605/14/2605.07131v1-a-fast-physics-informed-neural-networks-based-approach-to-the-2d-design-of-turbine-blades)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：用于二维浅水方程的PINN框架及有限体积损失
-2. [GRAFT-ATHENA: Self-Improving Agentic Teams for Autonomous Discovery and Evolutionary Numerical Algorithms](/202605/13/2605.11117v1-graft-athena-self-improving-agentic-teams-for-autonomous-discovery-and-evolutionary-numerical-algorithms)  
+   evidence：用于涡轮叶片设计的物理信息神经网络
+2. [Unified generalization analysis for physics informed neural networks](/202605/14/2605.13260v1-unified-generalization-analysis-for-physics-informed-neural-networks)  
    标签：评分：10.0/10、query:ai-pde
-   evidence：自我改进的智能体团队用于数值算法的自主发现
-3. [Compositional Neural Operators for Multi-Dimensional Fluid Dynamics](/202605/13/2605.11691v1-compositional-neural-operators-for-multi-dimensional-fluid-dynamics)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：用于多维流体动力学的组合神经算子
-4. [Neural-Schwarz Tiling for Geometry-Universal PDE Solving at Scale](/202605/13/2605.12343v1-neural-schwarz-tiling-for-geometry-universal-pde-solving-at-scale)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：用于几何通用PDE求解的神经算子框架
-5. [Non-Uniqueness of Solutions in Neural Variational Methods](/202605/13/2605.08877v2-non-uniqueness-of-solutions-in-neural-variational-methods)  
+   evidence：物理信息神经网络 (PINNs) 的泛化性分析
+3. [U-HNO: A U-shaped Hybrid Neural Operator with Sparse-Point Adaptive Routing for Non-stationary PDE Dynamics](/202605/14/2605.12965v1-u-hno-a-u-shaped-hybrid-neural-operator-with-sparse-point-adaptive-routing-for-non-stationary-pde-dynamics)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：PINN和神经变分方法中病态问题的分析
-6. [HS-FNO: History-Space Fourier Neural Operator for Non-Markovian Partial Differential Equations](/202605/13/2605.09523v2-hs-fno-history-space-fourier-neural-operator-for-non-markovian-partial-differential-equations)  
+   evidence：用于非平稳PDE动力学的混合神经算子
+4. [Di-BiLPS: Denoising induced Bidirectional Latent-PDE-Solver under Sparse Observations](/202605/14/2605.13790v1-di-bilps-denoising-induced-bidirectional-latent-pde-solver-under-sparse-observations)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于非马尔可夫偏微分方程的神经算子
-7. [Generalization Error Bounds for Picard-Type Operator Learning in Nonlinear Parabolic PDEs](/202605/13/2605.10277v1-generalization-error-bounds-for-picard-type-operator-learning-in-nonlinear-parabolic-pdes)  
+   evidence：用于正向和反向PDE问题的神经框架
+5. [Topology-Preserving Neural Operator Learning via Hodge Decomposition](/202605/14/2605.13834v1-topology-preserving-neural-operator-learning-via-hodge-decomposition)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：非线性抛物线方程的算子学习
-8. [CVEvolve: Autonomous Algorithm Discovery for Unstructured Scientific Data Processing](/202605/13/2605.11359v1-cvevolve-autonomous-algorithm-discovery-for-unstructured-scientific-data-processing)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：用于科学算法发现的自主智能体框架
-9. [EqOD: Symmetry-Informed Stability Selection for PDE Identification](/202605/13/2605.11524v1-eqod-symmetry-informed-stability-selection-for-pde-identification)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：基于对称性信息的PDE识别稳定性选择方法
-10. [Approximation Theory of Laplacian-Based Neural Operators for Reaction-Diffusion System](/202605/13/2605.12025v1-approximation-theory-of-laplacian-based-neural-operators-for-reaction-diffusion-system)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：神经算子用于学习PDE的解算子
-11. [MetaColloc: Optimization-Free PDE Solving via Meta-Learned Basis Functions](/202605/13/2605.12368v1-metacolloc-optimization-free-pde-solving-via-meta-learned-basis-functions)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：通过元学习基函数实现无优化PDE求解
+   evidence：针对物理场方程和偏微分方程的神经算子学习
+6. [MPINeuralODE: Multiple-Initial-Condition Physics-Informed Neural ODEs for Globally Consistent Dynamical System Learning](/202605/14/2605.13305v1-mpineuralode-multiple-initial-condition-physics-informed-neural-odes-for-globally-consistent-dynamical-system-learning)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：物理信息神经ODE用于动力系统学习
 
 ### 速读区论文标签
-1. [M2A: Synergizing Mathematical and Agentic Reasoning in Large Language Models](/202605/13/2605.09879v1-m2a-synergizing-mathematical-and-agentic-reasoning-in-large-language-models)  
+1. [AI co-mathematician: Accelerating mathematicians with agentic AI](/202605/14/2605.06651v2-ai-co-mathematician-accelerating-mathematicians-with-agentic-ai)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：在大模型中协同数学与智能体推理
-2. [EvoMAS: Learning Execution-Time Workflows for Multi-Agent Systems](/202605/13/2605.08769v1-evomas-learning-execution-time-workflows-for-multi-agent-systems)  
+   evidence：用于数学研究和理论构建的AI智能体
+2. [Steerable Neural ODEs on Homogeneous Spaces](/202605/14/2605.11133v1-steerable-neural-odes-on-homogeneous-spaces)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：基于大模型的复杂任务工作流多智能体系统
-3. [OPT-BENCH: Evaluating the Iterative Self-Optimization of LLM Agents in Large-Scale Search Spaces](/202605/13/2605.08904v1-opt-bench-evaluating-the-iterative-self-optimization-of-llm-agents-in-large-scale-search-spaces)  
+   evidence：用于特征传输的神经ODE几何扩展
+3. [AgentDisCo: Towards Disentanglement and Collaboration in Open-ended Deep Research Agents](/202605/14/2605.11732v1-agentdisco-towards-disentanglement-and-collaboration-in-open-ended-deep-research-agents)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：评估LLM智能体在大规模搜索空间中的自我优化能力
-4. [Agentic MIP Research: Accelerated Constraint Handler Generation](/202605/13/2605.09186v1-agentic-mip-research-accelerated-constraint-handler-generation)  
+   evidence：用于深度研究和自动发现设计策略的智能体架构
+4. [Automated Reformulation of Robust Optimization via Memory-Augmented Large Language Models](/202605/14/2605.11813v1-automated-reformulation-of-robust-optimization-via-memory-augmented-large-language-models)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于生成求解器插件的智能体框架
-5. [Multifidelity Gaussian process regression for solving nonlinear partial differential equations](/202605/13/2605.10383v1-multifidelity-gaussian-process-regression-for-solving-nonlinear-partial-differential-equations)  
+   evidence：大模型用于优化模型的自动重构
+5. [Approximation of Maximally Monotone Operators : A Graph Convergence Perspective](/202605/14/2605.12301v1-approximation-of-maximally-monotone-operators--a-graph-convergence-perspective)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于求解非线性PDE的多保真高斯过程回归
-6. [CausalGS: Learning Physical Causality of 3D Dynamic Scenes with Gaussian Representations](/202605/13/2605.10586v1-causalgs-learning-physical-causality-of-3d-dynamic-scenes-with-gaussian-representations)  
+   evidence：针对PDE解算子和微分算子的算子学习
+6. [Formalize, Don't Optimize: The Heuristic Trap in LLM-Generated Combinatorial Solvers](/202605/14/2605.12421v1-formalize-dont-optimize-the-heuristic-trap-in-llm-generated-combinatorial-solvers)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：从视频数据中学习物理因果关系和PDE
-7. [Exact Fixed-Point Constraints in Neural-ODEs with Provable Universality](/202605/13/2605.10613v1-exact-fixed-point-constraints-in-neural-odes-with-provable-universality)  
+   evidence：LLM生成的组合问题求解器
+7. [Parallel-in-Time Training of Recurrent Neural Networks for Dynamical Systems Reconstruction](/202605/14/2605.12683v1-parallel-in-time-training-of-recurrent-neural-networks-for-dynamical-systems-reconstruction)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：具有定点约束的物理模型神经微分方程
-8. [NanoResearch: Co-Evolving Skills, Memory, and Policy for Personalized Research Automation](/202605/13/2605.10813v1-nanoresearch-co-evolving-skills-memory-and-policy-for-personalized-research-automation)  
+   evidence：用于动力系统重建的AI
+8. [Hypernetwork-Conditioned WENO5 Conservative-Form CNNs for One-Dimensional Conservation Laws](/202605/14/2605.13106v1-hypernetwork-conditioned-weno5-conservative-form-cnns-for-one-dimensional-conservation-laws)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：大模型驱动的多智能体系统用于科研自动化
-9. [MIND-Skill: Quality-Guaranteed Skill Generation via Multi-Agent Induction and Deduction](/202605/13/2605.08670v1-mind-skill-quality-guaranteed-skill-generation-via-multi-agent-induction-and-deduction)  
+   evidence：使用CNN对双曲守恒律进行数据驱动的离散化
+9. [Safactory: A Scalable Agentic Infrastructure for Training Trustworthy Autonomous Intelligence](/202605/14/2605.06230v2-safactory-a-scalable-agentic-infrastructure-for-training-trustworthy-autonomous-intelligence)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于自动技能归纳和程序性知识发现的多智能体框架
-10. [Learning to Explore: Scaling Agentic Reasoning via Exploration-Aware Policy Optimization](/202605/13/2605.08978v2-learning-to-explore-scaling-agentic-reasoning-via-exploration-aware-policy-optimization)  
+   evidence：用于训练自主智能的智能体基础设施
+10. [CoCoDA: Co-evolving Compositional DAG for Tool-Augmented Agents](/202605/14/2605.08399v1-cocoda-co-evolving-compositional-dag-for-tool-augmented-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于自适应探索和推理的LLM智能体
-11. [Teacher-Aware Evolution of Heuristic Programs from Learned Optimization Policies](/202605/13/2605.10634v1-teacher-aware-evolution-of-heuristic-programs-from-learned-optimization-policies)  
+   evidence：智能体中规划器与工具库协同演化的框架
+11. [AgentPSO: Evolving Agent Reasoning Skill via Multi-agent Particle Swarm Optimization](/202605/14/2605.08704v1-agentpso-evolving-agent-reasoning-skill-via-multi-agent-particle-swarm-optimization)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：使用大模型的启发式程序演化框架
+   evidence：用于演化大模型推理能力的多智能体框架
 
 
 <div class="dpr-home-promo-card">
