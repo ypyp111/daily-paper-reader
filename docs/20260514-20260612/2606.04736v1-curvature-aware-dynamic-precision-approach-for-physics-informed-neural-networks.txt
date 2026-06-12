@@ -1,0 +1,710 @@
+Title: Curvature-aware dynamic precision approach for physics-informed neural networks
+
+URL Source: https://arxiv.org/pdf/2606.04736v1
+
+Published Time: Thu, 04 Jun 2026 01:13:14 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# Highlights 
+
+## Curvature-aware dynamic precision approach for physics-informed neural networks 
+
+Yingjie Shao, Ioannis N. Athanasiadis, George van Voorn, Taniya Kapoor 
+
+• We propose a dynamic precision approach for training physics-informed neural networks and showcase its applicability on benchmark failure-mode equations. 
+
+• We reuse L-BFGS curvature information to build a precision-switching controller. 
+
+• The proposed dynamic approach preserves double precision, FP64-level, accuracy at lower cost. 
+
+• The proposed controller is architecture-agnostic. 
+
+> arXiv:2606.04736v1 [cs.LG] 3 Jun 2026
+
+# Curvature-aware dynamic precision approach for physics-informed neural networks 
+
+## Yingjie Shao a,b , Ioannis N. Athanasiadis b, George van Voorn a and Taniya Kapoor b,∗
+
+> a
+
+Mathematical & Statistical Methods Group (Biometris), Wageningen University & Research, Wageningen, 6700AA, The Netherlands 
+
+> b
+
+Artificial Intelligence Group, Wageningen University & Research, Wageningen, 6700AA, The Netherlands 
+
+A R T I C L E I N F O 
+
+Keywords :Physics-informed neural networks Dynamic precision Loss curvature signal Computational cost 
+
+A B S T R A C T 
+
+Physics-informed neural networks (PINNs) have become a promising framework for simulating partial differential equations (PDEs) by embedding physical laws directly into neural network training. However, recent studies show that PINN optimisation is sensitive to numerical precision. Existing implementations commonly use either single precision (FP32), which is computationally efficient but prone to failure modes, or double precision (FP64), which is robust but substantially expensive. This creates a trade-off between computational efficiency and numerical accuracy. To reduce the computational cost of double-precision training while retaining prediction accuracy, we propose a curvature-aware precision controller that adapts numerical precision during training rather than treating it as a fixed implementation choice. The proposed method reuses curvature information derived from the limited-memory BFGS (L-BFGS) optimiser to construct a precision controller, retaining FP32 when lower precision is sufficient and promoting computation to FP64 when the training dynamics indicate numerical sensitivity or precision-limited stagnation. We evaluate the proposed approach on four canonical PINN failure-mode benchmarks and an irradiance-driven ordinary differential equation example. We further test the proposed approach across different neural network architectures. The method consistently matches or even slightly exceeds full FP64 solution accuracy while reducing training time relative to full double-precision training on all benchmark equations. The obtained results indicate that precision sensitivity in PINN optimisation is phase-dependent, and that selectively applying higher precision only during numerically critical stages can lower computational cost without sacrificing predictive accuracy. 
+
+## 1. Introduction 
+
+Partial differential equations (PDEs) are fundamental in many scientific disciplines and model several spatio-temporal phenomena, including fluid dynamics, heat transfer, wave propagation, ecological dynamics, and biological pattern formation [1, 4, 27], among others. Physics-informed neural networks (PINNs) have recently emerged as a promising framework for simulating PDEs by incorporating governing equations, initial conditions, and boundary conditions directly into the training loss [33]. For the forward-problem setting of PINN that will be addressed in this study, the governing equations and associated conditions are assumed to be known, and PINNs are employed to approximate the unknown solutions by enforcing the PDE residuals at collocation points [26, 33]. This mesh-free methodology offers an alternative to traditional grid-based numerical solvers and enables solution approximations to be evaluated at arbitrary spatio-temporal locations after training [6, 19]. Despite their flexibility, jointly optimising multiple loss components during PINN training remains challenging. The PDE residual and boundary and initial condition terms are embedded in a single loss function, creating a complex multi-objective optimisation landscape in which different loss components have different scales and convergence rates, leading to ill-conditioned optimisation dynamics [35, 43, 46]. As a result, the gradient of the composite loss for training may be dominated by some constraints while others remain poorly optimised, making optimiser choice important for obtaining an accurate PDE solution [16, 35]. This difficulty is further increased by the need to compute derivatives of the neural-network output through automatic differentiation and backpropagation, especially for PDEs involving higher-order differential operators [17, 7]. Consequently, PINNs may exhibit failure modes in which the training 
+
+> ∗
+
+Corresponding author 
+
+yingjie.shao@wur.nl (Y. Shao); taniya.kapoor@wur.nl (T. Kapoor) 
+
+> ORCID
+
+(s): 0009-0008-2083-0497 (Y. Shao); 0000-0003-2764-0078 (I.N. Athanasiadis); 0000-0002-1369-3964 (G.v. Voorn); 
+
+0000-0002-6361-446X (T. Kapoor) 
+
+: Page 1 of 24 Figure 1: (Left) Trade-off between prediction accuracy and training speed when using different training precisions. (Right) As loss curvature has been widely used to characterise training difficulty and ill-conditioning in PINNs, we propose a curvature-aware controller that adjusts numerical precision during training. The controller switches to FP64 (the blue part in the curve) in difficult training phases (high curvature) based on curvature signals derived from the L-BFGS optimiser. 
+
+loss, especially the PDE residual loss, appears to converge while the predicted solution remains far from the true PDE solution, particularly for complex systems and high-dimensional parameter spaces [49, 21]. Since these failure modes are closely linked to the optimisation difficulty, the choice of optimiser becomes an important factor in PINN training [35, 21]. Among the optimisers commonly used for PINN training, L-BFGS is particularly sensitive to numerical precision because it uses curvature information constructed from a limited history of parameter and gradient updates [32, 24, 35, 16]. In optimisation, loss curvature reflects how rapidly the loss landscape changes with respect to parameter updates and is commonly associated with ill-conditioning and optimisation difficulty. When function or gradient evaluations are inaccurate, classical BFGS and L-BFGS updates can be corrupted, and line-search behaviour can become unreliable [37, 47]. Recent studies suggest that some PINN failure modes are related to the premature termination of L-BFGS optimisation due to insufficient numerical precision [49]. This observation is consistent with the broader scientific-computing view that lower-precision arithmetic can improve performance but must be used carefully when numerical accuracy is important [18]. In PINNs, this numerical sensitivity is further amplified by derivative-based PDE residuals, which require derivatives of the neural-network output to be computed through automatic differentiation [33, 6]. Double precision (FP64) provides a more stable numerical regime and has been shown to mitigate precision-related failures in PINN optimisation [49]. However, full FP64 training is computationally costly, especially on modern hardware that is optimised for lower-precision arithmetic, resulting in a substantial performance gap between FP64 and lower-precision formats [29, 18]. Existing approaches partially address the broader challenge of improving PINN training efficiency and robustness through mixed-precision training [50], adaptive collocation point selection [31, 39, 45], or improved model archi-tectures [48]. Many adaptive sampling and collocation methods focus on heterogeneous difficulty across the spatial or spatio-temporal domain by reallocating residual points toward regions where the PDE residual or solution error is larger [31, 39, 45]. For example, Tang et al. [39] dynamically adjusts the collocation density through adaptive sampling, while Wang et al. [43] adaptively updates the weights of different loss components during training. Recent work further suggests that optimisation difficulty and numerical sensitivity can also vary across different phases of training dynamics, since a model may escape a failure mode simply by switching to higher precision when FP32 training stagnates [49]. To balance the trade-off between computational cost and prediction accuracy, we investigate whether PINNs can achieve accuracy comparable to full FP64 training while reducing computational cost through adaptive precision control (The motivation of this project is summarised in Figure 1). In this work, we propose reusing curvature information from the history of the second-order optimiser L-BFGS [32, 24] as an online signal for dynamically switching precision during training. Unlike prior work, which mostly focuses on layer-wise or static precision allocation, our method adapts precision based on optimisation dynamics. We investigate whether numerical precision  
+
+> :Page 2 of 24
+
+can be linked to the training phase and adjusted based on curvature information derived from the L-BFGS history. The main contributions of this article are summarised as follows: 
+
+• We propose an approach that balances the trade-off between computational cost and prediction accuracy for PINN training. 
+
+• Our approach uses a curvature-aware precision controller that reuses information from the L-BFGS history as an online signal for precision control in PINN training. 
+
+• We introduce an architecture-agnostic approach that recovers much of the robustness of FP64 training at a lower wall-clock cost for several state-of-the-art physics-informed neural network-based methods. The rest of the article is structured as follows. We first describe previous work related to mixed precision and how curvature information is used in neural network optimisation, as well as its link to the ill-conditioning problem in PINNs, in Section 2. The general PINN setup is then defined in Section 3.1, followed by the proposed curvature-aware dynamic precision approach in Section 3.2. The approach is evaluated across different model structures described in Section 3.3, and specific experiment setups and results are discussed in Section 4, followed by the conclusion presented in Section 5. 
+
+## 2. Related work 
+
+Mixed-precision training: Mixed-precision methods are widely used in deep learning and scientific computing to improve throughput and reduce memory cost while retaining sufficient numerical accuracy [29, 18]. Advanced physics-informed learning strategies based on transformer or Mamba-based architectures face memory challenges [12]. Some recent work has explored adaptive precision strategies, such as layer-wise or operator-wise precision allocation [22, 34], but these approaches are not designed to explicitly adapt precision to different phases of training dynamics, explicitly leverage optimisation geometry for precision scheduling, or target PINN-specific structures. Some recent methods have incorporated second-order information into precision allocation. For example, HAWQ and its follow-up work use the Hessian spectrum or Hessian-trace-based sensitivity metrics with automatic bit selection to determine relative layer-wise quantisation precision in deep networks [10, 9]. This suggests that curvature-related signals can provide useful guidance for precision switching. Although automatic mixed precision (AMP) is widely used in deep learning, it primarily relies on FP16 compu-tation with loss scaling to mitigate underflow. Prior work shows that vanilla AMP can be unstable for PINNs, where higher-order derivative terms amplify numerical sensitivity and require derivative-aware scaling beyond standard loss scaling [50, 15]. Furthermore, standard mixed-precision training often keeps a higher-precision master copy of the weights for the optimiser step; this update is typically performed in FP32, and using higher precision there typically has little measurable performance impact in practice [29, 28]. Second-order optimisers and L-BFGS: Quasi-Newton optimisers are commonly used in PINN training because PINN objectives are often highly ill-conditioned, making purely first-order optimisation difficult [41]. L-BFGS is a limited-memory quasi-Newton optimiser [32, 24], which approximates the inverse Hessian metric based on parameter and loss update information. It is preferred over full BFGS/Newton-like dense methods because it is limited-memory and designed for large-scale optimisation. Optimisation difficulty and conditioning in PINNs: The training difficulty of PINNs is closely tied to the optimisation landscape induced by the PDE residual and constraint terms. Early studies identified characteristic failure modes in which PINNs fit the training objective poorly on nontrivial PDEs, for instance, equations with sharp gradients or localised solution transitions [21, 14]. Moreover, the differential-operator-based regularisation used in PINNs can substantially worsen conditioning [21]. More recent work has analysed these optimisation difficulties through curvature-related properties of the loss landscape, such as the Hessian spectrum and condition number [5, 35]. These observations motivate the use of curvature-aware signals for adapting numerical precision during PINN training. 
+
+## 3. Methods 
+
+This section outlines the proposed methodology and evaluation framework. We first introduce PINNs for forward problems, then present the proposed curvature-aware precision controller for adaptive numerical precision. Finally, we describe the network architectures and evaluation criteria used to assess accuracy and computational efficiency.   
+
+> :Page 3 of 24 Figure 2: Curvature-aware adaptive precision for PINN. The proposed controller uses parameter and gradient update information to calculate a curvature signal for precision adaptation. The high curvature phase trains in double precision, and the low curvature phase trains in single precision.
+
+3.1. PINN for forward problems 
+
+The PINN structure used in this work is considered as a neural network-based solver for forward differential-equation problems [33]. Let 𝑥 ∈ Ω ⊂ ℝ𝐷 denote the spatial variable, where Ω is the spatial domain and 𝐷 is the spatial dimension, and let 𝑡 ∈ [0 , 𝑇 ] denote the time variable over the time interval with final time 𝑇 . The governing equation is written in residual form as 
+
+ [𝑢 ] = 0 , (𝑥, 𝑡 ) ∈ Ω × [0 , 𝑇 ], (1) where 𝑢 ∶= 𝑢 (𝑥, 𝑡 ) is the unknown solution field and  denotes the differential operator, which is assumed to be known for the forward problem in this study. In the PINN structure, the neural-network approximation to 𝑢 (𝑥, 𝑡 ) is denoted by 𝑢 𝜃 (𝑥, 𝑡 ), where 𝜃 denotes the trainable network parameters. The model is trained by minimising the total loss 
+
+ = 𝜆 res res + 𝜆 𝐵 𝐵 + 𝜆 𝐼 𝐼 , (2) where res , 𝐵 , and 𝐼 denote the residual, boundary-condition, and initial-condition losses, respectively, and 𝜆 res ,
+
+𝜆 𝐵 , and 𝜆 𝐼 are their corresponding weights. The residual loss is defined as 
+
+res = 1
+
+𝑁 res 
+
+> 𝑁 res
+
+∑
+
+> 𝑖 =1
+
+|| [𝑢 𝜃 (𝑥 res  
+
+> 𝑖
+
+, 𝑡 res  
+
+> 𝑖
+
+)] ||2 , (3) where {( 𝑥 res  
+
+> 𝑖
+
+, 𝑡 res  
+
+> 𝑖
+
+)} 𝑁 res  
+
+> 𝑖 =1
+
+are collocation points sampled from the space-time domain. The boundary and initial-condition losses are problem-dependent and are specified later for each benchmark equation. We use the L-BFGS optimiser to train the PINN models. L-BFGS is a quasi-Newton method that approximates curvature information without explicitly forming or storing the full Hessian matrix. Instead, it constructs an implicit inverse-Hessian approximation from stored parameter-update and gradient-update pairs. Let 
+
+𝑠 𝑘 = 𝜃 𝑘 +1 − 𝜃 𝑘 ,𝑦 𝑘 = ∇ 𝜃 (𝜃 𝑘 +1 ) − ∇ 𝜃 (𝜃 𝑘 ), (4) denote the parameter differences ( 𝑠 𝑘 )and gradient differences ( 𝑦 𝑘 ) at iteration 𝑘 , where 𝜃 𝑘 and ∇𝜃 (𝜃 𝑘 ) are the network parameters and the loss gradient with respect to 𝜃 at iteration 𝑘 . These stored curvature pairs (𝑠 𝑘 , 𝑦 𝑘 ) are then used to compute a quasi-Newton search direction for updating the neural-network parameters during training. 
+
+3.2. Proposed Curvature-aware precision controller 
+
+To distinguish between well-conditioned and ill-conditioned phases of training, we use a loss curvature proxy derived from the history stored by the L-BFGS optimiser [32, 24]. The curvature pairs maintained by L-BFGS to construct its quasi-Newton update can therefore be reused for curvature signals with negligible additional overhead.  
+
+> :Page 4 of 24
+
+In L-BFGS, the scalar 𝑠 ⊤𝑘 𝑦 𝑘 contains curvature information and is used to maintain the positive-definiteness of the quasi-Newton update. From the secant relation 𝐵 𝑘 +1 𝑠 𝑘 = 𝑦 𝑘 , where 𝐵 𝑘 +1 denotes the quasi-Newton approximation of the Hessian, we define 
+
+𝜅 𝑘 = 𝑠 ⊤𝑘 𝐵 𝑘 +1 𝑠 𝑘 
+
+𝑠 ⊤𝑘 𝑠 𝑘 
+
+= 𝑠 ⊤𝑘 𝑦 𝑘 
+
+𝑠 ⊤𝑘 𝑠 𝑘 
+
+. (5) The term 𝜅 𝑘 can be interpreted as the Rayleigh quotient [40] of the local Hessian approximation along direction 𝑠 𝑘 ,representing directional curvature. This quantity reflects curvature along recent parameter update directions and can be computed without explicitly forming 𝐵 𝑘 +1 .For a symmetric positive-definite Hessian, the condition number is equivalent to the ratio between the maximum and minimum Rayleigh quotients over all nonzero directions [3]. Following this form, we define a conditioning proxy using the valid curvature pairs stored in the current L-BFGS memory ̂𝜅 cond =max (𝑠 𝑘 ,𝑦 𝑘 )∈ 𝑗 𝜅 𝑘 
+
+min (𝑠 𝑘 ,𝑦 𝑘 )∈ 𝑗 𝜅 𝑘 
+
+, (6) where 𝑗 denotes the set of valid stored L-BFGS curvature pairs available at L-BFGS optimisation step 𝑗 . We treat a curvature pair as valid when it satisfies the positive-curvature condition 𝑠 ⊤𝑘 𝑦 𝑘 > 0, the denominator 𝑠 ⊤𝑘 𝑠 𝑘 is numerically nonzero, and the resulting curvature value is finite. The resulting quantity measures the spread of secant-based directional curvature estimates over the recent L-BFGS update directions, and serves as a lightweight proxy for local conditioning. To stabilise this local condition signal, a log transform and exponential moving average smoothing is applied [38, 36] 
+
+𝑧 𝑗 = log 10 (̂𝜅 cond + 𝜀 ),̃ 𝑧 𝑗 = 𝛼̃ 𝑧 𝑗 −1 + (1 − 𝛼 )𝑧 𝑗 , (7) where 𝜀 = 10 −12 is a small constant introduced for numerical stability, and we chose 𝛼 = 0 .9 so that the smoothed proxy emphasises persistent trends in conditioning while reducing sensitivity to short-term fluctuations caused by fluctuations in curvature estimates [37]. Furthermore a conditioning proxy slope is defined as 
+
+Δ̃𝑧 𝑗 =̃𝑧 𝑗 −̃𝑧 𝑗 −1 . (8) Our proposed precision controller uses both ̃𝑧 𝑗 and Δ̃𝑧 𝑗 to decide when to switch between FP32 and FP64 (Figure 2). FP32 is used only when ̃𝑧 𝑗 is below a prescribed threshold 𝜏 𝑧 and |Δ̃𝑧 𝑗 | remains small. This indicates a stable and well-conditioned phase of training. The controller switches back to FP64 when ̃𝑧 𝑗 becomes large, Δ̃𝑧 𝑗 increases rapidly, or relative parameter updates in FP32 become extremely small. To prevent rapid oscillation between precision states, switching decisions are evaluated every 10 L-BFGS training steps. Prior work has shown that training difficulty in PINNs is strongly affected by the differential operator appearing in the residual term and by the resulting loss-landscape conditioning, while optimisation behaviour also depends on the choice of training algorithm [35, 21]. More broadly, the PINN literature reports equation-dependent training pathologies, including imbalance between residual and boundary terms and difficulties specific to time-dependent problems, and commonly evaluates methods under problem-dependent numerical setups [30]. In this study, we use the same controller across PDEs but treat the threshold 𝜏 𝑧 applied to the smoothed curvature proxy ̃𝑧 𝑗 as a problem-dependent hyperparameter and allow it to vary by equation. Moreover, we include an ablation study to examine the sensitivity of performance to different values of 𝜏 𝑧 . The curvature-aware controller is summarised in Algorithm 1. 
+
+3.3. Network architectures and evaluation 
+
+The proposed approach is evaluated on four representative neural-network architectures: a standard MLP-based PINN baseline [33] and three recently proposed advancements, namely PINNMamba [48], PINNsFormer [52], and KAN [25]. The MLP serves as the conventional PINN architecture, while PINNMamba and PINNsFormer are designed to improve the propagation of temporal or initial-condition information in PINNs, which is a known difficulty in time-dependent PDE benchmarks. KAN is included as an alternative neural network structure to MLP-based PINN, as recent works suggests it improved accuracy for several forward and inverse PDE problems [44].  
+
+> :Page 5 of 24
+
+Algorithm 1 Curvature-aware dynamic precision controller 
+
+Require: L-BFGS optimiser, initial precision FP64, curvature threshold 𝜏 𝑧 , maximum step count 𝐽 max  
+
+> 1:
+
+for L-BFGS optimisation step 𝑗 = 1 , … , 𝐽 max do  
+
+> 2:
+
+Perform one L-BFGS update using the current precision  
+
+> 3:
+
+if early-stopping criterion is satisfied then  
+
+> 4:
+
+break  
+
+> 5:
+
+end if  
+
+> 6:
+
+if 𝑗 mod 10 = 0 then  
+
+> 7:
+
+Extract valid L-BFGS curvature pairs, save in 𝑗  
+
+> 8:
+
+if 𝑗 contains at least two valid curvature pairs then  
+
+> 9:
+
+Compute ̂𝜅 cond , 𝑧 𝑗 ,̃𝑧 𝑗 , and Δ̃𝑧 𝑗  
+
+> 10:
+
+if current precision is FP64, ̃𝑧 𝑗 < 𝜏 𝑧 , and |Δ̃𝑧 𝑗 | < 0.02 then  
+
+> 11:
+
+Switch to FP32  
+
+> 12:
+
+else if current precision is FP32 and (̃𝑧 𝑗 > 𝜏 𝑧 or Δ̃𝑧 𝑗 > 0.03 or FP32 tiny updates are detected) then  
+
+> 13:
+
+Switch to FP64  
+
+> 14:
+
+end if  
+
+> 15:
+
+end if  
+
+> 16:
+
+end if  
+
+> 17:
+
+end for         
+
+> Note. In practice, 𝐽 max is set to a sufficiently large value, and training terminates through early stopping. The early-stopping criterion is satisfied when the total training loss does not improve by more than 10 −7 for 50 consecutive training steps after 100 warm-up steps. FP32 tiny updates are detected when the maximum relative parameter update is below 10 −8 .
+
+All models are trained on a single NVIDIA A100 GPU. To evaluate the performance of different approaches, we report the relative root mean squared error (rRMSE), the relative mean absolute error (rMAE), and the total training wall-clock time. PINN predictions 𝑢 𝜃 are evaluated on a fixed benchmark grid with 𝑁 evaluation points. For each benchmark equation, the collocation points used for training are sampled from the same prescribed grid, so all precision strategies are compared under identical spatial-temporal sampling. We define 
+
+rRMSE = 
+
+√√√√√∑𝑁 𝑖 =1 
+
+(𝑢 (𝑥 𝑖 , 𝑡 𝑖 ) − 𝑢 𝜃 (𝑥 𝑖 , 𝑡 𝑖 ))2
+
+∑𝑁 𝑖 =1 𝑢 (𝑥 𝑖 , 𝑡 𝑖 )2 , (9) 
+
+rMAE = 
+
+∑𝑁 𝑖 =1 ||𝑢 (𝑥 𝑖 , 𝑡 𝑖 ) − 𝑢 𝜃 (𝑥 𝑖 , 𝑡 𝑖 )||∑𝑁 𝑖 =1 ||𝑢 (𝑥 𝑖 , 𝑡 𝑖 )||
+
+. (10) The same stopping criterion is applied to all PINN models. After an initial 100-step warm-up, training is terminated when the total training loss  does not improve by more than 10 −7 for more than 50 consecutive outer L-BFGS optimiser steps. 
+
+## 4. Experiments and results 
+
+This section presents the experimental evaluation of the proposed curvature-aware dynamic precision strategy. We first describe the experimental setup, then compare its performance against fixed-precision baselines. We further examine the effects of network architecture, the generalisation of dynamic precision, and the relationship between curvature signals and training dynamics. Finally, we demonstrate the method on an irradiance-driven plant-growth ODE and discuss its limitations and future directions. 
+
+4.1. Setup 
+
+The proposed approach is evaluated on four PINN failure-mode benchmark equations and one ordinary differential equation (ODE) example that represents a real-life application. The overall experiments are summarised in Table 1. PINN failure-mode benchmark equations: The four one-dimensional benchmark equations are the Convection 
+
+equation, Reaction equation, Wave equation, and Allen–Cahn equation. These equations are commonly used for analysing the failure modes of PINNs [21, 49], and are defined as follows. 
+
+: Page 6 of 24 Table 1                        
+
+> Overview of the performed experiments.
+> Experiment Equations Network architecture Results
+> Dynamic approach and fixed-precision comparison
+> Convection ,Reaction ,Wave ,
+> Allen–Cahn
+> Vanilla PINN Table 2 Threshold ablation Convection ,Reaction ,Wave ,
+> Allen–Cahn
+> Vanilla PINN Table B.1 Architecture comparison Convection ,Reaction ,Wave ,
+> Allen–Cahn
+> Vanilla PINN, PINNsFormer, PINNMamba, KAN Table 3 Wider shallower MLP Convection ,Reaction ,Wave ,
+> Allen–Cahn
+> Three-layer vanilla PINN Table E.1 Dynamic-approach generalisation PINNsFormer: Convection ,
+> Reaction ,Wave , Allen–Cahn; PINNMamba: Wave ,
+> Convection
+> PINNsFormer, PINNMamba Table F.1; Table F.2 Application example Irradiance-driven plant-growth ordinary differential equation Vanilla PINN Table G.1
+
+The 1D Convection equation used in this study describes the transport of a scalar quantity at a constant speed of 50, representing a challenging high-speed transport benchmark in which PINNs can suffer from propagation failures associated with highly imbalanced PDE residual fields [8]. The problem is defined on the periodic spatial domain 
+
+𝑥 ∈ [0 , 2𝜋 ] and the time interval 𝑡 ∈ [0 , 1] . The initial condition is 𝑢 (𝑥, 0) = sin( 𝑥 ), and periodic boundary conditions are imposed at the two spatial boundaries as defined 
+
+𝜕𝑢 𝜕𝑡 + 50 𝜕𝑢 𝜕𝑥 = 0 ,𝑢 (𝑥, 0) = sin( 𝑥 ),𝑢 (0 , 𝑡 ) = 𝑢 (2 𝜋, 𝑡 ).
+
+(11) The Reaction equation describes local nonlinear growth through a logistic-type reaction term. It is included as a PINN failure-mode benchmark because previous work has shown that reaction-dominated problems with larger reaction coefficients can be difficult for vanilla PINNs to optimise. The spatial dependence is introduced through the initial condition, while the solution evolves over the same periodic spatial domain 𝑥 ∈ [0 , 2𝜋 ] and time interval 
+
+𝑡 ∈ [0 , 1] . The initial condition is a Gaussian profile centred at 𝑥 = 𝜋 , and periodic boundary conditions are imposed 
+
+𝜕𝑢 𝜕𝑡 − 5 𝑢 (1 − 𝑢 ) = 0 ,𝑢 (𝑥, 0) = exp 
+
+(
+
+− (𝑥 − 𝜋 )2
+
+2( 𝜋 ∕4) 2
+
+)
+
+,𝑢 (0 , 𝑡 ) = 𝑢 (2 𝜋, 𝑡 ).
+
+(12) The Wave equation is a second-order hyperbolic PDE that describes wave propagation. In this benchmark, the solution is defined on the spatial domain 𝑥 ∈ [0 , 1] and the time interval 𝑡 ∈ [0 , 1] . The initial-condition loss contains both a displacement term and a velocity term, while the boundary-condition loss enforces homogeneous Dirichlet conditions at 𝑥 = 0 and 𝑥 = 1 
+
+𝜕 2𝑢 𝜕𝑡 2 − 4 𝜕 2𝑢 𝜕𝑥 2 = 0 ,𝑢 (𝑥, 0) = sin( 𝜋𝑥 ) + 12 sin(3 𝜋𝑥 ),𝜕𝑢 𝜕𝑡 (𝑥, 0) = 0 ,𝑢 (0 , 𝑡 ) = 𝑢 (1 , 𝑡 ) = 0 .
+
+(13)   
+
+> :Page 7 of 24 Figure 3: Accuracy and speed improvement for four PINN failure mode benchmark equations. The plot compares the proposed curvature-aware dynamic-precision method with the FP64 baseline across random seeds. Larger markers denote the average over all seeds. The red vertical line marks the FP64 training-time baseline, and the grey dashed line indicates the Pareto frontier formed by the non-dominated runs in each panel. Points closer to the bottom-left corner indicate better speed–accuracy trade-offs.
+
+The Allen–Cahn equation is a nonlinear equation. In this benchmark, the small diffusion coefficient and nonlinear cubic term make the equation challenging for PINN training. The problem is defined on the spatial domain 𝑥 ∈ [−1 , 1] 
+
+and the time interval 𝑡 ∈ [0 , 1] . The boundary-condition loss includes both value matching and derivative matching at the two boundaries 
+
+𝜕𝑢 𝜕𝑡 − 0 .0001 𝜕 2𝑢 𝜕𝑥 2 + 5 𝑢 3 − 5 𝑢 = 0 ,𝑢 (𝑥, 0) = 𝑥 2 cos( 𝜋𝑥 ),𝑢 (−1 , 𝑡 ) = 𝑢 (1 , 𝑡 ),𝜕𝑢 𝜕𝑥 (−1 , 𝑡 ) = 𝜕𝑢 𝜕𝑥 (1 , 𝑡 ).
+
+(14) To ensure comparability on the four PINN failure mode benchmark equations, we follow the model configurations, loss definitions, collocation-point settings, and evaluation approach of Xu et al. [49], using a 101×101 collocation grid for each PDE experiment. The PINN predictions are evaluated against analytical solutions for the convection , reaction ,and wave equations, and against the high-resolution spectral approximation [20, 33, 49] for the Allen–Cahn equation, where no closed-form analytical solution is available. Furthermore, we consider an ODE system motivated by plant growth. Following the irradiance model structure of van Voorn et al. [42], we assume that the biomass dynamics are governed by a logistic-type ODE affected by  
+
+> :Page 8 of 24
+
+irradiance. We use a modified form of the equation, defined as 
+
+𝑑𝑢 (𝑡 ; 𝐴 )
+
+𝑑𝑡 = ( 𝑟 + 𝑆 (𝑡 ; 𝐴 )) 𝑢 (𝑡 ; 𝐴 )
+
+(
+
+1 − 𝑢 (𝑡 ; 𝐴 )
+
+𝐾 
+
+)
+
+,𝑆 (𝑡 ; 𝐴 ) = 𝐴 sin(4 𝜋 (𝑡 + 0 .75)) ,
+
+(15) where 𝐴 controls the amplitude of the seasonal driver, and 𝑆 (𝑡 ; 𝐴 ) represents a simulated irradiance effect on the biomass growth rate. The parametrisation is modified relative to the original paper because time is normalised to 
+
+𝑡 ∈ [0 , 1] . The ground-truth solution is obtained numerically using the RK45 solver [11]. In our PINN implementation, the network takes 𝑡 and 𝑆 (𝑡 ; 𝐴 ) as inputs and learns the corresponding solution family 𝑢 𝜃 (𝑡, 𝐴 ) for 𝑡 ∈ [0 , 1] and 
+
+𝐴 ∈ [−1 , 1] , with initial condition 𝑢 𝜃 (0 , 𝐴 ) = 0 .05 . For the irradiance ODE, we sample 10 ,100 collocation points over the normalised time interval and evaluate the solution family using five values of 𝐴 to represent different irradiance amplitudes. 
+
+4.2. Performance comparison against fixed precision 
+
+The proposed method is compared with fixed precision cases for the same problem under same conditions. In particular, for fixed precision, FP32 and FP64 training are carried out for the full problem. As shown in Table 2 and Figure 3, the proposed dynamic-precision method improves the average speed–accuracy trade-off relative to FP64 across the tested equations. The dynamic-precision results in the main table use the selected threshold setting for each equation, while the results for the other tested ̃𝑧 𝑗 threshold values are reported in Table B.1. The proposed curvature-aware dynamic approach shows greater improvement for the Reaction and Wave equations with vanilla PINN, in both speed and accuracy, while Allen–Cahn shows near-equal accuracy with modest training speed improvement. Pure FP32 is substantially faster but often fails to converge to an acceptable solution, producing errors that are one to two orders of magnitude larger. Table 2: Average results over 5 random seeds for the vanilla PINN. ‘Speedup vs FP64’ is computed as the ratio between the average FP64 training time and the average training time of the corresponding method for the same benchmark. Dynamic-precision results are highlighted in blue, and the lowest error is bold .Equation Approach Avg Time (s) rRMSE rMAE Speedup vs FP64                                                                        
+
+> Convection (Eq. 11) dynamic 𝟏 ,𝟎𝟕𝟏 .𝟗𝟒 ±𝟐𝟑𝟓 .𝟗𝟒 𝟎 .𝟎𝟎𝟗𝟏 ±𝟎 .𝟎𝟎𝟐𝟒 𝟎 .𝟎𝟎𝟕𝟗 ±𝟎 .𝟎𝟎𝟐𝟐 𝟏 .𝟎𝟐 ×
+> FP32 271 .97 ± 165 .15 0.8776 ± 0 .2887 0.7906 ± 0 .2662 4.02×
+> FP64 1,092 .68 ± 319 .15 0.0108 ± 0 .0051 0.0083 ± 0 .0025 1.00×
+> Reaction (Eq. 12) dynamic 662 .94 ± 91 .11 𝟎 .𝟎𝟓𝟑𝟏 ± 0 .0101 𝟎 .𝟎𝟐𝟗𝟓 ± 0 .0055 𝟏 .𝟎𝟕 ×
+> FP32 65 .95 ± 16 .39 0.9779 ± 0 .0015 0.9770 ± 0 .0010 10 .74×
+> FP64 708 .51 ± 187 .09 0.0578 ± 0 .0075 0.0323 ± 0 .0044 1.00×
+> Wave (Eq. 13) dynamic 1,283 .06 ± 448 .48 𝟎 .𝟎𝟎𝟗𝟒 ± 0 .0033 𝟎 .𝟎𝟎𝟗𝟎 ± 0 .0030 𝟏 .𝟎𝟒 ×
+> FP32 483 .85 ± 118 .35 0.0407 ± 0 .0421 0.0374 ± 0 .0360 2.76×
+> FP64 1,336 .86 ± 537 .72 0.0147 ± 0 .0087 0.0143 ± 0 .0084 1.00×
+> Allen–Cahn (Eq. 14) dynamic 3,375 .30 ± 1 ,140 .70 𝟎 .𝟎𝟒𝟗𝟓 ± 0 .0097 0.0148 ± 0 .0022 𝟏 .𝟏𝟎 ×
+> FP32 53 .08 ± 37 .24 0.9239 ± 0 .0629 0.8588 ± 0 .1960 69 .88×
+> FP64 3,709 .20 ± 926 .90 0.0503 ± 0 .0067 𝟎 .𝟎𝟏𝟒𝟕 ± 0 .0018 1.00×
+
+The curvature information also varies across different PDEs and is related to their optimisation behaviour (Figure 4). For the Reaction and Wave equations, we observe relatively small and smooth curvature during training, while the Convection and Allen–Cahn equations show higher curvature and more fluctuation. This is also linked to the improvement from dynamic precision, where the Wave and Reaction equations show larger improvements in speed– accuracy trade-off (Figure 3), while more frequent switching is noticed in the Convection and Allen–Cahn cases, as shown in Figure C.1. In principle, dynamic precision uses the same model class and loss function as pure FP64, which should result in the same solution space. However, we notice that our approach can sometimes reach a lower prediction error in practice. A likely reason is that switching precision acts as a numerical perturbation that changes the optimisation path (Figure 4). Different training strategies produce different curvature histories, and the dynamic-precision trajectory does not simply  
+
+> :Page 9 of 24
+
+replicate the FP64 trajectory, especially near the end of training. The L-BFGS optimiser uses curvature information estimated from recent parameter and gradient differences to control the optimisation path, and switching precision may slightly change the loss-update history near convergence, allowing the optimiser to terminate at a different point with a lower final error.      
+
+> (a) Convection (b) Reaction
+> (c) Wave (d) Allen–Cahn
+
+Figure 4: Curvature-aware signal ̃𝑧 𝑗 during training for different precision strategies and benchmark equations. Solid lines show the mean over random seeds, and shaded regions indicate the standard deviation where at least three runs are available. The trajectory length may differ across strategies because runs terminate at different training steps. 
+
+4.3. Architecture effects and generalisation of dynamic precision 
+
+Table 3: PINNformer, PINNmamba and KAN baseline result compared with dynamic precision with MLP. The result with FP32 is not always converged, so we only calculated the result with the seeds that converged (rRMSE<0.3) unless all five seeds have high errors (Convergence rate = 0% noted with *). Equation approach Avg Time (s) rRMSE rMAE Convergence rate                                                                                                                                                     
+
+> Convection (Eq. 11) PINNsFormer 1136.4 ±109.0 0.0209 ±0.0079 0.0192 ±0.0072 60%
+> PINNmamba 168 .19 ± 111 .32 1.3330 ± 0 .3474 1.2088 ± 0 .3084 0% *KAN 795.2 ±257.8 0.8579 ±0.0155 0.7961 ±0.0141 0% *dynamic (MLP) 1,082 .72 ± 229 .62 0.0086 ±0.0024 0.0075 ±0.0022 100%
+> Reaction (Eq. 12) PINNsFormer 182.2 ±34.7 0.0266 ±0.0110 0.0133 ±0.0055 80%
+> PINNmamba 98.3 ±35.0 0.1052 ±0.0464 0.0626 ±0.0288 80%
+> KAN 702.9 ±152.3 0.0180 ±0.0047 0.0076 ±0.0020 100% dynamic (MLP) 662 .94 ± 91 .11 0.0531 ± 0 .0101 0.0295 ± 0 .0055 100%
+> Wave (Eq. 13) PINNsFormer 3360.1 ±504.3 0.3487 ±0.0191 0.3403 ±0.0218 0%
+> PINNmamba 1540.8 ±581.5 0.1164 ±0.1278 0.1134 ±0.1256 60%
+> KAN 3047.8 ±700.1 0.0776 ±0.0262 0.0754 ±0.0249 80% dynamic (MLP) 1,283 .06 ± 448 .48 𝟎 .𝟎𝟎𝟗𝟒 ±𝟎 .𝟎𝟎𝟑𝟑 𝟎 .𝟎𝟎𝟗𝟎 ±𝟎 .𝟎𝟎𝟑𝟎 100%
+> Allen–Cahn (Eq. 14) PINNsFormer 3477.7 ±260.7 0.0666 ±0.0134 0.0197 ±0.0047 60%
+> PINNmamba 510.2 ±187.9 0.6787 ±0.0897 0.4201 ±0.0603 0% *KAN 3403.8 ±668.7 0.0739 ±0.0232 0.0273 ±0.0091 100% dynamic (MLP) 3,375 .30 ± 1 ,140 .70 0.0495 ± 0 .0097 0.0148 ± 0 .0022 100%
+
+A comparison between the vanilla PINN and several advanced architectures proposed to improve convergence is provided in Table 3 and Figure 5. These architectures can reduce prediction error on some equations when trained purely  
+
+> :Page 10 of 24
+
+in FP32. However, their behaviour is not consistently stable across random seeds, especially for the Convection and 
+
+Allen–Cahn equations. In contrast, the proposed curvature-aware dynamic precision approach applied to the vanilla MLP achieves robust convergence across all four PDEs. This suggests that even though different architectures can improve PINN convergence for specific problems, they may not be sufficient in all cases and can introduce additional computational cost. Furthermore, we also test different MLP configurations (Table E.1 and Figure E.1). With fewer layers and a wider MLP architecture, we observe larger improvements in three out of four benchmark equations. One possible explanation is that architecture depth and width change the optimisation geometry, which may affect the sensitivity of PINN training to numerical precision. Previous studies have shown that network architecture can influence loss-landscape sharpness and curvature, and Hessian-based analyses have observed large isolated eigenvalues during deep-network training [23, 13].   
+
+> (a) Convection
+> (b) Reaction
+
+Figure 5: Predictions of different network architectures on PINN failure mode benchmark equations (Convection and Reaction ). Each sub-figure corresponds to one PDE, starting with the ground truth (first left), dynamic-precision MLP, PINNsFormer, PINNMamba, and KAN from left to right. This figure visually compares the predicted solution (top) and absolute error (bottom).   
+
+> :Page 11 of 24 (c) Wave
+> (d) Allen–Cahn
+
+Figure 5, Predictions of different network architectures on PINN failure mode benchmark equations ( Wave and 
+
+Allen–Cahn ). Each sub-figure corresponds to one PDE, starting with the ground truth (first left), dynamic-precision MLP, PINNsFormer, PINNMamba, and KAN from left to right. This figure visually compares the predicted solution (top) and absolute error (bottom).  
+
+> (a) Step (b) Wall time
+
+Figure 6: Step-wise and wall-clock convergence of PINNsFormer on the Wave equation. The dynamic approach converges faster both in terms of optimisation steps and wall-clock time.   
+
+> :Page 12 of 24 (a) Vanilla PINN (b) PINNsFormer
+
+Figure 7: Curvature comparison between the vanilla PINN and PINNsFormer on the Convection benchmark. The plotted signal is the smoothed log-curvature proxy used by the precision controller. Solid lines show the mean over random seeds, and shaded regions indicate the standard deviation. PINNsFormer shows a smoother curvature trajectory on average, suggesting that architecture can affect the conditioning of the precision-switching signal. 
+
+Figure 8: PINNsFormer result for dynamic vs. FP64. To examine the generalisation of the proposed dynamic precision approach, we also apply it to different network architectures (Table F.1 and Table F.2). The results show that it can also accelerate training with a different architecture, such as PINNsFormer in Figure 8. For the vanilla PINN, the controller mainly improves wall-clock efficiency while showing limited gains in step efficiency (Figures D.1 and D.2), suggesting that its advantage comes mainly from lowering the average cost per iteration by using FP32. In contrast, the PINNsFormer convergence speed in terms  
+
+> :Page 13 of 24
+
+of steps is similar to the pure FP64 case, or even better for some equations (Figure 6). We hypothesise that the larger improvement when combining curvature-aware dynamic precision with advanced architectures is because these models produce a better-conditioned training trajectory. When comparing the curvature information used as the precision-switching signal (Figure 7), PINNsFormer shows smoother curvature than the vanilla PINN. 
+
+4.4. Curvature signal and training dynamics 
+
+Rather than being constant throughout optimisation, the numerical sensitivity of PINN training appears to be phase-dependent. Prior work has shown that PINN losses are often difficult to optimise because the differential operators in the residual term induce ill-conditioning in the loss landscape. This makes curvature-related information a plausible signal for adaptive precision control. In our experiments, the curvature proxy ̃𝑧 𝑗 follows a non-monotonic trajectory across different PDEs (Figure 4), indicating that the local optimisation geometry changes over the course of training. This observation supports the use of dynamic rather than fixed precision, since the numerical requirements of training are not uniform across all iterations. 
+
+Figure 9: An example of phase-specific precision sensitivity. We show rRMSE (top), precision state (middle), and the smoothed curvature proxy (bottom) during training. Even though the dynamic approach stays in FP32 in both highlighted regions, one phase (blue box) is slower than FP64, while another phase (orange box) is faster. This indicates that convergence speed under FP32 depends on the local curvature regime at different training phases rather than precision alone. To better understand how the proposed controller affects training, we visualise a representative training trajectory together with its precision state and curvature proxy (Figure 9). The interval in which the dynamic run continues to improve rapidly in FP32 coincides with a relatively low and smooth log-proxy. This supports the intended interpretation of the controller signal: phases with small curvature spread can be handled effectively in lower precision, whereas later increases in the proxy indicate growing numerical sensitivity and motivate promotion back to FP64. Furthermore, Figure 9 shows that FP32 has different effects throughout training. In both highlighted regions, the dynamic approach stays in FP32, but the convergence behaviour is different. In the first highlighted phase, the FP32 trajectory improves more slowly than FP64, while in the second highlighted region, it gives faster wall-clock progress. This indicates that the advantage of lower precision is phase-dependent. When the curvature signal is smooth and stable, the lower per-iteration cost of FP32 can translate into faster wall-clock convergence. When the optimisation becomes more sensitive, the same precision slows down improvement or leads to unstable progress. The proposed controller uses this difference to retain the efficiency benefit of FP32 while recovering the stability of FP64 when needed. 
+
+4.5. Application to an irradiance-driven plant-growth ODE 
+
+PINNs are also gaining attention as prediction tools for real-life dynamical systems. Thus, besides the standard PINN failure model benchmark equations, we also consider a simpler ODE system motivated by irradiance-driven plant growth. For the irradiance ODE equation, the curvature signal is much smoother than the four PINN failure  
+
+> :Page 14 of 24
+
+mode benchmark equations (Figure 10 (a)). This is consistent with the lower-dimensional structure of the ODE problem, which does not include spatial differential operators. However, the system is still nonlinear and depends on the irradiance forcing amplitude, so the optimisation can still be affected by numerical precision.  
+
+> (a) Curvature signal (b) Accuracy vs. speed
+
+Figure 10: Irradiance ODE curvature signal and result. The proposed dynamic precision approach (orange) also improves both speed and accuracy for the irradiance ODE system. The irradiance ODE result shows a similar pattern to the other four benchmark equations with a smoother training trajectory. Dynamic precision reaches an accuracy close to FP64 while reducing the average training time (Figure 10 (b) and Table G.1). In comparison, FP32 has a similar runtime but a much larger error variation, indicating that pure single precision can still lead to unstable optimisation for some random seeds even in this smoother ODE setting (Figure G.1 and G.2). Near convergence, small loss and parameter updates can still make the optimiser sensitive to numerical precision. The dynamic approach reduces this risk by switching back to FP64 in precision-sensitive phases; this corresponds to a lower and smoother curvature proxy than fixed FP32 in Figure 10(a) and a smaller final error shown in Figure 10(b). 
+
+4.6. Limitations and future work 
+
+Our proposed controller relies on a curvature signal derived from the L-BFGS history. Since L-BFGS is a limited-memory quasi-Newton method, this signal is based on a low-rank approximation constructed from recent secant pairs rather than on the full Hessian [32, 24]. The signal can be interpreted as a proxy for local curvature along recent update directions, which may not fully capture the local optimisation geometry in highly nonconvex or ill-conditioned regimes. This is particularly relevant for PINNs, whose loss landscapes are known to be challenging to optimise due to ill-conditioning induced by the differential operators [41]. In addition, the current controller uses only curvature-related information to decide when to switch precision. In practice, however, reduced-precision stability is also affected by other numerical factors, including gradient magnitude, tensor dynamic range, and underflow or overflow effects [29, 51]. These factors are not explicitly captured by our current signal. Different second-order optimisers, such as self-scaled L-BFGS [41] and Broyden’s quasi-Newton method [2], have been proposed for PINN training, and future work could adapt the proposed approach to these optimisers employed in PINN training. In our experiments, specifically designed architectures tend to produce smoother and smaller curvature trajecto-ries(Figure 7 (b)), suggesting that architectural changes can partly improve the conditioning of PINN training. However, these modifications do not completely remove precision-related instability, and their behaviour remains problem-dependent. Furthermore, when using FP64 with those architectures, the training time also increases significantly. Thus, our curvature-aware dynamic precision and architecture design can be viewed as complementary rather than competing approaches for improving PINN training efficiency. Another challenge is that the curvature signal can be affected by the underlying architecture, as shown in Section 4.3. Even the condition number varies across different PDEs. Thus, we currently treat the switching threshold as a hyperparameter, while it would also be interesting to develop signals that are universal across different structures and equations. A natural direction for future work is therefore to design richer controllers that combine curvature information with additional numerical signals, such as gradient-scale statistics, update norms, or dynamic-range  
+
+> :Page 15 of 24
+
+indicators. Another promising direction is to move beyond binary switching between FP32 and FP64 and investigate multi-level adaptive precision strategies. More broadly, it would be valuable to test whether similar precision-control mechanisms are useful in other numerically sensitive scientific machine learning settings where FP64 remains important for stable training and accurate prediction [18]. 
+
+## 5. Conclusion 
+
+We proposed a curvature-aware dynamic precision approach for PINN training that switches between FP32 and FP64 using curvature information derived from the L-BFGS history. The proposed approach reduces computational cost while maintaining accuracy close to pure FP64 training. Across four PINN failure mode benchmark equations and an ODE example, the method improves the speed–accuracy trade-off compared with fixed FP64 and avoids the instability often observed under fixed FP32. Furthermore, our results suggest that the benefit of dynamic precision is related to training phase-dependent numerical sensitivity during optimisation. We also show that the proposed approach can be applied to different neural network architectures, and that its benefit appears larger when the curvature trajectory is smoother and more stable. Overall, these results indicate that the adaptive precision approach is a practical way to improve the efficiency of PINN training while preserving predictive accuracy, and can be combined with architectural or optimisation-based improvements. 
+
+## 6. CRediT authorship contribution statement 
+
+Yingjie Shao : Conceptualization; Methodology; Formal Analysis; Visualization; Writing – original draft; Writing – review & editing Ioannis N. Athanasiadis : Funding acquisition; Supervision; Writing – review & editing George van Voorn : Funding acquisition; Supervision; Writing – review & editing Taniya Kapoor : Conceptualization; Supervision; Writing – review & editing 
+
+## 7. Data availability 
+
+The Allen–Cahn data were downloaded from the codebase associated with [49]. The remaining datasets were generated using the scripts and will be provided at our GitHub repository upon publication. 
+
+## 8. Declaration of competing interest 
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+## 9. Acknowledgement 
+
+Thanks to the comments and suggestions given by Fred van Eeuwijk. Fellowship in Data Science and Artificial Intelligence by Wageningen University & Research.  
+
+> :Page 16 of 24
+
+## Appendices A. Notation 
+
+The notations used in this paper are listed in Table A.4. Table A.4: Summary of notation used in the manuscript. 
+
+Symbol Meaning Reference 
+
+𝑥 Spatial variable Eq. 1 
+
+Ω Spatial domain Eq. 1 
+
+ℝ𝐷 𝐷 -dimensional Euclidean space Eq. 1 
+
+𝐷 Spatial dimension Eq. 1 
+
+𝑡 Time variable Eq. 1 
+
+𝑇 Final time Eq. 1 
+
+𝑢 (𝑥, 𝑡 ), 𝑢 Unknown solution field of the differential equation Eq. 1 
+
+ Known differential operator in the forward problem Eq. 1 
+
+𝑢 𝜃 (𝑥, 𝑡 ) Neural-network approximation to 𝑢 (𝑥, 𝑡 ) Eq. 2; Eq. 3 
+
+𝜃 Trainable neural-network parameters Eq. 2; Eq. 4 
+
+ Total PINN training loss Eq. 2 
+
+res PDE residual loss Eq. 2; Eq. 3 
+
+𝐵 Boundary-condition loss Eq. 2 
+
+𝐼 Initial-condition loss Eq. 2 
+
+𝜆 res Weight of the residual loss Eq. 2 
+
+𝜆 𝐵 Weight of the boundary-condition loss Eq. 2 
+
+𝜆 𝐼 Weight of the initial-condition loss Eq. 2 
+
+𝑁 res Number of residual collocation points Eq. 3 
+
+(𝑥 res  
+
+> 𝑖
+
+, 𝑡 res  
+
+> 𝑖
+
+) The 𝑖 -th residual collocation point Eq. 3 
+
+𝑖 Index of collocation or evaluation points Eq. 3; Eq. 9 
+
+𝑘 L-BFGS iteration index used for stored curvature pairs Eq. 4 
+
+𝜃 𝑘 Network parameters at L-BFGS iteration 𝑘 Eq. 4 
+
+∇𝜃 (𝜃 𝑘 ) Gradient of the loss with respect to 𝜃 at iteration 𝑘 Eq. 4 
+
+𝑠 𝑘 Parameter-update difference, 𝑠 𝑘 = 𝜃 𝑘 +1 − 𝜃 𝑘 Eq. 4 
+
+𝑦 𝑘 Gradient-update difference, 𝑦 𝑘 = ∇ 𝜃 (𝜃 𝑘 +1 ) − ∇ 𝜃 (𝜃 𝑘 ) Eq. 4 
+
+𝐵 𝑘 +1 Quasi-Newton approximation of the Hessian Eq. 5 
+
+𝜅 𝑘 Secant-based directional curvature estimate along 𝑠 𝑘 Eq. 5 
+
+𝑗 Outer L-BFGS optimisation step used by the controller Eq. 6; Algorithm 1 
+
+𝑗 Set of valid stored L-BFGS curvature pairs at step 𝑗 Eq. 6; Algorithm 1 ̂𝜅 cond Limited-memory conditioning proxy computed from valid curvature pairs Eq. 6; Eq. 7 
+
+𝑧 𝑗 Log-transformed conditioning proxy at step 𝑗 Eq. 7 ̃𝑧 𝑗 Exponentially smoothed log-conditioning proxy Eq. 7; Eq. 8 
+
+Δ̃𝑧 𝑗 Slope/change of the smoothed conditioning proxy Eq. 8 
+
+𝜀 Small numerical-stability constant used in the log transform, set to 10 −12 Eq. 7 
+
+𝛼 Exponential moving average smoothing coefficient, set to 0.9 Eq. 7 
+
+𝜏 𝑧 Threshold applied to ̃𝑧 𝑗 for precision switching Algorithm 1 
+
+𝐽 max Maximum number of L-BFGS optimisation steps Algorithm 1 
+
+𝑁 Number of evaluation points on the benchmark grid Eq. 9 
+
+𝑢 (𝑥 𝑖 , 𝑡 𝑖 ) Reference solution value at evaluation point (𝑥 𝑖 , 𝑡 𝑖 ) Eq. 9 
+
+𝑢 𝜃 (𝑥 𝑖 , 𝑡 𝑖 ) PINN prediction at evaluation point (𝑥 𝑖 , 𝑡 𝑖 ) Eq. 9 
+
+𝐴 Amplitude of the simulated seasonal irradiance driver, and we set 𝐴 ∈ [−1 , 1] Eq. 15 
+
+𝑆 (𝑡 ; 𝐴 ) Simulated irradiance effect on biomass growth rate Eq. 15 
+
+𝑟 Baseline growth-rate parameter in the irradiance ODE Eq. 15 
+
+𝐾 Carrying-capacity parameter in the logistic growth term Eq. 15 
+
+𝑢 (𝑡 ; 𝐴 ) Biomass solution of the irradiance-driven ODE for amplitude 𝐴 in time interval 𝑡 ∈ [0 , 1] Eq. 15 
+
+𝑢 𝜃 (𝑡, 𝐴 ) PINN approximation to the irradiance-driven solution family Eq. 15 
+
+: Page 17 of 24 B. Ablation study of threshold 
+
+We treat the curvature signal ̃𝑧 𝑗 as a hyperparameter and tune for each equation. Table B.1 shows the result for different equations under different precision switching thresholds. Across the tested thresholds, the dynamic approach generally maintains FP64-level accuracy while reducing or matching FP64 training time. Table B.1: Average results over 5 random seeds for the dynamic precision controller under different ̃𝑧 𝑗 thresholds (with vanilla PINN). Threshold Metric Convection Reaction Wave Allen–Cahn 
+
+2.0 Time (s) 𝟏 , 𝟎𝟖𝟐 .𝟕𝟐 ± 𝟐𝟐𝟗 .𝟔𝟐 663 .16 ± 107 .89 1, 320 .94 ± 499 .42 3, 715 .00 ± 923 .54 
+
+rRMSE 0.0086 ± 0 .0024 0.0545 ± 0 .0142 0.0112 ± 0 .0057 0.0503 ± 0 .0067 
+
+rMAE 0.0075 ± 0 .0022 0.0304 ± 0 .0082 0.0109 ± 0 .0052 0.0147 ± 0 .0018 
+
+2.5 Time (s) 1, 089 .00 ± 242 .26 𝟔𝟔𝟐 .𝟗𝟒 ± 𝟗𝟏 .𝟏𝟏 𝟏 , 𝟐𝟖𝟑 .𝟎𝟔 ± 𝟒𝟒𝟖 .𝟒𝟖 3, 658 .57 ± 870 .73 
+
+rRMSE 𝟎 .𝟎𝟎𝟔𝟑 ± 𝟎 .𝟎𝟎𝟏𝟐 𝟎 .𝟎𝟓𝟑𝟏 ± 𝟎 .𝟎𝟏𝟎𝟏 𝟎 .𝟎𝟎𝟗𝟒 ± 𝟎 .𝟎𝟎𝟑𝟑 𝟎 .𝟎𝟒𝟗𝟓 ± 𝟎 .𝟎𝟎𝟔𝟖 
+
+rMAE 𝟎 .𝟎𝟎𝟓𝟓 ± 𝟎 .𝟎𝟎𝟏𝟎 𝟎 .𝟎𝟐𝟗𝟓 ± 𝟎 .𝟎𝟎𝟓𝟓 𝟎 .𝟎𝟎𝟗𝟎 ± 𝟎 .𝟎𝟎𝟑𝟎 𝟎 .𝟎𝟏𝟒𝟓 ± 𝟎 .𝟎𝟎𝟏𝟗 
+
+3.0 Time (s) – – – 𝟑 , 𝟑𝟕𝟓 .𝟑𝟎 ± 𝟏 , 𝟏𝟒𝟎 .𝟕𝟎 
+
+rRMSE – – – 𝟎 .𝟎𝟒𝟗𝟓 ± 𝟎 .𝟎𝟎𝟗𝟕 
+
+rMAE – – – 0.0148 ± 0 .0022       
+
+> Speedup is computed relative to the FP64 baseline for the corresponding benchmark. Best results across threshold values for each equation are shown in bold. We only ran threshold = 3 for Allen–Cahn because, for the other PDEs, ̃𝑧 𝑗 always remains below 3, as shown in Figure 4.
+
+## C. Example of precision switching 
+
+We plot an example to show the precision used during training for our curvature-aware dynamic approach (Figure C.1). 
+
+(a) Convection (b) Reaction 
+
+(c) Wave (d) Allen–Cahn 
+
+Figure C.1: Precision switching during training examples from four PDEs. The y-axis indicates the active precision state, where 1 denotes FP64 and 0 denotes FP32. In general, the model stays in FP64 longer and switches more often during training for the Convection and Allen–Cahn equations, consistent with their more fluctuating and higher curvature signals. 
+
+: Page 18 of 24 D. MLP Loss curve during training 
+
+We plot the prediction error (rRMSE) against wall-clock time (Figure D.1) and optimisation steps (Figure D.2) to show that, for the vanilla PINN architecture, the wall-clock-time improvement mainly comes from a shorter time per optimisation step rather than faster step-wise convergence. 
+
+Figure D.1: rRMSE against wall-clock time, evaluated on a common wall-time grid by interpolation. The dynamic approach converges faster in wall-clock time compared with FP64. 
+
+Figure D.2: rRMSE against optimisation steps for the four benchmark PDEs. FP64 generally converges faster in terms of optimisation steps for the vanilla PINN.  
+
+> :Page 19 of 24
+
+## E. Three-layer Vanilla PINN result 
+
+To examine whether the proposed controller can generalise to different model sizes, we use the same setup as vanilla PINN but reduce the number of hidden layers while increasing the hidden dimension (3 hidden layers and 648 hidden dimensions). Table E.1: Three-layer Vanilla PINN average result from 5 random seeds. Equation approach Avg Time (s) rRMSE rMAE Speedup vs FP64 
+
+Convection dynamic 𝟏 , 𝟔𝟕𝟗 .𝟎𝟐 ± 𝟐𝟏𝟓 .𝟓𝟗 𝟎 .𝟎𝟐𝟑𝟑 ± 𝟎 .𝟎𝟏𝟕𝟕 𝟎 .𝟎𝟐𝟎𝟑 ± 𝟎 .𝟎𝟏𝟔𝟏 𝟏 .𝟏𝟐 ×
+
+Convection FP64 1, 877 .32 ± 184 .31 0.0281 ± 0 .0317 0.0256 ± 0 .0306 1.00× 
+
+Reaction dynamic 𝟏𝟔𝟗 .𝟐𝟒 ± 𝟑𝟔 .𝟎𝟏 0.0594 ± 0 .0072 0.0345 ± 0 .0051 𝟏 .𝟏𝟏 ×
+
+Reaction FP64 187 .13 ± 68 .97 0.0559 ± 0 .0233 0.0321 ± 0 .0142 1.00× 
+
+Wave dynamic 𝟗𝟓𝟐 .𝟎𝟓 ± 𝟐𝟑𝟔 .𝟑𝟒 𝟎 .𝟎𝟎𝟖𝟒 ± 𝟎 .𝟎𝟎𝟑𝟒 𝟎 .𝟎𝟎𝟖𝟐 ± 𝟎 .𝟎𝟎𝟑𝟏 𝟏 .𝟐𝟖 ×
+
+Wave FP64 1, 214 .00 ± 367 .24 0.0101 ± 0 .0029 0.0101 ± 0 .0030 1.00× 
+
+Allen dynamic 𝟓 , 𝟗𝟖𝟑 .𝟕𝟒 ± 𝟏 , 𝟏𝟔𝟓 .𝟗𝟓 𝟎 .𝟎𝟒𝟐𝟕 ± 𝟎 .𝟎𝟎𝟕𝟗 𝟎 .𝟎𝟏𝟐𝟎 ± 𝟎 .𝟎𝟎𝟐𝟒 𝟏 .𝟎𝟏 ×
+
+Allen FP64 6, 032 .66 ± 1 , 105 .16 0.0435 ± 0 .0095 0.0124 ± 0 .0028 1.00× 
+
+Figure E.1: Three-layer Vanilla PINN result plot for dynamic vs. FP64. We use 3 hidden layers and 648 hidden dimensions.  
+
+> :Page 20 of 24
+
+## F. PINNsFormer results 
+
+To evaluate whether the dynamic approach generalises to different neural network architectures, we compare its training time and accuracy using PINNsFormer and PINNMamba. The proposed dynamic approach use lower training time and reach similar level of prediction accuracy. Table F.1: PINNsFormer result from 3 random seeds. Equation approach Avg Time (s) rRMSE rMAE Speedup vs FP64 
+
+Convection dynamic 𝟐 , 𝟏𝟒𝟐 .𝟓𝟏 ± 𝟕𝟒𝟒 .𝟓𝟒 0.0079 ± 0 .0028 0.0069 ± 0 .0026 𝟏 .𝟏𝟐 ×
+
+Convection FP32 936 .01 ± 243 .92 0.2071 ± 0 .3234 0.1806 ± 0 .2807 2.57× 
+
+Convection FP64 2, 405 .80 ± 347 .89 0.0073 ± 0 .0029 0.0065 ± 0 .0022 1.00× 
+
+Reaction dynamic 323 .94 ± 106 .70 0.0260 ± 0 .0062 0.0130 ± 0 .0033 1.33× 
+
+Reaction FP32 167 .74 ± 23 .31 0.0320 ± 0 .0024 0.0160 ± 0 .0014 𝟐 .𝟓𝟕 ×
+
+Reaction FP64 431 .00 ± 103 .90 0.0211 ± 0.0015 0.0103 ± 0.0007 1.00× 
+
+Wave dynamic 𝟑𝟒 , 𝟐𝟖𝟎 .𝟒𝟖 ± 𝟑 , 𝟕𝟔𝟔 .𝟔𝟑 𝟎 .𝟎𝟏𝟑𝟒 ± 𝟎 .𝟎𝟎𝟓𝟏 𝟎 .𝟎𝟏𝟐𝟕 ± 𝟎 .𝟎𝟎𝟒𝟗 𝟏 .𝟎𝟑 ×
+
+Wave FP32 3, 511 .79 ± 641 .10 0.3429 ± 0 .0244 0.3345 ± 0 .0286 10 .08× 
+
+Wave FP64 35 , 384 .31 ± 4 , 874 .25 0.0161 ± 0 .0042 0.0154 ± 0 .0041 1.00× 
+
+Allen–Cahn dynamic 𝟏𝟑 , 𝟒𝟒𝟏 .𝟐𝟑 ± 𝟐 , 𝟓𝟐𝟔 .𝟎𝟎 0.0150 ± 0 .0017 0.0038 ± 0 .0004 𝟏 .𝟎𝟓 ×
+
+Allen–Cahn FP32 2, 961 .68 ± 1 , 125 .14 0.2031 ± 0 .2414 0.1131 ± 0 .1637 4.75× 
+
+Allen–Cahn FP64 14 , 072 .01 ± 480 .71 0.0119 ± 0.0032 0.0031 ± 0.0008 1.00× 
+
+Table F.2: PINNmamba Average result from 5 random seeds. We train on a simple case ( Wave ) and a difficult case (Convection ) as example. Equation approach Avg Time (s) rRMSE rMAE Speedup vs FP64 
+
+Wave dynamic 𝟖 , 𝟖𝟏𝟖 .𝟕𝟎 ± 𝟏 , 𝟏𝟔𝟎 .𝟎𝟎 𝟎 .𝟎𝟎𝟔𝟑 ± 𝟎 .𝟎𝟎𝟐𝟏 𝟎 .𝟎𝟎𝟔𝟐 ± 𝟎 .𝟎𝟎𝟐𝟏 𝟏 .𝟐𝟖 ×
+
+Wave FP32 1, 117 .12 ± 732 .88 0.3401 ± 0 .3972 0.3395 ± 0 .4040 10 .13× 
+
+Wave FP64 11 , 311 .93 ± 3 , 583 .74 0.0077 ± 0 .0050 0.0077 ± 0 .0050 1.00× 
+
+Convection dynamic 𝟐 , 𝟕𝟔𝟑 .𝟎𝟗 ± 𝟒𝟒𝟒 .𝟕𝟎 0.0196 ± 0 .0114 0.0172 ± 0 .0103 𝟏 .𝟎𝟗 ×
+
+Convection FP32 168 .19 ± 111 .32 1.3330 ± 0 .3474 1.2088 ± 0 .3084 17 .87× 
+
+Convection FP64 3, 005 .28 ± 613 .26 0.0142 ± 0.0062 0.0128 ± 0.0051 1.00× 
+
+## G. Irradiance ODE prediction 
+
+The prediction result comparison for the irradiance ODE prediction is presented in Table G.1. Table G.1: Average irradiance result from 5 random seeds. Equation approach Avg Time (s) rRMSE rMAE Speedup vs FP64 Irradiance ODE (Eq. 15) dynamic 78 .82 ± 10 .53 0.0098 ± 0.0025 0.0083 ± 0 .0020 1.1 ×
+
+FP32 75 .30 ± 21 .34 0.1079 ± 0 .2142 0.0919 ± 0 .1818 1.15× 
+
+FP64 86 .50 ± 12 .93 0.0107 ± 0 .0047 0.0092 ± 0 .0043 1.0×  
+
+> :Page 21 of 24 (a) FP32
+> (b) Dynamic
+
+Figure G.1: Irradiance ODE results: ground truth (left), prediction (middle), and error (right). Single-precision training stops with a relatively large error under a stronger irradiance effect (top), whereas the proposed dynamic-precision approach converges to a smaller error (bottom).   
+
+> (a) FP32 (b) FP64 (c) Dynamic
+
+Figure G.2: Irradiance ODE results comparison: FP32, FP64, and dynamic precision predictions with the ground truth, shown from left to right. The three examples were run with the same random seed, and FP32 failed to converge to the ground truth.  
+
+> :Page 22 of 24
+
+## References 
+
+[1] Abbas, M., Giannino, F., Iuorio, A., Ahmad, Z., Calabró, F., 2025. PDE models for vegetation biomass and autotoxicity. Mathematics and Computers in Simulation 228, 386–401. URL: https://www.sciencedirect.com/science/article/pii/S0378475424002544 ,doi: 10.1016/j.matcom.2024.07.004 .[2] Al-Baali, M., Spedicato, E., Maggioni, F., 2014. Broyden’s quasi-Newton methods for a nonlinear system of equations and unconstrained optimization: a review and open problems. Optimization Methods and Software 29, 937–954. doi: 10.1080/10556788.2013.856909 .[3] Boyd, S., Vandenberghe, L., 2004. Convex Optimization. Cambridge University Press. [4] Burzawa, L., Li, L., Wang, X., Buganza-Tepole, A., Umulis, D.M., 2020. Acceleration of PDE-Based Biological Simulation Through the Development of Neural Network Metamodels. Current Pathobiology Reports 8, 121–131. URL: https://doi.org/10.1007/ s40139-020-00216-8 , doi: 10.1007/s40139-020-00216-8 .[5] Cao, W., Zhang, W., 2025. An analysis and solution of ill-conditioning in physics-informed neural networks. Journal of Computational Physics 520, 113494. URL: https://www.sciencedirect.com/science/article/pii/S0021999124007423 , doi: https://doi.org/10. 1016/j.jcp.2024.113494 .[6] Cuomo, S., Di Cola, V.S., Giampaolo, F., Rozza, G., Raissi, M., Piccialli, F., 2022. Scientific Machine Learning Through Physics–Informed Neural Networks: Where we are and What’s Next. Journal of Scientific Computing 92, 88. URL: https://doi.org/10.1007/ s10915-022-01939-z , doi: 10.1007/s10915-022-01939-z .[7] Datar, C., Kapoor, T., Chandra, A., Sun, Q., Bolager, E.L., Burak, I., Veselovska, A., Fornasier, M., Dietrich, F., 2026. Fast training of accurate physics-informed neural networks without gradient descent, in: The Fourteenth International Conference on Learning Representations. URL: 
+
+https://openreview.net/forum?id=3VdSuh3sie .[8] Daw, A., Bu, J., Wang, S., Perdikaris, P., Karpatne, A., 2023. Mitigating Propagation Failures in Physics-informed Neural Networks using Retain-Resample-Release (R3) Sampling, in: International Conference on Machine Learning, PMLR. pp. 7264–7302. [9] Dong, Z., Yao, Z., Arfeen, D., Gholami, A., Mahoney, M.W., Keutzer, K., 2020. HAWQ-V2: Hessian aware trace-Weighted quantization of neural networks, in: Larochelle, H., Ranzato, M., Hadsell, R., Balcan, M., Lin, H. (Eds.), Advances in neural information processing systems, Curran Associates, Inc.. pp. 18518–18529. URL: https://proceedings.neurips.cc/paper_files/paper/2020/file/ d77c703536718b95308130ff2e5cf9ee-Paper.pdf .[10] Dong, Z., Yao, Z., Gholami, A., Mahoney, M.W., Keutzer, K., 2019. Hawq: Hessian aware quantization of neural networks with mixed-precision, in: Proceedings of the IEEE/CVF international conference on computer vision, pp. 293–302. [11] Dormand, J., Prince, P., 1980. A family of embedded Runge-Kutta formulae. Journal of Computational and Applied Mathematics 6, 19–26. URL: https://www.sciencedirect.com/science/article/pii/0771050X80900133 , doi: 10.1016/0771-050X(80)90013-3 .[12] Gao, Y., Wang, B., Lu, J., Tian, Z., 2025. ML-PINN: A memory-efficient physics-informed Mamba-LSTM network for fast and accurate PDE solving. Neurocomputing 655, 131446. doi: 10.1016/j.neucom.2025.131446 .[13] Ghorbani, B., Krishnan, S., Xiao, Y., 2019. The effect of network depth on the optimization landscape, in: ICML 2019 Workshop on Identifying and Understanding Deep Learning Phenomena. [14] Gie, G.M., Hong, Y., Jung, C.Y., Lee, D., 2026. Singular layer physics-informed neural network method for convection-dominated boundary layer problems in two dimensions. Journal of Computational and Applied Mathematics 474, 116918. URL: https://www.sciencedirect. com/science/article/pii/S0377042725004327 , doi: https://doi.org/10.1016/j.cam.2025.116918 .[15] Gladstone, R.J., Nabian, M.A., Sukumar, N., Srivastava, A., Meidani, H., 2025. FO-PINN: a first-order formulation for physics-informed neural networks. Engineering Analysis with Boundary Elements 174, 106161. URL: https://www.sciencedirect.com/science/article/ pii/S0955799725000499 , doi: https://doi.org/10.1016/j.enganabound.2025.106161 .[16] Jnini, A., Kiyani, E., Shukla, K., Urban, J.F., Daryakenari, N.A., Muller, J., Zeinhofer, M., Karniadakis, G.E., 2026. Curvature-Aware Optimization for High-Accuracy Physics-Informed Neural Networks. arXiv preprint arXiv:2604.05230 . [17] Kapoor, T., Wang, H., Núñez, A., Dollevoet, R., 2023. Physics-informed neural networks for solving forward and inverse problems in complex beam systems. IEEE Transactions on Neural Networks and Learning Systems 35, 5981–5995. doi: 10.1109/TNNLS.2023.3310585 .[18] Kashi, A., Lu, H., Brewer, W., Rogers, D., Matheson, M., Shankar, M., Wang, F., 2026. Mixed-precision numerics in scientific applications: survey and perspectives. The Journal of Supercomputing 82, 287. URL: https://doi.org/10.1007/s11227-026-08264-4 , doi: 10. 1007/s11227-026-08264-4 .[19] Khanra, S., Kukreja, V.K., Bala, I., 2026. Physics-informed neural networks for differential equation solutions: A comprehensive review. Neurocomputing 680, 133317. doi: 10.1016/j.neucom.2026.133317 .[20] Kopriva, D.A., 2009. Implementing spectral methods for partial differential equations: Algorithms for scientists and engineers. Springer Science & Business Media. [21] Krishnapriyan, A.S., Gholami, A., Zhe, S., Kirby, R.M., Mahoney, M.W., 2021. Characterizing possible failure modes in physics-informed neural networks. Advances in neural information processing systems 34, 26548–26560. [22] Kummer, L., Sidak, K., Reichmann, T., Gansterer, W., 2023. Adaptive Precision Training (AdaPT): A dynamic quantized training approach for DNNs, in: Proceedings of the 2023 SIAM International Conference on Data Mining (SDM), SIAM. pp. 559–567. [23] Li, H., Xu, Z., Taylor, G., Studer, C., Goldstein, T., 2018. Visualizing the loss landscape of neural nets. Advances in neural information processing systems 31, 6391–6401. [24] Liu, D.C., Nocedal, J., 1989. On the limited memory BFGS method for large scale optimization. Mathematical Programming 45, 503–528. URL: https://doi.org/10.1007/BF01589116 , doi: 10.1007/BF01589116 .[25] Liu, Z., Wang, Y., Vaidya, S., Ruehle, F., Halverson, J., Soljacic, M., Hou, T.Y., Tegmark, M., 2025. KAN: Kolmogorov–Arnold Networks, in: The Thirteenth International Conference on Learning Representations. [26] Lu, L., Meng, X., Mao, Z., Karniadakis, G.E., 2021. DeepXDE: a deep learning library for solving differential equations. SIAM Review 63, 208–228. URL: https://doi.org/10.1137/19M1274067 , doi: 10.1137/19M1274067 . tex.eprint: https://doi.org/10.1137/19M1274067. 
+
+: Page 23 of 24 [27] Mattheij, R., Rienstra, S., Boonkkamp, J., 2005. Partial differential equations: Modeling, analysis, computation. Mathematical modeling and computation, Society for Industrial and Applied Mathematics (SIAM, 3600 Market Street, Floor 6, Philadelphia, PA 19104). URL: 
+
+https://books.google.nl/books?id=eNoEWxLes38C . tex.lccn: 2005049795. [28] Mellempudi, N., Srinivasan, S., Das, D., Kaul, B., 2019. Mixed precision training with 8-bit floating point. arXiv preprint arXiv:1905.12334 .[29] Micikevicius, P., Narang, S., Alben, J., Diamos, G., Elsen, E., Garcia, D., Ginsburg, B., Houston, M., Kuchaiev, O., Venkatesh, G., Wu, H., 2018. Mixed Precision Training, in: International Conference on Learning Representations. [30] Müller, J., Zeinhofer, M., 2023. Achieving High Accuracy with PINNs via Energy Natural Gradient Descent, in: Krause, A., Brunskill, E., Cho, K., Engelhardt, B., Sabato, S., Scarlett, J. (Eds.), Proceedings of the 40th International Conference on Machine Learning, PMLR. pp. 25471–25485. URL: https://proceedings.mlr.press/v202/muller23b.html .[31] Nabian, M.A., Gladstone, R.J., Meidani, H., 2021. Efficient training of physics-informed neural networks via importance sampling. Computer-Aided Civil and Infrastructure Engineering 36, 962–977. URL: https://onlinelibrary.wiley.com/doi/abs/10.1111/mice.12685 ,doi: https://doi.org/10.1111/mice.12685 , arXiv:https://onlinelibrary.wiley.com/doi/pdf/10.1111/mice.12685 .[32] Nocedal, J., 1980. Updating Quasi-Newton Matrices With Limited Storage. Mathematics of Computation 35, 773–782. URL: https: //api.semanticscholar.org/CorpusID:9033333 , doi: 10.1090/S0025-5718-1980-0572855-7 .[33] Raissi, M., Perdikaris, P., Karniadakis, G., 2019. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics 378, 686–707. URL: https://www. sciencedirect.com/science/article/pii/S0021999118307125 , doi: https://doi.org/10.1016/j.jcp.2018.10.045 .[34] Rajagopal, A., Vink, D., Venieris, S., Bouganis, C.S., 2020. Multi-precision policy enforced training (MuPPET): A precision-switching strategy for quantised fixed-point training of CNNs, in: International Conference on Machine Learning, PMLR. pp. 7943–7952. [35] Rathore, P., Lei, W., Frangella, Z., Lu, L., Udell, M., 2024. Challenges in Training PINNs: A Loss Landscape Perspective, in: Proceedings of the 41st International Conference on Machine Learning, PMLR. pp. 42159–42191. [36] Roberts, S.W., 1959. Control Chart Tests Based on Geometric Moving Averages. Technometrics 1, 239–250. URL: http://www.jstor. org/stable/1266443 .[37] Shi, H.J.M., Xie, Y., Byrd, R., Nocedal, J., 2022. A noise-tolerant quasi-newton algorithm for unconstrained optimization. SIAM Journal on Optimization 32, 29–55. URL: https://doi.org/10.1137/20M1373190 , doi: 10.1137/20M1373190 . tex.eprint: https://doi.org/10.1137/20M1373190. [38] Stevens, W.L., 1946. The Logarithmic Transformation. Nature 158, 622–622. URL: https://doi.org/10.1038/158622b0 , doi: 10. 1038/158622b0 .[39] Tang, K., Wan, X., Yang, C., 2023. DAS-PINNs: A deep adaptive sampling method for solving high-dimensional partial differential equations. Journal of Computational Physics 476, 111868. doi: 10.1016/j.jcp.2022.111868 .[40] Trefethen, L.N., Bau, D., . Part V: Eigenvalues. pp. 179–240. URL: https://epubs.siam.org/doi/abs/10.1137/1.9781611977165. ch5 , doi: 10.1137/1.9781611977165.ch5 , arXiv:https://epubs.siam.org/doi/pdf/10.1137/1.9781611977165.ch5 .[41] Urbán, J.F., Stefanou, P., Pons, J.A., 2025. Unveiling the optimization process of physics informed neural networks: How accurate and competitive can PINNs be? Journal of Computational Physics 523, 113656. URL: https://www.sciencedirect.com/science/ article/pii/S0021999124009045 , doi: https://doi.org/10.1016/j.jcp.2024.113656 .[42] van Voorn, G.A.K., Boer, M.P., Truong, S.H., Friedenberg, N.A., Gugushvili, S., McCormick, R., Bustos Korts, D., Messina, C.D., van Eeuwijk, F.A., 2023. A conceptual framework for the dynamic modeling of time-resolved phenotypes for sets of genotype-environment-management combinations: a model library. Frontiers in Plant Science Volume 14 - 2023. URL: https://www.frontiersin.org/ journals/plant-science/articles/10.3389/fpls.2023.1172359 , doi: 10.3389/fpls.2023.1172359 .[43] Wang, S., Yu, X., Perdikaris, P., 2022. When and why PINNs fail to train: A neural tangent kernel perspective. Journal of Computational Physics 449, 110768. doi: 10.1016/j.jcp.2021.110768 .[44] Wang, Y., Sun, J., Bai, J., Anitescu, C., Eshaghi, M.S., Zhuang, X., Rabczuk, T., Liu, Y., 2025. Kolmogorov–Arnold-Informed neural network: A physics-informed deep learning framework for solving forward and inverse problems based on Kolmogorov–Arnold Networks. Computer Methods in Applied Mechanics and Engineering 433, 117518. [45] Wu, C., Zhu, M., Tan, Q., Kartha, Y., Lu, L., 2023. A comprehensive study of non-adaptive and residual-based adaptive sampling for physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering 403, 115671. URL: https://www.sciencedirect. com/science/article/pii/S0045782522006260 , doi: https://doi.org/10.1016/j.cma.2022.115671 .[46] Xiang, Z., Peng, W., Liu, X., Yao, W., 2022. Self-adaptive loss balanced Physics-informed neural networks. Neurocomputing 496, 11–34. doi: 10.1016/j.neucom.2022.05.015 .[47] Xie, Y., Byrd, R.H., Nocedal, J., 2020. Analysis of the BFGS method with errors. SIAM Journal on Optimization 30, 182–209. URL: 
+
+https://doi.org/10.1137/19M1240794 , doi: 10.1137/19M1240794 . tex.eprint: https://doi.org/10.1137/19M1240794. [48] Xu, C., Liu, D., Hu, Y., Li, J., Qin, R., Zheng, Q., Xiong, J., 2025a. Sub-Sequential Physics-Informed Learning with State Space Model, in: Proceedings of the 42nd International Conference on Machine Learning, PMLR. ArXiv:2502.00318. [49] Xu, C., Liu, D., Nassereldine, A., Xiong, J., 2025b. FP64 is All You Need: Rethinking Failure Modes in Physics-Informed Neural Networks. Advances in Neural Information Processing Systems ArXiv:2505.10949. [50] Xue, J., Subramaniam, A., Hoemmen, M., 2022. A novel automatic mixed precision approach for physics informed training, in: Machine Learning and the Physical Sciences Workshop, NeurIPS 2022. [51] Zhao, R., Vogel, B., Ahmed, T., Luk, W., 2021. Reducing underflow in mixed precision training by gradient scaling, in: Proceedings of the Twenty-Ninth International Joint Conference on Artificial Intelligence, pp. 2922–2928. doi: 10.24963/ijcai.2020/404 .[52] Zhao, Z., Ding, X., Prakash, B.A., 2024. PINNsFormer: A Transformer-Based Framework For Physics-Informed Neural Networks, in: The Twelfth International Conference on Learning Representations. ArXiv:2307.11833. 
+
+: Page 24 of 24
