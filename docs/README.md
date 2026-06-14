@@ -6,67 +6,67 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-13
-- 运行时间：2026-06-13 21:25:10 UTC
+- 最新运行日期：2026-06-14
+- 运行时间：2026-06-14 20:21:43 UTC
 - 运行状态：成功
 - 本次总论文数：15
 - 精读区：6
 - 速读区：9
 
 ### 今日简报（AI）
-今日精读6篇论文，重点推荐GENERIC-FNO将能量守恒与熵产生嵌入傅里叶神经算子的突破，以及速读中AI代理集体智能与实验室笔记技能转换的研究。  
-最值得关注的方向：物理约束神经网络设计（GENERIC-FNO）和科学发现中的AI群体协作。  
-建议优先阅读GENERIC-FNO理解物理可解释的算子学习，再追踪Notes2Skills中智能科学助手的能力构建。
-- 详情：[/202606/13/README](/202606/13/README)
+今日精读两篇高分物理信息神经网络（PINNs）论文，速读方程发现与智能体技能优化等方向。  
+最值得关注的是PINNs在化疗药代动力学临床基准测试与狄拉克Delta源PDE求解中的性能评估，揭示了参数可辨识性等关键局限。  
+建议普通读者重点关注PINNs在实际医疗及含奇异源问题中的可靠性边界，以判断其落地潜力。
+- 详情：[/202606/14/README](/202606/14/README)
 
 ### 精读区论文标签
-1. [GENERIC-FNO: Embedding Energy Conservation and Entropy Production into Fourier Neural Operators](/202606/13/2606.08343v1-generic-fno-embedding-energy-conservation-and-entropy-production-into-fourier-neural-operators)  
+1. [Physics-Informed Neural Networks for Chemotherapy Pharmacokinetics: Benchmarking the Clinical Estimator and Exposing Parameter Identifiability](/202606/14/2606.12658v1-physics-informed-neural-networks-for-chemotherapy-pharmacokinetics-benchmarking-the-clinical-estimator-and-exposing-parameter-identifiability)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：将热力学结构嵌入傅里叶神经算子用于PDE
-2. [GENERIC-FNO: Embedding Energy Conservation and Entropy Production into Fourier Neural Operators](/202606/13/2606.08343v2-generic-fno-embedding-energy-conservation-and-entropy-production-into-fourier-neural-operators)  
+   evidence：物理信息神经网络应用于化疗药代动力学，是PINNs在基于偏微分方程的生物医学问题中的直接应用
+2. [Physics-Informed Neural Networks and Radial Basis Functions for PDEs with Dirac Delta Sources](/202606/14/2606.12735v1-physics-informed-neural-networks-and-radial-basis-functions-for-pdes-with-dirac-delta-sources)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：将热力学结构嵌入傅里叶神经算子用于PDE
-3. [Sound Field Interpolation Using Physics-Informed Extreme Learning Machine with Pre-Training](/202606/13/2606.08435v1-sound-field-interpolation-using-physics-informed-extreme-learning-machine-with-pre-training)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：使用物理信息神经网络（PINN）结合预训练进行声场插值，声场由波动方程控制
-4. [Flow-based generative models for amortized Bayesian inference in regression and inverse PDE problems](/202606/13/2606.10370v1-flow-based-generative-models-for-amortized-bayesian-inference-in-regression-and-inverse-pde-problems)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：使用流生成模型对逆PDE问题进行摊销贝叶斯推断
-5. [Structure-Preserving Neural Surrogates with Tractable Uncertainty Quantification](/202606/13/2606.11650v1-structure-preserving-neural-surrogates-with-tractable-uncertainty-quantification)  
+   evidence：PINNs求解含有狄拉克δ源的偏微分方程
+3. [Data-driven discovery of governing differential equations across physical systems](/202606/14/2606.09638v1-data-driven-discovery-of-governing-differential-equations-across-physical-systems)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：面向PDE的结构保持神经替代模型与不确定性量化
-6. [Toward Generalist Autonomous Research via Hypothesis-Tree Refinement](/202606/13/2606.11926v1-toward-generalist-autonomous-research-via-hypothesis-tree-refinement)  
+   evidence：全面综述数据驱动发现微分方程的方法，涵盖AI方法，直接对应AI求解偏微分方程的最新进展
+4. [Boundary-Layer-Induced Failure of Standard Physics-Informed Neural Networks: A Legendre Wavelet Collocation Benchmark for Singularly Perturbed Transport Problems](/202606/14/2606.09676v1-boundary-layer-induced-failure-of-standard-physics-informed-neural-networks-a-legendre-wavelet-collocation-benchmark-for-singularly-perturbed-transport-problems)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：Arbor框架：AI智能体通过假设树精炼实现长期自主研究
+   evidence：物理信息神经网络在输运PDE边界层问题中的失效分析
+5. [Accelerating SAV-based optimization via randomized low-rank Hessian approximation](/202606/14/2606.10562v1-accelerating-sav-based-optimization-via-randomized-low-rank-hessian-approximation)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：针对PINN病态问题的优化方法
+6. [Extracting Governing Equations from Latent Dynamics via Multi-View Contrastive Learning](/202606/14/2606.13260v1-extracting-governing-equations-from-latent-dynamics-via-multi-view-contrastive-learning)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：基于多视图对比学习从潜在动力系统中提取控制方程，实现符号偏微分方程的自动发现
 
 ### 速读区论文标签
-1. [A Measure-Consistent Operator Learning Method for Infinite-Dimensional Master Equations](/202606/13/2606.07976v1-a-measure-consistent-operator-learning-method-for-infinite-dimensional-master-equations)  
+1. [Data-Driven Equation Discovery for Nonlinear Liquid Film Flows](/202606/14/2606.13336v1-data-driven-equation-discovery-for-nonlinear-liquid-film-flows)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：非线性PDE系统的数据驱动方程发现
+2. [ERBench: A Benchmark and Testsuite for Equation Discovery Algorithms](/202606/14/2606.09276v1-erbench-a-benchmark-and-testsuite-for-equation-discovery-algorithms)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：针对主方程的算子学习方法，与AI求解PDE相关
-2. [Harnessing the Collective Intelligence of AI Agents in the Wild for New Discoveries](/202606/13/2606.10402v1-harnessing-the-collective-intelligence-of-ai-agents-in-the-wild-for-new-discoveries)  
+   evidence：方程发现算法基准测试，直接相关于自动化发现数值算法
+3. [SkillAxe: Sharpening LLM-Authored Agent Skills Through Evaluation-Guided Self-Refinement](/202606/14/2606.10546v2-skillaxe-sharpening-llm-authored-agent-skills-through-evaluation-guided-self-refinement)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：集体科学发现的智能体平台
-3. [Notes2Skills: From Lab Notebooks to Certainty-Aware Scientific Agent Skills](/202606/13/2606.11897v1-notes2skills-from-lab-notebooks-to-certainty-aware-scientific-agent-skills)  
+   evidence：针对LLM代理技能的改进
+4. [Fantastic Scientific Agents and How to Build Them: AgentBuild for Rietveld Refinement](/202606/14/2606.12834v1-fantastic-scientific-agents-and-how-to-build-them-agentbuild-for-rietveld-refinement)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：从实验笔记中提取带不确定性感知的科学智能体技能
-4. [ATLAS: Active Theory Learning for Automated Science](/202606/13/2606.12386v1-atlas-active-theory-learning-for-automated-science)  
+   evidence：提出AgentBuild框架从合约构建科学智能体，并应用于Rietveld精修
+5. [EurekAgent: Agent Environment Engineering is All You Need For Autonomous Scientific Discovery](/202606/14/2606.13662v1-eurekagent-agent-environment-engineering-is-all-you-need-for-autonomous-scientific-discovery)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：主动学习框架自动化科学发现，生成机制性假设并设计实验
-5. [ConMem: Structured Memory-Guided Adaptation in Training-Free Multi-Agent Systems](/202606/13/2606.08702v1-conmem-structured-memory-guided-adaptation-in-training-free-multi-agent-systems)  
+   evidence：用于LLM自主科学发现的智能体环境工程
+6. [Artificial Intelligence for Mathematical Reasoning: An Integrated Survey of Language Models, Neuro-symbolic Systems, and Verified Discovery](/202606/14/2606.08728v1-artificial-intelligence-for-mathematical-reasoning-an-integrated-survey-of-language-models-neuro-symbolic-systems-and-verified-discovery)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：多智能体记忆自适应框架
-6. [Structuring agentic AI for HPC code modernization](/202606/13/2606.08710v1-structuring-agentic-ai-for-hpc-code-modernization)  
+   evidence：全面综述语言模型、神经符号系统和验证发现用于数学推理，与大型语言模型在数学物理中的应用相关
+7. [Decentralized Multi-Agent Systems with Shared Context](/202606/14/2606.10662v1-decentralized-multi-agent-systems-with-shared-context)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：使用结构化智能体AI现代化HPC科学代码，涉及数值算法实现
-7. [Bridging Scales: Asymptotic Analysis and AI-Assisted Formalization](/202606/13/2606.10138v1-bridging-scales-asymptotic-analysis-and-ai-assisted-formalization)  
+   evidence：去中心化多智能体系统共享上下文，与基于多智能体系统的偏微分方程发现和求解相关
+8. [Role-Agent: Bootstrapping LLM Agents via Dual-Role Evolution](/202606/14/2606.10917v1-role-agent-bootstrapping-llm-agents-via-dual-role-evolution)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于PDE的渐近分析的AI辅助形式化
-8. [A Physics-Informed B-Spline Framework for Continuous Approximation of Flow Data](/202606/13/2606.10335v1-a-physics-informed-b-spline-framework-for-continuous-approximation-of-flow-data)  
+   evidence：基于双角色进化的LLM智能体框架，与面向自动化科学发现的AI智能体框架相关
+9. [APPO: Agentic Procedural Policy Optimization](/202606/14/2606.12384v1-appo-agentic-procedural-policy-optimization)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：物理信息B样条框架嵌入物理约束，类似于PINNs的思想
-9. [Skill-Augmented AI Agents for Medical Research Analysis: An Exploratory Multi-Model Human Evaluation in an NSCLC Transcriptomic Biomarker Task](/202606/13/2606.11830v1-skill-augmented-ai-agents-for-medical-research-analysis-an-exploratory-multi-model-human-evaluation-in-an-nsclc-transcriptomic-biomarker-task)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：面向研究分析的技能增强AI智能体
+   evidence：面向LLM智能体的过程性策略优化，提升智能体工具使用能力，与科学计算中智能体技能相关
 
 
 <div class="dpr-home-promo-card">
