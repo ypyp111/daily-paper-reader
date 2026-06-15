@@ -1,0 +1,1425 @@
+Title: Robin-Neumann Coupling of PINN and FEM Solvers: A Steklov-Poincaré View, with Application to Fluid-Structure Interaction with Contact
+
+URL Source: https://arxiv.org/pdf/2606.14181v1
+
+Published Time: Mon, 15 Jun 2026 00:39:59 GMT
+
+Number of Pages: 44
+
+Markdown Content:
+# Robin–Neumann Coupling of PINN and FEM Solvers: A Steklov–Poincaré View, with Application to Fluid–Structure Interaction with Contact 
+
+## Mikel Landajuela Lawrence Livermore National Laboratory 
+
+## landajuelala1@llnl.gov 
+
+Abstract 
+
+Physics-informed neural networks (PINNs) are meshless and carry moving geometry and topology change through resampling of collocation points; the finite-element method (FEM) is the workhorse for boundary-fitted discretisations. Coupling the two across a shared interface promises the best of both, yet the few existing PINN–FEM schemes are validated only empirically. We put the coupling on a domain-decomposition footing. Viewing each solver as a Steklov–Poincaré (trace-to-flux) operator, we transfer the classical Dirichlet–Neumann (DN) divergence diagnosis and its Robin–Neumann (RN) cure, including a closed-form, sweep-free interface impedance α⋆, and prove a PINN-specific contraction theorem: a trained network realises only a perturbed Steklov operator with a per-step training residual, and RN still contracts, with no shared-eigenbasis hypothesis, to a floor set by the achieved training loss. Because a PINN has no stiffness matrix, we introduce a Fourier-mode interface probe that recovers the network’s resolvable Steklov eigenvalues to within 0.5% (to 10 −5 on the lowest mode), an order of magnitude cheaper and orders of magnitude more accurate than nodal-basis or random-trace estimators at matched budget, and that doubles as a diagnostic of the network’s spectral cap. The theory predicts measured PINN–FEM contraction rates to within 7% on 1D and 2D Poisson couplings, and a two-slab analogue of the large-added-mass regime (the interface spectral instability of cardiovascular FSI, without its inertia) shows RN’s per-mode impedance matching winning decisively where tuned scalar relaxation saturates. We then demonstrate the framework on a Stokes/rigid-disc problem with Alart–Curnier contact: the meshless PINN fluid absorbs the topology change at contact by collocation exclusion alone, no remeshing and no cut cells, and the static-equilibrium contact reaction matches the submerged weight to 0.4% under mesh refinement. We quantify the remaining limitations: the warm-started PINN drifts off the Stokes manifold over long horizons (tracked by a training-independent residual monitor), and matched FEM–FEM benchmarks attribute the pre-impact squeeze-film signatures to PINN under-resolution, leaving the fully resolved dynamic regime to future work. 
+
+# 1 Introduction 
+
+## 1.1 Why hybrid PINN–FEM coupling, and why FSI with contact 
+
+Physics-informed neural networks [ 23 , 30 , 37 ] have become a popular mesh-free alternative for forward and inverse PDE problems: a PINN replaces meshing and quadrature with random sampling and automatic differentiation, so domain geometry, and changes thereof, enter only through the collocation set. The finite-element method, by contrast, is the workhorse of science and engineering simulation [ 20 ]; it is unmatched on body-fitted geometries with strong gradients, and benefits from decades of solver infrastructure and rigorous convergence theory. A solver that is part FEM and part PINN is attractive whenever one part of a problem suits FEM (a thin solid with sharp stress concentrations) and another suits a PINN (a fluid region whose mesh is expensive to maintain), and more generally to embed learned constitutive or operator components inside an established FEM pipeline [31, 32, 40]. The application that motivates this paper is fluid–structure interaction with contact . In FSI, an immersed solid (a heart-valve leaflet, a falling particle) deforms and moves through a fluid; the two are coupled through stress and velocity matching at their shared interface. When the solid hits a wall or 1  
+
+> arXiv:2606.14181v1 [math.NA] 12 Jun 2026 ΩF
+> ΩP
+
+Σ                     
+
+> nF
+> PINN fl uid solver
+> (x, y )(u, v, p )
+> Stokes +BC losses
+> FEM solid solver
+> uF =
+> Ab
+> backward -Euler rigid -disc system
+> λk: velocity trace Robin condition on Σ
+> gk+1: traction Neumann condition on Σ
+> outer iteration k
+
+Figure 1: Partitioned PINN–FEM coupling, illustrated on the FSI application of Section 4. Left: the mesh-free PINN fluid ΩP (collocation cloud) surrounds the FEM solid ΩF (rigid disc, body-fitted mesh); the two solvers meet only at the shared interface Σ. Right: at outer iteration k the solid sends a velocity trace λk, imposed on the PINN as a Robin condition, and the fluid returns a traction gk+1 , a Neumann load on the solid, closing a fixed-point loop. When this loop contracts, how fast, and with which transmission conditions is the subject of Sections 2–4. another solid, classical body-fitted FEM grids collapse : the fluid mesh degenerates as the gap closes to zero, forcing aggressive remeshing, ALE pseudo-elasticity tricks, or a cut-cell formulation [ 5, 19 ], the last echoing the unfitted-mesh and Nitsche-XFEM treatments that immerse the structure to sidestep body-fitted remeshing [ 2, 11 , 12 ]. A PINN fluid has no such problem: its discretisation is a point cloud, and gap closure is implemented simply by removing the contact slab from the collocation set. Topology change is carried by the sampler. This is the concrete advantage we set out to exploit. Figure 1 previews the resulting solver: a mesh-free PINN fluid and a body-fitted FEM solid exchange a velocity trace and an interface traction around a partitioned fixed-point loop, the iteration whose convergence this paper analyses. 
+
+## 1.2 The state of PINN–FEM coupling 
+
+The number of published methods that actually couple a PINN solver to an FEM solver across a shared interface is surprisingly small. Snyder et al. [38] introduced a Schwarz-style alternating method for PINN–FEM coupling; the hybrid FEM–NN framework of Mitusch et al. [32] replaces a constitutive component of an FEM model with a neural network; and Meethal et al. [31] embed a PINN inside an FEM iteration. These works establish that the coupling is feasible and useful, but treat the partitioned iteration largely empirically: none analyses its convergence rate, its divergence modes, or the operator-spectral conditions under which a given transmission scheme contracts. A larger, faster-growing line of work imports classical domain-decomposition ideas into the neural solver itself: extended and conservative PINNs [ 21 , 22 ], finite-basis PINNs [ 33 ], and their explicit Schwarz reading [ 9]. But this remains PINN–PINN: the Steklov–Poincaré substructuring view and the optimal-Robin contraction theory standard for FEM–FEM and partitioned FSI have not been carried over to the PINN–FEM case. Finally, our PINN Steklov estimator and the spectral cap it exposes connect to the well-documented spectral bias of neural solvers [ 24 , 36 , 42 , 43 ]; we test a Fourier-feature remedy [ 39 ]directly and find it does not lift the cap at our budgets. This paper supplies the missing analysis by carrying the classical domain-decomposition framework [ 34 , 35 , 41 ], the optimised Robin transmission conditions of optimized Schwarz methods [ 16 , 17 ], from which the closed-form impedance of Section 2 descends, and the optimal-Robin lessons of partitioned FSI [ 3, 4, 6, 13 –15 , 25 , 26 ] over to the PINN–FEM setting, where one subdomain solver is a trained network rather than a second discretisation of the same kind. We also benchmark the closest prior coupling directly: our implementation of the overlapping Schwarz scheme of Snyder et al. [38] , in its weak-Dirichlet PINN–FOM form, runs head-to-head against DN and RN at matched architecture and inner budget (Appendix P.4). The comparison is informative in both directions: with a generous overlap the Schwarz iteration reaches moderate tolerance in fewer outer iterations, while RN contracts monotonically 2on every seed, reaches a lower floor, and needs no overlap, a requirement, not a preference, at the sharp fluid–solid interface of the FSI application. 
+
+## 1.3 Contributions 
+
+(C1) Steklov–Poincaré framework for PINN–FEM coupling, with a PINN-specific contraction theorem. We give a self-contained derivation of the DN and RN partitioned iterations for the case where one subdomain is solved by FEM and the other by a PINN (Section 2). Three results are classical domain-decomposition theory transferred to this setting: the DN divergence diagnosis, the existence of a contractive band of Robin impedances with the closed-form sweep-free default α⋆ = pσmin F σmax P , and energy boundedness for a co-training variant. The PINN-specific core is Theorem 4: a trained network realises only a perturbed Steklov operator with a per-step training residual, and the RN iteration still contracts, with no shared-eigenbasis hypothesis, to a floor set by the achieved training loss (Remark 1), the network’s spectral cap itself acting as the contraction mechanism (Corollary 5). 
+
+(C2) A sampling-based estimator of the PINN Steklov operator. The FEM operator SF is a Schur complement and essentially free; the PINN operator SP is a trained-network response and much harder to access. We propose a Fourier-mode interface probe (Algorithm 2) that recovers continuum eigenvalues to within 0.5% on the modes the network resolves ( 10 −5 on the lowest) and exposes its spectral cap on the modes it cannot, and at matched training budget is an order of magnitude cheaper and orders of magnitude more accurate than nodal-basis or random-trace estimators (Table 1). 
+
+(C3) The added-mass regime is where RN wins. On 1D and 2D Poisson coupling the operator-spectral theory predicts the empirical PINN–FEM rates to within 7% (Section 3). The practical payoff is sharpest in the regime FSI cares about: with a large added-mass effect (a light structure in a heavy incompressible fluid), the per-mode DN amplification is strongly mode-dependent, a tuned scalar relaxation saturates , and RN’s per-mode impedance matching contracts ever faster as the added mass grows (Section 3.2; the two-slab analogue reproduces the interface spectral instability of added mass, not its inertia). 
+
+(C4) Application to Stokes–rigid-disc FSI with contact. We demonstrate the framework on the geometry that motivated the work (Section 4): a rigid disc (FEM) inside a viscous fluid (PINN, on the outer annulus). The meshless PINN fluid handles topology change at contact by collocation exclusion (no remeshing, no cut cells), and the contact reaction matches the submerged weight Π to within 0.4% at static equilibrium under mesh refinement (a force-balance check of the coupled solver’s equilibrium bookkeeping; the near-wall fluid field itself is under-resolved, which we quantify separately). We delimit the methodology’s current scope (Section 4.4): the warm-started PINN drifts off the Stokes manifold over long time horizons, and the pre-impact dynamic signatures are PINN under-resolution artefacts that matched FEM–FEM benchmarks do not reproduce. 
+
+# 2 Steklov–Poincaré coupling of PINN and FEM 
+
+## 2.1 Configurations, transmission conditions, and roles 
+
+Let Ω ⊂ Rd be a bounded Lipschitz domain decomposed non-overlappingly into a FEM subdomain ΩF and a 
+
+PINN subdomain ΩP, with interface Σ = Ω F ∩ ΩP (Figure 2). As a scalar model problem we use the Poisson equation 
+
+−∆u = f in Ω, u = 0 on ∂Ω, (1) on a 1D split segment and a 2D disc-in-square, each in two orientations: FEM-on-disc / PINN-on-annulus (the natural orientation) and the FSI-aligned converse. The target application (Section 4) is a rigid disc moving through a viscous fluid, with the FEM subdomain on the disc and the PINN subdomain on the moving fluid annulus. A solution of (1) restricted to ΩF and ΩP satisfies, at Σ, two transmission conditions: uF = uP (trace continuity) and ∂nF uF = ∂nF uP (flux continuity), where nF is the unit normal pointing out of ΩF (so 3Ω F 
+
+> ΩPΣ∂ Ω
+> nF
+
+(a) Natural : FEM on the outer annu-lus, PINN on the inner disc. Used for the E5/E7/E10 Poisson experiments. Ω F Ω P 
+
+> Σ∂ Ω ΣpnF
+> nP
+
+(b) FSI-aligned : FEM on the inner disc (rigid solid), PINN on the outer annulus (viscous fluid). Σ p  
+
+> ΩF
+> ΩP
+> strip excluded from collocation set
+
+(c) Contact : the disc has descended to yc = R + εg and the strip {y < ε g }
+
+is excluded from the collocation set. 
+
+Figure 2: Two role assignments for partitioned PINN–FEM coupling (a, b) and the contact-engaged configuration that motivates the FSI application (c). The PINN subdomain is mesh-free in every panel; the shared interface Σ is green. 
+
+nP = −nF). A partitioned solver enforces one condition exactly on each side and iterates the other. Dirichlet– Neumann (DN): FEM imposes uF|Σ = λk, PINN imposes ∂nP uP|Σ = −∂nF uk
+
+> F
+
+|Σ, update λk+1 = uk
+
+> P
+
+|Σ.
+
+Robin–Neumann (RN): FEM imposes the Robin condition ∂nF uF + α u F = α λ k + gk for impedance 
+
+α > 0; PINN imposes the same Neumann condition; update (λk+1 , g k+1 ) from the PINN trace and flux. RN is the partitioned-FSI fix for the added-mass instability of DN [ 3, 6, 13 , 14 ]; we show the same fix works for PINN–FEM for the same spectral reason. The DN/RN definitions attach the Dirichlet (or Robin) datum to ΩF and the Neumann datum to ΩP,but the interface equation (4) is symmetric in the two sides, so the assignment is a modelling choice. We use Dirichlet-on-FEM, Neumann-on-PINN for Poisson coupling (the cheap-FEM-Dirichlet choice), and 
+
+Robin-on-PINN, Neumann-on-FEM for FSI, forced by the physics: the kinematic condition ufluid |Σ = ˙dsolid 
+
+is a velocity trace on the fluid (PINN) side, while the integrated traction Fy = R
+
+> Σ
+
+(σf n) · ey ds is a Neumann forcing of the solid (FEM) ODE. The added-mass instability lives on the fluid side in both formulations, so Robin-on-PINN remains the contraction-restoring choice; all spectral results below apply after the SF ↔ SP
+
+relabelling, with α⋆ invariant. We confirm empirically that the RN contraction itself survives this relabelling (Section 3.1). The full per-piece boundary conditions for both orientations are collected in Appendix B, the shared-interface-DOF and sign conventions in Appendix A, and a symbol glossary in Appendix T. 
+
+## 2.2 The interface equation and the DN/RN maps 
+
+For each subdomain • ∈ { F, N } write the subdomain solution at interface trace λ as the sum of a homogeneous (zero-forcing) and an inhomogeneous (forcing-only, zero-trace) part. The Steklov–Poincaré (Dirichlet-to-Neumann) operator is the linear part of the trace-to-flux map [34, 35], 
+
+S• λ := ∂nF uhom  
+
+> •
+
+(λ) Σ, χ• := −∂nF uinh  
+
+> •Σ
+
+, (2) so the flux at trace λ is ∂nF u•(λ) = S•λ − χ•, with a sign flip on the PINN side ( nP = −nF): 
+
+∂nF uF(λ⋆) = SFλ⋆ − χF, ∂nF uP(λ⋆) = −SPλ⋆ + χP. (3) Imposing flux continuity gives the Steklov–Poincaré interface equation on Σ alone, 
+
+(SF + SP) λ⋆ = χF + χP on Σ (4) Each subdomain response in (3) is the exact PDE extension of its interface datum, so the bulk unknowns are condensed into SF, S P, which is why (4) lives on Σ alone; the two schemes’ update rules then reduce to a linear recurrence on the trace error ek = λk − λ⋆ (derived step by step in Appendix C): 
+
+ek+1 = − S−1P SF ek =: TDN ek, ek+1 = ( αI − SP)( αI + SF)−1 ek =: TRN (α) ek. (5) 4Algorithm 1 Partitioned PINN–FEM iteration (Dirichlet/Robin-on-FEM, Neumann-on-PINN). Mode 
+
+m=DN gives Dirichlet–Neumann; m=RN gives Robin–Neumann. 
+
+Require: Mode m ∈ { DN , RN }; initial trace λ0 (and, for RN , flux g0 and impedance α > 0, sweep-free default 
+
+α⋆ = pσmin F σmax P of Theorem 2); under-relaxation ω ∈ (0 , 1] (default 1 for Poisson, ≈0.3 for vector Stokes); budget Kout , tolerance tol . 
+
+> 1:
+
+for k = 0 , 1, . . . , K out − 1 do  
+
+> 2:
+
+FEM solve. −∆u = f on ΩF with either uk
+
+> F
+
+|Σ = λk (DN ) or the Robin condition ∂nF uF + αu F =
+
+αλ k + gk on Σ (RN ).  
+
+> 3:
+
+Read FEM trace/flux. λkF ← uk
+
+> F
+
+|Σ; gkF ← M −1Σ (Ku k 
+
+> F
+
+− f )[Σ] via (12).  
+
+> 4:
+
+PINN (Neumann) train. minimise the PINN loss enforcing −∆uP = f on ΩP and ∂nP uP|Σ = −gkF . 
+
+> 5:
+
+Read PINN trace. λkN ← uk
+
+> P
+
+|Σ. 
+
+> 6:
+
+Update. DN : λk+1 ← λkN ; RN : (λ, g )k+1 ← (1 − ω)( λ, g )k + ω(λkN , g kF ). 
+
+> 7:
+
+if λkN − λkF < tol then return  
+
+> 8:
+
+end if  
+
+> 9:
+
+end for 
+
+In practice each outer iteration is one cheap FEM solve plus one PINN training run, communicating only through λ (and, for RN, the flux g); the two modes differ in exactly one step, the FEM sub-problem’s boundary condition, which we state together as Algorithm 1. For the FSI assignment the roles of “FEM solve” and “PINN train” swap, but the algorithm is otherwise unchanged after the vector generalisation of Section 4.1. 
+
+## 2.3 Convergence theory: classical transfer and a PINN-specific contraction theorem 
+
+The classical results share one working hypothesis: that SF and SP admit a common eigenbasis on Σ with strictly positive eigenvalues, collapsing the maps of (5) onto independent scalar recurrences per interface mode. On the continuum this holds whenever Σ carries a natural shared mode basis and the remainder of each subdomain’s boundary respects it : a single point in 1D; concentric circles in 2D, where both operators are angular convolutions diagonalised by {cos (kθ ), sin (kθ )}, with σP(k) = k/R for a disc and the closed form (8) for an annulus. Two distinct effects degrade the hypothesis, and we keep them separate: a geometric one (a non-polar outer boundary, such as the square in our 2D experiments, destroys the shared eigenbasis already in the continuum ; a clean FEM–FEM benchmark on that geometry indeed diverges with no contractive α,Section 3.1) and a discretisation one (operators on different meshes co-diagonalise only approximately even on polar geometry). The closed-form rates below are therefore the continuum, polar-boundary limit; the genuinely-discrete case is treated in Appendix D. 
+
+Theorem 1 (DN divergence diagnosis; compare 35 ). If SF and SP are simultaneously diagonalisable with positive eigenvalues {σF,k }, {σP,k } on a common basis, then ρ(TDN ) = max k σF,k /σ P,k , and DN diverges whenever this exceeds 1.
+
+Theorem 2 (RN contractive band and the optimised-Robin impedance; compare 16 , 35 ). Under the same assumption, for every α > 0, ρ(TRN (α)) = max k |α − σP,k | /(α + σF,k ). Consequently RN contracts if and only if α > α min := 12 max k(σP,k − σF,k )+: unlike DN, RN admits a non-empty contractive band (αmin , ∞)
+
+for every spectrum. When the binding modes are spectrally aligned ( σF,k = σP,k = σk, the symmetric case of optimized Schwarz methods, with the combined spectrum spanning [σmin F , σ max P ]), the minimax over α is attained by equioscillation at α⋆ = pσmin F σmax P , with ρ(TRN (α⋆)) = ( √κ − 1) /(√κ + 1) < 1, κ = σmax P /σ min F .For mismatched spectra α⋆ remains a closed-form, sweep-free default inside the band, but it need not be the iteration optimum (Appendix D.2). 
+
+Theorem 3 (Energy boundedness for RN co-training: decrease up to a bounded forcing term) . Let 
+
+Ek = 12 ∇uk 
+
+> F
+> 2
+> L2(Ω F)
+
++ 12 LP(θk) + α 
+
+> 2
+
+uk 
+
+> F
+
+− uk
+
+> P
+> 2
+> L2(Σ)
+
+, where LP is the PINN residual–Dirichlet loss. For sufficiently small PINN learning rate and any α in the contractive band of Theorem 2 (in particular α⋆ in the 
+
+5aligned case), Ek+1 ≤ Ek up to a bounded forcing term; the energy is therefore bounded, decreasing whenever the trace mismatch dominates the forcing offset. 
+
+Full proofs, including a complete proof of Theorem 3 and the discrete consequences when the eigenbases of SF and SP differ, are in Appendix D. Theorems 1–3 treat the network as a black-box exact operator SP acting in a shared eigenbasis: no approximation error, no optimisation error, and no training appears, and the shared-basis hypothesis fails already in the continuum for the square outer boundary of our 2D runs (the first effect above). We therefore add a genuinely PINN-specific statement. A trained network does not realise SP but a perturbed Steklov operator bSP = SP + EP, where EP is the measured spectral cap (it zeroes the high interface modes the network cannot represent, Remark 2), together with a per-step residual from finite training. The cap is 
+
+data-linear and perturbs the iteration operator (it moves the rate); the residual is additive and sets a floor. The result uses operator norms only—no shared eigenbasis—so it covers the square-boundary geometry that Theorems 1–2 miss. 
+
+Theorem 4 (Inexact-PINN RN contraction to an O(εP) floor; no shared eigenbasis required) . Let SF be the exact FEM Steklov operator (SPD, smallest eigenvalue σmin F > 0), and suppose at each outer step the PINN realises a perturbed Steklov operator bSP = SP + EP on the interface and returns a trace with per-step additive residual ˜rk obeying ˜rk ≤ Cα εP, where Cα = (αI + SF)−1 = 1 /(α + σmin F ) and εP bounds the PINN approximation-plus-optimisation error (uniform in k because Algorithm 1 retrains to a fixed loss tolerance each step). Then the RN trace error satisfies the perturbed linear iteration ek+1 = bTRN (α) ek + ˜rk with 
+
+bTRN (α) = TRN (α) − EP(αI + SF)−1, whose operator norm obeys the triangle bound 
+
+bρ(α) := bTRN (α) ≤ ∥ TRN (α)∥ + ∥EP∥
+
+α + σmin F
+
+. (6) 
+
+If bρ(α) < 1, then for all k
+
+ek ≤ bρ(α)k e0 + Cα εP
+
+1 − bρ(α) , lim sup 
+
+> k→∞
+
+ek ≤ Cα εP
+
+1 − bρ(α) = O(εP). (7) 
+
+As εP → 0 and EP → 0 the floor vanishes and bρ → ρ(TRN ), recovering Theorem 2. 
+
+The condition bρ(α) < 1 is an assumption, not a consequence: the cap inflates the operator norm of a non-normal bTRN , and (6) can exceed 1 even when ρ(TRN ) < 1. It holds precisely when the cap concentrates 
+
+EP in the modes that (αI + SF)−1 damps, which is the empirically observed regime and the content of the next corollary. 
+
+Corollary 5 (The spectral cap can open a contractive band) . Split the interface space V = Vres ⊕ Vcap 
+
+into resolved (low) and capped (high) bands. If EP acts as the cap on Vcap (so bSP ≈ 0 there) and the FEM Steklov eigenvalues grow with mode, then on Vcap the iteration reduces to bTRN ≈ α(αI + SF)−1, of norm 
+
+bTRN |Vcap ≤ α/ (α + σhigh F ) < 1. The capped band thus contracts even where the exact TRN mixes incompatible bases and need not contract: the cap is the contraction mechanism, not merely a diagnostic. Remark 1 (A loss-controlled floor) . The residual εP is not a free constant: it is controlled by the achieved 
+
+PINN training loss. For the Neumann/Robin subproblem, coercivity of the elliptic operator and a trace inequality give the a-posteriori bound εP = λk 
+
+> P
+
+− λexact P H1/2(Σ) ≤ Ctr Cstab LP(θk)1/2 (Appendix D.5), so the floor scales as O(L1/2P ): the plateau height is set by how well the PINN was trained. A training-budget sweep on the 2D natural orientation confirms this falsifiable prediction: the measured RN plateau tracks the achieved L1/2P with log–log slope 1.13 (R2 = 0 .89 over 27 runs spanning a 400 × budget range, three seeds; Appendix E). Bounding the optimisation part of LP further by an NTK gradient-descent rate is possible but fragile and unnecessary here; we leave it to future work. 
+
+## 2.4 Estimating SP for a PINN 
+
+For a PINN there is no stiffness matrix to take a Schur complement of. A basis-vector probe (train with 
+
+uP|Σ = ej , read the flux at all nodes to recover column j of SP) is expensive, costing one training per column, 6Table 1: Estimating the disc PINN Steklov operator ( niface = 32 , matched Tin = 1500 Adam steps): relative error of σP(k) against the continuum k/R . The structured Fourier probe is orders of magnitude more accurate with an order of magnitude fewer trainings.                          
+
+> estimator PINN trainings k= 1 k= 2 k= 3
+> Fourier (proposed) 51×10 −51.2×10 −34.5×10 −3
+> basis-vector 33 1.2×10 −24.9×10 −27.2×10 −1
+> random-LSQ ( N=32 )33 1.3×10 −23.7×10 −32.8×10 −1
+> random-LSQ ( N=64 )65 6.0×10 −39.9×10 −31.1×10 −1
+
+and the delta-spike traces are hard for an MLP, contaminating the matrix with 4–100% asymmetry. The contamination is diagnostic precisely because the true operator is symmetric: the continuous Steklov–Poincaré (Dirichlet-to-Neumann) operator of a self-adjoint elliptic problem is itself self-adjoint and positive on the interface, an immediate consequence of Green’s identity, so a well-resolved discrete SP must be symmetric up to quadrature error [ 35 , 41 ]. Measured asymmetry of tens of percent therefore signals that the nodal traces excite modes the network cannot represent, not a genuine property of SP. We instead use a Fourier-mode probe (Algorithm 2): on a circular interface train PINNs with uP|Σ ∈ { cos (kθ ), sin (kθ )}, read the radial flux, and project back onto the same mode. For a disc the continuum eigenvalues are σP(k) = k/R , recovered to within 0.5% for the resolved modes (Table 1); for an annulus with outer Dirichlet at radius r and interface at radius R,
+
+σP(k) = − krρ2k + 1 
+
+ρ2k − 1 , ρ = R/r, σ0 = − 1
+
+r ln ρ (8) is matched to a few percent in the resolvable band. Because the Steklov operator is self-adjoint on a smooth interface, the projection is the per-mode eigenvalue; where the PINN cannot resolve a high mode the measured 
+
+ˆσP(k) collapses toward 0 instead of following the continuum k/R , so the probe doubles as a spectral-cap diagnostic (Remark 2). The probe is also far more sample-efficient , because each training targets a single resolvable mode rather than a delta spike or a random trace: on the disc at niface = 32 , five trainings pin 
+
+σP(1) to 10 −5, whereas the basis-vector and random-trace estimators need ∼niface trainings to even form SP
+
+and are ∼10 3× less accurate on the low modes (Table 1; implementation in Appendix F). One discrete units pitfall deserves a flag: the FEM side outputs an integrated reaction (units of force), whereas the PINN’s Neumann loss expects a pointwise flux; the conversion gpw = M −1Σ gint through the interface mass matrix (12) is essential, and omitting it inverts both the DN and RN headline conclusions in 2D (Remark 3, Appendix A). After the fix, PINN–FEM tracks FEM–FEM to within 7% on all rates we measured. 
+
+Remark 2 (The spectral cap and why it matters) . The collapse ˆσP(k) → 0 above some cap k⋆ is not an artefact of the probe but a manifestation of the well-documented spectral bias of neural networks: within a finite training budget, gradient descent on an MLP cannot represent a high-wavenumber interface trace [24 , 36 , 42 , 43 ]; here the annulus PINN of the FSI-aligned orientation reaches only |σP|max ≈ 6 against the continuum’s unbounded spectrum (8) (Section 3.1, Figure 9a). The cap has two opposite consequences for coupling, both of which we observe: when the dangerous modes are the high ones, as in the eigenbasis-mismatched FSI-aligned geometry, the cap is benign and even rescues RN by zeroing SP’s unresolved high modes (Section 3.1, Corollary 5); when accuracy in the high band is required, it is a hard accuracy ceiling. Fourier-feature embeddings [ 39 , 42 ], the standard remedy, do not lift it at fixed width and depth (Figure 12), and neither does any gradient-descent lever we tried—second-order optimisation, adaptive collocation, or exactly divergence-free conditioning (Appendix L). Yet the cap is an optimisation effect, not a hard representational wall: replacing the gradient-trained network with a random-feature model fitted by a single least-squares solve removes the frequency dependence entirely and recovers the interface operator to finite-element accuracy (Appendix M; Figure 10 demonstrates the same recovery, mode for mode, on the scalar annulus probe of Figure 9). The practical levers, then, are a non-gradient (least-squares) inner solve, or—staying with gradient descent—a longer inner budget on a small network, which recedes the cap only to a plateau well short of the least-squares solve; enlarging the network instead degrades it (the E24 scale-up of Appendix L). 73 Numerical experiments: Poisson coupling 
+
+1D split-segment. On Ω = (0 , 1) split at x = L (P1 FEM left, MLP PINN right, manufactured solution), the empirical DN rate tracks the theory line σF/ |σP| = (1 − L)/L to within 2% on 7 of 11 sweep points and recovers the divergence sign on all 11 ; at L = 0 .3 DN diverges within four iterations while RN contracts to the inner-PINN noise floor, the coupling energy growing ∼30 × under DN and descending to a plateau under RN, the signature of Theorem 3. The full sweep, traces, and energy curves are in Appendix O (Figure 21). 
+
+## 3.1 2D Poisson: disc-in-square, both orientations 
+
+Mesh niface = 32 , h = 0 .06 , manufactured u⋆ = sin (πx ) sin (πy ). In the natural orientation (FEM annulus, PINN disc; E5) DN diverges at empirical rate 1.442 , matching the FEM–FEM analogue’s 1.452 to within 
+
+0.7% , and RN at the spectrally-derived α⋆ contracts the field error 0.025 → 3 × 10 −3 over ten iterations; the operator-spectral predictions agree with the empirical rates to within 7% (details, the co-training variant, and the head-to-head with the overlapping-Schwarz coupling of Snyder et al. [38] in Appendix P). The closed-form 
+
+α⋆ pays a quantifiable premium over a numerical α-search, rate 0.78 at α⋆ = 4 .16 vs. 0.668 at the searched 
+
+α = 10 .31 (Appendix P.2), the mismatched-spectra effect anticipated in Theorem 2. The estimate of σmax P
+
+feeding the closed form matters less than one might fear: α⋆ = 4 .16 above uses the raw basis-probe spectrum (|σP|max = 67 .4), while the cleaned estimate ( |σP|max ≈ 8.05 ) gives α⋆ = 1 .44 (Appendix P); the bowl is broad enough that both operate comparably (the E10 sweep measures rate 0.75 at its α = 1 .41 grid point). The FSI-aligned orientation (FEM disc, PINN annulus; E9) is more nuanced and becomes legible only once three layers are compared (Figure 3). The continuum circular annulus has |σF(k)/σ P(k)| < 1 per mode, naively predicting DN convergence. But the square outer boundary destroys polar separation: SF and SP no longer share an eigenbasis, TDN mixes modes across incompatible bases, and a clean FEM–FEM benchmark on the same geometry diverges ( ρ(TDN ) = 1 .486 , empirical 1.398 ) with no contractive α ∈ [0 .05 , 200] , a geometric property stable under mesh refinement ( ρ(TDN ) ∈ [1 .32 , 1.49] at niface ∈ { 16 , 32 , 64 }). Replacing the FE annulus by the PINN is then dual-edged : the PINN’s spectral cap (Fourier-probe |σP|max ≈ 6 vs. the clean FE ≈ 225 ) costs a +7% DN penalty but rescues RN , opening a broad contractive band α ∈ [0 .14 , 200] 
+
+(empirical optimum 0.708 at α ≈ 71 ). Mechanistically this is Corollary 5 in action: the cap zeroes SP’s unresolved high modes in the numerator of TRN (α) exactly where the eigenbasis mismatch is worst, and the growing disc Steklov magnitudes damp them in the denominator. Re-running the coupled iteration with the FSI transmission roles (Robin-on-PINN/Neumann-on-FEM) leaves the contraction intact: on its own single-seed α-grid (a separate sweep over [0 .2, 200] , hence the slightly different band edge and optimum from the E9 search just quoted) the swap experiment finds both placements contractive with near-identical best rates ( 0.72 vs. 0.74 ), confirming the role-invariance claimed in Section 2.1 (Appendix P). Across both orientations the Steklov–Poincaré framework predicts every empirical PINN–FEM rate we measured to within 
+
+7% .
+
+## 3.2 The large-added-mass regime: where RN wins 
+
+A partitioned-iteration practitioner will ask whether RN at α⋆ beats simply under-relaxing the divergent DN map. On the disc-in-square the answer is no, because it is a low-added-mass problem: σP(k) = k/R 
+
+and σF(k) both grow linearly, so the per-mode amplification rk = σF(k)/σ P(k) is essentially constant in 
+
+k, a single scalar relaxation is already near-optimal, and RN sits at the PINN trace-error floor (the full relaxation-ladder benchmark, over five seeds, is in Appendix J). The regime that motivates partitioned FSI is the opposite. In cardiovascular FSI [ 27 ] a light structure is immersed in a heavy, nearly incompressible fluid, and the added-mass operator the fluid presents to the interface dominates the low modes and decays with k,making rk strongly mode-dependent; DN then diverges with ρ(TDN ) = max k rk = Ma ≫ 1, the added-mass instability [3, 6, 15]. A scalar Poisson problem has no inertia but reproduces this interface spectral instability exactly. We use a genuine 2D two-slab analogue (a thin high-diffusivity “fluid” slab stacked on a thick “solid” slab, sharing a flat interface; the full geometry, parameters, and the FEM–FEM versus trained-PINN study split are in Appendix H and Figure 13), with lateral interface modes qk = kπ/W (the cosine harmonics 
+
+cos (qkx) selected by the homogeneous-Neumann side walls of width W ; the boundary conditions that fix 8Figure 3: Three-layer comparison for the FSI-aligned orientation. (a) ρ(TRN (α)) for the FEM–FEM analogue (red) vs. empirical PINN–FEM rates (blue): the PINN’s spectral cap opens a contractive band FEM–FEM lacks. (b) One contraction-rate bar per scheme at its best operating point (solid: empirical; black diamond: closed-form ρ(TDN )): DN diverges on both sides ( +7% PINN penalty); RN contracts only on the PINN–FEM side. The RN FEM–FEM column has no empirical bar by design , RN diverging there for every α; its hatched bar is the best-over-α linearised spectral radius ≈1.53 > 1. (c) FEM–FEM at niface ∈ { 16 , 32 , 64 }: ρ(TDN ) > 1
+
+at every level, a continuum (geometric) property, not a discretisation artefact. Table 2: RN wins in the large-added-mass regime (genuine 2D two-slab coupling, FEM–FEM realisation). Each entry is the geometric-mean per-iteration contraction rate over Kout = 12 outer iterations, as defined in the text: <1 converges, >1 diverges (marked “div.”); the bold entry in each row is the best (smallest) rate for that Ma . As Ma grows, DN diverges and tuned scalar relaxation ( ω∗, Aitken) saturates near (K−1) /(K+1) ,while RN contracts ever faster, the opposite ranking to the low-added-mass disc-in-square (Appendix J). α⋆
+
+is designed for the added-mass regime and is not meant for Ma ≲ 2.                             
+
+> Ma DN ( ω=1 )DN +ω∗DN +Aitken RN( α⋆)RN( α-search)
+> 0.30.26 0.11 0.09 5.8(div.) 0.78 9.57.7(div.) 0.62 0.65 0.46 0.38
+> 37 .823 (div.) 0.70 0.78 0.32 0.12
+> 300 235 (div.) 0.73 0.93 0.18 0.02
+
+these wavenumbers are derived in Appendix H) and flat-slab eigenvalue σ(q) = κ q coth (qL ): a growing 
+
+σP(q) ≈ κPq against a constant σF(q) ≈ κF/L F (the lumped added-mass limit), so rk ≈ Ma /k with the single dial Ma = σF(q1)/σ P(q1). As Ma → ∞ , DN diverges ( ρ = Ma ) and a scalar relaxation saturates at 
+
+(K − 1) /(K + 1) (it cannot straddle the mode spread), whereas RN places the added mass α + σF in the 
+
+denominator of its map and contracts ever faster. Table 2 and Figure 4 bear this out in a genuine 2D coupled iteration. Throughout, the reported contraction rate (the “geomean contraction rate” of Figure 4) is the geometric mean   eKout / e0 1/K out 
+
+of the per-iteration interface-error reduction over the Kout = 12 outer iterations: <1 converges, >1 (labelled “div.”) diverges. On this metric, below Ma ≈ 5 tuned relaxation wins, but past the crossover RN wins decisively. At Ma = 300 scalar relaxation has saturated ( ω∗ = 0 .73 , Aitken 
+
+0.93 ) and DN has diverged, while RN contracts at 0.18 from the sweep-free α⋆ and at 0.02 from a searched optimum. The win survives a trained-network subdomain: with a real PINN on the solid slab at Ma = 100 
+
+over three seeds, DN, Aitken and ω∗ all diverge or stall while RN converges to the PINN floor ( ∼ 5 × 10 −2)at a sweep-free rate 0.45 ± 0.004 (Figure 4b). The spectral cap is harmless here because it truncates only the high modes, which are the stable ones in this regime, so the resolvable band covers exactly the dangerous low modes. RN’s advantage is thus real and large precisely in the FSI-relevant regime. 9(a) Geometric-mean contraction rate (defined in Sec-tion 3.2) vs. Ma in the 2D coupled iteration. Crossover at       
+
+> Ma ≈5: relaxation saturates while RN keeps improving.
+> (b) A real PINN on the solid slab, Ma = 100 , three seeds: RN converges to the PINN floor while DN and Aitken diverge.
+
+Figure 4: The added-mass regime is where RN wins. The two-slab Poisson analogue emulates the interface spectral instability of added mass (not its inertia). RN contracts ever faster as added mass grows while scalar relaxation saturates; the effect persists from the operator level through FEM–FEM to a trained-PINN subdomain. 
+
+# 4 Application to fluid–structure interaction with contact 
+
+We now move to the configuration that motivated the work: a rigid disc (FEM) inside a viscous fluid (PINN, on the moving outer annulus). The focus of this section is the meshless handling of topology change at contact. 
+
+## 4.1 Model, discretisation, and vector RN 
+
+The fluid is governed by steady Stokes, 
+
+−∇ · σf (u, p ) = −ρf g e y in Ωf (t), ∇ · u = 0 in Ωf (t), (9) 
+
+σf (u, p ) = −pI + 2 μf ε(u), with no-slip on top/left/right walls and Navier-slip on the bottom wall Σp, and 
+
+u = ˙ yc(t)ey on the moving disc surface Σ( t). The solid is a single ODE on the centre height yc(t),
+
+ms ¨yc = −msg + Fy (t) + Fc(t), Fy =
+
+Z
+
+> Σ( t)
+
+(σf n) · ey ds, (10) discretised by backward Euler, with the normal contact reaction Fc computed by an Alart–Curnier augmented-Lagrangian projection [ 1]; a closed-form one-step over-relaxation ωAL = ms/(γc∆t2) (Appendix I) lands the disc at yc = R + εg to machine precision (exact for the linearised backward-Euler position map). The PINN fluid is a (u, v, p ) MLP (width 32, depth 4, Tanh). At each time step the collocation set is regenerated on the current fluid domain Ωf (t) = Ω + \ (B((0 , y c(t)) , R ) ∪ { y < ε g }); the topology change at contact is therefore carried by the sampler, with no remeshing, no cut cell, and no level set (Figure 2c; the three near-contact configurations are detailed in Figure 26). For Stokes the interface trace is the vector velocity u|Σ ∈ R2 and the conjugate datum is the traction (σf n)|Σ ∈ R2; the vector RN iteration is Algorithm 1 with λ, g promoted to vector fields and SF, S P the (2 niface ) × (2 niface ) vector Steklov operators. All spectral statements carry over verbatim. The complete time-stepped solver, assembling the backward-Euler solid step, the vector-RN inner coupling, the Alart–Curnier augmented-Lagrangian contact projection, and the per-step collocation regeneration, is stated as Algorithm 3 in Appendix I; the network architecture and the solver block diagram are in Appendix Q. 10 4.2 Static-Stokes validation and the vector-RN recipe 
+
+On a fixed-geometry manufactured Stokes problem the vector RN iteration needs four practical ingredients to be transient-stable (Appendix G): the unit-correct pointwise Neumann transfer (12) ; warm-started PINN inner solves (carrying weights and Adam moments across outer iterations); joint under-relaxation on (λ, g )
+
+with ω ∈ [0 .25 , 0.30] ; and an early stop at the first sustained residual increase, since the stabilised iteration is transient-stable rather than asymptotically stable. With (α, ω, K out ) = (30 , 0.30 , 17) the iteration contracts monotonically 3.87 → 0.158 on residual and reaches a relative trace error 0.136 versus the manufactured solution. The PINN vector Steklov operator, estimated by the vector Fourier probe, is capped at k⋆ ≈ 4
+
+(|σP|max  
+
+> k≥1
+
+= 3 .06 at k = 2 vs. the FE reference’s 119 .7); the cap, not the coupling scheme, is the binding accuracy limit (Appendix G). 
+
+## 4.3 Free fall and contact by collocation exclusion 
+
+Free fall (E12). A disc released from rest at yc(0) = 0 .5 (g = 1 , μf = ρf = 1 , ρs = 2 ) falls under drag balance: the vertical force Fy plateaus at the buoyancy level ρf πR 2g = 0 .196 through t ≈ 0.25 , and a Newton-balance fit on t ∈ [0 .04 , 0.25] gives an effective drag coefficient c ∈ [0 .19 , 0.32] , consistent with a confined, sub-terminal disc (Appendix R). Past t ≈ 0.30 the warm-start drift quantified in Section 4.4 dominates; this safe window of ∼60 steps is enough lead-in for the contact experiment. 
+
+Contact (E13d). We shift to yc(0) = 0 .275 , g = 3 , so impact occurs at t⋆ = p2 · 0.025 /3 = 0 .129 , inside the safe window. The PINN carries the disc through the contact event by collocation exclusion alone : as the gap closes, the strip {y < ε g } simply leaves the collocation set (Figure 2c), with no remeshing and no cut cells. The Alart–Curnier projector lands the disc at yc = R + εg = 0 .26227 to machine precision, and the contact reaction converges to the submerged weight: at all three interface resolutions niface ∈ { 16 , 32 , 64 }
+
+the post-impact tail λc(t ≥ 0.20) matches Π = 0 .589 to within 0.4% (Figure 5, the static-equilibrium claim is mesh-converged). Figure 5 shows the coupled solution across the descent–impact–equilibrium cycle, the topology change absorbed entirely by the sampler. 
+
+## 4.4 Limitations of the current methodology 
+
+The coupling has three limitations; the first two are quantified in the appendix. (i) Warm-start drift. The fluid PINN is warm-started across time steps and each per-step RN solve is only approximately converged, so the network slides off the Stokes manifold; a training-independent interface-residual monitor grows by a factor ∼80 over a fifty-step trajectory if nothing is done. Periodically restarting the network from scratch every three to five steps holds the drift to a factor ∼4–5 at no extra inner-training cost and seed-stably, but over much longer ( 150 -step) horizons no tested remedy eliminates the drift; it only slows it (Appendix K). 
+
+(ii) Pre-impact dynamics are under-resolved. The pre-impact squeeze-film Fy signatures are not converged in the PINN inner-solve budget (they are non-monotone, and at the highest budget the disc never even enters the contact band), and a matched FEM–FEM Stokes benchmark at the same operating point shows that a fully resolved fluid never reaches the wall within T = 0 .30 , under-resolving the bulk Stokes drag by 
+
+∼80 ×. We therefore report the pre-impact dynamic signatures as PINN under-resolution artefacts rather than physical findings (Appendix N). The validated dynamic results are those for which the disc has already touched the wall and the AL projector dominates: λc → Π and yc → R + εg to machine precision. Finally, steady Stokes carries no fluid inertia and the AL contact is perfectly inelastic, so the model admits no literal post-impact rebound. (iii) The meshless advantage is robustness, not speed. On a matched static coupling (natural-orientation Poisson, niface = 32 , the same RN outer iteration, only the disc solver swapped), the PINN subdomain costs ∼4600 × more wall-clock per outer iteration than a conforming P1 finite-element subdomain (a network training versus one sparse solve, at our 10 3-Adam-step inner budget). The case for the PINN fluid is therefore not efficiency on a fixed domain but the meshless treatment of moving geometry and topology change at contact, where the body-fitted alternative pays in remeshing, ALE, or cut-cell machinery instead. 
+
+Is the inner-solve floor removable? Both limitations bottom out at the same PINN inner-solve floor, and every experiment above trained with Adam on a uniform collocation set under a soft incompressibility penalty. To separate an optimisation limit from a representation one we re-ran the two diagnostics under 11 three heavy gradient-descent levers (Appendix L): a quasi-Newton (L-BFGS) inner solve, adaptive collocation concentrated in the lubrication layer, and improved conditioning (an exactly divergence-free stream-function ansatz; gradient-norm loss balancing). None lifts the floor at fixed width: the Stokes Steklov cap stays below 
+
+≈50% of the Taylor–Hood reference’s leading k ≥ 1 eigenvalue (L-BFGS roughly triples the Adam value but never resolves even the first mode in full; gradient-norm balancing is actively harmful; the divergence-free ansatz is no better than velocity–pressure), and the squeeze-film drag ratio remains ≈0.03 and deepens as the gap narrows, with adaptive sampling no better than uniform. Removing gradient descent overturns the verdict on the cap: a random-feature inner solve (frozen random-Fourier features with a linear head fitted by a single least-squares solve, Appendix M) flattens the per-mode Steklov ratio, which then tracks a fully resolved finite-element solver to within a few percent at every probed mode; the remaining frequency-flat 
+
+≈0.57 offset is reproduced by the finite-element solver itself when its traction is read through the same pointwise functional, so it is a traction-reader convention, not a representation deficit. We therefore reclassify the spectral cap as a gradient-descent optimisation pathology (spectral bias), not a representation-capacity wall. The squeeze-film drag deficit, by contrast, is not closed by any inner solve we tried and remains an under-resolution limitation of the time-stepped application. 
+
+# 5 Discussion and conclusion 
+
+PINN–FEM coupling is most clearly understood as a partitioned domain decomposition method with a learned subdomain solver. Under that view the classical Dirichlet–Neumann instability and its Robin–Neumann cure transfer directly, modulo a discrete units conversion and the operational specifics of training a network at each outer iteration. The operator-spectral theory predicts the empirical PINN–FEM rates to within 7% 
+
+on 1D and 2D Poisson; the Fourier Steklov estimator recovers the resolvable interface eigenvalues an order of magnitude cheaper and more accurately than nodal-basis or random-trace probes; and RN’s per-mode impedance matching wins decisively in the large-added-mass regime that motivates cardiovascular FSI, where a tuned scalar relaxation saturates. On the moving-geometry Stokes/rigid-disc application, the PINN’s collocation-based discretisation handles topology change at contact without any meshing operation, and the static-equilibrium contact reaction matches the submerged weight to within 0.4% under mesh refinement. The binding limitations are the PINN inner-solve floor (a training, not a coupling, problem) and the warm-start drift of the time-stepped fluid; a matched FEM–FEM benchmark further shows the pre-impact dynamic signatures to be under-resolution artefacts. The inner-solve floor is specifically an optimisation 
+
+effect: no gradient-descent lever (second-order optimisation, adaptive collocation, improved conditioning) lifts the interface spectral cap at fixed width (Appendix L), yet a non-gradient random-feature least-squares inner solve flattens it and recovers the interface operator to finite-element accuracy (Appendix M), so the cap is a gradient-descent spectral-bias pathology rather than a representation-capacity wall. The natural next steps are to give the fluid inertia (unsteady Stokes / Navier–Stokes) to obtain a physical post-impact rebound (validated against a matched fully-resolved reference so it is not mistaken for an under-resolution artefact), to promote the PINN to a deformed interface for a deformable solid, and to extend to 3D. A complementary route to the per-iteration retraining cost quantified in Section 4.4 is to replace the freshly-trained PINN subdomain with a pretrained operator-learning surrogate (DeepONet [ 29 ], a Fourier neural operator [ 28 ], or a non-intrusive reduced-order surrogate [ 18 ]): an interface-conditioned operator network would realise SP in a single forward pass per outer iteration, trading per-step training for an offline cost, and whether its spectral cap behaves like the PINN’s is a question the Fourier probe of Section 2.4 could answer directly. None of these is demonstrated here; the defensible claims are the spectral-prediction agreement on Poisson coupling, the added-mass RN win, the static-Stokes vector-RN recipe, the free-fall drag match, and the static-equilibrium contact result. Code, seeds, environment details, and the cached artefact behind every figure are catalogued in Appendix S. 
+
+# Acknowledgments 
+
+This work was performed under the auspices of the U.S. Department of Energy by Lawrence Livermore National Laboratory under Contract DE-AC52-07NA27344 and was supported by the LLNL-LDRD Program under Project No. 24-ERD-022. LLNL-JRNL-2019742. 12 References 
+
+[1] Pierre Alart and Alain Curnier. A mixed formulation for frictional contact problems prone to Newton like solution methods. Computer Methods in Applied Mechanics and Engineering , 92(3):353–375, 1991. doi: 10.1016/0045-7825(91)90022-X. URL https://doi.org/10.1016/0045-7825(91)90022-X .[2] Frédéric Alauzet, Benoit Fabrèges, Miguel A. Fernández, and Mikel Landajuela. Nitsche-XFEM for the coupling of an incompressible fluid with immersed thin-walled structures. Computer Methods in Applied Mechanics and Engineering , 301:300–335, 2016. doi: 10.1016/j.cma.2015.12.015. URL 
+
+https://doi.org/10.1016/j.cma.2015.12.015 .[3] Santiago Badia, Fabio Nobile, and Christian Vergara. Fluid–structure partitioned procedures based on Robin transmission conditions. Journal of Computational Physics , 227(14):7027–7051, 2008. doi: 10.1016/j.jcp.2008.04.006. URL https://doi.org/10.1016/j.jcp.2008.04.006 .[4] Erik Burman and Miguel A. Fernández. Stabilization of explicit coupling in fluid–structure interaction involving fluid incompressibility. Computer Methods in Applied Mechanics and Engineering , 198(5–8): 766–784, 2009. doi: 10.1016/j.cma.2008.10.012. URL https://doi.org/10.1016/j.cma.2008.10.012 .[5] Erik Burman, Miguel A. Fernández, Stefan Frei, and Fannie M. Gerosa. A mechanically consistent model for fluid–structure interactions with contact including seepage. Computer Methods in Applied Mechanics and Engineering , 392:114637, 2022. doi: 10.1016/j.cma.2022.114637. URL https://doi.org/10.1016/ j.cma.2022.114637 .[6] Paola Causin, Jean-Frédéric Gerbeau, and Fabio Nobile. Added-mass effect in the design of partitioned algorithms for fluid–structure problems. Computer Methods in Applied Mechanics and Engineering ,194(42–44):4506–4527, 2005. doi: 10.1016/j.cma.2004.12.005. URL https://doi.org/10.1016/j.cma. 2004.12.005 .[7] Jingrun Chen, Xurong Chi, Weinan E, and Zhouwang Yang. Bridging traditional and machine learning-based algorithms for solving PDEs: The random feature method. Journal of Machine Learning , 1(3): 268–298, 2022. doi: 10.4208/jml.220726. URL https://doi.org/10.4208/jml.220726 .[8] Joris Degroote, Klaus-Jürgen Bathe, and Jan Vierendeels. Performance of a new partitioned procedure versus a monolithic procedure in fluid–structure interaction. Computers & Structures , 87(11–12):793–801, 2009. doi: 10.1016/j.compstruc.2008.11.013. URL https://doi.org/10.1016/j.compstruc.2008.11. 013 .[9] Victorita Dolean, Alexander Heinlein, Siddhartha Mishra, and Benjamin Moseley. Finite basis physics-informed neural networks as a Schwarz domain decomposition method. In Domain Decomposition Methods in Science and Engineering XXVII , volume 149 of Lecture Notes in Computational Science and Engineering . Springer, 2024. doi: 10.1007/978-3-031-50769-4_19. URL https://doi.org/10.1007/ 978-3-031-50769-4_19 .[10] Suchuan Dong and Zongwei Li. Local extreme learning machines and domain decomposition for solving linear and nonlinear partial differential equations. Computer Methods in Applied Mechanics and Engineering , 387:114129, 2021. doi: 10.1016/j.cma.2021.114129. URL https://doi.org/10.1016/j. cma.2021.114129 .[11] Miguel A. Fernández and Mikel Landajuela. Splitting schemes for incompressible fluid/thin-walled structure interaction with unfitted meshes. Comptes Rendus de l’Académie des Sciences, Series I , 353 (7):647–652, 2015. doi: 10.1016/j.crma.2015.04.003. URL https://doi.org/10.1016/j.crma.2015.04. 003 .[12] Miguel A. Fernández and Mikel Landajuela. Splitting schemes and unfitted-mesh methods for the coupling of an incompressible fluid with a thin-walled structure. IMA Journal of Numerical Analysis , 40 (2):1407–1453, 2020. doi: 10.1093/imanum/dry098. URL https://doi.org/10.1093/imanum/dry098 .13 [13] Miguel A. Fernández, Mikel Landajuela, and Marina Vidrascu. Fully decoupled time-marching schemes for incompressible fluid/thin-walled structure interaction. Journal of Computational Physics , 297:156–181, 2015. doi: 10.1016/j.jcp.2015.05.009. URL https://doi.org/10.1016/j.jcp.2015.05.009 .[14] Miguel A. Fernández, Mikel Landajuela, Jimmy Mullaert, and Marina Vidrascu. Robin-neumann schemes for incompressible fluid-structure interaction. In Domain Decomposition Methods in Science and Engineering XXII , volume 104 of Lecture Notes in Computational Science and Engineering . Springer, 2016. doi: 10.1007/978-3-319-18827-0_6. URL https://doi.org/10.1007/978-3-319-18827-0_6 .[15] Miguel Ángel Fernández and Mikel Landajuela. A fully decoupled scheme for the interaction of a thin-walled structure with an incompressible fluid. Comptes Rendus de l’Académie des Sciences, Series I, 351(3–4):161–164, 2013. doi: 10.1016/j.crma.2013.02.015. URL https://doi.org/10.1016/j.crma. 2013.02.015 .[16] Martin J. Gander. Optimized Schwarz methods. SIAM Journal on Numerical Analysis , 44(2):699–731, 2006. doi: 10.1137/S0036142903425409. URL https://doi.org/10.1137/S0036142903425409 .[17] Martin J. Gander, Frédéric Magoulès, and Frédéric Nataf. Optimized Schwarz methods without overlap for the Helmholtz equation. SIAM Journal on Scientific Computing , 24(1):38–60, 2002. doi: 10.1137/S1064827501387012. URL https://doi.org/10.1137/S1064827501387012 .[18] Jan S. Hesthaven and Stefano Ubbiali. Non-intrusive reduced order modeling of nonlinear problems using neural networks. Journal of Computational Physics , 363:55–78, 2018. doi: 10.1016/j.jcp.2018.02.037. URL https://doi.org/10.1016/j.jcp.2018.02.037 .[19] Jaroslav Hron and Stefan Turek. A monolithic FEM/multigrid solver for an ALE formulation of fluid– structure interaction with applications in biomechanics. In Hans-Joachim Bungartz and Michael Schäfer, editors, Fluid–Structure Interaction: Modelling, Simulation, Optimization , volume 53 of Lecture Notes in Computational Science and Engineering , pages 146–170. Springer, 2006. doi: 10.1007/3-540-34596-5_7. URL https://doi.org/10.1007/3-540-34596-5_7 .[20] Thomas J. R. Hughes, J. Austin Cottrell, and Yuri Bazilevs. Isogeometric analysis: CAD, finite elements, NURBS, exact geometry and mesh refinement. Computer Methods in Applied Mechanics and Engineering ,194(39–41):4135–4195, 2005. doi: 10.1016/j.cma.2004.10.008. URL https://doi.org/10.1016/j.cma. 2004.10.008 .[21] Ameya D. Jagtap and George E. Karniadakis. Extended physics-informed neural networks (XPINNs): A generalized space-time domain decomposition based deep learning framework for nonlinear partial differential equations. Communications in Computational Physics , 28(5):2002–2041, 2020. doi: 10.4208/ cicp.OA-2020-0164. URL https://doi.org/10.4208/cicp.OA-2020-0164 .[22] Ameya D. Jagtap, Ehsan Kharazmi, and George E. Karniadakis. Conservative physics-informed neural networks on discrete domains for conservation laws: Applications to forward and inverse problems. 
+
+Computer Methods in Applied Mechanics and Engineering , 365:113028, 2020. doi: 10.1016/j.cma.2020. 113028. URL https://doi.org/10.1016/j.cma.2020.113028 .[23] George E. Karniadakis, Ioannis G. Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , 3:422–440, 2021. doi: 10.1038/s42254-021-00314-5. URL https://doi.org/10.1038/s42254-021-00314-5 .[24] Aditi S. Krishnapriyan, Amir Gholami, Shandian Zhe, Robert M. Kirby, and Michael W. Mahoney. Characterizing possible failure modes in physics-informed neural networks. In Advances in Neural Information Processing Systems (NeurIPS) , volume 34, 2021. URL https://arxiv.org/abs/2109. 01050 .[25] Mikel Landajuela. Coupling Schemes and Unfitted Mesh Methods for the Interaction Between an Incompressible Fluid and a Thin-Walled Structure . PhD thesis, Université Pierre et Marie Curie (Paris VI), 2017. URL https://theses.fr/2017PA066171 .14 [26] Mikel Landajuela, Marina Vidrascu, Dominique Chapelle, and Miguel A. Fernández. Coupling schemes for the FSI forward prediction challenge: Comparative study and validation. International Journal for Numerical Methods in Biomedical Engineering , 33(4):e02813, 2017. doi: 10.1002/cnm.2813. URL 
+
+https://doi.org/10.1002/cnm.2813 .[27] Mikel Landajuela, Christian Vergara, Antonello Gerbi, Luca Dedè, Luca Formaggia, and Alfio Quarteroni. Numerical approximation of the electromechanical coupling in the left ventricle with inclusion of the purkinje network. International Journal for Numerical Methods in Biomedical Engineering , 34(7):e2984, 2018. doi: 10.1002/cnm.2984. URL https://doi.org/10.1002/cnm.2984 .[28] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. In International Conference on Learning Representations (ICLR) , 2021. URL https://openreview. net/forum?id=c8P9NQVtmnO .[29] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence , 3(3):218–229, 2021. doi: 10.1038/s42256-021-00302-5. URL https://doi.org/10.1038/ s42256-021-00302-5 .[30] Lu Lu, Xuhui Meng, Zhiping Mao, and George E. Karniadakis. DeepXDE: A deep learning library for solving differential equations. SIAM Review , 63(1):208–228, 2021. doi: 10.1137/19M1274067. URL 
+
+https://doi.org/10.1137/19M1274067 .[31] Rishith E. Meethal, Anoop Kodakkal, Mohamed Khalil, Aditya Ghantasala, Birgit Obst, Kai-Uwe Bletzinger, and Roland Wüchner. Finite element method-enhanced neural network for forward and inverse problems. Advanced Modeling and Simulation in Engineering Sciences , 10(1):6, 2023. doi: 10.1186/s40323-023-00243-1. URL https://doi.org/10.1186/s40323-023-00243-1 .[32] Sebastian K. Mitusch, Simon W. Funke, and Miroslav Kuchta. Hybrid FEM–NN models: Combining artificial neural networks with the finite element method. Journal of Computational Physics , 446:110651, 2021. doi: 10.1016/j.jcp.2021.110651. URL https://doi.org/10.1016/j.jcp.2021.110651 .[33] Benjamin Moseley, Andrew Markham, and Tarje Nissen-Meyer. Finite basis physics-informed neural networks (FBPINNs): A scalable domain decomposition approach for solving differential equations. 
+
+Advances in Computational Mathematics , 49(4):62, 2023. doi: 10.1007/s10444-023-10065-9. URL 
+
+https://doi.org/10.1007/s10444-023-10065-9 .[34] Alfio Quarteroni and Alberto Valli. Theory and application of Steklov–Poincaré operators for boundary-value problems. In Renato Spigler, editor, Applied and Industrial Mathematics , volume 56 of Mathematics and Its Applications , pages 179–203. Kluwer Academic Publishers, Dordrecht, 1991. doi: 10.1007/ 978-94-009-1908-2_14. URL https://doi.org/10.1007/978-94-009-1908-2_14 .[35] Alfio Quarteroni and Alberto Valli. Domain Decomposition Methods for Partial Differential Equations .Oxford University Press, 1999. URL https://academic.oup.com/book/53865 .[36] Nasim Rahaman, Aristide Baratin, Devansh Arpit, Felix Draxler, Min Lin, Fred A. Hamprecht, Yoshua Bengio, and Aaron Courville. On the spectral bias of neural networks. In Proceedings of the 36th International Conference on Machine Learning (ICML) , volume 97 of Proceedings of Machine Learning Research , pages 5301–5310, 2019. URL https://proceedings.mlr.press/v97/rahaman19a.html .[37] Maziar Raissi, Paris Perdikaris, and George E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. doi: 10.1016/j.jcp.2018.10.045. URL 
+
+https://doi.org/10.1016/j.jcp.2018.10.045 .[38] William Snyder, Irina Tezaur, and Christopher R. Wentland. Domain decomposition-based coupling of physics-informed neural networks via the Schwarz alternating method. arXiv preprint arXiv:2311.00224 ,2023. URL https://arxiv.org/abs/2311.00224 .15 [39] Matthew Tancik, Pratul P. Srinivasan, Ben Mildenhall, Sara Fridovich-Keil, Nithin Raghavan, Utkarsh Singhal, Ravi Ramamoorthi, Jonathan T. Barron, and Ren Ng. Fourier features let networks learn high frequency functions in low dimensional domains. In Advances in Neural Information Processing Systems (NeurIPS) , volume 33, 2020. URL https://proceedings.neurips.cc/paper/2020/hash/ 55053683268957697aa39fba6f231c68-Abstract.html .[40] Alexandre M. Tartakovsky, Carlos Ortiz Marrero, Paris Perdikaris, Guzel D. Tartakovsky, and David Barajas-Solano. Physics-informed deep neural networks for learning parameters and constitutive rela-tionships in subsurface flow problems. Water Resources Research , 56(5):e2019WR026731, 2020. doi: 10.1029/2019WR026731. URL https://doi.org/10.1029/2019WR026731 .[41] Andrea Toselli and Olof Widlund. Domain Decomposition Methods — Algorithms and Theory , volume 34 of Springer Series in Computational Mathematics . Springer, 2005. doi: 10.1007/b137868. URL 
+
+https://doi.org/10.1007/b137868 .[42] Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing , 43(5):A3055–A3081, 2021. doi: 10.1137/20M1318043. URL https://doi.org/10.1137/20M1318043 .[43] Sifan Wang, Xinling Yu, and Paris Perdikaris. When and why PINNs fail to train: A neural tangent kernel perspective. Journal of Computational Physics , 449:110768, 2022. doi: 10.1016/j.jcp.2021.110768. URL https://doi.org/10.1016/j.jcp.2021.110768 .16 Figure 5: E13(d) snapshots of the PINN–FEM coupled solution at four instants spanning descent–impact– equilibrium: drag-balanced mid-fall ( t = 0 .100 ), squeeze-film pre-impact ( t = 0 .125 ), post-impact contact spike ( t = 0 .135 , λc = 3 .31 ), and static equilibrium ( t = 0 .165 , λc = Π = 0 .589 ). Pressure panels show 
+
+p − (a + by ) with the linear trend removed so the Stokes dipole and lift band are visible. The disc crosses the contact event with the moving fluid topology handled by collocation exclusion alone; the static-equilibrium reaction matches the submerged weight to within 0.4% under interface refinement. 17 A Sign and discretisation conventions 
+
+All fluxes are reported in the FEM-outward normal sign nF, so the discrete trace-to-flux maps on the two subdomains have opposite signs in the interface equation. By construction the niface FEM boundary nodes on 
+
+Σ are reused verbatim as the PINN’s interface evaluation points (in 2D equispaced in θ; in 1D the single point 
+
+{L}). Both 2D mesh builders (annulus and disc) accept the same niface and produce identical interface DOF locations, so the trace vector λ ∈ Rniface is directly interchangeable between solvers and no scattered-data interpolation enters the trace-transfer step. This shared-grid choice is what makes the interface mass matrix 
+
+MΣ of (12) a single well-defined object, which in turn makes the pointwise-flux unit conversion clean. 
+
+Remark 3 (Discrete units pitfall) . The FEM side outputs the integrated reaction 
+
+gint = ( Ku − f ) Σ, (11) i.e. the restriction of the residual force vector to the interface nodes, which carries units of force (a flux already integrated against the FEM test functions), whereas the PINN’s Neumann loss expects a pointwise flux gpw . The conversion is via the interface mass matrix, 
+
+gpw = M −1Σ gint . (12) Omitting (12) scales the Neumann datum by hb and inverts both the DN and RN headline conclusions in 2D; after the fix, PINN–FEM tracks FEM–FEM to within 7% on all rates we measured. 
+
+# B Boundary conditions on the natural and FSI-aligned configura-tions 
+
+For convenience we collect, in a single visual reference, the boundary conditions imposed on each piece of 
+
+∂ΩF, ∂ΩP, and the shared interface Σ in the two role assignments of Section 2.1. Figure 6 shows the natural 
+
+(scalar Poisson) orientation used in E5/E7/E10, and Figure 7 the FSI-aligned (Stokes–rigid-disc) orientation of Section 4. 
+
+# C Steklov–Poincaré derivation of the DN and RN maps (5) 
+
+This appendix derives the two trace-error recurrences of Equation (5) step by step from the subdomain trace-to-flux relations, making explicit why the bulk unknowns can be eliminated (the point clarified in Section 2.2). 
+
+Subdomain responses and the interface equation. For a given interface trace t on Σ, each subdomain problem is well-posed (Dirichlet data t plus the subdomain forcing), so its interior solution is the unique PDE extension of t and the interior degrees of freedom are completely determined by t. Their only trace on the coupling is the boundary flux, which by (2)–(3) is affine in t,
+
+ϕF(t) := ∂nF uF(t) Σ = SF t − χF, ϕP(t) := ∂nF uP(t) Σ = −SP t + χP, (13) the sign flip on the PINN side coming from nP = −nF. The exact coupled solution has a single trace λ⋆ on both sides (trace continuity) and matching fluxes there (flux continuity), ϕF(λ⋆) = ϕP(λ⋆), i.e. 
+
+SFλ⋆ − χF = −SPλ⋆ + χP ⇐⇒ (SF + SP) λ⋆ = χF + χP, (14) which is (4) . Because (13) has already condensed each interior solve into an operator on Σ, every iteration below lives on the interface alone. 18 Ω F
+
+# Ω PΣ∂ Ω 
+
+# nFFigure 6: Natural orientation (scalar Poisson). Dirichlet (or Robin) on the FEM annulus side of Σ, Neumann on the PINN disc side; homogeneous Dirichlet on the outer square boundary. 
+
+Dirichlet–Neumann. At step k the FEM side solves the Dirichlet problem with trace λk and exposes the flux ϕF(λk) = SFλk − χF. The PINN side then solves the Neumann problem carrying that same flux (flux continuity), so its trace t satisfies ϕP(t) = ϕF(λk), i.e. −SPt + χP = SFλk − χF, giving 
+
+t = S−1P
+
+ χP + χF − SFλk = S−1P (SF + SP)λ⋆ − S−1P SF λk, (15) where the second equality used (14) . The DN update is λk+1 = t, so subtracting λ⋆ = S−1P SPλ⋆ and writing 
+
+ek = λk − λ⋆,
+
+ek+1 = S−1P SF λ⋆ − S−1P SF λk = − S−1P SF ek =: TDN ek, (16) the first map in (5). 
+
+Robin–Neumann. The Neumann (PINN) side supplies the flux response at the current trace, gk =
+
+ϕP(λk) = χP − SPλk. The FEM side solves the Robin problem ∂nF uF + αu F = αλ k + gk on Σ; using 
+
+∂nF uF = SFλk+1 − χF for its new trace λk+1 this is (SF + αI )λk+1 − χF = αλ k + gk, i.e. 
+
+(αI + SF) λk+1 = αλ k + ( χP − SPλk) + χF = ( αI − SP) λk + ( χF + χP). (17) This is a preconditioned Richardson iteration for the interface equation (14) : its fixed point (αI + SF)λ⋆ =(αI − SP)λ⋆ + ( χF + χP) collapses to (SF + SP)λ⋆ = χF + χP, recovering the exact solution. Subtracting the fixed point from (17) gives the error recurrence 
+
+ek+1 = ( αI + SF)−1(αI − SP) ek. (18) Under the working hypothesis of Section 2.3 that SF and SP are simultaneously diagonalisable, both factors are diagonal in the shared eigenbasis and therefore commute, so (αI + SF)−1(αI − SP) = ( αI − SP)( αI + SF)−1 =
+
+TRN (α), the second map in (5) , with per-mode factor μk(α) = ( α − σP,k )/(α + σF,k ) used in the proof of Theorem 2. (When the eigenbases differ the two orderings remain similar, hence isospectral, so the contraction 19 Ω F Ω P
+
+# Σ∂ Ω Σ pnF
+
+# nPFigure 7: FSI-aligned orientation (Stokes–rigid-disc). The PINN fluid annulus takes the velocity trace (Robin) on Σ and the FEM solid disc takes the integrated traction (Neumann); no-slip on top/left/right walls and Navier-slip on the bottom wall Σp.rate is unchanged; see Appendix D.) The under-relaxed update of Algorithm 1, λk+1 ← (1 − ω)λk + ω ˆλk+1 
+
+with ˆλk+1 the right-hand side of (17) , replaces TRN (α) by (1 − ω)I + ω T RN (α); the Poisson experiments use 
+
+ω = 1 and the vector-Stokes ones ω ≈ 0.3.
+
+# D Proofs of Theorems 1–4 
+
+## D.1 Proof of Theorem 1 
+
+Under the simultaneous-diagonalisation hypothesis, SF and SP share an eigenbasis {vk} with eigenvalues 
+
+σF,k , σ P,k > 0. The map TDN = −S−1P SF is therefore diagonal in {vk} with eigenvalues −σF,k /σ P,k ; the spectral radius is max k σF,k /σ P,k . Geometric divergence whenever this maximum exceeds 1 is the standard linear-iteration consequence. 
+
+## D.2 Proof of Theorem 2 
+
+(i) Rate formula. Diagonalising TRN (α) in the shared eigenbasis gives the per-mode factors ρk(α) = 
+
+|α − σP,k | /(α + σF,k ) and ρ(TRN (α)) = max k ρk(α).
+
+(ii) Contractive band. Fix α > 0 and a mode k. If σP,k ≤ α then |α − σP,k | = α − σP,k < α + σF,k holds unconditionally (both eigenvalues are positive). If σP,k > α then |α − σP,k | < α + σF,k ⇐⇒ σP,k − σF,k < 2α.Hence ρ(TRN (α)) < 1 if and only if α > α min = 12 max k(σP,k − σF,k )+, and the band (αmin , ∞) is never empty (as α → ∞ , ρk(α) → 1− for every k). 
+
+(iii) Equioscillation in the aligned case. Suppose σF,k = σP,k = σk with σk ∈ [m, n ] := [ σmin F , σ max P ], so 
+
+ρ(TRN (α)) ≤ max σ∈[m,n ] hσ (α) with hσ (α) = |α − σ| /(α + σ). For fixed α, σ 7 → hσ (α) is decreasing on σ ≤ α
+
+and increasing on σ ≥ α, so the maximum over [m, n ] is attained at an endpoint: max {hm(α), h n(α)}. As functions of α ∈ [m, n ], hm is increasing and hn decreasing, so the minimax is at the crossing hm(α) = hn(α),20 i.e. (α−m)( n+α) = ( n−α)( α+m), which reduces to α2 = mn : α⋆ = √mn = pσmin F σmax P , with equioscillated value hm(α⋆) = hn(α⋆) = ( √κ − 1) /(√κ + 1) , κ = n/m .
+
+Scope of α⋆ for mismatched spectra. When the two spectra do not pair mode-by-mode, step (iii) no longer applies: α⋆ is the minimiser of the aligned-case envelope , not of the true max k ρk(α), and the iteration optimum can sit elsewhere in the band. This is exactly what the numerical α-search shows on the 2D natural orientation (closed-form α⋆ = 4 .16 vs. searched optimum α = 10 .31 , Appendix P.2): the 2.5× shift is the practical price of the alignment hypothesis, mitigated by the bowl around the optimum being broad. 
+
+## D.3 Proof of Theorem 3 
+
+We give the full argument behind the energy-decrease statement. Work in the shared eigenbasis {vk}
+
+of Theorems 1–2, write the FEM-side and PINN-side traces as uk 
+
+> F
+
+= P 
+
+> k
+
+aFk vk, uk 
+
+> P
+
+= P 
+
+> k
+
+aNk vk, and let 
+
+ek = λk − λ⋆ be the trace mismatch with components e(j) 
+
+> k
+
+. We make the following standing assumptions, matching the co-training implementation (Appendix P.3): 1. Exact Robin FEM solve. At each outer step the FEM Robin sub-problem is solved exactly, so the FEM contribution to E is the exact Dirichlet energy 12 ∇uk 
+
+> F
+> 2
+
+= 12
+
+P 
+
+> k
+
+σF,k (aFk )2 of the harmonic extension of the current trace. The second equality is Green’s first identity specialised to a harmonic extension: uk
+
+> F
+
+solves ∆uk 
+
+> F
+
+= 0 on ΩF with the current trace on Σ and homogeneous data elsewhere, so  
+
+> 12
+
+∇uk 
+
+> F
+> 2
+> L2(Ω F)
+
+= 12
+
+Z
+
+> ∂ΩF
+
+uk 
+
+> F
+
+∂nuk 
+
+> F
+
+− 12
+
+Z
+
+> ΩF
+
+uk 
+
+> F
+
+∆uk 
+
+> F
+
+= 12
+
+Z
+
+> Σ
+
+uk 
+
+> F
+
+∂nuk 
+
+> F
+
+= 12 ⟨ uk
+
+> F
+
+|Σ, S F uk
+
+> F
+
+|Σ⟩, (19) where the bulk term vanishes because uk 
+
+> F
+
+is harmonic and the boundary integral collapses to Σ (the far face contributes nothing since uk 
+
+> F
+
+= 0 there, the side walls nothing since ∂nuk 
+
+> F
+
+= 0 there), and 
+
+∂nuk
+
+> F
+
+|Σ = SF uk
+
+> F
+
+|Σ is precisely the Steklov (Dirichlet-to-Neumann) map. Expanding the trace in the shared 
+
+SF-eigenbasis, uk
+
+> F
+
+|Σ = P 
+
+> k
+
+aFk vk with SFvk = σF,k vk and orthonormal {vk}, diagonalises the quadratic form to 12
+
+P 
+
+> k
+
+σF,k (aFk )2. In words: the bulk energy of the exact FEM extension is, mode by mode, the squared trace amplitude weighted by that mode’s Steklov eigenvalue, which is what lets the FEM term of 
+
+E be written in interface coordinates alone. 2. Gradient PINN step. The PINN side performs one (or a few) gradient-descent step(s) of size η on 
+
+LP(θ) = 12
+
+P 
+
+> k
+
+σP,k (aNk − λk)2 + Linh P , whose stationary point is the Neumann response aNk = λk − σ−1P,k χP,k ;near that point LP is quadratic with Hessian eigenvalues σP,k > 0.3. Quadratic regime. The Adam preconditioner is, to leading order in η, a positive diagonal scaling; we absorb it into η and treat the PINN update as preconditioned gradient descent on the quadratic model, valid for η below the inverse of the largest Hessian eigenvalue. Define the per-mode energy contribution Ek = 12 σF,k (aFk )2 + 12 σP,k (aNk − λk)2 + α 
+
+> 2
+
+(ek)2, so Ek = P 
+
+> k
+
+Ek +
+
+(forcing) . The RN update (5) acts mode-wise as ek+1  
+
+> k
+
+= μk(α) ekk with μk(α) = ( α − σP,k )/(α + σF,k ), so the interface term of Ek changes by α 
+
+> 2
+
+(μ2 
+
+> k
+
+− 1)( ek)2. The exact Robin solve makes the FEM term track the trace, contributing a non-positive change to leading order, and one gradient step on the convex quadratic LP
+
+decreases the PINN term by η σ 2P,k (aNk − λk)2 + O(η2). Collecting the mode-wise changes, 
+
+Ek+1 − Ek = − α
+
+2
+
+X
+
+> k
+
+ 1 − μk(α)2(ek)2 + O(η) ≤ − α
+
+2
+
+ 1 − ρ(TRN (α)) 2 ek 2 
+
+> L2(Σ)
+
++ O(η), (20) where ρ(TRN (α)) = max k |μk(α)| and the O(η) term collects the second-order optimiser remainder and the bounded inhomogeneous forcing χF + χP (constant across iterations, hence a fixed offset, not a growing term). For any α in the contractive band of Theorem 2 we have ρ(TRN (α)) < 1, so 1 − ρ(TRN (α)) 2 > 0 and the leading term in (20) is strictly negative whenever ek̸ = 0 . Choosing the learning rate η small enough that the 
+
+O(η) remainder is dominated by this leading term (concretely, η ≤ c α (1 − ρ2) ek 2 /(remainder constant )
+
+for a fixed c < 1) gives Ek+1 ≤ Ek up to the bounded forcing offset, which is the claim. Note that the admissible step size shrinks with ek 2: for a fixed η the strict decrease holds only while the trace mismatch dominates, ek 2 ≳ O(η), after which the O(η) remainder takes over and the energy is merely bounded. This 21 terminal neighbourhood is precisely the “bounded forcing term” of the statement—the optimisation analogue of the O(εP) floor of Theorem 4. 
+
+## D.4 Discrete consequences when eigenbases differ 
+
+If SF and SP do not share an eigenbasis, the closed-form α⋆ is no longer the iteration optimum. The operator-norm bound ρ(TRN (α)) ≤ (αI − SP)( αI + SF)−1 remains valid but is generally loose; in practice one can refine the closed-form value by a numerical α-search (E10, Appendix P.2). On the 2D natural orientation the searched optimum sits 2.5× from the closed-form value ( α⋆ = 4 .16 vs. α = 10 .31 ), the mismatched-spectra effect quantified in the scope paragraph of Appendix D.2; the bowl around the optimum is broad, and the empirical minimum is itself protocol-dependent (under the cold-start benchmark of Appendix P.4 the closed-form value outperforms the searched one), so the sweep-free default is a serviceable operating point either way. 
+
+## D.5 Proof of Theorem 4 
+
+Substituting the realised operator bSP = SP + EP into the RN map of (5) and isolating the additive residual gives, by linearity alone, 
+
+ek+1 = ( αI − bSP)( αI + SF)−1ek + ˜ rk = TRN (α)ek − EP(αI + SF)−1ek
+
+| {z } 
+
+> =bTRN (α)ek
+
++˜ rk. (21) Unrolling (21) from e0 telescopes to ek = bT k
+
+> RN
+
+e0+Pk−1 
+
+> j=0
+
+bT k−1−j 
+
+> RN
+
+˜rj . Taking norms and using submultiplicativity, 
+
+bT m 
+
+> RN
+
+≤ bρm with bρ = bTRN (α) , and the uniform residual bound sup j ˜rj ≤ CαεP,
+
+ek ≤ bρk e0 +
+
+k−1X
+
+> i=0
+
+bρi
+
+CαεP ≤ bρk e0 + CαεP
+
+1 − bρ , (22) the geometric series converging because bρ < 1; letting k → ∞ gives the lim sup in (7) . The norm bound (6) is the triangle inequality applied to bTRN = TRN − EP(αI + SF)−1 together with (αI + SF)−1 = 1 /(α + σmin F ),which holds because SF is SPD so αI + SF has smallest eigenvalue α + σmin F . Unlike Theorems 1–2 no simultaneous diagonalisation of SF and SP is used, so the bound applies verbatim to the mismatched (square-boundary) geometry. 
+
+Level 2: the floor is controlled by the training loss. The residual εP is bound to a measured quantity by a standard a-posteriori elliptic estimate. The PINN Neumann/Robin loss is 
+
+LP(θ) = ∥− ∆uP − f ∥2 
+
+> L2(Ω P)
+
++ ∥∂nuP + g∥2 
+
+> L2(Σ)
+
+(+ Dirichlet term ), (23) i.e. the squared residuals of the strong-form problem solved by uexact P . Writing w = uP − uexact P , the difference solves the same elliptic problem with data equal to those residuals; coercivity of the elliptic operator (a Gårding/Lax–Milgram estimate with constant Cstab governed by the inverse of the smallest resolvable Steklov eigenvalue) gives ∥w∥H1(Ω P) ≤ Cstab LP(θ)1/2, and the trace inequality ∥w|Σ∥H1/2(Σ) ≤ Ctr ∥w∥H1(Ω P) yields 
+
+εP := λk 
+
+> P
+
+− λexact P H1/2(Σ) ≤ Ctr Cstab LP(θk)1/2. (24) Combining (24) with (7) , the plateau height obeys lim sup k ek ≤ CαCtr Cstab L1/2P /(1 − bρ) = O(L1/2P ):the floor is set by how well the network is trained. This is the falsifiable form of the theorem—halving 
+
+L1/2P should halve the floor—and is what the training-budget sweep of Appendix E confirms (log–log slope 
+
+1.13 , R2 = 0 .89 ), with the caveat documented there that a cold-restart variant of the iteration exposes a loss-independent floor component. Bounding the optimisation part of LP further by an NTK gradient-descent rate (so that εP is expressed through the network’s neural-tangent spectrum and a step count) is a separate, lazy-training-dependent argument; it is not needed for the floor to appear and we leave it to future work. 22 E Validating the loss-controlled floor: a training-budget sweep (E25) 
+
+Remark 1 makes the one directly falsifiable prediction of Theorem 4: the RN plateau height should scale as 
+
+O(L1/2P ) in the achieved training loss. We test it on the 2D natural orientation of Section 3.1 ( niface = 32 ,
+
+h = 0 .06 , the width-64 , depth-5 network of Appendix P), running the RN iteration at the searched optimum α = 10 .31 of Appendix P.2 so that the geometric transient of Equation (7) clears well inside the Kout = 16 budget and the plateau is exposed; the theorem applies for any α in the contractive band, the choice moving only the constant Cα/(1 − bρ). The inner Adam budget per outer iteration is swept over Tin ∈ { 10 , 25 , 50 , 100 , 250 , 500 , 1000 , 2000 , 4000 } with three seeds each; the floor is the median relative trace error λk − λ⋆ / ∥λ⋆∥ over the last six outer iterations and LP the median achieved loss over the same window. Crucially, the regression is of the measured floor against the measured loss, not against the budget: under the warm-started protocol the paper actually uses, the budget →loss mapping is non-monotone (cumulative training across outer iterations and the Adam minibatch noise floor saturate the achievable loss above Tin ≈ 100 at this learning rate), but the prediction of Remark 1 concerns the loss, however it was reached. 
+
+Figure 8: E25: the RN trace-error floor against the achieved training loss L1/2P (log–log; circles: warm-started arm, colour = inner budget; squares: cold-restart arm). Across a 400 × budget range and 1.5 decades of floor the warm-started runs follow the slope-1 line of Remark 1 (fitted slope 1.13 , R2 = 0 .89 , 27 runs); the cold-restart arm saturates at a loss-independent ≈10 −2 (fitted slope −0.16 ). 
+
+The prediction holds in the warm-started protocol. Across 27 runs spanning 1.5 decades of floor (Figure 8), the fitted log–log slope is 1.13 against the predicted 1, with R2 = 0 .89 : halving the achieved L1/2P
+
+does, to within the seed scatter, halve the floor. The seed-to-seed spread reinforces rather than dilutes the mechanism: at a fixed budget, the seed with the larger achieved loss lands on the larger floor, on the same line. 
+
+A caveat from the cold-restart arm. A control arm that retrains a fresh network at every outer iteration (the closest realisation of the theorem’s per-step retraining hypothesis; Tin ∈ { 250 , 1000 , 4000 }, three seeds) does not show the proportionality: its floor sits at ≈10 −2 essentially independent of its (much larger and budget-sensitive) loss. This is consistent with the structure of Theorem 4 rather than a violation of it: the bound (7) controls the plateau by the sum of the additive-residual term and the operator-perturbation term 
+
+EP(αI + SF)−1, and under cold restarts each step’s freshly re-randomised network bias re-enters through the latter, which does not shrink with the per-step loss. The proportional, loss-controlled reading of Remark 1 is 23 therefore a property of the warm-started iteration the paper uses, in which the network’s systematic (cap) error is held fixed across outer steps and the plateau is dominated by the training residual. 
+
+# F Fourier Steklov probe: implementation details 
+
+Algorithm 2 Fourier Steklov probe for a PINN subdomain 
+
+Require: PINN N , interface Σ parameterised by the angle θ ∈ [0 , 2π), modes k = 0 , . . . , K max , budget Tin  
+
+> 1:
+
+for k = 0 to Kmax do  
+
+> 2:
+
+for ϕ ∈ { cos , sin } (skip sin for k = 0 ) do  
+
+> 3:
+
+Train N for Tin steps to minimise the homogeneous PDE residual subject to soft Dirichlet 
+
+uP|Σ = ϕ(kθ ) 
+
+> 4:
+
+Read the radial flux gϕk (θ) = ∂nF uP(θ) on Σ by autograd  
+
+> 5:
+
+Project ˆσϕ 
+
+> P,k
+
+← ⟨ gϕk , ϕ (k·)⟩/⟨ϕ(k·), ϕ (k·)⟩ 
+
+> 6:
+
+end for  
+
+> 7:
+
+end for  
+
+> 8:
+
+return { ˆσP(k)}Kmax 
+
+> k=0
+
+The probe of Section 2.4, stated as Algorithm 2, is implemented in two variants, one for the disc PINN (FEM on the annulus) and one for the annulus PINN (FEM on the disc; FSI-aligned). Each takes a user-supplied trainer that returns a trained PINN given the boundary data and a flux reader that returns the boundary flux g(θ), so the probe is decoupled from any particular PINN architecture; the continuum references are σP(k) = k/R for the disc and (8) for the annulus. For Section 3.1 we use Kmax = 8 , Tin = 2500 
+
+Adam steps per probe, MLP width = 64 , depth = 5 , soft Dirichlet weight μb = 100 , soft PDE residual weight 
+
+μr = 1 ; wall time ∼142 s on a 4-thread Apple-silicon CPU. Figure 9 reports the resulting annulus-PINN Steklov estimate ˆσP(k) against the continuum (8) (left), exposing the spectral cap at k ≥ 2, together with the empirical RN contraction rate under both transmission-role assignments (right), the data behind the role-invariance claim of Section 3.1.                        
+
+> (a) Fourier-mode estimate ˆσP(k)vs. continuum (8) :k=0,1matched within ∼10% ;k≥2collapses to ∼0(the PINN resolution cap).
+> (b) E9 transmission-role swap (single seed): empirical RN rate vs. αfor case (1) (Neumann-on-PINN) and the swapped case (2) used by FSI (Robin-on-PINN). Both contractive across [0 .2,200] with near-identical best rates (0.72 vs. 0.74 ).
+
+Figure 9: FSI-aligned orientation: the annulus PINN’s spectral cap (left) and the role-invariance of the RN contraction under the FSI transmission swap (right). The collapse in Figure 9(a) is removable, and its removal in this scalar geometry mirrors the Stokes-side findings of Appendices L and M mode for mode. Figure 10 repeats the probe with two alternative inner 24 solvers at otherwise identical settings (same interface points, projection, and sign conventions). Staying with gradient descent but raising the budget tenfold ( Tin = 25 ,000 Adam steps per mode) recedes the cap from 
+
+k = 2 to k = 5 : modes k = 2 , 3, 4 land within 1–2% of the continuum, after which the estimate collapses to numerical zero, the scalar analogue of the budget-helps-only-to-a-plateau behaviour of Remark 2. Replacing the gradient-trained network altogether with a random-feature model ( M = 3200 frozen random Fourier features of frequency scale 32 , double precision) whose linear head is fitted by a single column-equilibrated least-squares solve against the same homogeneous constraints (the PDE residual at 4096 annulus collocation points, the prescribed trace at the 32 interface points, and the homogeneous Dirichlet condition at 1024 
+
+outer-boundary points) recovers every probed mode, with relative error 0.1–2.8% for k ≥ 2; the residual 7–10% 
+
+offsets at k = 0 , 1 are shared by all arms and reflect the square outer boundary against the circular-annulus reference, not the solver. As on the Stokes probe, feature count and frequency scale must be raised together: 
+
+M = 1600 at scale 16 reaches only k = 4 , with a rank-deficient least-squares system on the higher modes. 
+
+Figure 10: The spectral cap of Figure 9(a) is an optimisation effect: under the paper’s training budget ( 2500 
+
+Adam steps) the probe collapses at k ≥ 2; a tenfold budget recedes the cap to k = 5 but no further; a random-feature model fitted by a single least-squares solve, through the same probe, recovers all modes k ≤ 8
+
+to the continuum reference. 
+
+# G Static-Stokes vector recipe: hyperparameters and ablations 
+
+The recipe of Section 4.2 uses: PINN width = 32 , depth = 4 , Tanh, no Fourier features (a Fourier-features ablation with embedding frequencies {1, 2, 4, 8} at the same width/depth and Tin = 2000 does not raise the spectral cap: the cap is capacity-limited, not basis-limited, see Figure 12); 4000 Adam steps cold-start (once), 
+
+1500 refine per outer iteration; loss weights wneu = 200 , wdiv = 50 , wwall = 100 , wrobin = 200 , wpres = 5 ; RN parameters α = 30 , ω = 0 .30 , Kout = 22 , early-stop growth factor 1.05 . Wall time per outer iteration ∼2.6 son CPU; the combined recipe reaches residual floor 0.158 at k = 17 and relative trace error 0.136 .The FEM vector Schur SF (64 × 64 ) is assembled by 64 Taylor–Hood Stokes solves on the disc; the FEM spectrum spans [20 , 4 × 10 4] while the PINN side is capped at σmax P ≈ 0.5 (basis probe) / 3.06 at 
+
+k = 2 (Fourier probe). The per-mode 2 × 2 block asymmetry drops from ≤ 135% (basis-vector probe) to 
+
+≤ 90% (Fourier probe), so part of the original 58% value was probe-method noise and part is a genuine non-symmetry of the discrete Steklov. A numerical α-search (E16) on [10 −2, 10 3] finds no contractive α
+
+with the vanilla iteration, which is exactly the regime in which the four-ingredient recipe restores transient contraction. Figure 11 plots both spectra side by side (the capped PINN SP against the FE Taylor–Hood SF)25 and the flat E16 α-bowl that has no point below 1, and Figure 12 traces the recipe ingredient by ingredient.             
+
+> (a) Eigenvalues of SF(FE-TH) vs. SP(PINN-Stokes), M-normalised: the PINN side is capped.
+> (b) E16: vanilla vector RN gives no αwith rate <1across
+> [10 −2,10 3].
+
+Figure 11: Static-Stokes vector RN diagnostic (E11, E16). 
+
+# H Large-added-mass two-slab configuration (Section 3.2) 
+
+The added-mass experiments of Section 3.2 are genuine 2D coupled iterations on the stacked-slab geometry of Figure 13(a): a thin high-diffusivity “fluid” slab ΩF = [0 , W ] × [0 , L F ] on top of a thick “solid” slab 
+
+ΩP = [0 , W ] × [−LN , 0] , sharing the flat interface Σ = {y = 0 } with niface = 49 nodes. The far faces carry homogeneous Dirichlet data and the side walls carry natural Neumann conditions, so the interface modes are 
+
+qk = kπ/W . The role assignment follows the Poisson convention of Section 2.1 (Robin/Dirichlet-on-FEM, Neumann-on-PINN), with the FEM on the thin fluid (the added-mass side, where the impedance belongs) and the PINN on the thick solid. Both slabs are discretised by tensor-product Q1 elements, for which the flat-slab Steklov eigenvalue is the closed form σ(q) = κ q coth (qL ). The thin fluid gives a nearly mode-independent 
+
+σF(qk) ≈ κF /L F (the lumped added-mass limit) and the thick solid a growing σP(qk) ≈ κN qk, so the per-mode amplification is rk = σF/σ P ≈ Ma /k with the single dial Ma = σF(q1)/σ P(q1) (Figure 13b). The geometric parameters are fixed at W = 1 , LF = 0 .05 , LN = 3 , κN = 1 , and κF is tuned per target Ma 
+
+from the first-mode ratio; the PINN solid sits on the smooth, low-mode-dominated side, exactly the band a network resolves, so its spectral cap truncates only the (already stable) high modes. 
+
+Governing equations. Each slab carries a scalar steady diffusion (Poisson–Laplace) problem, 
+
+−∇·  κi ∇ui
+
+ = − κi ∆ui = 0 in Ωi, i ∈ { F, P}, (25) coupled across the shared interface Σ = {y = 0 } by the standard transmission conditions, continuity of the field and of the normal flux, 
+
+uF = uP and κF ∂nuF = κP ∂nuP on Σ, (26) with homogeneous Dirichlet data on the far faces y = LF and y = −LP and homogeneous Neumann data on the side walls x ∈ { 0, W }.
+
+Why these interface modes. The lateral structure of the problem is set entirely by the side walls. Separating variables in (25) , ui(x, y ) = X(x)Y (y), gives X′′ /X = −Y ′′ /Y = −q2, so the admissible lateral profiles solve X′′ + q2X = 0 subject to the side-wall conditions. With homogeneous Neumann walls, ∂xu = 0 
+
+at x = 0 and x = W , the surviving solutions are the cosines X(x) = cos (qx ) whose derivative −q sin (qx )
+
+vanishes at both ends: sin( q · 0) = 0 holds automatically, and sin( qW ) = 0 forces qW = kπ , i.e. 
+
+qk = kπ W , k = 0 , 1, 2, . . . (27) 26 Figure 12: Methodology ablation on the static-Stokes vector RN iteration. Each curve adds one ingredient of Section 4.2: (b) vanilla cold-restart α = 10 , (c) tightened inner solve, (d) warm-start at α = 10 exposing the underlying RN-map divergence the cold restart had masked, (e) warm-start + ω = 0 .30 at α = 30 giving the monotone contraction, (f) long-K extension at ω = 0 .25 showing the late-time warm-start drift that motivates the early-stop ingredient. The PINN floor ≈0.16 is annotated. These {cos (qkx)} are exactly the eigenfunctions of −∂2 
+
+> x
+
+on [0 , W ] under Neumann boundary conditions (eigenvalues q2
+
+> k
+
+); they are mutually L2(0 , W )-orthogonal and complete, so they form an interface eigenbasis in which every trace on Σ expands uniquely. The index k counts lateral half-periods across the width (wavelength 
+
+2W/k ): k = 0 is the uniform mode and larger k is finer lateral structure. (Had the side walls been Dirichlet instead, the same qk would appear with sines sin (qkx); the Neumann choice is what makes the constant k = 0 
+
+mode admissible and the basis pure cosines.) This is the flat-interface analogue of the angular Fourier modes 
+
+eikθ used on the circular Σ elsewhere in the paper. 
+
+Per-mode Steklov eigenvalue. Because the modes decouple, writing ui(x, y ) = P 
+
+> k
+
+ai,k (y) cos (qkx) in (25) leaves each amplitude obeying a′′  
+
+> i,k
+
+= q2 
+
+> k
+
+ai,k , so the harmonic extension of a single interface mode decays hyperbolically ( cosh / sinh ) across a slab and the slab’s Dirichlet-to-Neumann (Steklov) eigenvalue, mapping interface trace to interface flux against the homogeneous far face, is exactly the closed form 
+
+σ(qk) = κ q k coth (qkL) used above. The operator-level analysis is thus an exact consequence of (25) –(26) ;an independent finite-element realisation of the same two-slab problem (included with the reproducibility package) recovers these eigenvalues to within the discretisation error. Two studies are run. Study A sweeps Ma ∈ [0 .3, 300] with both slabs by tensor-product Q1 FEM (cheap; checks that the operator-level crossover survives a genuine discrete 2D coupling) and produces Figure 4(a) and Table 2. Study B fixes the representative Ma = 100 and replaces the solid by a real trained PINN 
+
+(width/depth as in the FSI network, 400 Adam steps per outer iteration, three seeds), running the five schemes DN, DN +ω∗, DN +Aitken, RN( α⋆), RN( α-search) head-to-head against a monolithic-FEM reference; it produces Figure 4(b). In Study B, RN( α⋆) converges to the PINN floor ≈5 × 10 −2 at the sweep-free geometric-mean rate 0.45 ±0.004 while DN and Aitken diverge or stall, confirming the operator-level prediction in the presence of a trained subdomain solver. 27 Figure 13: Configuration for the large-added-mass experiments of Section 3.2. (a) The 2D stacked-slab geometry: a thin fluid slab (FEM, Robin side) over a thick solid slab (PINN, Neumann side) sharing the interface Σ; the thick solid is drawn compressed for visibility. (b) Closed-form flat-slab Steklov spectra at 
+
+Ma = 100 : σF(qk) is nearly flat while σP(qk) grows with k, so the DN amplification rk ≈ Ma /k (right axis) is large at the low modes and decays through 1, which is why a single scalar relaxation cannot straddle the spectrum and RN’s per-mode impedance matching wins. 
+
+# I Alart–Curnier contact: closed-form one-step over-relaxation 
+
+The Alart–Curnier projection for normal contact between the disc and the bottom wall Σp reads 
+
+λ+ 
+
+> c
+
+= max  0, λ c − ωAL γc gap( yc), gap( yc) = yc − R − εg , (28) with γc > 0 the AL penalty stiffness and εg the relaxed gap. Substituting the backward-Euler position update 
+
+yn+1  
+
+> c
+
+= yfree  
+
+> c
+
++ (∆ t2/m s)λn+1  
+
+> c
+
+into the active branch gives a contraction factor 1 − ωAL γc∆t2/m s ; setting it to zero gives ωopt AL = ms/(γc∆t2), under which the projection converges in one step and lands the disc at yc = R + εg exactly (machine precision), strictly improving on the penalty-method O(γ−1 
+
+> c
+
+) bound. The 
+
+max( ·, 0) clamp keeps λc ≥ 0, so over-relaxation beyond 1 is safe. Algorithm 3 assembles this contact projector, the backward-Euler solid ODE, the vector-RN fluid–solid coupling of Section 4.1, and the per-step collocation regeneration into the full time-stepped contact-FSI solver referenced from Section 4.1. 
+
+# J Coupling baselines: RN versus the relaxation ladder 
+
+This appendix gives the full low-added-mass relaxation-ladder benchmark summarised in Section 3.2. We benchmark RN against plain DN ( ω = 1 ), DN with the best constant under-relaxation ω∗, DN with Aitken/Irons–Tuck dynamic relaxation, and RN at both the closed-form α⋆ and a numerically searched optimum, over five seeds at the operating points of Sections 3–3.1. (The quasi-Newton interface accelerators of partitioned FSI, notably IQN-ILS [ 8], are the natural next rung of this ladder; we leave them as the stronger history-based baseline for a future revision.) In 1D the interface carries a single mode, so the optimal constant ω∗ = 1 /(1 − g) annihilates the error in essentially one step and RN merely settles at the PINN floor. In the multi-mode 2D disc-in-square a single scalar relaxation cannot be optimal for every mode, yet on this low-added-mass problem it nonetheless beats RN (final error 0.20 –0.27 vs. RN’s 0.76 –1.1,non-overlapping five-seed bars), and RN’s α-search optimum is itself seed-unstable (Table 3, Figure 14). RN does not win on iteration count here; its advantage is being sweep-free : a single closed-form impedance, no ω-sweep and no per-iteration history. The premium for that convenience is visible in the table: rate 
+
+0.84 ± 0.02 at the closed-form α⋆ vs. 0.76 ± 0.03 after an α-sweep. As Section 3.2 shows, this ranking inverts in the large-added-mass regime that motivates FSI. 28 Algorithm 3 Time-stepped contact FSI (backward-Euler outer step, vector-RN fluid–solid inner coupling, Alart–Curnier AL contact). The fluid is the PINN, the rigid-disc ODE the FEM side. As in Algorithm 1, 
+
+(λ, g ) denotes the RN trace–traction pair; the unpaired symbol g in the Require line and the predictor step is gravity. 
+
+Require: initial height/velocity (y0 
+
+> c
+
+, ˙y0 
+
+> c
+
+); step ∆t; impedance α, relaxation ω, inner budget Kout , tol; AL stiffness γc, gap εg , over-relaxation ωAL = ms/(γc∆t2); disc radius R, mass ms, gravity g. 
+
+> 1:
+
+for n = 0 , 1, . . . do  
+
+> 2:
+
+Regenerate collocation. Sample the current fluid domain Ωf = Ω + \  B((0 , y nc ), R ) ∪ { y < ε g };warm-start the PINN from step n (carry weights and Adam moments).  
+
+> 3:
+
+Predictor. Backward-Euler free (contact-off) height yfree  
+
+> c
+
+← ync + ∆ t ˙ync − ∆t2g; initialise λc ← 0
+
+and the interface data (λ, g ) from step n. 
+
+> 4:
+
+for k = 0 , 1, . . . , K out − 1 do  
+
+> 5:
+
+Fluid (PINN) solve. Train the (u, p ) network on Ωf enforcing steady Stokes, ∇· u = 0 , no-slip on the rigid walls, Navier-slip on Σp, and the Robin condition σf n + αu = αλ + g on Σ. 
+
+> 6:
+
+Read traction. gF ← (σf n)|Σ via the pointwise transfer (12); Fy ← R
+
+> Σ
+
+(σf n) · ey ds . 
+
+> 7:
+
+Solid (FEM) + contact. Backward-Euler update yc ← yfree  
+
+> c
+
++ (∆ t2/m s)λc with the Alart– Curnier projection λc ← max  0, λ c − ωAL γc (yc − R − εg ); set ˙yc ← (yc − ync )/∆t and the contact reaction 
+
+Fc ← λc. 
+
+> 8:
+
+Kinematic trace. λN ← ˙yc ey on Σ (the velocity the disc imposes on the fluid).  
+
+> 9:
+
+vector-RN update. (λ, g ) ← (1 − ω)( λ, g ) + ω(λN , g F ). 
+
+> 10:
+
+if residual increases for the first time or ∥λN − λ∥ < tol then break  
+
+> 11:
+
+end if  
+
+> 12:
+
+end for  
+
+> 13:
+
+Accept step. (yn+1  
+
+> c
+
+, ˙yn+1  
+
+> c
+
+, λ n+1  
+
+> c
+
+) ← (yc, ˙yc, λ c). 
+
+> 14:
+
+end for 
+
+# K What cures the warm-start drift (E21) 
+
+We turn the cure for the E12 warm-start drift into the independent variable. We re-run the E12 free-fall and, after every time step, evaluate an independent Stokes momentum-plus-continuity residual on a fresh collocation set that never enters training; its growth factor G := median (tail )/ median (settled floor ) is the headline drift metric. A single knob selects the strategy: periodic cold restart, periodic Adam-reset , strong 
+
+(larger inner budget), reproject (keep training until the monitor recovers), and hybrid (residual-triggered cold restart). The headline cure is the cold-restart period (Table 4, Figure 15 left): drift growth falls monotonically as restarts become more frequent, from G ≈ 77 at every 40 steps ( ≈ do-nothing) down to G ≈ 3.7 at every 3,with no U-shaped sweet spot; the cost is wall time, not residual. Restarting every 3–5 steps holds the drift to 
+
+G ≈ 3.7–5.0 and is seed-stable. Alternatives are weaker or less dependable: strong reaches G ≈ 37 at 2× the wall, Adam-reset barely helps ( G ≈ 120 –230 ), and reproject is sharply bimodal across five seeds (only 1/5
+
+below ∼4). Pushed to 150 steps (Figure 15 right) the picture sobers: every remedy lets the absolute residual creep back to O(0 .1) , the do-nothing baseline is bimodal across seeds, and the cheap cold/period cure that dominates at 50 steps now mostly trades the drift’s rate for cost. The sober verdict is that no tested remedy 
+
+eliminates 150 -step drift; frequent cold restart is the cheapest way to slow it. A single-seed Fourier-feature probe suppressed the absolute drift ∼20 –30 × at 50 steps, but one combination diverged, so we record it only as a lead for a multi-seed follow-up. 
+
+# L Probing the inner-solve floor: optimisation, sampling, and archi-tecture (E22) 
+
+Both limitations of Section 4.4 bottom out at the PINN inner-solve floor, and every experiment in the body trained with Adam, on a uniform collocation set, under a soft incompressibility penalty. The Fourier-feature ablation (Figure 12) already showed that injecting high frequencies through the input basis does not move 29 Table 3: Coupling baselines: RN versus the relaxation ladder (mean ± std over five seeds). “final err” is the relative trace error after the outer budget ( Kout = 15 in 1D, 12 in 2D); “2D rate” is the geometric-mean per-step contraction. Plain DN diverges on every seed; every cure bounds the iteration, but in the multi-mode 2D case tuned scalar relaxation beats RN with non-overlapping bars. The 1D std on the relaxation rows is 
+
+< 10 −4 and is omitted. 
+
+scheme 1D final err 2D final err 2D rate tuning required DN ( ω = 1 ) diverges diverges 1.5±0.2 none DN + ω∗ 6.5×10 −4 0.27 ±0.03 0.61 ±0.01 1-D ω sweep DN + Aitken 6.1×10 −4 0.20 ±0.04 0.57 ±0.01 per-iter. history RN( α⋆, closed form) 7.5×10 −2 1.1±0.3 0.84 ±0.02 closed-form α
+
+RN( α-search) 6.6×10 −2 0.76 ±0.24 0.76 ±0.03 α sweep 
+
+(a) 1D split-segment (single mode): optimal constant re-laxation annihilates the one mode in 1–2 steps; RN sits at the PINN floor. 
+
+(b) 2D disc-in-square (multi-mode): DN diverges; all cures contract but tuned relaxation beats RN with non-overlapping bands. 
+
+Figure 14: RN versus the classical relaxation ladder at low added mass. Relative trace error per outer iteration; band is ±std over five seeds. the cap. Here we test the three remaining heavy levers—a second-order inner solve, adaptive collocation, and improved conditioning—against two diagnostics: the Stokes Steklov cap (the resolvable interface spectrum, measured as in Appendix F but against a Taylor–Hood Stokes reference) and the pre-impact squeeze-film drag ratio F PINN  
+
+> y
+
+/F FE  
+
+> y
+
+for a disc descending toward the wall. All three drivers are additive and share the cap diagnostic; none touches the coupling source tree. 
+
+The cap does not move (Table 5). We re-measure the leading k ≥ 1 Steklov eigenvalue under opti-miser × width and under architecture × loss-balancing, reporting the operator ratio ˆσk≥1max (PINN )/σ k≥1max (FE )
+
+against a Taylor–Hood reference whose leading eigenvalue is ≈120 . A quasi-Newton (L-BFGS) polish roughly triples the Adam-only ratio—from 0.03 –0.18 to 0.24 –0.50 , with the single best value 0.50 at width 128 —yet the ratio never reaches unity and in every configuration stays below the 0.5 threshold, so the PINN does not resolve even the first interface mode in full. 1 Gradient-norm loss balancing is actively harmful, collapsing the k ≥ 1 response to near zero ( ratio ≈ 0.005 ), and the exactly divergence-free stream-function ansatz is 
+
+worse than the plain velocity–pressure formulation at matched width. No gradient-descent lever—optimiser, sampler, or conditioning—moves the cap at fixed width. This is strong evidence the cap is an optimisation 
+
+floor rather than a basis or sampling artefact; Appendix M confirms it directly by lifting the cap with a non-gradient (least-squares) inner solve.   
+
+> 1A damped Gauss–Newton / energy-natural-gradient variant was also implemented but did not complete within the wall-clock budget, as it forms and solves J⊤Jat each iteration; the reported second-order arm is L-BFGS.
+
+30 Table 4: Curing the warm-start drift: cold-restart period sweep and alternatives on the E12 free-fall, scored by the training-independent off-manifold Stokes-residual growth factor G over 50 steps (lower is better; mean over three seeds, reproject over five).                                                         
+
+> remedy / period G(mean) seed spread extra Adam wall cold every 33.73.2–4.30960 severy 55.03.5–7.50740 severy 10 42 38 –47 0570 severy 20 47 26 –65 0560 severy 40 77 19 –161 0570 sstrong nref =1000 37 29 –44 01260 sreproject (5seeds) 85 3.6–171 6k– 60 k430 sAdam-reset every 10 –20 120 –230 —0160 –470 s
+
+Figure 15: E21 drift remedies. Left: cold-restart period sweep (full 50 -step free-fall, 3 seeds as dots, mean as line): drift growth falls monotonically, with no U-shaped sweet spot. Right: long horizon ( 150 steps), geometric-mean off-manifold Stokes residual over 3 seeds; every remedy drifts back to O(0 .1) by t = 1 .5.
+
+Scaling gradient descent up does not lift the cap either (E24). A GPU scale-up of the same diagnostic (Adam on four H100 accelerators, 8192 collocation points) separates the two remaining gradient-descent axes, budget and size. Budget helps, but only to a plateau: at width 128 , depth 5, doubling the budget from 10 5 to 2 × 10 5 steps moves the leading k ≥ 1 ratio only from 0.50 to 0.53 (receding the resolvable cap from k = 1 to k = 4 ), still barely half the finite-element reference. Size actively hurts: at comparable budgets the ratio falls to 0.48 at width 256 , 0.28 at depth 10 , and 0.10 at width 512 /depth 8, a monotone degradation with network size that is the opposite of a representation-capacity wall and consistent with the spectral-bias reading. The wall cost of these runs ( 9–24 h each) also marks the practical end of the budget axis. 
+
+The drag deficit is not closed and deepens with the gap (Table 6). Concentrating collocation in the lubrication layer—residual-weighted (RAD), residual-refined (RAR), or explicit gap-weighting—does not recover the bulk Stokes drag. The best ratio is ≈0.03 , obtained at the widest gap, and it worsens as the gap narrows: the Taylor–Hood reference drag sharpens from −237 at gap 0.05 to −1017 at gap 0.015 while the PINN stays near −8, so the ratio falls to ≈0.008 . The residual-driven samplers do worse than uniform—RAR even returns the wrong sign at the tightest gap—and an L-BFGS polish at the hardest gap changes the ratio only in the fourth decimal. Packing the layer cannot substitute for inner-solve capacity. 31 Table 5: E22 Stokes Steklov cap. Operator ratio (PINN over Taylor–Hood, leading k ≥ 1 eigenvalue ≈120 ); higher is better, 1.0 would match the finite-element reference. Top: second-order inner solve × width (velocity–pressure, fixed loss weights). Bottom: architecture × loss balancing at width 64 . In every run the resolvable cap stays at the first mode (no configuration crosses the 0.5 threshold).                               
+
+> second-order ×width w=32 w=64 w=128
+> Adam 0.03 0.16 0.18
+> L-BFGS —0.25 0.25
+> Adam +L-BFGS 0.24 0.40 0.50
+> ansatz balancing ratio ( w=64 )velocity–pressure fixed 0.18 (Adam), 0.46 (L-BFGS) grad-norm 0.004
+> stream-function fixed 0.10 (Adam), 0.19 (L-BFGS) grad-norm 0.007
+
+Table 6: E22 squeeze-film drag ratio F PINN  
+
+> y
+
+/F FE  
+
+> y
+
+(closer to 1 is better) for a disc descending toward the wall, by sampler and wall gap. The Taylor–Hood reference drag is −237 , −417 , −1017 at gaps 0.05 , 0.03 , 0.015 .An L-BFGS polish at gap 0.015 (not shown) leaves every entry unchanged to three decimals.                   
+
+> sampler gap 0.05 gap 0.03 gap 0.015
+> uniform 0.032 0.014 0.006
+> gap-weighted 0.033 0.012 0.008
+> RAD 0.003 0.004 0.001
+> RAR 0.003 0.001 −0.000
+
+# M The cap is an optimisation effect: a non-gradient inner solve (E23) 
+
+Appendix L shows that no gradient-descent lever moves the Steklov cap. Every one of those runs shares a backbone—a global network trained by gradient descent—whose neural-tangent-kernel spectral bias is exactly the mechanism that stalls high-frequency content [ 36 , 43 ]. To test whether the cap is that optimisation pathology or a genuine representational limit, we remove gradient descent. We replace the inner Stokes solve with a random-feature model: a frozen random-Fourier hidden layer ϕj (x) = sin (σ W j ·x + bj ) with (Wj , b j )
+
+sampled once and held fixed, and a trainable linear head [u, v, p ] = ϕ(x) Θ . Because the velocity, pressure, momentum and divergence operators are all linear in Θ, the homogeneous-Stokes Steklov problem becomes a single weighted-collocation least-squares solve for Θ—the random-feature method / extreme-learning-machine PDE solver [ 7, 10 ]—with no gradient descent and hence no spectral bias. We sweep the feature count M
+
+(capacity) and the frequency scale σ, and re-measure the same Fourier Steklov cap. 
+
+Removing gradient descent lifts the cap and flattens it (Table 7). The least-squares solve raises the leading k ≥ 1 operator ratio to ≈0.60 , above the best gradient-descent value ( 0.50 , Table 5), once the frequency scale matches the feature budget (a scale too high for the number of features leaves the system underdetermined and the solve fails—the 0.11 entry). The ratio then saturates at 0.597 across 
+
+M ∈ { 800 , 2000 , 3200 } and σ ∈ { 8, 16 , 32 }, identical to three decimals, with the mean least-squares residual driven down to ≈3% at the largest M, σ (so the plateau is a converged solve, not a conditioning artefact). The random-Fourier basis ( sin ) outperforms a tanh extreme-learning-machine ( 0.60 vs 0.34 ). Decisively, the 
+
+per-mode ratio is now flat in mode number (Table 8, last column), rather than decaying as it does under gradient descent: the high-frequency collapse—the cap proper—is gone. 
+
+The residual ≈0.57 offset is a traction-reader convention (Table 8). A uniform, frequency-flat factor does not look like spectral bias; it looks like a fixed mismatch between two ways of reading the 32 Table 7: E23 random-feature least-squares solve: leading k ≥ 1 Steklov operator ratio (PINN over Taylor– Hood reference) versus feature count M and frequency scale σ (random-Fourier sin features, plus one tanh control). Compare the best gradient-descent value 0.50 (Table 5). The ratio saturates at 0.597 once σ matches 
+
+M ; “–” marks the underdetermined regime (scale too high for the feature budget, least-squares residual 
+
+≈0.95 ).                      
+
+> σ=4 σ=8 σ=16 σ=32
+> M=800 0.37 0.59 0.60 –(0 .11)
+> M=2000 0.40 0.59 0.60 0.60
+> M=3200 —0.59 0.60 0.60
+> tanh ( M=2000 )0.34
+
+interface traction. The reference operator SF (the Taylor–Hood Schur complement) reads the mass-consistent 
+
+integrated flux M −1Σ
+
+R
+
+> Σ
+
+(σn ) φ, whereas the random-feature and PINN probes read the analytic pointwise stress 
+
+σ · n = ( −pI + 2 μf ε(u)) · n at the Σ vertices. To isolate this we drive the same Fourier probe with an genuine finite-element Stokes solver and read its traction both ways. The mass-consistent reader reproduces the reference exactly (ratio 1.000 at every mode, confirming the probe pipeline is faithful); the analytic-pointwise reader—the same functional the network uses—lands at 0.57 of the reference, with the same per-mode profile as the random-feature solve, which it tracks to within a few percent throughout (Table 8). The 0.57 offset is therefore a property of the pointwise-traction convention shared by any solver, not a deficit of the network: read consistently, the random-feature interface operator agrees with the finite-element one. The cap is an optimisation (spectral-bias) effect, removable by a non-gradient inner solve; it is not a representation-capacity wall. Table 8: FE–FE convention check. Per-mode max |eig | ratios to the reference SF (the Taylor–Hood Schur complement projected to mode k), cos polarisation. FE-consistent : finite-element solver read with the mass-consistent flux (reproduces the reference). FE-pointwise : same finite-element solver read with the analytic pointwise σ · n the network uses. RFM : the random-feature least-squares solve ( M = 2000 , σ=32 )read the same pointwise way. The pointwise reader sits at ≈0.57 for the finite-element solver itself, and the random-feature solve tracks it to a few percent.                      
+
+> kFE-consistent FE-pointwise RFM
+> 11.000 0.602 0.600 21.000 0.585 0.561 31.000 0.556 0.522 41.000 0.545 0.495 51.000 0.545 0.487 61.000 0.575 0.507
+
+# N Contact-window dynamics: convergence failures and the FEM– FEM benchmark 
+
+This appendix documents in full the pre-impact dynamic signatures that Section 4.4 reports as PINN under-resolution artefacts. 
+
+E13(d) pre-impact peak is not budget-converged. Figure 16 shows the full no-slip E13(d) trajectory (yc, ˙yc, Fy , and the contact reaction λc). At (niface , n refine steps ) = (32 , 300) , Fy shows a +20% pre-impact overshoot, but this is a budget-specific artefact: at refine = 1000 the squeeze-film phase dips below Π (peak 
+
+0.41 mid-descent), and at refine = 3000 the pre-impact peak jumps to 2.37 (∼3.3×). The static-equilibrium claim λc → Π, by contrast, survives both refinement axes cleanly (Figure 17, 18). 33 FEM–FEM benchmark. Replacing the PINN-Stokes trainer by a remeshed-per-∆t Taylor–Hood Stokes solver at the identical operating point, the FE disc never reaches the wall in T = 0 .30 : it settles into a near-static hover at ˙yc = −0.0023 with Fy = 1 .178 = msg exactly. The inferred drag c ≈ 510 vs. the PINN’s 
+
+≈ 6 at impact is an ∼80 × discrepancy; the wall accounts for ∼2.5× (centered-disc baseline c ≈ 200 ), and mesh refinement to h = 0 .025 pushes the FE drag up (c → 755 ), so the ground-truth Stokes drag is at least an order of magnitude larger than c ≈ 6. The pre-impact Fy peak is therefore a PINN under-resolution of bulk Stokes drag, not a physical squeeze-film signature. 
+
+E13(e) Navier-slip sweep. With β ∈ { h/ 4, h, 4h}, F peak  
+
+> y
+
+rises from +20% (no-slip) to +121% (β = 4 h)and ˙yc at impact drops from −0.183 to −0.124 ; all three still fail the > 1 mm rebound gate. The peak is again non-monotone in nrefine steps (1.30 → 1.70 → 1.22 ) and the regime flips at higher budgets, so the qualitative ordering ( F peak  
+
+> y
+
+increases with β) survives but the specific +121% figure does not. A box-size sweep ( W ∈ { 1, 2, 4}, β = 4 h) shows the peak collapses monotonically ( +121% → +35% → +8% ): the 
+
+β-monotonicity at W = 1 is largely a global-Stokes-circulation artefact of the tight box (Figure 19). 
+
+E13(f ) adaptive ∆t and convergence failure. With adaptive time stepping near contact ( ∆t = 5 × 10 −4
+
+when the gap drops below 0.02 ), a four-point inner-budget sweep nrefine steps ∈ { 300 , 600 , 1000 , 3000 } shows the peak Fy is non-monotone ( 2.32 → 3.25 → 1.74 → 2.13 ) and at the highest budget the disc never enters the squeeze-film band at all (Table 9, Figure 20). The contact-window signature is a PINN inner-solve artefact under this combination of parameters. 
+
+Figure 16: E13(d), no-slip baseline. Impact at t = 0 .130 (one ∆t from the vacuum prediction 0.129 ); the AL projector lands the disc exactly at R + εg ; λc converges to the submerged weight Π = 0 .589 . The +20% 
+
+pre-impact Fy overshoot appears only at (niface , n refine steps ) = (32 , 300) and is not preserved under refinement (Figures 17, 18). 
+
+Figure 17: Static-equilibrium robustness under interface refinement (E13d, refine = 300 ). Left: the post-impact tail ( t ≥ 0.20 ) settles at λc ≈ Π = 0 .589 for all three resolutions, within 0.4% . Right: Fy pre-impact peak grows with niface (0.59 → 0.71 → 0.83 ) while the post-equilibrium tail again settles at Π. ( niface = 16 is partly degenerate because εg = hiface /4 scales with the mesh.) 34 Figure 18: Pre-impact Fy peak is not budget-converged on E13(d): a mild overshoot at refine = 300 (0.71 ), a 
+
+dip below Π at 1000 (peak 0.41 mid-descent), and a sharp spike at 3000 (2.37 ). Table 9: E13(f) Run #2 ( ρs = 2 .0, yc(0) = 0 .275 , β = 4 h, g = 3 ) under PINN inner-budget refinement. The peak Fy is non-monotone and the trajectory regime itself flips: contact occurs only at refine = 300 .
+
+nrefine steps F peak  
+
+> y
+
+t⋆ min yc contact regime 
+
+300 2.32 0.134 0.262 yes contact (Run #2 original) 
+
+600 3.25 0.144 0.263 no near-contact creep 
+
+1000 1.74 0.130 0.264 no creep band 
+
+3000 2.13 0.070 0.270 no no contact, free-fall arrest 
+
+# O 1D split-segment Poisson coupling in detail 
+
+This appendix expands the 1D summary of Section 3. We split Ω = (0 , 1) at x = L, give (0 , L ) to a P1 FEM solver and (L, 1) to an MLP PINN with hard right-Dirichlet ansatz uP(x) = (1 − x)Nθ (x). With manufactured 
+
+u⋆(x) = sin (2 πx )e−2x and an L-sweep densified near the spectral crossover L = 0 .5, the empirical DN rate matches the theory line σF/σ P = (1 − L)/L to within 2% on 7 of 11 sweep points (within 7% on 8), recovering the divergence sign at all 11 (Figure 21a). At L = 0 .3 (α⋆ ≈ 2.18 ), DN diverges within four iterations while RN stays bounded and contracts to the inner-PINN noise floor. The accompanying coupling energy makes the mechanism of Theorem 3 visible (Figure 21b): the DN energy grows ∼30 × over four iterations, whereas the RN energy drops ∼40% and then plateaus. 
+
+# P Inner-PINN (natural-orientation) results in detail 
+
+Section 3.1 reports the headline natural-orientation numbers (FEM on the annulus, PINN on the inner disc); this appendix collects the full diagnostics. The orientation isolates the PINN as the bounded subdomain (the disc), where the continuum Steklov picture σP(k) = k/R holds exactly. Table 10 summarises E5. The Steklov spectra are σF ∈ [0 .257 , 3.768] (annulus FEM) and |σP| ∈ [0 , 67 .4] (disc PINN; the basis-vector probe gives a noisier, larger |σP|max than the Fourier probe). The textbook α⋆ = pσmin F |σP|max = 4 .16 ; the cleaned (baseline-subtracted) SN has |σP|max ≈ 8.05 , giving α⋆ = 1 .44 . A numerical α-search (E10) recovers the iteration optimum at α = 10 .31 with empirical rate 0.668 ; the same sweep measures rate 0.752 at its 
+
+α = 1 .41 grid point, so the cleaned-spectrum default 1.44 is also a serviceable operating point, and the choice 35 Figure 19: E13(e) box-size sweep at β = 4 h, refine = 300 . The pre-impact Fy peak drops from 1.30 (W = 1 )to 0.80 (W = 2 ) to 0.63 (W = 4 ), i.e. +121% → +35% → +8% above Π = 0 .589 . At W = 4 the slip-side overshoot is essentially gone, isolating it as primarily a global Stokes-circulation artefact of the confined box. of probe moves the operating point within the broad bowl rather than in or out of the contractive band. 
+
+## P.1 E5: full DN-vs-RN diagnosis 
+
+Figure 22 contrasts the two schemes on the natural orientation: the empirical DN trace-error rate matching the FEM–FEM analogue (left) and the RN field-error contraction at α⋆ = 4 .16 against the geometric DN divergence (right). 
+
+## P.2 E10: numerical α-search 
+
+Figure 23 shows the numerical α-bowl for this orientation; the broad minimum sits at α = 10 .31 , shifted from the closed-form α⋆ = 4 .16 because the discrete eigenbases do not exactly coincide. 
+
+## P.3 E7: co-training variant 
+
+Figure 24 reports the co-training variant of Theorem 3, in which the PINN takes a few gradient steps per outer iteration rather than solving to convergence: the trace error contracts (left) while the composite coupling energy stays bounded (right), as the theorem predicts. 
+
+## P.4 E26: head-to-head with the Schwarz PINN–FOM coupling of Snyder et al. 
+
+The closest prior PINN–FEM coupling is the Schwarz alternating method of Snyder et al. [38] : a multiplicative 
+
+overlapping Schwarz iteration exchanging Dirichlet data at the two Schwarz boundaries, the PINN’s trans-mission condition imposed weakly through the loss (their WDBC variant, the one they use for PINN–FOM 36 (a) Fy (t) (top) and disc trajectory (bottom) for each refinement budget, coarse-∆t E13(e) reference in orange.          
+
+> (b) Peak Fyvs. inner budget (log-x):
+> 2.32 →3.25 →1.74 →2.13 ,non-monotone, not on an asymptote.
+
+Figure 20: Convergence failure of the contact-window signature. At refine = 3000 the disc never enters the adaptive-∆t region; the squeeze-film picture vanishes. We treat the contact-window signature as a PINN inner-solve artefact. Table 10: 2D Poisson (natural orientation, E5): post unit-conversion PINN–FEM iteration rates match the FEM–FEM baseline (E8); RN at α⋆ contracts as Theorem 2 predicts. The two RN columns are reported at different impedances, each at its own optimum, since the PINN-side spectrum differs from the all-FE spectrum.                             
+
+> Metric PINN–FEM (E5) FEM–FEM ref. (E8) DN empirical rate 1.442 (geometric) 1.452
+> RN rate at own α⋆0.78 (α= 4 .16 )0.92 (α= 0 .61 )RN field error, k= 1 →10 0.025 →3×10 −35.4×10 −3→2.1×10 −3
+> Numerical α-bowl min (E10) α= 10 .31 , rate 0.668 α= 0 .61
+
+coupling, where they report the enforcement variant matters little), and the subdomain network retrained at every Schwarz iteration. We implement the scheme faithfully on the natural-orientation testbed and run it head-to-head against DN and RN under fully matched conditions: the identical global problem and manufactured solution, identical network (width 64 , depth 5), identical inner budget ( 1500 Adam steps per outer iteration, identical collocation count and weak-BC weight, so the per-outer-iteration cost is the same by construction, 8–10 s for every scheme), the same perturbed initial trace λ⋆ + 0 .3 N (0 , I ) at each scheme’s own interface, cold network initialisation warm-started across outer iterations, and no manufactured-flux warm start anywhere (RN starts from g0 = 0 ). The FE subdomain is the square minus a disc of radius r1 and the PINN disc has radius r2, so the Schwarz boundaries are Σ1 (the FE inner boundary, which receives the PINN trace) and Σ2 (the PINN disc edge, which receives the FE values), with overlap δ = r2 − r1 ∈ { 0.05 , 0.10 };DN/RN use the sharp split at r = 0 .25 . Their published experiments are 1D advection–diffusion boundary layers, so this benchmark transplants their algorithm to our geometry rather than reproducing their results. Three seeds; the error is the relative trace error at the scheme’s own interface against the manufactured solution. The result (Table 11, Figure 25) is informative in both directions. (i) With a generous overlap the Schwarz iteration is fast. At δ = 0 .10 (40% of the disc radius) it reaches 2 × 10 −2 in a median of two outer iterations and 10 −2 in three, against thirteen and seventeen for RN at α⋆; classical Schwarz theory, with its contraction rate improving with overlap, predicts exactly this advantage, and the counts are consistent 37 (a) DN rate matches σF/ |σP| = (1 − L)/L within 2% on              
+
+> 7/11 points; the divergence sign is recovered on all 11 .
+> (b) At L= 0 .3(left axis, symlog): the RN interface trace λksettles onto λ⋆, while the DN trace oscillates and diverges away from it. The coupling energy Ek(right axis, log) grows ∼30 ×under DN and descends to a plateau under RN, as Theorem 3 predicts.
+
+Figure 21: 1D Poisson PINN–FEM coupling: theory match (a) and the RN cure with its energy signature (b). Notation follows the text: σF, σ P are the FEM/PINN Steklov eigenvalues and λk the interface trace at outer iteration k.with the ∼10 -iteration PINN–FOM convergence reported by Snyder et al. [38] . (ii) The speed is bought with overlap and robustness. At δ = 0 .05 the same scheme is seed-fragile (one of three seeds reaches 10 −2;one never reaches 2 × 10 −2) and non-monotone: on most seeds the error drifts back up from its minimum under continued warm-started retraining (median 1.3 × 10 −2 at the minimum vs. 3.7 × 10 −2 at k = 25 ), the warm-start mechanism quantified in Appendix K. RN contracts monotonically on every seed, reaches the lowest floor of any scheme ( 1.7–2.5 × 10 −3), and requires no overlap. The latter is a requirement, not a preference, in the FSI application of Section 4: the subdomains meet at a sharp physical fluid–solid interface that cannot overlap, and the Dirichlet–Dirichlet Schwarz iteration converges only for a non-empty overlap (as Snyder et al. [38] note), so the transmission-condition (DN/RN) family is the one available there. (iii) A protocol note in favour of the sweep-free default. Under this cold-start benchmark the closed-form α⋆ = 4 .16 
+
+outperforms the E10-searched α = 10 .31 (whose sweep used the warm-started protocol of Appendix P.2): the α-bowl is broad and its empirical minimum protocol-dependent, which strengthens the case for the closed-form default. 
+
+# Q FSI solver figures and FEM–FEM reference meshes 
+
+This appendix collects the structural figures for the FSI application of Section 4. Figure 26 details the three configurations of the moving fluid topology near contact, Figure 27 gives the PINN-Stokes network architecture (the block-level view of the partitioned solver that implements Algorithm 3 is Figure 1 in the introduction), and Figure 28 the FE meshes used both for the E8 Poisson FEM–FEM reference and, with the FSI-aligned role assignment, for the E9-FEMFEM Steklov benchmark. 38 (a) Empirical DN rate 1.442 matches the FEM–FEM ana-logue (E8) rate 1.452 to within 0.7% .
+
+(b) RN at α⋆ = 4 .16 contracts the field error 0.025 →
+
+3×10 −3 in 10 iterations; DN diverges geometrically. 
+
+Figure 22: Natural orientation (E5): DN vs. RN trace-error rate and field-error contrast. Table 11: E26 head-to-head at matched budget (median over three seeds; “–” = tolerance not reached within 
+
+Kout = 25 , with the per-seed success count in parentheses where it is not 3/3). Schwarz converges fast with a generous overlap but is seed-fragile at the small one and non-monotone (its error drifts back up from the minimum under continued warm-started retraining); RN at the closed-form α⋆ is monotone on every seed (final = min) and reaches the lowest floor. 
+
+scheme iters → 2×10 −2 iters → 10 −2 min err err at k=25 
+
+Schwarz WDBC, δ=0 .05 11 (2/3) – ( 1/3) 1.3×10 −2 3.7×10 −2
+
+Schwarz WDBC, δ=0 .10 2 3 2.4×10 −3 7.1×10 −3
+
+RN ( α⋆=4 .16 , closed form) 13 17 1.8×10 −3 1.8×10 −3
+
+RN ( α=10 .31 , E10 search) 18 22 (2/3) 7.6×10 −3 7.8×10 −3
+
+DN diverges on all seeds 
+
+# R Additional E12 free-fall diagnostics 
+
+These two figures expand the free-fall (E12) result of Section 4.3. Figure 29 shows the trajectory and the buoyancy-level Fy plateau before warm-start drift sets in, and Figure 30 the quantitative Newton drag-balance fit that places the disc in the confined sub-terminal regime. 
+
+# S Reproducibility 
+
+The complete implementation is a single pip-installable Python package (Python 3.14, PyTorch 2.11, scikit-fem 12.0, numpy 2.4); the code, together with the cached artefact behind every figure, will be released publicly alongside the published version of this paper. All experiments are deterministic given the seeds set at the top of each driver. The full 1D + 2D Poisson sweep reproduces in ∼30 minutes on a 4-thread CPU; the full FSI sweep (E11–E13f) in ∼90 minutes. The heavier HPC batteries (the E21 drift-remedy, E22 inner-solve-floor, E23 random-feature, and E24 gradient-descent scale-up sweeps) were run on a single compute node with four NVIDIA H100 accelerators and an InfiniBand interconnect, under a TOSS 4 image and the Slurm scheduler; the headline 1D/2D Poisson, static-Stokes, free-fall, and static-equilibrium contact results, the E25 training-budget floor sweep, and the E26 Schwarz head-to-head all reproduce on the laptop CPU. 
+
+# T Glossary 
+
+39 Figure 23: E10 numerical α-search on the inner-PINN orientation ( 9-point sweep over [0 .1, 20] , Kout = 10 ,
+
+Tin = 1500 ); minimum at α = 10 .31 , rate 0.668 . The bowl is broad and the optimum is shifted ∼2.5× from the closed-form α⋆ = 4 .16 , consistent with the operator-norm bound of Appendix D being loose when the discrete eigenbases do not coincide.             
+
+> (a) Trace error 3.06 →2.23 ×10 −2in Kout = 2000 co-training steps at α=α⋆.
+> (b) Composite energy stays bounded around 2.22 and does not grow, in agreement with Theorem 3.
+
+Figure 24: Inner-PINN co-training (E7) at α ∈ { α⋆, 0.3α⋆}, 5 PINN-side Adam steps per outer iteration, the regime where the leading − α 
+
+> 2
+
+(1 − ρ2) ek 2 term of Appendix D.3 dominates the O(η) remainder. 40 Figure 25: E26 head-to-head at matched budget: relative trace error per outer iteration (median over three seeds, band = min–max; dotted lines at the two tolerances of Table 11). The δ = 0 .10 Schwarz iteration plunges within 2–3 iterations but plateaus above the RN floor and oscillates; the δ = 0 .05 variant stalls at 
+
+∼3 × 10 −2; RN at the closed-form α⋆ descends monotonically through both tolerances to the lowest floor; DN diverges. ( a) y c = 0.6 ( b) y c = R + δ ( c ) contact: strip excluded 
+
+Figure 26: Three configurations of the moving fluid domain Ωf (t). (a) free fall, yc = 0 .6: collocation points fill Ω+ \ B. (b) approach, yc = R + δ with δ ∼ εg . (c) contact, yc = R + εg : the strip {y < ε g } is excluded from the collocation set (shaded). The PINN never sees a degenerate gap because the sampler simply stops drawing points there; no cut-cell or remeshing operation is required. 41 input hidden 1 hidden 2 hidden 3 hidden 4 output yxpvu            
+
+> Losses driving training:
+> -Stokes momentum residual
+> -incompressibility (div u =0)-Dirichlet /Robin trace on the interface
+> -Navier -slip on the bottom wall
+
+Figure 27: Architecture of the PINN-Stokes network of Section 4: a fully-connected MLP with inputs (x, y ),four hidden Tanh layers of width 32 , and outputs (u, v, p ). The losses combine the Stokes residual, the divergence-free constraint, the no-slip Dirichlet walls, the Robin condition on Σ, and the Navier-slip condition on Σp.42 Figure 28: FEM–FEM reference meshes used in E8 (Poisson, natural orientation) and, with the FSI-aligned role assignment, in E9-FEMFEM. Annulus and disc FE meshes share the same niface = 32 interface vertices on Σ. The disc FE mesh is the one used by the rigid-solid side of the FSI experiments; the annulus FE mesh serves only as the FEM–FEM Steklov reference and is replaced by the PINN’s mesh-free collocation in every live FSI run. 
+
+Figure 29: E12 free-fall: Fy matches the buoyancy level ρf πR 2g = 0 .196 through t ≈ 0.25 (drag-balanced fall), then warm-start drift breaks the iteration. The Newton-balance fit m¨yc + Π = c| ˙yc| on t ∈ [0 .04 , 0.25] 
+
+gives effective drag c ≈ 0.32 , consistent with a confined sub-terminal disc. 43 Figure 30: Quantitative drag-balance diagnostic. Left: Fy plateaus at the buoyancy level 0.196 in the fit window [0 .04 , 0.25] . Right: Newton balance m¨yc + Π vs. | ˙yc|; origin and free fits give c ∈ [0 .19 , 0.32] with near-zero intercept. The implied terminal velocity Π/c ≈ 1.0 is well beyond the observed maximum | ˙yc| = 0 .12 ,so the disc is sub-terminal throughout E12. 
+
+Symbol Meaning 
+
+ΩF, ΩP FEM subdomain, PINN subdomain 
+
+Σ shared interface ΩF ∩ ΩP
+
+SF, SP Steklov–Poincaré operators on the two subdomains 
+
+σF, σ P eigenvalues of SF, S P
+
+α⋆ spectrally-derived Robin impedance, pσmin F σmax P
+
+TDN , T RN DN and RN trace-error iteration maps 
+
+bSP, EP realised (perturbed) PINN Steklov operator, bSP = SP + EP
+
+εP per-step PINN approximation-plus-optimisation error (Theorem 4) 
+
+bTRN , bρ realised RN iteration operator and its norm 
+
+LP achieved PINN training loss (controls the floor, Remark 1) 
+
+Tin , Kout inner training budget per outer iteration, outer-iteration budget 
+
+MΣ interface mass matrix (pointwise flux conversion) 
+
+gint , gpw integrated FE reaction and its pointwise conversion gpw = M −1Σ gint 
+
+Ma added-mass number, σF(q1)/σ P(q1)
+
+AL augmented Lagrangian (contact projector) 
+
+εg relaxed gap parameter in AL 
+
+γc AL penalty stiffness 
+
+ω RN under-relaxation 
+
+ωAL AL over-relaxation 
+
+β Navier-slip length on Σp
+
+Π submerged weight, (ρs − ρf )πR 2g
+
+44

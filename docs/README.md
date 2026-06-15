@@ -6,67 +6,60 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-14
-- 运行时间：2026-06-14 20:21:43 UTC
+- 最新运行日期：2026-06-15
+- 运行时间：2026-06-15 22:17:04 UTC
 - 运行状态：成功
-- 本次总论文数：15
+- 本次总论文数：12
 - 精读区：6
-- 速读区：9
+- 速读区：6
 
 ### 今日简报（AI）
-今日精读两篇高分物理信息神经网络（PINNs）论文，速读方程发现与智能体技能优化等方向。  
-最值得关注的是PINNs在化疗药代动力学临床基准测试与狄拉克Delta源PDE求解中的性能评估，揭示了参数可辨识性等关键局限。  
-建议普通读者重点关注PINNs在实际医疗及含奇异源问题中的可靠性边界，以判断其落地潜力。
-- 详情：[/202606/14/README](/202606/14/README)
+今日精读12篇论文，重点聚焦自主科学发现与数值分析形式化的高分研究。
+
+重点关注《EurekAgent: Agent Environment Engineering is All You Need For Autonomous Scientific Discovery》与《Formalizing Numerical Analysis: An Agent Pipeline and Quality Audit Beyond Kernel Acceptance》两篇9.0分工作，分别提出智能体驱动科学发现与形式化数值分析新范式。
+
+建议优先精读9.0分论文，速读《ProPlay: Procedural World Models for Self-Evolving LLM Agents》可拓展程序化世界模型方向。
+- 详情：[/202606/15/README](/202606/15/README)
 
 ### 精读区论文标签
-1. [Physics-Informed Neural Networks for Chemotherapy Pharmacokinetics: Benchmarking the Clinical Estimator and Exposing Parameter Identifiability](/202606/14/2606.12658v1-physics-informed-neural-networks-for-chemotherapy-pharmacokinetics-benchmarking-the-clinical-estimator-and-exposing-parameter-identifiability)  
+1. [EurekAgent: Agent Environment Engineering is All You Need For Autonomous Scientific Discovery](/202606/15/2606.13662v2-eurekagent-agent-environment-engineering-is-all-you-need-for-autonomous-scientific-discovery)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：物理信息神经网络应用于化疗药代动力学，是PINNs在基于偏微分方程的生物医学问题中的直接应用
-2. [Physics-Informed Neural Networks and Radial Basis Functions for PDEs with Dirac Delta Sources](/202606/14/2606.12735v1-physics-informed-neural-networks-and-radial-basis-functions-for-pdes-with-dirac-delta-sources)  
+   evidence：基于LLM的智能体环境工程实现自动科学发现
+2. [Formalizing Numerical Analysis: An Agent Pipeline and Quality Audit Beyond Kernel Acceptance](/202606/15/2606.14000v1-formalizing-numerical-analysis-an-agent-pipeline-and-quality-audit-beyond-kernel-acceptance)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：PINNs求解含有狄拉克δ源的偏微分方程
-3. [Data-driven discovery of governing differential equations across physical systems](/202606/14/2606.09638v1-data-driven-discovery-of-governing-differential-equations-across-physical-systems)  
+   evidence：智能体形式化常微分方程数值方法，展示自动算法发现
+3. [Robin-Neumann Coupling of PINN and FEM Solvers: A Steklov-Poincaré View, with Application to Fluid-Structure Interaction with Contact](/202606/15/2606.14181v1-robin-neumann-coupling-of-pinn-and-fem-solvers-a-steklov-poincar-view-with-application-to-fluid-structure-interaction-with-contact)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：PINN-FEM耦合的严格理论分析用于流固耦合偏微分方程
+4. [Large Language Model Based Agent for Automated Discovery in Computational Physics](/202606/15/2606.14266v1-large-language-model-based-agent-for-automated-discovery-in-computational-physics)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：基于大语言模型的自主智能体PhyNex，用于计算物理中的自动化发现并遵循物理约束
+5. [SkillCAT: Contrastive Assessment and Topology-Aware Skill Self-Evolution for LLM Agents](/202606/15/2606.13317v1-skillcat-contrastive-assessment-and-topology-aware-skill-self-evolution-for-llm-agents)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：全面综述数据驱动发现微分方程的方法，涵盖AI方法，直接对应AI求解偏微分方程的最新进展
-4. [Boundary-Layer-Induced Failure of Standard Physics-Informed Neural Networks: A Legendre Wavelet Collocation Benchmark for Singularly Perturbed Transport Problems](/202606/14/2606.09676v1-boundary-layer-induced-failure-of-standard-physics-informed-neural-networks-a-legendre-wavelet-collocation-benchmark-for-singularly-perturbed-transport-problems)  
+   evidence：对比技能提取与拓扑感知技能自进化框架
+6. [Zero-shot generalization of transformer neural operators to larger domains](/202606/15/2606.14597v1-zero-shot-generalization-of-transformer-neural-operators-to-larger-domains)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：物理信息神经网络在输运PDE边界层问题中的失效分析
-5. [Accelerating SAV-based optimization via randomized low-rank Hessian approximation](/202606/14/2606.10562v1-accelerating-sav-based-optimization-via-randomized-low-rank-hessian-approximation)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：针对PINN病态问题的优化方法
-6. [Extracting Governing Equations from Latent Dynamics via Multi-View Contrastive Learning](/202606/14/2606.13260v1-extracting-governing-equations-from-latent-dynamics-via-multi-view-contrastive-learning)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：基于多视图对比学习从潜在动力系统中提取控制方程，实现符号偏微分方程的自动发现
+   evidence：神经算子求解偏微分方程，零样本域泛化
 
 ### 速读区论文标签
-1. [Data-Driven Equation Discovery for Nonlinear Liquid Film Flows](/202606/14/2606.13336v1-data-driven-equation-discovery-for-nonlinear-liquid-film-flows)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：非线性PDE系统的数据驱动方程发现
-2. [ERBench: A Benchmark and Testsuite for Equation Discovery Algorithms](/202606/14/2606.09276v1-erbench-a-benchmark-and-testsuite-for-equation-discovery-algorithms)  
+1. [ProPlay: Procedural World Models for Self-Evolving LLM Agents](/202606/15/2606.12780v1-proplay-procedural-world-models-for-self-evolving-llm-agents)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：方程发现算法基准测试，直接相关于自动化发现数值算法
-3. [SkillAxe: Sharpening LLM-Authored Agent Skills Through Evaluation-Guided Self-Refinement](/202606/14/2606.10546v2-skillaxe-sharpening-llm-authored-agent-skills-through-evaluation-guided-self-refinement)  
+   evidence：自进化LLM智能体的程序化世界模型与技能获取
+2. [MeEvo: Metacognitive Evolution Combined with Natural Evolution for Automatic Heuristic Design](/202606/15/2606.14202v1-meevo-metacognitive-evolution-combined-with-natural-evolution-for-automatic-heuristic-design)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：针对LLM代理技能的改进
-4. [Fantastic Scientific Agents and How to Build Them: AgentBuild for Rietveld Refinement](/202606/14/2606.12834v1-fantastic-scientific-agents-and-how-to-build-them-agentbuild-for-rietveld-refinement)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：提出AgentBuild框架从合约构建科学智能体，并应用于Rietveld精修
-5. [EurekAgent: Agent Environment Engineering is All You Need For Autonomous Scientific Discovery](/202606/14/2606.13662v1-eurekagent-agent-environment-engineering-is-all-you-need-for-autonomous-scientific-discovery)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：用于LLM自主科学发现的智能体环境工程
-6. [Artificial Intelligence for Mathematical Reasoning: An Integrated Survey of Language Models, Neuro-symbolic Systems, and Verified Discovery](/202606/14/2606.08728v1-artificial-intelligence-for-mathematical-reasoning-an-integrated-survey-of-language-models-neuro-symbolic-systems-and-verified-discovery)  
+   evidence：基于LLM的自动启发式设计，结合元认知和自然进化
+3. [A constrained symbolic regression approach for Lyapunov function discovery](/202606/15/2606.10045v1-a-constrained-symbolic-regression-approach-for-lyapunov-function-discovery)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：全面综述语言模型、神经符号系统和验证发现用于数学推理，与大型语言模型在数学物理中的应用相关
-7. [Decentralized Multi-Agent Systems with Shared Context](/202606/14/2606.10662v1-decentralized-multi-agent-systems-with-shared-context)  
+   evidence：约束符号回归方法发现Lyapunov函数
+4. [Effective Reinforcement Learning for Agentic Search by Recycling Zero-Variance Queries During Training](/202606/15/2606.10709v1-effective-reinforcement-learning-for-agentic-search-by-recycling-zero-variance-queries-during-training)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：去中心化多智能体系统共享上下文，与基于多智能体系统的偏微分方程发现和求解相关
-8. [Role-Agent: Bootstrapping LLM Agents via Dual-Role Evolution](/202606/14/2606.10917v1-role-agent-bootstrapping-llm-agents-via-dual-role-evolution)  
+   evidence：训练LLM搜索智能体的强化学习方法，含查询回收
+5. [A Three-Layer Framework for AI in Scientific Discovery](/202606/15/2606.13566v1-a-three-layer-framework-for-ai-in-scientific-discovery)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：基于双角色进化的LLM智能体框架，与面向自动化科学发现的AI智能体框架相关
-9. [APPO: Agentic Procedural Policy Optimization](/202606/14/2606.12384v1-appo-agentic-procedural-policy-optimization)  
+   evidence：AI驱动科学发现框架，包含LLM搜索和模型形成
+6. [HarnessX: A Composable, Adaptive, and Evolvable Agent Harness Foundry](/202606/15/2606.14249v1-harnessx-a-composable-adaptive-and-evolvable-agent-harness-foundry)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：面向LLM智能体的过程性策略优化，提升智能体工具使用能力，与科学计算中智能体技能相关
+   evidence：可组合智能体框架，可适应科学计算任务
 
 
 <div class="dpr-home-promo-card">
