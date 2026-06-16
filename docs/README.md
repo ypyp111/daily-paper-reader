@@ -6,60 +6,65 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-15
-- 运行时间：2026-06-15 22:17:04 UTC
+- 最新运行日期：2026-06-16
+- 运行时间：2026-06-16 21:44:59 UTC
 - 运行状态：成功
-- 本次总论文数：12
-- 精读区：6
-- 速读区：6
+- 本次总论文数：15
+- 精读区：4
+- 速读区：11
 
 ### 今日简报（AI）
-今日精读12篇论文，重点聚焦自主科学发现与数值分析形式化的高分研究。
-
-重点关注《EurekAgent: Agent Environment Engineering is All You Need For Autonomous Scientific Discovery》与《Formalizing Numerical Analysis: An Agent Pipeline and Quality Audit Beyond Kernel Acceptance》两篇9.0分工作，分别提出智能体驱动科学发现与形式化数值分析新范式。
-
-建议优先精读9.0分论文，速读《ProPlay: Procedural World Models for Self-Evolving LLM Agents》可拓展程序化世界模型方向。
-- 详情：[/202606/15/README](/202606/15/README)
+今日共推荐15篇论文，精读2篇高分工作，聚焦物理信息神经网络与科学计算。最值得关注的是《Physics-conforming Latent Twins》(9.0)与《Petrov-Galerkin Variational PINN Framework》(9.0)，分别提出潜在双胞胎模型和变分框架解决奇异摄动问题。建议优先精读这两篇高分论文，并关注科学AI智能体基准测试及元认知进化算法等速读方向。
+- 详情：[/202606/16/README](/202606/16/README)
 
 ### 精读区论文标签
-1. [EurekAgent: Agent Environment Engineering is All You Need For Autonomous Scientific Discovery](/202606/15/2606.13662v2-eurekagent-agent-environment-engineering-is-all-you-need-for-autonomous-scientific-discovery)  
+1. [Physics-conforming Latent Twins](/202606/16/2606.15053v1-physics-conforming-latent-twins)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：基于LLM的智能体环境工程实现自动科学发现
-2. [Formalizing Numerical Analysis: An Agent Pipeline and Quality Audit Beyond Kernel Acceptance](/202606/15/2606.14000v1-formalizing-numerical-analysis-an-agent-pipeline-and-quality-audit-beyond-kernel-acceptance)  
+   evidence：物理约束的潜代理算子用于偏微分方程
+2. [Petrov-Galerkin Variational Physics-Informed Neural Network Framework for Two-Dimensional Singularly Perturbed Problems](/202606/16/2606.16510v1-petrov-galerkin-variational-physics-informed-neural-network-framework-for-two-dimensional-singularly-perturbed-problems)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：智能体形式化常微分方程数值方法，展示自动算法发现
-3. [Robin-Neumann Coupling of PINN and FEM Solvers: A Steklov-Poincaré View, with Application to Fluid-Structure Interaction with Contact](/202606/15/2606.14181v1-robin-neumann-coupling-of-pinn-and-fem-solvers-a-steklov-poincar-view-with-application-to-fluid-structure-interaction-with-contact)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：PINN-FEM耦合的严格理论分析用于流固耦合偏微分方程
-4. [Large Language Model Based Agent for Automated Discovery in Computational Physics](/202606/15/2606.14266v1-large-language-model-based-agent-for-automated-discovery-in-computational-physics)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：基于大语言模型的自主智能体PhyNex，用于计算物理中的自动化发现并遵循物理约束
-5. [SkillCAT: Contrastive Assessment and Topology-Aware Skill Self-Evolution for LLM Agents](/202606/15/2606.13317v1-skillcat-contrastive-assessment-and-topology-aware-skill-self-evolution-for-llm-agents)  
+   evidence：使用Petrov-Galerkin变分物理信息神经网络求解奇异摄动问题
+3. [Structure-Informed Neural Operators for Long-Time Prediction of Parametric Hamiltonian PDEs](/202606/16/2606.14913v1-structure-informed-neural-operators-for-long-time-prediction-of-parametric-hamiltonian-pdes)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：对比技能提取与拓扑感知技能自进化框架
-6. [Zero-shot generalization of transformer neural operators to larger domains](/202606/15/2606.14597v1-zero-shot-generalization-of-transformer-neural-operators-to-larger-domains)  
+   evidence：带不变性投影的哈密顿PDE神经算子
+4. [Separable Neural Architectures as Physical World Models: from Mathematical Theory to Applications](/202606/16/2606.14934v1-separable-neural-architectures-as-physical-world-models-from-mathematical-theory-to-applications)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：神经算子求解偏微分方程，零样本域泛化
+   evidence：提出了可分离神经架构（SNA）并结合变分框架用于求解PDE，提供了理论保证并缓解了维数灾难。
 
 ### 速读区论文标签
-1. [ProPlay: Procedural World Models for Self-Evolving LLM Agents](/202606/15/2606.12780v1-proplay-procedural-world-models-for-self-evolving-llm-agents)  
+1. [Benchmarking AI Agents for Addressing Scientific Challenges Across Scales](/202606/16/2606.12736v1-benchmarking-ai-agents-for-addressing-scientific-challenges-across-scales)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：自进化LLM智能体的程序化世界模型与技能获取
-2. [MeEvo: Metacognitive Evolution Combined with Natural Evolution for Automatic Heuristic Design](/202606/15/2606.14202v1-meevo-metacognitive-evolution-combined-with-natural-evolution-for-automatic-heuristic-design)  
+   evidence：科学发现中AI智能体的基准测试
+2. [MeEvo: Metacognitive Evolution Combined with Natural Evolution for Automatic Heuristic Design](/202606/16/2606.14202v2-meevo-metacognitive-evolution-combined-with-natural-evolution-for-automatic-heuristic-design)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：基于LLM的自动启发式设计，结合元认知和自然进化
-3. [A constrained symbolic regression approach for Lyapunov function discovery](/202606/15/2606.10045v1-a-constrained-symbolic-regression-approach-for-lyapunov-function-discovery)  
+   evidence：提出了MeEvo，结合元认知进化与自然进化，利用LLM自动设计启发式算法，与自动化算法发现相关。
+3. [Measuring qualitative change: A variational score for tracking dynamical shifts in partial differential equations](/202606/16/2606.14430v1-measuring-qualitative-change-a-variational-score-for-tracking-dynamical-shifts-in-partial-differential-equations)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：用于PDE模型探索的变分分数
+4. [Bayesian Variational System Identification with Weak-Form Residual Likelihoods](/202606/16/2606.14942v1-bayesian-variational-system-identification-with-weak-form-residual-likelihoods)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：基于弱形式残差的贝叶斯PDE发现
+5. [Liquid Random Feature Methods for Time-Dependent Partial Differential Equations](/202606/16/2606.15571v1-liquid-random-feature-methods-for-time-dependent-partial-differential-equations)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：用于时间依赖PDE的随机特征方法
+6. [InquiTree: Evaluating AI Agents in the Scientific Inquiry Loop with Paper-Derived Research Trees](/202606/16/2606.09550v1-inquitree-evaluating-ai-agents-in-the-scientific-inquiry-loop-with-paper-derived-research-trees)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：约束符号回归方法发现Lyapunov函数
-4. [Effective Reinforcement Learning for Agentic Search by Recycling Zero-Variance Queries During Training](/202606/15/2606.10709v1-effective-reinforcement-learning-for-agentic-search-by-recycling-zero-variance-queries-during-training)  
+   evidence：用研究树评估科学探究中的LLM智能体
+7. [Towards Diverse Scientific Hypothesis Search with Large Language Models](/202606/16/2606.10587v1-towards-diverse-scientific-hypothesis-search-with-large-language-models)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：训练LLM搜索智能体的强化学习方法，含查询回收
-5. [A Three-Layer Framework for AI in Scientific Discovery](/202606/15/2606.13566v1-a-three-layer-framework-for-ai-in-scientific-discovery)  
+   evidence：大语言模型用于多样化科学假设搜索
+8. [Evoflux: Inference-Time Evolution of Executable Tool Workflows for Compact Agents](/202606/16/2606.12674v1-evoflux-inference-time-evolution-of-executable-tool-workflows-for-compact-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：AI驱动科学发现框架，包含LLM搜索和模型形成
-6. [HarnessX: A Composable, Adaptive, and Evolvable Agent Harness Foundry](/202606/15/2606.14249v1-harnessx-a-composable-adaptive-and-evolvable-agent-harness-foundry)  
+   evidence：紧凑智能体的工具工作流进化
+9. [Agents-K1: Towards Agent-native Knowledge Orchestration](/202606/16/2606.13669v1-agents-k1-towards-agent-native-knowledge-orchestration)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：可组合智能体框架，可适应科学计算任务
+   evidence：科学智能体的知识编排，与用于科学发现的LLM智能体相关
+10. [CacheRL:Multi-Turn Tool-Calling Agents via Cached Rollouts and Hybrid Reward](/202606/16/2606.14179v1-cacherlmulti-turn-tool-calling-agents-via-cached-rollouts-and-hybrid-reward)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：通过缓存回放训练小模型进行工具调用
+11. [SciOrch: Learning to Orchestrate Expert LLMs for Solving Frontier Multimodal Scientific Reasoning Tasks](/202606/16/2606.15872v1-sciorch-learning-to-orchestrate-expert-llms-for-solving-frontier-multimodal-scientific-reasoning-tasks)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：LLM编排用于科学推理，可应用于PDE分析
 
 
 <div class="dpr-home-promo-card">
