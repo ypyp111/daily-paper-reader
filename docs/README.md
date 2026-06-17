@@ -6,65 +6,59 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-16
-- 运行时间：2026-06-16 21:44:59 UTC
+- 最新运行日期：2026-06-17
+- 运行时间：2026-06-17 22:19:06 UTC
 - 运行状态：成功
-- 本次总论文数：15
-- 精读区：4
-- 速读区：11
+- 本次总论文数：13
+- 精读区：6
+- 速读区：7
 
 ### 今日简报（AI）
-今日共推荐15篇论文，精读2篇高分工作，聚焦物理信息神经网络与科学计算。最值得关注的是《Physics-conforming Latent Twins》(9.0)与《Petrov-Galerkin Variational PINN Framework》(9.0)，分别提出潜在双胞胎模型和变分框架解决奇异摄动问题。建议优先精读这两篇高分论文，并关注科学AI智能体基准测试及元认知进化算法等速读方向。
-- 详情：[/202606/16/README](/202606/16/README)
+今日共推荐13篇论文，精读6篇，其中两篇高分工作聚焦多材料域变分PINN和流行病模型Koopman-PINN框架。最值得关注的是INI-VPINN（10/10）实现了几何奇异区域隐式边界处理，以及Koopman-PINN（9/10）提升了流行病参数推理精度。普通读者可优先精读这两篇，后续关注PINN与变分/算子理论的交叉应用。
+- 详情：[/202606/17/README](/202606/17/README)
 
 ### 精读区论文标签
-1. [Physics-conforming Latent Twins](/202606/16/2606.15053v1-physics-conforming-latent-twins)  
+1. [INI-VPINN: A Variational Physics-Informed Neural Network with Implicit Neumann and Interface Handling for Multi-Material Domains with Geometric Singularities](/202606/17/2606.18032v1-ini-vpinn-a-variational-physics-informed-neural-network-with-implicit-neumann-and-interface-handling-for-multi-material-domains-with-geometric-singularities)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：隐式处理纽曼边界和界面的变分PINN方法
+2. [A Koopman-PINN Framework for Epidemic Models: Parameter Inference and Forecasting](/202606/17/2606.15201v1-a-koopman-pinn-framework-for-epidemic-models-parameter-inference-and-forecasting)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：物理约束的潜代理算子用于偏微分方程
-2. [Petrov-Galerkin Variational Physics-Informed Neural Network Framework for Two-Dimensional Singularly Perturbed Problems](/202606/16/2606.16510v1-petrov-galerkin-variational-physics-informed-neural-network-framework-for-two-dimensional-singularly-perturbed-problems)  
+   evidence：Koopman增强的物理信息神经网络用于基于PDE的流行病模型
+3. [Generalization Guarantees for Multi-Input Neural Operator Learning in Sobolev Spaces](/202606/17/2606.17419v1-generalization-guarantees-for-multi-input-neural-operator-learning-in-sobolev-spaces)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：使用Petrov-Galerkin变分物理信息神经网络求解奇异摄动问题
-3. [Structure-Informed Neural Operators for Long-Time Prediction of Parametric Hamiltonian PDEs](/202606/16/2606.14913v1-structure-informed-neural-operators-for-long-time-prediction-of-parametric-hamiltonian-pdes)  
+   evidence：神经算子学习理论用于偏微分方程，AI求解PDE的最新进展
+4. [Operator Boosting Produces Pareto-Efficient PDE Surrogates](/202606/17/2606.17460v1-operator-boosting-produces-pareto-efficient-pde-surrogates)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：算子提升方法用于高效的PDE代理模型
+5. [A Convex Quasilinearization Method for Solving Nonlinear PDEs with Physics-Informed Neural Networks](/202606/17/2606.18175v1-a-convex-quasilinearization-method-for-solving-nonlinear-pdes-with-physics-informed-neural-networks)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：使用物理信息神经网络求解非线性偏微分方程的凸拟线性化方法
+6. [Operator Learning for PDE Backstepping Control of Parabolic Equations on Time-Varying Domains](/202606/17/2606.17766v1-operator-learning-for-pde-backstepping-control-of-parabolic-equations-on-time-varying-domains)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：带不变性投影的哈密顿PDE神经算子
-4. [Separable Neural Architectures as Physical World Models: from Mathematical Theory to Applications](/202606/16/2606.14934v1-separable-neural-architectures-as-physical-world-models-from-mathematical-theory-to-applications)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：提出了可分离神经架构（SNA）并结合变分框架用于求解PDE，提供了理论保证并缓解了维数灾难。
+   evidence：用时变域上抛物方程的算子学习进行PDE后步控制
 
 ### 速读区论文标签
-1. [Benchmarking AI Agents for Addressing Scientific Challenges Across Scales](/202606/16/2606.12736v1-benchmarking-ai-agents-for-addressing-scientific-challenges-across-scales)  
+1. [Remember, Don't Re-read: Stateful ReAct Agents for Token-Efficient Autonomous Experimentation](/202606/17/2606.14945v1-remember-dont-re-read-stateful-react-agents-for-token-efficient-autonomous-experimentation)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：科学发现中AI智能体的基准测试
-2. [MeEvo: Metacognitive Evolution Combined with Natural Evolution for Automatic Heuristic Design](/202606/16/2606.14202v2-meevo-metacognitive-evolution-combined-with-natural-evolution-for-automatic-heuristic-design)  
+   evidence：用于科学计算中自主代码优化的有状态ReAct agent
+2. [APEX: Adaptive Principle EXtraction A Three-Layer Self-Evolution Framework for Production AI Agents](/202606/17/2606.15363v1-apex-adaptive-principle-extraction-a-three-layer-self-evolution-framework-for-production-ai-agents)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：提出了MeEvo，结合元认知进化与自然进化，利用LLM自动设计启发式算法，与自动化算法发现相关。
-3. [Measuring qualitative change: A variational score for tracking dynamical shifts in partial differential equations](/202606/16/2606.14430v1-measuring-qualitative-change-a-variational-score-for-tracking-dynamical-shifts-in-partial-differential-equations)  
+   evidence：生产级AI智能体自演化框架，提取行为原则提升智能体技能
+3. [AIChilles: Automatically Uncovering Hidden Weaknesses in AI-Evolved Systems](/202606/17/2606.15834v1-aichilles-automatically-uncovering-hidden-weaknesses-in-ai-evolved-systems)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于PDE模型探索的变分分数
-4. [Bayesian Variational System Identification with Weak-Form Residual Likelihoods](/202606/16/2606.14942v1-bayesian-variational-system-identification-with-weak-form-residual-likelihoods)  
+   evidence：自动揭示AI演化程序中隐藏的弱点，与数值算法自动发现相关
+4. [SciOrch: Learning to Orchestrate Expert LLMs for Solving Frontier Multimodal Scientific Reasoning Tasks](/202606/17/2606.15872v1-sciorch-learning-to-orchestrate-expert-llms-for-solving-frontier-multimodal-scientific-reasoning-tasks)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：基于弱形式残差的贝叶斯PDE发现
-5. [Liquid Random Feature Methods for Time-Dependent Partial Differential Equations](/202606/16/2606.15571v1-liquid-random-feature-methods-for-time-dependent-partial-differential-equations)  
+   evidence：编排大语言模型进行科学推理，可应用于数学物理
+5. [SING: Synthetic Intention Graph for Scalable Active Tool Discovery in LLM Agents](/202606/17/2606.16591v1-sing-synthetic-intention-graph-for-scalable-active-tool-discovery-in-llm-agents)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于时间依赖PDE的随机特征方法
-6. [InquiTree: Evaluating AI Agents in the Scientific Inquiry Loop with Paper-Derived Research Trees](/202606/16/2606.09550v1-inquitree-evaluating-ai-agents-in-the-scientific-inquiry-loop-with-paper-derived-research-trees)  
+   evidence：LLM智能体工具发现方法，与科学计算中的智能体技能相关
+6. [Compositional Skill Routing for LLM Agents: Decompose, Retrieve, and Compose](/202606/17/2606.18051v1-compositional-skill-routing-for-llm-agents-decompose-retrieve-and-compose)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：面向LLM智能体的组成性技能路由框架，可应用于科学计算技能组合
+7. [SING: Synthetic Intention Graph for Scalable Active Tool Discovery in LLM Agents](/202606/17/2606.16591v2-sing-synthetic-intention-graph-for-scalable-active-tool-discovery-in-llm-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用研究树评估科学探究中的LLM智能体
-7. [Towards Diverse Scientific Hypothesis Search with Large Language Models](/202606/16/2606.10587v1-towards-diverse-scientific-hypothesis-search-with-large-language-models)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：大语言模型用于多样化科学假设搜索
-8. [Evoflux: Inference-Time Evolution of Executable Tool Workflows for Compact Agents](/202606/16/2606.12674v1-evoflux-inference-time-evolution-of-executable-tool-workflows-for-compact-agents)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：紧凑智能体的工具工作流进化
-9. [Agents-K1: Towards Agent-native Knowledge Orchestration](/202606/16/2606.13669v1-agents-k1-towards-agent-native-knowledge-orchestration)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：科学智能体的知识编排，与用于科学发现的LLM智能体相关
-10. [CacheRL:Multi-Turn Tool-Calling Agents via Cached Rollouts and Hybrid Reward](/202606/16/2606.14179v1-cacherlmulti-turn-tool-calling-agents-via-cached-rollouts-and-hybrid-reward)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：通过缓存回放训练小模型进行工具调用
-11. [SciOrch: Learning to Orchestrate Expert LLMs for Solving Frontier Multimodal Scientific Reasoning Tasks](/202606/16/2606.15872v1-sciorch-learning-to-orchestrate-expert-llms-for-solving-frontier-multimodal-scientific-reasoning-tasks)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：LLM编排用于科学推理，可应用于PDE分析
+   evidence：利用合成意图图进行LLM智能体的主动工具发现，实现科学计算中的可扩展技能检索
 
 
 <div class="dpr-home-promo-card">
