@@ -6,59 +6,64 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-17
-- 运行时间：2026-06-17 22:19:06 UTC
+- 最新运行日期：2026-06-18
+- 运行时间：2026-06-18 21:03:46 UTC
 - 运行状态：成功
-- 本次总论文数：13
-- 精读区：6
-- 速读区：7
+- 本次总论文数：14
+- 精读区：4
+- 速读区：10
 
 ### 今日简报（AI）
-今日共推荐13篇论文，精读6篇，其中两篇高分工作聚焦多材料域变分PINN和流行病模型Koopman-PINN框架。最值得关注的是INI-VPINN（10/10）实现了几何奇异区域隐式边界处理，以及Koopman-PINN（9/10）提升了流行病参数推理精度。普通读者可优先精读这两篇，后续关注PINN与变分/算子理论的交叉应用。
-- 详情：[/202606/17/README](/202606/17/README)
+1) 今日共14篇论文，精读2篇（均9.0分）聚焦神经网络外推与壁面滑移流动，速读10篇涉及AI Agent可视化与评估。  
+2) 最值得关注：稳态解增强热流体系统外推能力，以及机器学习解决牛顿流动壁面滑移问题。  
+3) 建议优先阅读两篇精读论文，深入理解稳态解如何提升外推性能及ML方法处理滑移边界的仿真实例。
+- 详情：[/202606/18/README](/202606/18/README)
 
 ### 精读区论文标签
-1. [INI-VPINN: A Variational Physics-Informed Neural Network with Implicit Neumann and Interface Handling for Multi-Material Domains with Geometric Singularities](/202606/17/2606.18032v1-ini-vpinn-a-variational-physics-informed-neural-network-with-implicit-neumann-and-interface-handling-for-multi-material-domains-with-geometric-singularities)  
-   标签：评分：10.0/10、query:ai-pde
-   evidence：隐式处理纽曼边界和界面的变分PINN方法
-2. [A Koopman-PINN Framework for Epidemic Models: Parameter Inference and Forecasting](/202606/17/2606.15201v1-a-koopman-pinn-framework-for-epidemic-models-parameter-inference-and-forecasting)  
+1. [Enhancing neural network extrapolation in thermo-fluid systems using steady-state solutions](/202606/18/2606.18417v1-enhancing-neural-network-extrapolation-in-thermo-fluid-systems-using-steady-state-solutions)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：Koopman增强的物理信息神经网络用于基于PDE的流行病模型
-3. [Generalization Guarantees for Multi-Input Neural Operator Learning in Sobolev Spaces](/202606/17/2606.17419v1-generalization-guarantees-for-multi-input-neural-operator-learning-in-sobolev-spaces)  
+   evidence：基于稳态先验的神经网络PDE求解方法
+2. [Solution of the Newtonian plane Couette flow with dynamic wall slip using machine-learning methods](/202606/18/2606.18499v1-solution-of-the-newtonian-plane-couette-flow-with-dynamic-wall-slip-using-machine-learning-methods)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：神经算子学习理论用于偏微分方程，AI求解PDE的最新进展
-4. [Operator Boosting Produces Pareto-Efficient PDE Surrogates](/202606/17/2606.17460v1-operator-boosting-produces-pareto-efficient-pde-surrogates)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：算子提升方法用于高效的PDE代理模型
-5. [A Convex Quasilinearization Method for Solving Nonlinear PDEs with Physics-Informed Neural Networks](/202606/17/2606.18175v1-a-convex-quasilinearization-method-for-solving-nonlinear-pdes-with-physics-informed-neural-networks)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：使用物理信息神经网络求解非线性偏微分方程的凸拟线性化方法
-6. [Operator Learning for PDE Backstepping Control of Parabolic Equations on Time-Varying Domains](/202606/17/2606.17766v1-operator-learning-for-pde-backstepping-control-of-parabolic-equations-on-time-varying-domains)  
+   evidence：直接使用PINNs求解含壁面滑移的牛顿库埃特流动
+3. [Starter-Iterator Neural Operator: A Unified Architecture for High-Fidelity Forward and Inverse PDE Problems](/202606/18/2606.18305v1-starter-iterator-neural-operator-a-unified-architecture-for-high-fidelity-forward-and-inverse-pde-problems)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：用时变域上抛物方程的算子学习进行PDE后步控制
+   evidence：统一神经算子用于高保真正反PDE问题
+4. [Deep Research in Physical Sciences: A Multi-Agent Framework and Comprehensive Benchmark](/202606/18/2606.18648v1-deep-research-in-physical-sciences-a-multi-agent-framework-and-comprehensive-benchmark)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：面向物理科学的多智能体框架与基准
 
 ### 速读区论文标签
-1. [Remember, Don't Re-read: Stateful ReAct Agents for Token-Efficient Autonomous Experimentation](/202606/17/2606.14945v1-remember-dont-re-read-stateful-react-agents-for-token-efficient-autonomous-experimentation)  
+1. [Graph of Trace: Visualizing Execution Traces of Scientific Agent](/202606/18/2606.15116v1-graph-of-trace-visualizing-execution-traces-of-scientific-agent)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于科学计算中自主代码优化的有状态ReAct agent
-2. [APEX: Adaptive Principle EXtraction A Three-Layer Self-Evolution Framework for Production AI Agents](/202606/17/2606.15363v1-apex-adaptive-principle-extraction-a-three-layer-self-evolution-framework-for-production-ai-agents)  
+   evidence：科学智能体执行轨迹可视化框架
+2. [SciText2Eq: Assessing LLMs for Explainable Equation Generation for Scientific Creativity](/202606/18/2606.16003v1-scitext2eq-assessing-llms-for-explainable-equation-generation-for-scientific-creativity)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：生产级AI智能体自演化框架，提取行为原则提升智能体技能
-3. [AIChilles: Automatically Uncovering Hidden Weaknesses in AI-Evolved Systems](/202606/17/2606.15834v1-aichilles-automatically-uncovering-hidden-weaknesses-in-ai-evolved-systems)  
+   evidence：利用大语言模型从科学文本生成方程，与数学物理相关
+3. [A Framework for Evaluating Agentic Skills at Scale](/202606/18/2606.17819v1-a-framework-for-evaluating-agentic-skills-at-scale)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：自动揭示AI演化程序中隐藏的弱点，与数值算法自动发现相关
-4. [SciOrch: Learning to Orchestrate Expert LLMs for Solving Frontier Multimodal Scientific Reasoning Tasks](/202606/17/2606.15872v1-sciorch-learning-to-orchestrate-expert-llms-for-solving-frontier-multimodal-scientific-reasoning-tasks)  
+   evidence：智能体技能大规模评估框架
+4. [Locally Stable Neural ODEs with Characterized Region of Attraction](/202606/18/2606.19109v1-locally-stable-neural-odes-with-characterized-region-of-attraction)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：编排大语言模型进行科学推理，可应用于数学物理
-5. [SING: Synthetic Intention Graph for Scalable Active Tool Discovery in LLM Agents](/202606/17/2606.16591v1-sing-synthetic-intention-graph-for-scalable-active-tool-discovery-in-llm-agents)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：LLM智能体工具发现方法，与科学计算中的智能体技能相关
-6. [Compositional Skill Routing for LLM Agents: Decompose, Retrieve, and Compose](/202606/17/2606.18051v1-compositional-skill-routing-for-llm-agents-decompose-retrieve-and-compose)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：面向LLM智能体的组成性技能路由框架，可应用于科学计算技能组合
-7. [SING: Synthetic Intention Graph for Scalable Active Tool Discovery in LLM Agents](/202606/17/2606.16591v2-sing-synthetic-intention-graph-for-scalable-active-tool-discovery-in-llm-agents)  
+   evidence：具有李雅普诺夫稳定性的神经ODE用于动力学近似
+5. [SkillJuror: Measuring How Agent Skill Organization Changes Runtime Behavior](/202606/18/2606.11543v1-skilljuror-measuring-how-agent-skill-organization-changes-runtime-behavior)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：利用合成意图图进行LLM智能体的主动工具发现，实现科学计算中的可扩展技能检索
+   evidence：评估代理技能组织的框架，与科学计算中的代理技能相关
+6. [Sparse probes and murky physics: a case study of interpretability challenges in a foundation model for continuum dynamics](/202606/18/2606.11657v1-sparse-probes-and-murky-physics-a-case-study-of-interpretability-challenges-in-a-foundation-model-for-continuum-dynamics)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：连续动力学基础模型的可解释性研究，适用于PDE模拟
+7. [Towards Direct Latent-Space Synthesis for Parallel Branches in LLM-Agent Workflows](/202606/18/2606.14672v1-towards-direct-latent-space-synthesis-for-parallel-branches-in-llm-agent-workflows)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：通过潜在空间合成优化LLM代理工作流中的并行分支，提升科学计算技能
+8. [Generated, Parallel, Scalable? A Study of Agentic AI-Generated Julia Code on Supercomputers](/202606/18/2606.16534v2-generated-parallel-scalable-a-study-of-agentic-ai-generated-julia-code-on-supercomputers)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：智能体AI生成并行Julia代码用于科学计算
+9. [A Neural Network Framework for Geodesic-Like Curve Computation on Parametric Surfaces](/202606/18/2606.18759v1-a-neural-network-framework-for-geodesic-like-curve-computation-on-parametric-surfaces)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：使用PINN进行曲面几何计算
+10. [Skill-MAS: Evolving Meta-Skill for Automatic Multi-Agent Systems](/202606/18/2606.18837v1-skill-mas-evolving-meta-skill-for-automatic-multi-agent-systems)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：多智能体系统的技能演化
 
 
 <div class="dpr-home-promo-card">
