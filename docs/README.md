@@ -6,35 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-20
-- 运行时间：2026-06-20 20:23:54 UTC
+- 最新运行日期：2026-06-21
+- 运行时间：2026-06-21 20:44:19 UTC
 - 运行状态：成功
 - 本次总论文数：5
-- 精读区：3
-- 速读区：2
+- 精读区：2
+- 速读区：3
 
 ### 今日简报（AI）
-今日精选5篇论文精读3篇，聚焦物理信息神经网络与元认知进化两大高光方向。最值得关注的是9.0分的注意力机制增强PINN及8.0分的自动化启发式设计方法。建议优先精读这两篇，深入理解其创新思路并尝试复现核心实验。
-- 详情：[/202606/20/README](/202606/20/README)
+今日精读两篇高分解构模型与随机神经网络论文，速读线性守恒律与组合优化可解释性等工作。  
+最值得关注的是因子化神经算子解耦动态响应，以及面向P-N-P系统的结构化随机神经网络。  
+建议优先阅读精读文章，掌握模型解构与偏微分方程求解新思路。
+- 详情：[/202606/21/README](/202606/21/README)
 
 ### 精读区论文标签
-1. [Physics-Informed Neural Network with Squeeze-Excitation-like Attention](/202606/20/2606.19853v1-physics-informed-neural-network-with-squeeze-excitation-like-attention)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：提出SEA-PINN，一种具有注意力的物理信息神经网络，用于偏微分方程
-2. [MeEvo: Metacognitive Evolution Combined with Natural Evolution for Automatic Heuristic Design](/202606/20/2606.14202v3-meevo-metacognitive-evolution-combined-with-natural-evolution-for-automatic-heuristic-design)  
+1. [Factorized Neural Operators Decompose Dynamic and Persistent Responses](/202606/21/2606.16900v1-factorized-neural-operators-decompose-dynamic-and-persistent-responses)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：使用大模型进化自动设计启发式算法
-3. [Modularity-Free Conflict-Averse Training for Generalized PINNs](/202606/20/2606.20156v1-modularity-free-conflict-averse-training-for-generalized-pinns)  
+   evidence：用于多尺度PDE响应的因子化神经算子
+2. [Structure-Oriented Randomized Neural Networks for Poisson-Nernst-Planck and Poisson-Nernst-Planck-Navier-Stokes Systems](/202606/21/2606.19912v1-structure-oriented-randomized-neural-networks-for-poisson-nernst-planck-and-poisson-nernst-planck-navier-stokes-systems)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：面向广义PINN训练的模块稀疏同步方法
+   evidence：随机神经网络求解PDE方程组
 
 ### 速读区论文标签
-1. [Geometry-Aware Post-Hoc Uncertainty Quantification in Operator Learning](/202606/20/2606.17513v1-geometry-aware-post-hoc-uncertainty-quantification-in-operator-learning)  
+1. [Design principles for stable and generalizable data-driven discretizations for solving linear hyperbolic conservation laws](/202606/21/2606.17497v1-design-principles-for-stable-and-generalizable-data-driven-discretizations-for-solving-linear-hyperbolic-conservation-laws)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：神经算子PDE代理的不确定性量化
-2. [Advances in Scientific Machine Learning for Coupled Fluid Flow and Transport](/202606/20/2606.19562v1-advances-in-scientific-machine-learning-for-coupled-fluid-flow-and-transport)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：科学机器学习综述，涵盖PINNs等流体耦合输运PDE方法
+   evidence：数据驱动数值离散化用于双曲守恒律，与算法自动发现相关
+2. [S1-DeepResearch: Beyond Search, Toward Real-World Long-Horizon Research Agents](/202606/21/2606.15367v1-s1-deepresearch-beyond-search-toward-real-world-long-horizon-research-agents)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：面向长程知识任务的深度研究智能体，可应用于科学发现
+3. [Interpreting Neural Combinatorial Optimization via Evolving Programmatic Bottlenecks](/202606/21/2606.19741v1-interpreting-neural-combinatorial-optimization-via-evolving-programmatic-bottlenecks)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：使用大语言模型演化程序来解释神经组合优化策略
 
 
 <div class="dpr-home-promo-card">
