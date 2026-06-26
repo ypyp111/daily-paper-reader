@@ -6,44 +6,47 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-25
-- 运行时间：2026-06-25 22:03:47 UTC
+- 最新运行日期：2026-06-26
+- 运行时间：2026-06-26 22:06:07 UTC
 - 运行状态：成功
-- 本次总论文数：8
-- 精读区：6
-- 速读区：2
+- 本次总论文数：9
+- 精读区：3
+- 速读区：6
 
 ### 今日简报（AI）
-今日精读6篇，重点关注两篇9分论文：全非线性抛物型PDE的零阶深度学习方法，以及带分裂场完美匹配层的时域Maxwell方程的物理信息神经网络。最值得看的是深度学习求解偏微分方程的前沿方向，特别是零阶方法和物理信息神经网络。普通读者可关注这类基于物理约束的模型在工程仿真中的实用潜力。
-- 详情：[/202606/25/README](/202606/25/README)
+今日共处理9篇论文，精读2篇，速读3篇，重点聚焦AI协同科学发现领域。最值得关注的是《Discovering Crystal Structure Prediction Algorithms with an AI Co-Scientist》和《Socratic agents for autonomous scientific discovery in high-dimensional physical systems》，均获8.0高分。建议普通读者优先精读这两篇，了解AI在晶体结构预测和高维物理系统自主发现中的前沿应用。
+- 详情：[/202606/26/README](/202606/26/README)
 
 ### 精读区论文标签
-1. [A Zeroth-Order Deep Learning Method for Fully Nonlinear Parabolic Partial Differential Equations with Unknown Coefficients](/202606/25/2606.24999v1-a-zeroth-order-deep-learning-method-for-fully-nonlinear-parabolic-partial-differential-equations-with-unknown-coefficients)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：用零阶深度学习方法求解具有未知系数的非线性抛物型PDE
-2. [Physics-Informed Neural Networks for the Time-Domain Maxwell Equations with Split-Field Perfectly Matched Layers](/202606/25/2606.25323v1-physics-informed-neural-networks-for-the-time-domain-maxwell-equations-with-split-field-perfectly-matched-layers)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：PINNs应用于麦克斯韦方程并包含PML
-3. [G-PINNs: Gaussian-based spatially weighted formulation for PINNs: 1D low-viscous Burgers](/202606/25/2606.26013v1-g-pinns-gaussian-based-spatially-weighted-formulation-for-pinns-1d-low-viscous-burgers)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：基于高斯空间加权的PINN解决激波分辨率
-4. [Spectrally Safe Neural Operator Warm-Starts for Large-Scale Newton Solvers](/202606/25/2606.21828v1-spectrally-safe-neural-operator-warm-starts-for-large-scale-newton-solvers)  
+1. [Discovering Crystal Structure Prediction Algorithms with an AI Co-Scientist](/202606/26/2606.22866v1-discovering-crystal-structure-prediction-algorithms-with-an-ai-co-scientist)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：面向非线性PDE牛顿求解器的神经算子热启动
-5. [Operator Learning on the Data-Driven Multiscale Space for Nonlinear Flow in Random Heterogeneous Porous Media](/202606/25/2606.25820v1-operator-learning-on-the-data-driven-multiscale-space-for-nonlinear-flow-in-random-heterogeneous-porous-media)  
+   evidence：AI协同科学家自动化算法发现
+2. [Socratic agents for autonomous scientific discovery in high-dimensional physical systems](/202606/26/2606.26722v1-socratic-agents-for-autonomous-scientific-discovery-in-high-dimensional-physical-systems)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：利用多尺度空间的神经算子求解多孔介质PDE流动
-6. [Principal-Part Decomposition for Neural Operator Learning of Dirichlet-to-Neumann Maps](/202606/25/2606.25952v1-principal-part-decomposition-for-neural-operator-learning-of-dirichlet-to-neumann-maps)  
+   evidence：多智能体AI科学家使用苏格拉底式提问进行自主物理发现
+3. [fTNN: a tensor neural network for fractional PDEs](/202606/26/2606.27140v1-ftnn-a-tensor-neural-network-for-fractional-pdes)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：用于PDE Dirichlet-to-Neumann映射的神经算子学习
+   evidence：用于分数阶PDE的张量神经网络
 
 ### 速读区论文标签
-1. [Frequency-Domain Neural ODEs for Modeling Non-Linear Dynamical Systems](/202606/25/2606.22075v1-frequency-domain-neural-odes-for-modeling-non-linear-dynamical-systems)  
+1. [Heuresis: Search Strategies for Autonomous AI Research Agents Across Quality, Diversity and Novelty](/202606/26/2606.25198v1-heuresis-search-strategies-for-autonomous-ai-research-agents-across-quality-diversity-and-novelty)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：自主AI研究代理用于自动化算法发现
+2. [Building Agent Harnesses for Scientific Curation from Multimodal Sources](/202606/26/2606.21005v1-building-agent-harnesses-for-scientific-curation-from-multimodal-sources)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：频域神经ODE用于非线性动力学系统，可应用于PDE相关建模
-2. [Agentic evolution of physically constrained foundation models](/202606/25/2606.25532v1-agentic-evolution-of-physically-constrained-foundation-models)  
+   evidence：用于多模态科学信息提取的智能体框架，展示科学计算中的智能体技能
+3. [Sakana Fugu Technical Report](/202606/26/2606.21228v1-sakana-fugu-technical-report)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：物理约束的多智能体发现引擎用于自动化科学发现
+   evidence：多智能体系统及其动态脚手架可应用于PDE发现
+4. [Sakana Fugu Technical Report](/202606/26/2606.21228v2-sakana-fugu-technical-report)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：多智能体编排器用于多种任务
+5. [SkillAudit: From Fixed-Suite Benchmarking to Skill-Centered Assessment](/202606/26/2606.22613v1-skillaudit-from-fixed-suite-benchmarking-to-skill-centered-assessment)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：评估智能体技能的框架，与科学计算技能相关
+6. [EGG: An Expert-Guided Agent Framework for Kernel Generation](/202606/26/2606.26758v1-egg-an-expert-guided-agent-framework-for-kernel-generation)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：专家引导的智能体框架用于内核生成，与科学计算中的智能体技能相关
 
 
 <div class="dpr-home-promo-card">
