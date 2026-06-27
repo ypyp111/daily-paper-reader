@@ -6,47 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-26
-- 运行时间：2026-06-26 22:06:07 UTC
+- 最新运行日期：2026-06-27
+- 运行时间：2026-06-27 21:22:38 UTC
 - 运行状态：成功
-- 本次总论文数：9
+- 本次总论文数：5
 - 精读区：3
-- 速读区：6
+- 速读区：2
 
 ### 今日简报（AI）
-今日共处理9篇论文，精读2篇，速读3篇，重点聚焦AI协同科学发现领域。最值得关注的是《Discovering Crystal Structure Prediction Algorithms with an AI Co-Scientist》和《Socratic agents for autonomous scientific discovery in high-dimensional physical systems》，均获8.0高分。建议普通读者优先精读这两篇，了解AI在晶体结构预测和高维物理系统自主发现中的前沿应用。
-- 详情：[/202606/26/README](/202606/26/README)
+今日精读两篇高分论文：神经网络离散对偶范数逼近与分数阶记忆PINN历史压缩方法。  
+最值得关注自适应测试空间理论及快速历史压缩的分数阶耦合相场系统求解。  
+建议优先精读这两篇9.0分工作，速读篇目可作为优化方法的补充参考。
+- 详情：[/202606/27/README](/202606/27/README)
 
 ### 精读区论文标签
-1. [Discovering Crystal Structure Prediction Algorithms with an AI Co-Scientist](/202606/26/2606.22866v1-discovering-crystal-structure-prediction-algorithms-with-an-ai-co-scientist)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：AI协同科学家自动化算法发现
-2. [Socratic agents for autonomous scientific discovery in high-dimensional physical systems](/202606/26/2606.26722v1-socratic-agents-for-autonomous-scientific-discovery-in-high-dimensional-physical-systems)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：多智能体AI科学家使用苏格拉底式提问进行自主物理发现
-3. [fTNN: a tensor neural network for fractional PDEs](/202606/26/2606.27140v1-ftnn-a-tensor-neural-network-for-fractional-pdes)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：用于分数阶PDE的张量神经网络
+1. [Neural network approximation in discrete dual norms with adaptive test spaces](/202606/27/2606.20972v1-neural-network-approximation-in-discrete-dual-norms-with-adaptive-test-spaces)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：鲁棒变分物理信息神经网络与自适应测试空间
+2. [A Fractional-Memory Physics-Informed Neural Network with Fast History Compression for Tempered Fractional Coupled Phase-Field Systems](/202606/27/2606.22191v1-a-fractional-memory-physics-informed-neural-network-with-fast-history-compression-for-tempered-fractional-coupled-phase-field-systems)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：用于分数阶相场系统的分数记忆物理信息神经网络
+3. [LLM-ACES: Closed-Loop Discovery of Dynamical Systems with LLM-Guided Adaptive Search](/202606/27/2606.25039v1-llm-aces-closed-loop-discovery-of-dynamical-systems-with-llm-guided-adaptive-search)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：使用LLM引导闭环搜索从数据中发现控制方程，与使用大模型分析偏微分方程直接相关
 
 ### 速读区论文标签
-1. [Heuresis: Search Strategies for Autonomous AI Research Agents Across Quality, Diversity and Novelty](/202606/26/2606.25198v1-heuresis-search-strategies-for-autonomous-ai-research-agents-across-quality-diversity-and-novelty)  
+1. [Scientific discovery as meta-optimization: a combinatorial optimization case study](/202606/27/2606.26728v1-scientific-discovery-as-meta-optimization-a-combinatorial-optimization-case-study)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：自主AI研究代理用于自动化算法发现
-2. [Building Agent Harnesses for Scientific Curation from Multimodal Sources](/202606/26/2606.21005v1-building-agent-harnesses-for-scientific-curation-from-multimodal-sources)  
+   evidence：基于LLM的元优化框架用于科学算法发现
+2. [EvoOptiGraph: Weakness-Driven Coevolution via Graph-Based Structural Generation for Optimization Modeling](/202606/27/2606.26578v1-evooptigraph-weakness-driven-coevolution-via-graph-based-structural-generation-for-optimization-modeling)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于多模态科学信息提取的智能体框架，展示科学计算中的智能体技能
-3. [Sakana Fugu Technical Report](/202606/26/2606.21228v1-sakana-fugu-technical-report)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：多智能体系统及其动态脚手架可应用于PDE发现
-4. [Sakana Fugu Technical Report](/202606/26/2606.21228v2-sakana-fugu-technical-report)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：多智能体编排器用于多种任务
-5. [SkillAudit: From Fixed-Suite Benchmarking to Skill-Centered Assessment](/202606/26/2606.22613v1-skillaudit-from-fixed-suite-benchmarking-to-skill-centered-assessment)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：评估智能体技能的框架，与科学计算技能相关
-6. [EGG: An Expert-Guided Agent Framework for Kernel Generation](/202606/26/2606.26758v1-egg-an-expert-guided-agent-framework-for-kernel-generation)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：专家引导的智能体框架用于内核生成，与科学计算中的智能体技能相关
+   evidence：使用大模型和进化图生成自动优化建模
 
 
 <div class="dpr-home-promo-card">
