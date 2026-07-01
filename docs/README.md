@@ -6,55 +6,53 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-30
-- 运行时间：2026-06-30 22:10:07 UTC
+- 最新运行日期：2026-07-01
+- 运行时间：2026-07-01 20:46:50 UTC
 - 运行状态：成功
 - 本次总论文数：11
-- 精读区：6
-- 速读区：5
+- 精读区：3
+- 速读区：8
 
 ### 今日简报（AI）
-今日精选11篇论文，精读6篇，高分聚焦进化细调优化与弯曲域PINN求解。  
-最值得关注：基于371个优化任务进化细调发现策略，以及针对曲线水平集区域对流扩散方程的高精度PINN解法。  
-建议优先研究大规模AI如何辅助科学发现自动化，并掌握PINN处理复杂几何边界的实用技巧。
-- 详情：[/202606/30/README](/202606/30/README)
+今日精读与速读11篇论文，聚焦AI驱动科学发现新范式。最值得关注的是基于竞争优化联合挖掘多源偏微分方程方法（9.0分）及贝叶斯演化自主科学发现框架（8.0分）。建议优先精读这两篇高分论文，理解AI如何从数据中自动推导物理规律。
+- 详情：[/202607/01/README](/202607/01/README)
 
 ### 精读区论文标签
-1. [Evolution Fine-Tuning: Learning to Discover Across 371 Optimization Tasks](/202606/30/2606.29082v1-evolution-fine-tuning-learning-to-discover-across-371-optimization-tasks)  
+1. [Joint discovery of governing partial differential equations from multi-source datasets by competitive optimization](/202607/01/2606.30699v1-joint-discovery-of-governing-partial-differential-equations-from-multi-source-datasets-by-competitive-optimization)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：结合LLM与进化搜索，跨多种优化任务自动发现解决方案，涵盖科学定律发现和GPU内核设计
-2. [Consistent CutPINNs for Convection-Diffusion Equations on Curved Level-Set Domains](/202606/30/2606.29147v1-consistent-cutpinns-for-convection-diffusion-equations-on-curved-level-set-domains)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：用于对流扩散方程的物理信息神经网络
-3. [Fourier Neural Operators with Least-Squares Readout Refit for Learning Random Obstacle-to-Solution Maps](/202606/30/2606.29436v1-fourier-neural-operators-with-least-squares-readout-refit-for-learning-random-obstacle-to-solution-maps)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：傅里叶神经算子用于学习椭圆变分不等式中的障碍到解映射
-4. [Verified residual-specific explicit derivative kernels for physics-informed learning and discretized PDE adjoints](/202606/30/2606.29702v1-verified-residual-specific-explicit-derivative-kernels-for-physics-informed-learning-and-discretized-pde-adjoints)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：用于物理信息神经网络和PDE伴随的显式导数核
-5. [Randomized neural operator for parametric PDEs with fast training and conformal uncertainty quantification](/202606/30/2606.29440v1-randomized-neural-operator-for-parametric-pdes-with-fast-training-and-conformal-uncertainty-quantification)  
+   evidence：通过竞争优化从多源数据集联合发现偏微分方程
+2. [BayesEvolve: Explicit Belief States for Autonomous Scientific Discovery](/202607/01/2606.30335v1-bayesevolve-explicit-belief-states-for-autonomous-scientific-discovery)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：用于参数化PDE的神经算子，具有快速训练和不确定性量化
-6. [AlgoSkill: Learning to Design Algorithms by Scheduling Human-Like Skills](/202606/30/2606.29999v1-algoskill-learning-to-design-algorithms-by-scheduling-human-like-skills)  
+   evidence：明确的信念状态引导自主科学发现，直接满足自主智能体科学发现的需求
+3. [PDE Identification Using Noise Adaptive Differentiation in Strong Form (S-IDENT)](/202607/01/2606.31776v1-pde-identification-using-noise-adaptive-differentiation-in-strong-form-s-ident)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：基于大模型的算法设计自动化代理
+   evidence：利用强形式字典和自适应微分从噪声数据中自动识别PDE
 
 ### 速读区论文标签
-1. [Self-Supervised Theorem Discovery in a Formal Axiomatic System](/202606/30/2606.28747v1-self-supervised-theorem-discovery-in-a-formal-axiomatic-system)  
+1. [AI-Assisted Discovery of Convex Relaxations via Dual Agents](/202607/01/2606.31182v1-ai-assisted-discovery-of-convex-relaxations-via-dual-agents)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：无人类先验的自监督定理自动发现智能体
-2. [Toward Exascale AI for Science: A Scalable AI Skill for Autonomous Microkinetics Discovery](/202606/30/2606.29100v1-toward-exascale-ai-for-science-a-scalable-ai-skill-for-autonomous-microkinetics-discovery)  
+   evidence：利用双智能体自动发现凸松弛，用于优化界
+2. [Agentic-Ideation: Sample Efficient Agentic Trajectories Synthesis for Scientific Ideation Agents](/202607/01/2606.31229v1-agentic-ideation-sample-efficient-agentic-trajectories-synthesis-for-scientific-ideation-agents)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：可扩展的AI技能用于自主微动力学科学发现
-3. [Learning Dynamical Systems from Multiple Sparse Datasets: A Hierarchical Bayesian Modeling Approach](/202606/30/2606.24966v1-learning-dynamical-systems-from-multiple-sparse-datasets-a-hierarchical-bayesian-modeling-approach)  
+   evidence：高效智能体轨迹合成方法直接支持用于科学发现的自主智能体
+3. [Domain-Decomposed Randomized Neural Networks for Partial Differential Equations in Unbounded Domains](/202607/01/2606.31342v1-domain-decomposed-randomized-neural-networks-for-partial-differential-equations-in-unbounded-domains)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：域分解随机神经网络求解无界域PDE
+4. [FARS: A Fully Automated Research System Deployed at Scale](/202607/01/2606.31651v1-fars-a-fully-automated-research-system-deployed-at-scale)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：全自动AI科研系统，采用智能体工作流程，可迁移至PDE发现等科学任务
+5. [Escaping the Self-Confirmation Trap: An Execute-Distill-Verify Paradigm for Agentic Experience Learning](/202607/01/2606.24428v1-escaping-the-self-confirmation-trap-an-execute-distill-verify-paradigm-for-agentic-experience-learning)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：从稀疏数据学习动力系统；可应用于偏微分方程参数估计
-4. [Hierarchical Experimentalist Agents](/202606/30/2606.29315v1-hierarchical-experimentalist-agents)  
+   evidence：多智能体经验学习框架，可迁移至科学计算中的智能体技能提升
+6. [Enhancing Numerical Prediction in LLMs via Smooth MMD Alignment](/202607/01/2606.27731v1-enhancing-numerical-prediction-in-llms-via-smooth-mmd-alignment)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：通过主动实验学习智能体技能用于科学计算
-5. [Clarus: Coordinating Autonomous Research Agents toward Web-Scale Scientific Collaboration](/202606/30/2606.30246v1-clarus-coordinating-autonomous-research-agents-toward-web-scale-scientific-collaboration)  
+   evidence：提升LLM数值预测精度，可应用于PDE求解中的数值计算
+7. [Experience Graphs: The Data Foundation for Self-Improving Agents](/202607/01/2606.29823v1-experience-graphs-the-data-foundation-for-self-improving-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于协调自主研究智能体进行科学协作的基础设施
+   evidence：提出经验图作为科学发现和代码生成中自我改进智能体的数据基础
+8. [Generative Skill Composition for LLM Agents](/202607/01/2606.32025v1-generative-skill-composition-for-llm-agents)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：生成式技能组合方法为科学计算中的智能体技能组合提供了方法论支持
 
 
 <div class="dpr-home-promo-card">
