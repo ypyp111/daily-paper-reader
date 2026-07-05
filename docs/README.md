@@ -6,29 +6,32 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-04
-- 运行时间：2026-07-04 20:56:57 UTC
+- 最新运行日期：2026-07-05
+- 运行时间：2026-07-05 21:15:42 UTC
 - 运行状态：成功
-- 本次总论文数：2
+- 本次总论文数：3
 - 精读区：0
-- 速读区：2
+- 速读区：3
 
 ### 今日简报（AI）
-今日速读2篇论文，聚焦控制理论与联邦学习算法搜索。  
-最值得关注的是7.0分的《半自主神经常微分方程用于非线性控制仿射系统的近似与可控性》。  
-建议优先精读该论文，深入理解其理论框架；对联邦学习算法搜索感兴趣的读者可参考另一篇。
-- 详情：[/202607/04/README](/202607/04/README)
+今日速读3篇论文，重点聚焦流形动力系统建模与人机协作元学习。  
+最值得关注《LSR-Net》中长短期算子学习对复杂模式动力学的处理，以及《Human-Machine Collaboration》中生成式元学习的人机协同算法。  
+普通读者可优先精读这两篇7.0分论文，把握前沿方法的核心思路。
+- 详情：[/202607/05/README](/202607/05/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Approximation and Controllability of Nonlinear Control-Affine Systems via Semiautonomous Neural Ordinary Differential Equations](/202607/04/2606.29338v1-approximation-and-controllability-of-nonlinear-control-affine-systems-via-semiautonomous-neural-ordinary-differential-equations)  
+1. [LSR-Net: Long-Short-Range Operator Learning for Pattern Dynamics on Manifolds](/202607/05/2607.00750v1-lsr-net-long-short-range-operator-learning-for-pattern-dynamics-on-manifolds)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于逼近动力系统的神经ODE，与PINN相关
-2. [Auto-FL-Research: Agentic Search for Federated Learning Algorithms](/202607/04/2607.01366v1-auto-fl-research-agentic-search-for-federated-learning-algorithms)  
+   evidence：用于模式动力学的算子学习（与PDE相关）
+2. [Human-Machine Collaboration on Generative Meta-Learning: Model and Algorithm](/202607/05/2607.00926v1-human-machine-collaboration-on-generative-meta-learning-model-and-algorithm)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：使用条件神经ODE作为生成数字孪生，与物理信息神经网络相关
+3. [ISM:Self-Improving Strategy Memory for Continual Mathematical Reasoning](/202607/05/2606.31191v1-ismself-improving-strategy-memory-for-continual-mathematical-reasoning)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：联邦学习中的智能体搜索算法配方
+   evidence：用于数学推理的LLM记忆方法可迁移至偏微分方程求解
 
 
 <div class="dpr-home-promo-card">
