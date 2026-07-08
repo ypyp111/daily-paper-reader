@@ -6,79 +6,55 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-07
-- 运行时间：2026-07-07 20:48:22 UTC
+- 最新运行日期：2026-07-08
+- 运行时间：2026-07-08 21:44:23 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：8
-- 速读区：11
+- 本次总论文数：11
+- 精读区：6
+- 速读区：5
 
 ### 今日简报（AI）
-今日聚焦多孔介质两相流保物理方案与多分辨率神经算子，速读涵盖智能体技能、湍流AI发现及编码智能体协作。  
-最值得精读的为两篇9.0分工作：PICNN保物理方案实现热力学一致两相流模拟，LiNO提升神经算子多尺度建模能力。  
-建议关注AI与物理仿真交叉领域，尤其多分辨率算子及智能体协作框架的实用潜力。
-- 详情：[/202607/07/README](/202607/07/README)
+1) 今日荐读聚焦数值物理信息神经网络的误差估计与智能体时代的科学发现重塑，两篇9.0精读文章领衔。
+2) 最值得关注的方向：PINN点态误差的严格数学刻画，以及大模型驱动下科学发现范式的根本转变。
+3) 建议优先精读这两篇高分文章，再速读《Danus》与《MetaSkill-Evolve》以扩展对智能体推理与自优化的理解。
+- 详情：[/202607/08/README](/202607/08/README)
 
 ### 精读区论文标签
-1. [The PICNN-Assisted Physics-Preserving Scheme for Thermodynamically Consistent Two-Phase Flow in Porous Media](/202607/07/2607.01020v1-the-picnn-assisted-physics-preserving-scheme-for-thermodynamically-consistent-two-phase-flow-in-porous-media)  
+1. [Pointwise Error Estimates for Numerical Physics-Informed Neural Networks](/202607/08/2607.03431v1-pointwise-error-estimates-for-numerical-physics-informed-neural-networks)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：物理信息卷积神经网络用于多孔介质两相流PDE
-2. [LiNO: Lifting based multiresolution neural operator](/202607/07/2607.02715v1-lino-lifting-based-multiresolution-neural-operator)  
+   evidence：物理信息神经网络用于PDE逐点误差估计
+2. [Rethinking Scientific Discovery in the Agentic Era](/202607/08/2607.03863v2-rethinking-scientific-discovery-in-the-agentic-era)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：多分辨率神经算子求解PDE
-3. [Mitigating Numerical Stiffness in Least-Squares Formulations of Elliptic PDEs for Physics-Informed Neural Networks](/202607/07/2607.02726v1-mitigating-numerical-stiffness-in-least-squares-formulations-of-elliptic-pdes-for-physics-informed-neural-networks)  
+   evidence：面向自动发现的智能体科学操作系统
+3. [Mass-Conserving Physics-Informed Neural Networks For The One-Dimensional Advection-Diffusion Equation](/202607/08/2607.06091v1-mass-conserving-physics-informed-neural-networks-for-the-one-dimensional-advection-diffusion-equation)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：直接针对椭圆PDE的PINNs数值刚度问题
-4. [LRX-PINN: A Layer-Resolving XNet Physics-Informed Neural Network with Integrated Cauchy Activations for Convection-Dominated Problems](/202607/07/2607.03682v1-lrx-pinn-a-layer-resolving-xnet-physics-informed-neural-network-with-integrated-cauchy-activations-for-convection-dominated-problems)  
+   evidence：用于偏微分方程的物理信息神经网络，质量守恒
+4. [Physics-Informed Neural Embeddings of PDE Solution Families](/202607/08/2607.06348v1-physics-informed-neural-embeddings-of-pde-solution-families)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：针对对流主导PDE的新型PINN架构
-5. [Domain decomposition methods with Physics-informed neural networks for elliptic equations on manifolds](/202607/07/2607.04285v1-domain-decomposition-methods-with-physics-informed-neural-networks-for-elliptic-equations-on-manifolds)  
+   evidence：物理信息神经网络用于PDE解族
+5. [Feature Learning for the High Dimensional Stationary Schödinger Equation with Deep Ritz Method](/202607/08/2607.06369v1-feature-learning-for-the-high-dimensional-stationary-schdinger-equation-with-deep-ritz-method)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：用于流形上椭圆方程的物理信息神经网络区域分解方法
-6. [PDEFlow: Autonomous Agentic PDE Pipelines for Neural Operator Learning and Solver-Free Inference](/202607/07/2607.05134v1-pdeflow-autonomous-agentic-pde-pipelines-for-neural-operator-learning-and-solver-free-inference)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：自主代理框架用于PDE管道和神经算子
-7. [MeGA-MP: Metric Graph Advection Message Passing -- A Physics-Informed Message Passing Operator for Advection-Dominated Metric Graphs](/202607/07/2607.05167v1-mega-mp-metric-graph-advection-message-passing----a-physics-informed-message-passing-operator-for-advection-dominated-metric-graphs)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：度量图上的物理信息消息传递用于偏微分方程
-8. [Target-Guided Selective Reweighting for Physics-Informed Neural Network Inverse Problems: A Transfer Learning Approach](/202607/07/2607.05271v1-target-guided-selective-reweighting-for-physics-informed-neural-network-inverse-problems-a-transfer-learning-approach)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：通过选择性重加权改进PINN逆问题的迁移学习
+   evidence：深度Ritz方法求解薛定谔方程并进行特征学习
+6. [MechMath Agent Team: LLM Driven Agents for Mathematical Research](/202607/08/2607.04394v1-mechmath-agent-team-llm-driven-agents-for-mathematical-research)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：基于大语言模型的智能体团队，作为数学研究副驾驶
 
 ### 速读区论文标签
-1. [From Anatomy to Smells: An Empirical Study of SKILL.md in Agent Skills](/202607/07/2607.01456v1-from-anatomy-to-smells-an-empirical-study-of-skillmd-in-agent-skills)  
+1. [Learning Adaptive Coarse Spaces Using Transferable Neural Network Models for Linear and Nonlinear Overlapping Domain Decomposition Methods](/202607/08/2607.06261v1-learning-adaptive-coarse-spaces-using-transferable-neural-network-models-for-linear-and-nonlinear-overlapping-domain-decomposition-methods)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：首次系统研究定义智能体技能的SKILL.md文件
-2. [PhysMiner: An Agentic AI Framework for Discovering Turbulence Physics](/202607/07/2607.04009v1-physminer-an-agentic-ai-framework-for-discovering-turbulence-physics)  
+   evidence：使用神经网络学习自适应粗空间用于域分解方法
+2. [Danus: Orchestrating Mathematical Reasoning Agents with Fact-Graph Memory](/202607/08/2607.06447v1-danus-orchestrating-mathematical-reasoning-agents-with-fact-graph-memory)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：集成LLM推理的智能体AI框架用于湍流物理发现
-3. [SwarmResearch: Orchestrating Coding Agents for Open-Ended Discovery](/202607/07/2607.02807v1-swarmresearch-orchestrating-coding-agents-for-open-ended-discovery)  
+   evidence：基于LLM的多智能体系统，使用事实图记忆进行数学推理
+3. [MetaSkill-Evolve: Recursive Self-Improvement of LLM Agents via Two-Timescale Meta-Skill Evolution](/202607/08/2607.05297v1-metaskill-evolve-recursive-self-improvement-of-llm-agents-via-two-timescale-meta-skill-evolution)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：编排-子智能体框架用于开放式算法发现
-4. [Rethinking Scientific Discovery in an Agentic Era](/202607/07/2607.03863v1-rethinking-scientific-discovery-in-an-agentic-era)  
+   evidence：提出递归元技能进化框架使LLM智能体自我改进技能
+4. [On Symmetric Kernel Collocation for Nonlinear PDEs](/202607/08/2607.06276v1-on-symmetric-kernel-collocation-for-nonlinear-pdes)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：智能体科学操作系统，协调任务、工具、智能体和记忆，广泛覆盖科学发现
-5. [Harness-Aware Self-Evolving: Co-Evolving Model Weights, Harness, and Task Solutions](/202607/07/2607.03935v1-harness-aware-self-evolving-co-evolving-model-weights-harness-and-task-solutions)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：智能体强化学习框架联合进化模型权重、工具和任务解，用于算法发现
-6. [Language models guide symbolic equation discovery by controlling search](/202607/07/2607.04156v1-language-models-guide-symbolic-equation-discovery-by-controlling-search)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：语言模型指导符号方程发现实现自动算法发现
-7. [Why Solve It Twice? Hierarchical Accumulation of Skills for Transfer-Efficient ML Engineering](/202607/07/2606.30911v1-why-solve-it-twice-hierarchical-accumulation-of-skills-for-transfer-efficient-ml-engineering)  
+   evidence：用于非线性PDE的核配点法及自适应策略
+5. [An Experimental Design Approach to Evaluating Agentic AI's Autonomous Model Discovery](/202607/08/2607.06413v1-an-experimental-design-approach-to-evaluating-agentic-ais-autonomous-model-discovery)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：层级多智能体系统积累技能，用于ML工程，与科学计算智能体技能相关
-8. [An Agentic AI Framework to Accelerate Scientific Discovery in Plant Phenotyping](/202607/07/2606.31831v1-an-agentic-ai-framework-to-accelerate-scientific-discovery-in-plant-phenotyping)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：智能体AI框架用于植物表型科学发现
-9. [From Registry to Repository: How AI Agent Skills Are Written, Adapted, and Maintained](/202607/07/2607.00911v2-from-registry-to-repository-how-ai-agent-skills-are-written-adapted-and-maintained)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：AI agent技能作为工程制品的实证研究
-10. [CodeJeNN: A simple C++ neural network generator for physics applications](/202607/07/2607.02746v1-codejenn-a-simple-c-neural-network-generator-for-physics-applications)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：从Keras自动生成C++代码用于物理应用
-11. [Automated Data Readiness for Scientific AI](/202607/07/2607.02771v1-automated-data-readiness-for-scientific-ai)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：作为agent可调用技能的自动化数据准备框架
+   evidence：提出评估LLM智能体自主模型发现的实验设计框架
 
 
 <div class="dpr-home-promo-card">
