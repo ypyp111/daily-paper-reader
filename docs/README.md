@@ -6,55 +6,55 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-08
-- 运行时间：2026-07-08 21:44:23 UTC
+- 最新运行日期：2026-07-09
+- 运行时间：2026-07-09 22:02:53 UTC
 - 运行状态：成功
 - 本次总论文数：11
-- 精读区：6
-- 速读区：5
+- 精读区：5
+- 速读区：6
 
 ### 今日简报（AI）
-1) 今日荐读聚焦数值物理信息神经网络的误差估计与智能体时代的科学发现重塑，两篇9.0精读文章领衔。
-2) 最值得关注的方向：PINN点态误差的严格数学刻画，以及大模型驱动下科学发现范式的根本转变。
-3) 建议优先精读这两篇高分文章，再速读《Danus》与《MetaSkill-Evolve》以扩展对智能体推理与自优化的理解。
-- 详情：[/202607/08/README](/202607/08/README)
+1) 今日精读聚焦智能体科学发现与数学推理两大方向，速读则覆盖低秩采样、流形学习及优化方法。
+2) 最值得关注《Rethinking Scientific Discovery in an Agentic Era》与《Danus: Orchestrating Mathematical Reasoning Agents with Fact-Graph Memory》，均获8.0高分。
+3) 建议优先精读这两篇，了解智能体如何重新定义科学发现及结构化数学推理，其余速读论文适合拓展方法论视野。
+- 详情：[/202607/09/README](/202607/09/README)
 
 ### 精读区论文标签
-1. [Pointwise Error Estimates for Numerical Physics-Informed Neural Networks](/202607/08/2607.03431v1-pointwise-error-estimates-for-numerical-physics-informed-neural-networks)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：物理信息神经网络用于PDE逐点误差估计
-2. [Rethinking Scientific Discovery in the Agentic Era](/202607/08/2607.03863v2-rethinking-scientific-discovery-in-the-agentic-era)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：面向自动发现的智能体科学操作系统
-3. [Mass-Conserving Physics-Informed Neural Networks For The One-Dimensional Advection-Diffusion Equation](/202607/08/2607.06091v1-mass-conserving-physics-informed-neural-networks-for-the-one-dimensional-advection-diffusion-equation)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：用于偏微分方程的物理信息神经网络，质量守恒
-4. [Physics-Informed Neural Embeddings of PDE Solution Families](/202607/08/2607.06348v1-physics-informed-neural-embeddings-of-pde-solution-families)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：物理信息神经网络用于PDE解族
-5. [Feature Learning for the High Dimensional Stationary Schödinger Equation with Deep Ritz Method](/202607/08/2607.06369v1-feature-learning-for-the-high-dimensional-stationary-schdinger-equation-with-deep-ritz-method)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：深度Ritz方法求解薛定谔方程并进行特征学习
-6. [MechMath Agent Team: LLM Driven Agents for Mathematical Research](/202607/08/2607.04394v1-mechmath-agent-team-llm-driven-agents-for-mathematical-research)  
+1. [Rethinking Scientific Discovery in an Agentic Era](/202607/09/2607.03863v1-rethinking-scientific-discovery-in-an-agentic-era)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：基于大语言模型的智能体团队，作为数学研究副驾驶
+   evidence：提出整合任务、工具和智能体的科学发现智能体系统
+2. [Danus: Orchestrating Mathematical Reasoning Agents with Fact-Graph Memory](/202607/09/2607.06447v2-danus-orchestrating-mathematical-reasoning-agents-with-fact-graph-memory)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：基于大语言模型的多智能体数学推理编排系统
+3. [Learning Spatiotemporal Tubes for Full Class of Signal Temporal Logic Tasks for Control of Unknown Systems under Input Constraints](/202607/09/2607.07136v1-learning-spatiotemporal-tubes-for-full-class-of-signal-temporal-logic-tasks-for-control-of-unknown-systems-under-input-constraints)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：使用物理信息神经网络参数化时空管，满足STL规范的多智能体控制
+4. [Physics-Audited Agentic Discovery in Scientific Machine Learning](/202607/09/2607.07379v1-physics-audited-agentic-discovery-in-scientific-machine-learning)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：提出物理审计的智能体科学机器学习发现流程
+5. [Neural Operator-enabled Topology-informed Evolutionary Strategy for PDE-Constrained Optimization](/202607/09/2607.07682v1-neural-operator-enabled-topology-informed-evolutionary-strategy-for-pde-constrained-optimization)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：结合DeepONet神经算子和进化策略进行PDE约束优化
 
 ### 速读区论文标签
-1. [Learning Adaptive Coarse Spaces Using Transferable Neural Network Models for Linear and Nonlinear Overlapping Domain Decomposition Methods](/202607/08/2607.06261v1-learning-adaptive-coarse-spaces-using-transferable-neural-network-models-for-linear-and-nonlinear-overlapping-domain-decomposition-methods)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：使用神经网络学习自适应粗空间用于域分解方法
-2. [Danus: Orchestrating Mathematical Reasoning Agents with Fact-Graph Memory](/202607/08/2607.06447v1-danus-orchestrating-mathematical-reasoning-agents-with-fact-graph-memory)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：基于LLM的多智能体系统，使用事实图记忆进行数学推理
-3. [MetaSkill-Evolve: Recursive Self-Improvement of LLM Agents via Two-Timescale Meta-Skill Evolution](/202607/08/2607.05297v1-metaskill-evolve-recursive-self-improvement-of-llm-agents-via-two-timescale-meta-skill-evolution)  
+1. [Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling](/202607/09/2607.06841v1-tensor-train-diffusion-leveraging-low-rank-structures-for-high-dimensional-score-based-sampling)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：提出递归元技能进化框架使LLM智能体自我改进技能
-4. [On Symmetric Kernel Collocation for Nonlinear PDEs](/202607/08/2607.06276v1-on-symmetric-kernel-collocation-for-nonlinear-pdes)  
+   evidence：求解HJB型PDE，提出新求解器涉及PINN
+2. [Intrinsic Green's Learning: Supervised Learning on Manifolds via Inverse PDE](/202607/09/2607.07034v1-intrinsic-greens-learning-supervised-learning-on-manifolds-via-inverse-pde)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：用于非线性PDE的核配点法及自适应策略
-5. [An Experimental Design Approach to Evaluating Agentic AI's Autonomous Model Discovery](/202607/08/2607.06413v1-an-experimental-design-approach-to-evaluating-agentic-ais-autonomous-model-discovery)  
+   evidence：利用逆PDE在流形上进行监督学习
+3. [Higher-Order Geometric Updates for Levenberg-Marquardt Method via Riemann Normal Coordinates](/202607/09/2607.07623v1-higher-order-geometric-updates-for-levenberg-marquardt-method-via-riemann-normal-coordinates)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：改进物理信息神经网络的优化方法
+4. [LLMoxie: Exploring Agentic AI for Scientific Software Development](/202607/09/2607.02703v1-llmoxie-exploring-agentic-ai-for-scientific-software-development)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：提出评估LLM智能体自主模型发现的实验设计框架
+   evidence：用于科学计算的代理技能层次
+5. [From Atomic Actions to Standard Operating Procedures: Iterative Tool Optimization for Self-Evolving LLM Agents](/202607/09/2607.07321v1-from-atomic-actions-to-standard-operating-procedures-iterative-tool-optimization-for-self-evolving-llm-agents)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：智能体技能用于科学计算：通过工具优化实现LLM智能体自我进化
+6. [A Physics-Informed Neural Network for Small-Signal Stability in Multi-Inverter Power Systems](/202607/09/2607.07523v1-a-physics-informed-neural-network-for-small-signal-stability-in-multi-inverter-power-systems)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：用于电力系统小信号稳定性分析的PINN，预测传递函数
 
 
 <div class="dpr-home-promo-card">
