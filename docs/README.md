@@ -6,35 +6,39 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-12
-- 运行时间：2026-07-12 21:03:15 UTC
+- 最新运行日期：2026-07-13
+- 运行时间：2026-07-13 20:09:59 UTC
 - 运行状态：成功
-- 本次总论文数：4
+- 本次总论文数：6
 - 精读区：0
-- 速读区：4
+- 速读区：6
 
 ### 今日简报（AI）
-今日精选4篇论文速读，聚焦物理信息特征学习、AI代理记忆优化及科学分析假设分解三大方向。  
-最值得关注的是《PIEFS》提出的可学习缩放物理信息特征方法（7.0分），以及《SelfMem》中自优化记忆机制（6.0分），两者在提升模型泛化性与代理持续性上具有潜力。  
-建议优先精读PIEFS论文以理解其物理先验融合技巧，或探索SelfMem如何简化AI代理的长期记忆管理。
-- 详情：[/202607/12/README](/202607/12/README)
+今日共速读6篇论文，聚焦LLM智能体在优化建模、逻辑推理与可审计科研中的新方法。值得关注《OptiAgent》多智能体迭代优化建模框架与《SLBench》逻辑技能评估基准两项工作。建议优先浏览这三篇7分论文，关注智能体协作与验证机制。
+- 详情：[/202607/13/README](/202607/13/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [PIEFS: Physics-Informed Eigenfunction Features with Learnable Scaling](/202607/12/2607.03692v2-piefs-physics-informed-eigenfunction-features-with-learnable-scaling)  
+1. [OptiAgent: End-to-End Optimization Modeling via Multi-Agent Iterative Refinement](/202607/13/2607.05346v1-optiagent-end-to-end-optimization-modeling-via-multi-agent-iterative-refinement)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：物理信息表示学习与谱归纳偏置
-2. [SelfMem: Self-Optimizing Memory for AI Agents](/202607/12/2607.03726v1-selfmem-self-optimizing-memory-for-ai-agents)  
+   evidence：多智能体迭代细化自动优化建模
+2. [SLBench: Evaluating How LLM Agents Follow Logical Relations in Skills](/202607/13/2607.09016v1-slbench-evaluating-how-llm-agents-follow-logical-relations-in-skills)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：大语言模型智能体技能逻辑关系基准，科学计算中的智能体技能
+3. [Toward Auditable AI Scientists: A Hypothesis Evolution Protocol for LLM Agents](/202607/13/2607.09195v1-toward-auditable-ai-scientists-a-hypothesis-evolution-protocol-for-llm-agents)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：大语言模型智能体用于自主科学发现，可审计假设演化
+4. [Game Theory Driven Multi-Agent Framework Mitigates Language Model Hallucination](/202607/13/2607.08403v1-game-theory-driven-multi-agent-framework-mitigates-language-model-hallucination)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：面向AI智能体的自优化记忆框架
-3. [Articulating Assumptions in AI-Generated Scientific Analyses through Task Decomposition](/202607/12/2607.05762v1-articulating-assumptions-in-ai-generated-scientific-analyses-through-task-decomposition)  
+   evidence：基于博弈论的多智能体框架减少科学领域幻觉，与科学发现中的多智能体系统相关
+5. [Finding Simple Proofs for First-Order Optimization](/202607/13/2607.08753v1-finding-simple-proofs-for-first-order-optimization)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用于科学计算代码分析的多智能体框架
-4. [Agentic Neural Architecture Search](/202607/12/2607.07984v1-agentic-neural-architecture-search)  
+   evidence：自动发现优化算法的简洁证明结构
+6. [Evolutionary Intelligence for Scientific Discovery: From Evolutionary Computation to Cumulative Discovery Systems](/202607/13/2607.09025v1-evolutionary-intelligence-for-scientific-discovery-from-evolutionary-computation-to-cumulative-discovery-systems)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：LLM驱动的智能体神经架构搜索用于自动化算法发现
+   evidence：进化智能框架用于自主科学发现
 
 
 <div class="dpr-home-promo-card">
