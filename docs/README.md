@@ -6,61 +6,67 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-16
-- 运行时间：2026-07-16 20:31:36 UTC
+- 最新运行日期：2026-07-17
+- 运行时间：2026-07-17 20:52:16 UTC
 - 运行状态：成功
-- 本次总论文数：13
+- 本次总论文数：15
 - 精读区：6
-- 速读区：7
+- 速读区：9
 
 ### 今日简报（AI）
-今日精选13篇论文，精读6篇，聚焦AI科学社区自主发现神经算子与物理信息深度学习本构模型。  
-最值得关注两大方向：智能体AI自动发现神经算子（9分）及物理信息残差网络预测钛合金热变形本构（9分）。  
-建议普通读者重点关注AI agent驱动的科学发现工具与物理约束深度学习在材料建模中的应用。
-- 详情：[/202607/16/README](/202607/16/README)
+今天共推荐15篇论文，精读两篇高分（9.0/10）佳作，重点围绕高效PDE求解与神经网络方法创新。
+最值得关注的是DRIFT分布式谱神经算子和硬件导向神经弱形式PDE求解器，它们分别从傅里叶变换和弱形式角度为PDE加速提供新思路。
+建议普通读者优先精读这两篇，掌握神经网络与经典数值方法融合的前沿框架。
+- 详情：[/202607/17/README](/202607/17/README)
 
 ### 精读区论文标签
-1. [An Agentic AI Scientific Community for Automated Neural Operator Discovery](/202607/16/2607.12122v1-an-agentic-ai-scientific-community-for-automated-neural-operator-discovery)  
+1. [DRIFT: Direct Reduced Fourier Transforms for Distributed Spectral Neural Operators](/202607/17/2607.14394v1-drift-direct-reduced-fourier-transforms-for-distributed-spectral-neural-operators)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：使用智能体AI社区自动发现神经算子
-2. [Physics-Informed Residual Deep Learning for Constitutive Modeling of Hot Deformation and Dynamic Recrystallization in a Mo-Rich $α+β$ Titanium Alloy](/202607/16/2607.13467v1-physics-informed-residual-deep-learning-for-constitutive-modeling-of-hot-deformation-and-dynamic-recrystallization-in-a-mo-rich--titanium-alloy)  
+   evidence：通过分布式截断谱变换实现可扩展的傅立叶神经算子
+2. [Neural Very Weak Formulations enabling Hardware-Oriented deep PDE solvers](/202607/17/2607.14498v1-neural-very-weak-formulations-enabling-hardware-oriented-deep-pde-solvers)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：堆叠残差物理信息神经网络用于合金变形本构建模
-3. [Spectral-Informed Neural Networks Outperform Spectral Methods in High-dimensional PDEs](/202607/16/2607.13566v1-spectral-informed-neural-networks-outperform-spectral-methods-in-high-dimensional-pdes)  
+   evidence：用于面向硬件的深度PDE求解器的神经超弱形式
+3. [A new strategy for physics-informed neural networks based on hierarchical collocation point refinement](/202607/17/2607.14665v1-a-new-strategy-for-physics-informed-neural-networks-based-on-hierarchical-collocation-point-refinement)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：物理信息神经网络用于高维偏微分方程
-4. [Learning to Discretize: Diffusion-Based Adaptive Mesh with Spectral Guidance](/202607/16/2607.11974v1-learning-to-discretize-diffusion-based-adaptive-mesh-with-spectral-guidance)  
+   evidence：基于多重网格的PINNs训练策略
+4. [Operator-Split Bayesian Learning for Elliptic PDEs with Unequal Interior and Boundary Data](/202607/17/2607.14680v1-operator-split-bayesian-learning-for-elliptic-pdes-with-unequal-interior-and-boundary-data)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：使用贝叶斯神经网络求解椭圆型偏微分方程，采用算子分裂学习
+5. [Split Complex-Valued Physics-Informed Neural Networks for Forward and Inverse Nonlinear PDEs](/202607/17/2607.15087v1-split-complex-valued-physics-informed-neural-networks-for-forward-and-inverse-nonlinear-pdes)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：分裂复值物理信息神经网络用于正反问题非线性PDE
+6. [ReasFlow: Assisting Reasoning-Centric Scientific Discovery in Applied Mathematics via a Knowledge-Based Multi-Agent System](/202607/17/2607.14178v1-reasflow-assisting-reasoning-centric-scientific-discovery-in-applied-mathematics-via-a-knowledge-based-multi-agent-system)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：基于扩散的自适应网格用于神经PDE代理
-5. [Residual-Christoffel Sampling for Random Feature Collocation of Linear PDEs](/202607/16/2607.13382v1-residual-christoffel-sampling-for-random-feature-collocation-of-linear-pdes)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：提出面向算子的随机特征配置方法用于线性PDE，提高稳定性。
-6. [How to Guide LLM Generation: Dual-Surrogate Guided Search for Automated Heuristic Design](/202607/16/2607.13911v1-how-to-guide-llm-generation-dual-surrogate-guided-search-for-automated-heuristic-design)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：提出基于代理引导的搜索方法用于自动启发式设计，直接关联算法发现。
+   evidence：用于应用数学中以推理为中心的科学发现的多智能体系统
 
 ### 速读区论文标签
-1. [Are LLMs Ready for Scientific Discovery? A Capability-Oriented Benchmark for AI Scientists](/202607/16/2607.11079v1-are-llms-ready-for-scientific-discovery-a-capability-oriented-benchmark-for-ai-scientists)  
+1. [From Observation to Insight: Mechanistic World Models and the Quest for Autonomous Discovery](/202607/17/2607.12474v2-from-observation-to-insight-mechanistic-world-models-and-the-quest-for-autonomous-discovery)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：评估LLM在包括物理在内的科学发现中的能力基准
-2. [Approximation of solutions of parameter-dependent problems by residual neural networks](/202607/16/2607.13574v1-approximation-of-solutions-of-parameter-dependent-problems-by-residual-neural-networks)  
+   evidence：用于自主科学发现的机械世界模型
+2. [A Generative Model-Free Form Deformation Approach for the Generation of Mesh Motions with Applications to PDE](/202607/17/2607.13202v1-a-generative-model-free-form-deformation-approach-for-the-generation-of-mesh-motions-with-applications-to-pde)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：残差神经网络求解参数化常微分方程和反问题
-3. [Automatic Ordinary Differential Equations Discovery For Biological Systems Using Large Language Model Powered Agentic System](/202607/16/2607.13608v1-automatic-ordinary-differential-equations-discovery-for-biological-systems-using-large-language-model-powered-agentic-system)  
+   evidence：用于网格运动的生成式无模型形变方法，应用于PDE
+3. [Tensor Network Methods for Advection-Diffusion-Reaction Systems Using Quantum-Inspired Representations](/202607/17/2607.14150v1-tensor-network-methods-for-advection-diffusion-reaction-systems-using-quantum-inspired-representations)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：LLM智能体从生物数据中发现常微分方程
-4. [Long-Horizon-Terminal-Bench: Testing the Limits of Agents on Long-Horizon Terminal Tasks with Dense Reward-Based Grading](/202607/16/2607.08964v2-long-horizon-terminal-bench-testing-the-limits-of-agents-on-long-horizon-terminal-tasks-with-dense-reward-based-grading)  
+   evidence：量子启发张量网络方法求解对流扩散反应PDE
+4. [Opti-Agent-Bench: Benchmarking End-to-End Optimization R&D Agents on Real-World Business Problems](/202607/17/2607.10768v1-opti-agent-bench-benchmarking-end-to-end-optimization-rd-agents-on-real-world-business-problems)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：智能体在科学计算中的技能基准测试
-5. [Agora: Enhancing LLM Agent Reasoning Via Auction-Based Task Allocation](/202607/16/2607.09600v1-agora-enhancing-llm-agent-reasoning-via-auction-based-task-allocation)  
+   evidence：基于LLM的优化智能体基准，涉及算法选择和代码实现
+5. [Tangent-Space Multiscale Manifold Methods for Nonlinear Elliptic Problems](/202607/17/2607.12082v1-tangent-space-multiscale-manifold-methods-for-nonlinear-elliptic-problems)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：基于拍卖的多智能体LLM任务分配
-6. [An Autonomous Scientific Knowledge Generation Framework for AI-Driven Scientific Discovery](/202607/16/2607.09806v1-an-autonomous-scientific-knowledge-generation-framework-for-ai-driven-scientific-discovery)  
+   evidence：用于非线性椭圆PDE的多尺度方法，含网络插值变体
+6. [TopoAgent: A Self-Evolving Topological Agent for Multimodal Scientific Reasoning](/202607/17/2607.14658v1-topoagent-a-self-evolving-topological-agent-for-multimodal-scientific-reasoning)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：自主科学知识生成框架，助力AI驱动发现
-7. [IdeaTrail: Full-Process Agent Trajectories for Scientific Ideation](/202607/16/2607.10144v2-ideatrail-full-process-agent-trajectories-for-scientific-ideation)  
+   evidence：自演化拓扑智能体用于多模态科学推理，与自主科学发现相关
+7. [Harnessing Machine Learning for Hybrid Constitutive Modelling of Viscoelastic Fluid Flows in Computational Rheology](/202607/17/2607.14944v1-harnessing-machine-learning-for-hybrid-constitutive-modelling-of-viscoelastic-fluid-flows-in-computational-rheology)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：全流程智能体轨迹用于科学构思
+   evidence：混合机器学习用于粘弹性流体流动本构建模
+8. [Multiscale Mixed-Dimensional Simulation via Domain Decomposition and Non-Intrusive Neural Model Order Reduction](/202607/17/2607.15171v1-multiscale-mixed-dimensional-simulation-via-domain-decomposition-and-non-intrusive-neural-model-order-reduction)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：域分解与神经模型降阶用于多尺度PDE模拟
+9. [RTS Smoother-Guided Learning of Physics-Based Neural Differential Models](/202607/17/2607.15180v1-rts-smoother-guided-learning-of-physics-based-neural-differential-models)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：混合神经物理框架，类似PINN思想，用于已知部分保持显式、未知部分用神经网络拟合
 
 
 <div class="dpr-home-promo-card">
