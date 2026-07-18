@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-07-18 <!--dpr-date:20260718-->
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202607/18/2607.10878v1-logos-a-living-logic-for-ai-agent-teams-that-evolve-with-humans" data-sidebar-item="{&quot;title&quot;: &quot;LOGOS: A Living Logic for AI Agent Teams That Evolve With Humans&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2607.10878v1-logos-a-living-logic-for-ai-agent-teams-that-evolve-with-humans&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;ai-pde&quot;}], &quot;evidence&quot;: &quot;多智能体团队进化框架可应用于PDE发现&quot;}">LOGOS: A Living Logic for AI Agent Teams That Evolve With Humans</a>
   * 2026-07-17 <!--dpr-date:20260717-->
     * 精读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202607/17/2607.14394v1-drift-direct-reduced-fourier-transforms-for-distributed-spectral-neural-operators" data-sidebar-item="{&quot;title&quot;: &quot;DRIFT: Direct Reduced Fourier Transforms for Distributed Spectral Neural Operators&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2607.14394v1-drift-direct-reduced-fourier-transforms-for-distributed-spectral-neural-operators&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;ai-pde&quot;}], &quot;evidence&quot;: &quot;通过分布式截断谱变换实现可扩展的傅立叶神经算子&quot;}">DRIFT: Direct Reduced Fourier Transforms for Distributed Spectral Neural Operators</a>
