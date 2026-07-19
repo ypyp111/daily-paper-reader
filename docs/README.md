@@ -6,24 +6,31 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-18
-- 运行时间：2026-07-18 21:07:03 UTC
+- 最新运行日期：2026-07-19
+- 运行时间：2026-07-19 20:55:44 UTC
 - 运行状态：成功
-- 本次总论文数：1
+- 本次总论文数：2
 - 精读区：0
-- 速读区：1
+- 速读区：2
 
 ### 今日简报（AI）
-今日速读1篇，关注AI代理团队与人类协作的进化逻辑。值得注意的方向是动态逻辑系统如何让AI团队随人类需求自适应调整。建议普通读者关注AI与人类协同的灵活性，而非单一模型能力。
-- 详情：[/202607/18/README](/202607/18/README)
+今日精选两篇AI前沿速读，聚焦自主发现机制与世界模型、人机协作数学研究。
+
+重点关注《From Observation to Insight》提出的机械论世界模型，以及《MathCoPilot》展现的人机共生数学研究范式。
+
+建议优先阅读第一篇以理解AI自主发现的核心框架，第二篇适合关注数学领域AI工具落地的读者。
+- 详情：[/202607/19/README](/202607/19/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [LOGOS: A Living Logic for AI Agent Teams That Evolve With Humans](/202607/18/2607.10878v1-logos-a-living-logic-for-ai-agent-teams-that-evolve-with-humans)  
+1. [From Observation to Insight: Mechanistic World Models and the Quest for Autonomous Discovery](/202607/19/2607.12474v1-from-observation-to-insight-mechanistic-world-models-and-the-quest-for-autonomous-discovery)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：提出机制世界模型用于自主科学发现，可应用于偏微分方程发现
+2. [MathCoPilot: An Interactive System for Human-AI Symbiotic Paradigm of Mathematical Research](/202607/19/2607.14582v1-mathcopilot-an-interactive-system-for-human-ai-symbiotic-paradigm-of-mathematical-research)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：多智能体团队进化框架可应用于PDE发现
+   evidence：自主代理用于数学研究，人机协同范式
 
 
 <div class="dpr-home-promo-card">
