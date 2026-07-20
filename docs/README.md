@@ -6,31 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-19
-- 运行时间：2026-07-19 20:55:44 UTC
+- 最新运行日期：2026-07-20
+- 运行时间：2026-07-20 20:35:38 UTC
 - 运行状态：成功
-- 本次总论文数：2
-- 精读区：0
+- 本次总论文数：5
+- 精读区：3
 - 速读区：2
 
 ### 今日简报（AI）
-今日精选两篇AI前沿速读，聚焦自主发现机制与世界模型、人机协作数学研究。
-
-重点关注《From Observation to Insight》提出的机械论世界模型，以及《MathCoPilot》展现的人机共生数学研究范式。
-
-建议优先阅读第一篇以理解AI自主发现的核心框架，第二篇适合关注数学领域AI工具落地的读者。
-- 详情：[/202607/19/README](/202607/19/README)
+今日精选5篇论文，重点关注物理信息神经网络（PINN）设计及其在非线性多尺度问题中的统计学习。  
+两个高分方向值得精读：进化算法引导大语言模型优化PINN结构，以及非线性多尺度物理信息学习中的统计公式差距。  
+建议普通读者优先阅读这两篇9分论文，把握AI驱动科学计算的前沿方法。
+- 详情：[/202607/20/README](/202607/20/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [Evolutionary Algorithm-Guided LLMs for Physics-Informed Neural Network Design](/202607/20/2607.15560v1-evolutionary-algorithm-guided-llms-for-physics-informed-neural-network-design)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：进化算法引导的LLM用于物理信息神经网络设计
+2. [A Statistical Formulation Gap for Nonlinear Multiscale Physics-Informed Learning](/202607/20/2607.15702v1-a-statistical-formulation-gap-for-nonlinear-multiscale-physics-informed-learning)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：物理信息学习求解PDE的理论分析
+3. [Trainable Spline Representations for Physics-Informed Learning](/202607/20/2607.15751v1-trainable-spline-representations-for-physics-informed-learning)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：利用可训练样条表示进行物理信息学习
 
 ### 速读区论文标签
-1. [From Observation to Insight: Mechanistic World Models and the Quest for Autonomous Discovery](/202607/19/2607.12474v1-from-observation-to-insight-mechanistic-world-models-and-the-quest-for-autonomous-discovery)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：提出机制世界模型用于自主科学发现，可应用于偏微分方程发现
-2. [MathCoPilot: An Interactive System for Human-AI Symbiotic Paradigm of Mathematical Research](/202607/19/2607.14582v1-mathcopilot-an-interactive-system-for-human-ai-symbiotic-paradigm-of-mathematical-research)  
+1. [RetroAgent: Harnessing LLMs to Search Over Structured Memory for Agentic Retrosynthesis Planning](/202607/20/2607.14512v1-retroagent-harnessing-llms-to-search-over-structured-memory-for-agentic-retrosynthesis-planning)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：自主代理用于数学研究，人机协同范式
+   evidence：LLM智能体在逆合成规划中的应用，展示科学计算中的智能体技能
+2. [CADAQUES: A Cost-Aware Dual Architecture for Query-Efficient Autonomous Discovery](/202607/20/2607.16127v1-cadaques-a-cost-aware-dual-architecture-for-query-efficient-autonomous-discovery)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：成本感知的自主发现框架用于科学查询
 
 
 <div class="dpr-home-promo-card">
