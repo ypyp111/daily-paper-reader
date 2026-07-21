@@ -1,0 +1,925 @@
+Title: A domain decomposition online-learning-enhanced nonlinear elimination preconditioner
+
+URL Source: https://arxiv.org/pdf/2607.17723v1
+
+Published Time: Tue, 21 Jul 2026 01:59:02 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# A domain decomposition online-learning-enhanced nonlinear elimination preconditioner 
+
+# Pai Zhang a Linyan Gu b Li Luo a,* 
+
+> a
+
+Department of Mathematics, University of Macau, Macao SAR, China. 
+
+> b
+
+School of Mathematics, Sun Yat-sen University, Guangzhou, China. 
+
+> *
+
+Corresponding author. E-mail: liluo@um.edu.mo 
+
+Abstract 
+
+Nonlinearly preconditioned inexact Newton methods form an effective class of solvers for large-scale nonlinear algebraic systems arising from the discretization of partial differential equations. Acentral challenge in nonlinear elimination (NE) preconditioning is the reliable identification of the slowly converging components to be eliminated. Existing selection strategies often rely on problem-specific physical information or user-tuned thresholds applied directly to the raw nonlinear residual, which may contain irregular oscillatory structures near stagnation regions, making the selected bad subset highly sensitive to threshold parameters. In this work, we propose an online-learning-enhanced NE preconditioner that identifies the bad subset from the dominant structure of the nonlinear residual rather than from the raw residual itself. Residual snapshots are collected online during the stagnation phase of the current Newton solve, and an unsupervised extraction model is trained to capture the principal nonlinear imbalance. We consider both a linear extractor based on principal component analysis and nonlinear extractors based on autoencoder neural networks. Moreover, we integrate the approach into a parallel domain decomposition framework, which trains a local extraction model independently on each subdomain. The learned residual reconstruction is then used to define the bad subset and guide the nonlinear elimination process. Numerical experiments on lid-driven cavity flows at Reynolds numbers up to 10 ,000 show that the proposed method produces more reliable and coherent bad subsets, is robust with respect to both NE and learning parameters, and outperforms the baseline NE preconditioner in terms of the convergence. 
+
+Keywords: Inexact Newton; learning-enhanced nonlinear preconditioning; principal component analysis; neural networks; incompressible Navier–Stokes equations. 
+
+MSC 2020: 49M15; 68T07; 65N55; 76D05. 
+
+# 1 Introduction 
+
+The algebraic systems obtained from the discretization of nonlinear partial differential equations (PDEs) often exhibit strongly localized sources of nonlinear difficulty. In many such problems, the loss of robustness of Newton-type methods is caused by a relatively small set of variables whose nonlinear behavior is substantially more severe than that of the remaining components. These localized components may dominate the residual reduction process and lead to slow convergence or stagnation of the global Newton iteration. Nonlinear elimination (NE) preconditioning is an effective strategy for improving the robustness and efficiency of Newton-type methods for this class of problems [1, 2, 3, 4, 5, 6, 7, 8]. The central idea is to identify the algebraic components that are mainly responsible for the nonlinear difficulty and to treat them separately from the rest of the system. More specifically, the index set of unknowns is divided into a good subset, whose components are sufficiently well balanced and are therefore left to the global Newton iteration, and a bad subset, whose components exhibit strong or slowly converging nonlinear behavior. The residual components associated with the bad subset are approximately eliminated by solving a restricted nonlinear subproblem, and the resulting correction is then incorporated into the outer Newton process. From this perspective, the NE preconditioner may be viewed as a nonlinear analogue of Gaussian elimination. 1arXiv:2607.17723v1 [math.NA] 20 Jul 2026 The success of NE preconditioning depends critically on whether the selected bad subset accurately captures the components that slow down the convergence of the original Newton iteration. Many existing selection strategies are based on thresholding the raw nonlinear residual [6, 9, 10, 11, 12]. Consequently, the quality of the resulting bad subset can be highly sensitive to user-prescribed parameters and heuristic criteria. An inaccurate selection may either leave the dominant source of nonlinear difficulty untreated or include an unnecessarily large number of degrees of freedom, thereby degrading both the efficiency and robustness of the overall solver. In particular, for complex nonlinear problems, the raw residual often contains oscillatory or highly irregular structures in addition to the dominant nonlinear features. Direct thresholding of such a residual may therefore select many scattered components that are not actually associated with the main source of nonlinear stiffness. Eliminating these isolated components can significantly increase the cost of the restricted nonlinear solve without providing a corresponding improvement in the global convergence. Even worse, the mismatch between the locally updated bad components and the unchanged good components may introduce additional residual jumps across the interface between the two regions. These newly generated jumps may redistribute the nonlinear imbalance, making the subsequent global Newton problem even less balanced. To address this issue, we propose to exploit the nonlinear residual data generated online during the current stagnating Newton iterations. Instead of selecting the bad subset directly from the raw residual, we use an unsupervised learning model to extract a representation that reveals the dominant nonlinear structures responsible for slow convergence. The extracted dominant structure is then used to define the bad subset and to guide the nonlinear elimination process, so that the preconditioner targets the essential nonlinear imbalance while avoiding many scattered oscillatory components. Data-driven extraction of dominant structures from snapshot data has been widely studied in the context of modal decomposition and reduced-order modeling. Classical principal component analysis (PCA), or equivalently proper orthogonal decomposition (POD), identifies energetically dominant coherent modes from a collection of snapshots and has been extensively used to analyze coherent structures in fluid flows [13,14,15,16] and hyperelastic deformation [17]. Related modal-analysis techniques, such as dynamic mode decomposition and spectral POD, further aim to extract dynamically or space-time coherent structures from complex flow data [18, 19]. Beyond linear subspace methods, nonlinear dimensionality-reduction techniques based on neural networks and autoencoders have been developed to learn nonlinear low-dimensional representations of high-dimensional data [20, 21]. More recently, convolutional autoencoders have been used to extract nonlinear modes and coherent flow structures from fluid-dynamics data [22, 23], and deep autoencoder manifolds have also been introduced for nonlinear reduced-order modeling [24]. Motivated by these developments, we consider both PCA-based and neural-network-based extraction models to identify the dominant structure of the nonlinear residual generated during a stagnating Newton iteration. However, the purpose of the present work differs from that of the aforementioned studies. We do not use the learned representation to construct a reduced-order model, predict system dynamics, or augment a linear preconditioner. Instead, the learning is employed at the nonlinear preconditioning level: the dominant structure extracted from the online residual snapshots replaces the raw residual in defining the bad subset for nonlinear elimination. Moreover, we partition the residual snapshots across the subdomains in a domain decomposition framework [10, 11, 25], so that the extraction models can be constructed independently on each subdomain, allowing the extraction stage to be performed in parallel. In this way, the NE preconditioner targets the principal nonlinear imbalance while filtering out oscillatory residual components that are less relevant to the slow convergence. Numerical results for high-Reynolds-number lid-driven cavity flows demonstrate that this strategy substantially improves the robustness of NE preconditioning, particularly with respect to the threshold parameter and the stopping tolerance of the inner nonlinear iteration. The remainder of this paper is organized as follows. In Section 2, we review the nonlinear elimination preconditioner and introduce the basic notation used throughout the paper. In Section 3, we present the proposed DD-OLE-NE-preconditioned inexact Newton algorithm in detail, including online residual-snapshot collection and the PCA- and autoencoder-based extraction strategies. In Section 4, numerical experiments for the two-dimensional lid-driven cavity flows are presented, including a parametric study of the algorithm and a comparison with the baseline NE preconditioner. Concluding remarks are given in Section 5. 22 The nonlinear elimination preconditioner 
+
+Consider a nonlinear system of algebraic equations F : Rn → Rn. We seek X∗ ∈ Rn such that 
+
+F (X∗) = 0 , (1) starting from an initial guess X0 ∈ Rn, where 
+
+F (X) =  F1(X), . . . , F n(X)⊤, X =  X1, . . . , X n
+
+⊤.
+
+We first recall the inexact Newton algorithm with backtracking (IN) [26]. Given the current approximate solution Xk, a new iterate Xk+1 is computed via 
+
+Xk+1 = Xk − λkSk, (2) where the inexact Newton direction Sk satisfies 
+
+∥F (Xk) − F ′(Xk)Sk∥ ≤ ηk∥F (Xk)∥. (3) Here, ηk ∈ [0 , 1) is a forcing term that determines how accurately the Jacobian system needs to be solved. The step length λk ∈ (0 , 1] is obtained from a standard backtracking line search technique [27]. It determines a step size along the inexact Newton direction Sk such that 
+
+f (Xk − λkSk) ≤ f (Xk) − αλ k∇f (Xk)⊤Sk, (4) where f = ∥F ∥2/2 is the merit function, and the parameter α is used to ensure that f is reduced sufficiently (herein α = 10 −4). The nonlinear iteration is stopped if 
+
+∥F (Xk)∥ ≤ max γa, γ r ∥F (X0)∥ , (5) where γa and γr are prescribed absolute and relative tolerances, respectively. IN may experience a long stagnation phase when applied to nonlinearly difficult problems. In practice, this slow convergence is often not caused uniformly by all components of the nonlinear residual. Instead, it is typically driven by a relatively small subset of components of F (X) that exhibit stronger nonlinear behavior than the others. These components may dominate the residual reduction process by contributing a large portion of the total nonlinear residual norm, and therefore play a decisive role in the slow convergence or stagnation of the global Newton iteration. The central idea of the nonlinear elimination (NE) preconditioner is to identify the components of F (X)that are primarily responsible for the slow convergence of the Newton iteration and to treat them through a restricted nonlinear solve. To introduce the corresponding notation, let N = {1, . . . , n } denote the index set of all components. The set N is partitioned into a bad subset Nb, containing nb components, and its complementary good subset Ng = N \ Nb, containing n − nb components. The indices in Nb are associated with variables exhibiting strong or poorly balanced nonlinear behavior, whereas those in Ng correspond to variables with comparatively weak or well-balanced nonlinearities that can be handled effectively by the global Newton iteration. We define two subspaces 
+
+Vb =
+
+n
+
+v | v = ( v1, . . . , v n)⊤ ∈ Rn, v i = 0 if i / ∈ Nb
+
+o
+
+,Vg =
+
+n
+
+v | v = ( v1, . . . , v n)⊤ ∈ Rn, v i = 0 if i ∈ Nb
+
+o
+
+,
+
+and the corresponding restriction operators Rb : Rn → Vb and Rg : Rn → Vg . Then, F (X) can be partitioned into: 
+
+F (X) = Rg F (X) + RbF (X). (6) 3For a given Newton iterate Xk, the NE preconditioner defines a nonlinear mapping G by seeking a locally corrected state Y = G(Xk) such that 
+
+RbF (Y ) = 0 . (7) The restricted problem (7) is referred to as the subspace nonlinear system, since only the components corresponding to Nb are targeted for elimination. In practice, this system is solved by an inner Newton iteration. The NE procedure is embedded within the outer Newton iteration. At each outer step, the current approximation Xk is first used as the initial guess for the subspace solve, and the resulting approximate solution Y ∗ ≈ G(Xk) provides a nonlinear correction before the global Newton iteration is continued. Therefore, the subspace nonlinear system does not need to be solved exactly. Starting from Y 0 = Xk, the inner Newton iteration is terminated once an approximate solution Y ∗ satisfies 
+
+∥RbF (Y ∗)∥ ≤ γsr ∥RbF (Y 0)∥, (8) where γsr is the prescribed relative tolerance for the inner nonlinear solve. This inexact treatment reduces the cost of the nonlinear elimination step while still sufficiently damping the bad components that slow down the convergence of the outer Newton iteration. Although the NE preconditioner has demonstrated considerable success in a variety of applications, its overall effectiveness is still largely influenced by two important factors: 
+
+• First, the method relies on the reliable identification of the bad subset Nb. This selection is highly problem-dependent and remains challenging in practical computations. The reliable construction of Nb
+
+is therefore the main challenge addressed in this work. In Section 3, we introduce an online-learning-enhanced technique that extracts the dominant nonlinear structures from residual snapshots generated during the current Newton solve. The reconstructed residual is subsequently used in place of the raw residual to define the bad subset, allowing the nonlinear elimination procedure to focus more effectively on the components associated with the principal nonlinear imbalance. 
+
+• Second, after the nonlinear elimination step is performed, new discontinuities or jumps may be introduced in the residual across the interface between the good and bad regions, or across subdomain boundaries. These newly generated jumps can alter the distribution of nonlinear residuals and may cause previously balanced nonlinear effects to become unbalanced again. To reduce the risk of such interfacial jumps, we employ the modified Newton direction proposed in [28], together with a global line-search procedure. The modified direction accounts for the effect of the local nonlinear correction on the full system, while the line search selects an appropriate step length to ensure sufficient reduction of the global merit function f . This globalization strategy helps maintain consistency between the locally eliminated components and the remainder of the nonlinear system. The NE preconditioner using the modified Newton direction is presented in Algorithm 1, stated as a function Xnew = NE (F, X, R b, R g , γ ) so that it can later be invoked with a different nonlinear function and different restriction operators (see Algorithm 2). 
+
+# 3 A domain decomposition online-learning-enhanced NE precon-ditioner 
+
+# 3.1 Motivation 
+
+We illustrate the difficulty of using a classical selection criterion through a simple one-dimensional example. The residual profile F (Xk), shown by the gray curve in the left column of Figure 1, contains two pronounced peaks. These peaks represent residual components that remain difficult to reduce even after additional Newton iterations. In many nonlinear problems, such components are associated with localized singular behavior, sharp transitions, or other strongly nonlinear features of the solution. They are therefore regarded as the “nonlinearly stiff” components of the residual, which the NE preconditioner aims to identify and eliminate. 4Algorithm 1 Xnew = NE (F, X, R b, R g , γ ): the NE preconditioning algorithm using a modified Newton direction. The function takes a nonlinear function F , an approximate solution X, a pair of restriction operators Rb and Rg , and a relative tolerance γ, and returns an updated approximate solution Xnew .1. Set j = 0, start from the initial guess Y 0 = X, compute RbF (Y 0) and ∥RbF (Y 0)∥.2. While ∥RbF (Y j )∥ > γ ∥RbF (Y 0)∥, do: (a) Compute the subspace Jacobian Jjb = RbF ′(Y j )R⊤ 
+
+> b
+
++ Rg In×nR⊤ 
+
+> g
+
+.(b) Solve Jjb Sjb = RbF (Y j ) for Sjb .(c) Compute the modified global residual Hj = RbF ′(Y j − Sjb )R⊤ 
+
+> b
+
+Sjb + Rg F (Y j ). (d) Find the modified Newton direction ˜Sj by approximately solving F ′(Y j − Sjb ) ˜Sj = Hj .(e) Update Y j+1 = Y j − ˜λj ˜Sj , where the step length ˜λj is determined by a backtracking line search technique using the merit function f = ∥F ∥2/2. (f) Set j ← j + 1, compute RbF (Y j ) and ∥RbF (Y j )∥.3. Return the new approximate solution Xnew = Y j .An intuitive selection of the bad subset is based on the magnitude of the residual values: 
+
+Nb := j ∈ N Fj (Xk) > ρ ∥F (Xk)∥∞ , (9) where ρ is a user-defined parameter. However, choosing the threshold ρ becomes challenging when the residual contains oscillatory components of relatively small magnitude. Figure 1 illustrates the bad components 
+
+RbF (Xk) selected by different choices of ρ. When a small threshold is used, for example ρ = 0 .1, the selected residual contains many disconnected and highly oscillatory protrusions, as shown in the top row. These scattered components enlarge and complicate the resulting subspace nonlinear system, and may make the inner nonlinear solve more difficult rather than more effective. Increasing the threshold can suppress such protrusions, but this improvement comes at the cost of losing part of the dominant nonlinear structures that should be eliminated. As shown in the case ρ = 0 .3 in the bottom row of Figure 1, a larger threshold produces a cleaner bad subset, but may also truncate the main structures associated with the slow convergence. This loss of completeness can weaken the nonlinear elimination effect and eventually affect the robustness of the preconditioner. These observations suggest that a more effective selection strategy should not be based directly on the raw residual. Instead, it should distinguish the dominant nonlinear structures that need to be eliminated from the highly oscillatory perturbations that contaminate the thresholding process. Such a separation is far from straightforward, however, because the residual F (Xk) inherits the complex spatial and nonlinear features of the underlying nonlinear partial differential equations. In this work, we propose a novel strategy to identify the dominant structures associated with localized nonlinearities while filtering out highly oscillatory perturbations in the nonlinear residual. To this end, we introduce a data-driven extraction operator G and define the reconstructed residual mapping by 
+
+F(X) = G(F (X)) =  F1(X), . . . , Fn(X)⊤ ∈ Rn, (10) where G(·) is a data-driven extraction operator learned online from the collected residual snapshots. We consider two realizations: a linear model based on principal component analysis and nonlinear models based on neural networks. Applying G to the residual produces the reconstructed residual F(Xk), whose dominant nonlinear structures are preserved while oscillatory perturbations are suppressed. Figure 2 illustrates the proposed online-learning-based extraction process. Compared with the raw residual F (Xk), the reconstructed residual 
+
+F(Xk) more clearly exposes the dominant structures associated with localized nonlinearities while removing high-frequency oscillations, thereby allowing a more reliable identification of the bad subset. Replacing the 5Figure 1: A visual illustration of the residual F (Xk) (left column, with the threshold level ρ∥F (Xk)∥∞ shown in blue) and the selected bad components RbF (Xk) (right column) for thresholds ρ = 0 .1, 0 .2 and 0 .3 (top to bottom). A small threshold leaves highly oscillatory protrusions in the bad subset, while a large threshold discards part of the dominant structure. raw residual with its reconstruction in the selection criterion yields 
+
+Nb := j ∈ N Fj (Xk) > ρ ∥F (Xk)∥∞ . (11) As illustrated in Figure 2, thresholding the reconstructed residual produces the bad components RbF(Xk), which capture the dominant nonlinear structures while avoiding the scattered discontinuous protrusions generated by thresholding the raw residual (top row of Figure 1). Consequently, the bad-subset selection is expected to become less sensitive to the threshold parameter, thereby improving the robustness of the NE preconditioner. With the identified bad subset Nb, we define the corresponding restriction operators Rb and Rg , analogously to Rb and Rg , and decompose the nonlinear residual as 
+
+F = Fslow + Ffast . (12) Here, 
+
+Fslow := RbF
+
+represents the dominant residual structures associated with localized nonlinearities that are primarily responsible for the slow convergence of the global Newton iteration. Throughout this paper, these components are referred to as the slow components . The remaining part, 
+
+Ffast := F − R bF,
+
+6Figure 2: A schematic illustration of the proposed online-learning-based extraction of the dominant residual structure. Nonlinear residual snapshots F (Xks ), . . . , F (Xkt ), collected during the stagnation phase, are used to train either a linear PCA-based model or a nonlinear autoencoder. The reconstructed residual 
+
+F(Xk) preserves the dominant nonlinear structure while filtering out undesirable oscillatory components. Thresholding the reconstruction then identifies the bad components RbF(Xk), shown in red, which are subsequently treated by the NE preconditioner. contains residual components whose nonlinearities are comparatively well balanced and can therefore be handled efficiently by the global Newton iteration. To reduce the slow components, we introduce the following modified subspace nonlinear system: 
+
+RbF(Y ) = 0 . (13) Compared with the original subspace system (7), the modified system is generally easier to solve because the reconstructed residual removes many oscillatory components that unnecessarily complicate the inner nonlinear iteration. As a result, the nonlinear elimination preconditioner becomes more robust while preserving its ability to target the dominant sources of nonlinear difficulty. In practice, incorporating a learned extraction operator into nonlinear preconditioning requires resolving several key issues: 1. How to collect the training data? 2. How to efficiently train the extraction models on large-scale residual data in parallel? 3. How to define the extraction models to optimally extract the dominant structure of the residual? 4. How to integrate the extraction models into the NE preconditioner in Algorithm 1? We address these questions in the subsequent sections. 
+
+# 3.2 Collection of training data 
+
+Nonlinear preconditioning is only necessary when the convergence of IN is problematic. Figure 3 shows a typical residual curve when the method becomes trapped in a state of stagnation. We consider the stagnation to be tolerable until reaching a step kt where the nonlinear preconditioner is needed to accelerate the convergence. Letting ks denotes the starting step of the stagnation, we define a tolerable stagnation period [ks, k t] with length ns = kt − ks + 1. During this period, there often exist dominant coherent structures within the set of nonlinear residual vectors generated by the Newton iterations: 
+
+SF = F (Xks ), F (Xks+1 ), . . . , F (Xkt ) . (14) 7These residual vectors offer useful hidden information that is associated with the slow convergence of IN. We collect the set SF as a training dataset for the proposed unsupervised learning approach to identify the hidden information. The size of the dataset is determined by the length of the tolerable stagnation period ns. In practice, ks
+
+is chosen as the first iteration at which the decrease of the residual norm becomes noticeably slow, while kt is selected after the stagnation has persisted long enough to justify the use of nonlinear preconditioning. 
+
+Figure 3: A typical residual curve obtained using IN when the method fails to converge. The part in the dashed box is considered as the tolerable stagnation period [ ks, k t] with length ns = kt − ks + 1. 
+
+# 3.3 Parallel training based on domain decomposition 
+
+To enable efficient online training for large-scale nonlinear systems, we adopt a domain-decomposition-based learning strategy. As shown in Figure 4, the computational domain Ω is partitioned into np nonoverlapping subdomains, Ω = 
+
+> np
+
+[
+
+> i=1
+
+Ωi, Ωi ∩ Ωj = ∅, i̸ = j. (15) Accordingly, the global solution vector X ∈ Rn is partitioned into subdomain vectors. Let R0 
+
+> i
+
+denote the restriction operator from the global vector to the degrees of freedom associated with the nonoverlapping subdomain Ω i. The local solution vector on Ω i is therefore defined as Xi = R0 
+
+> i
+
+X. After a suitable ordering of the global degrees of freedom, the restriction can be written formally as 
+
+Xi = R0 
+
+> i
+
+X = ( I 0) 
+
+ Xi
+
+X\Xi
+
+
+
+, (16) where X\Xi denotes the components of X outside the subdomain Ω i. Let ni denote the number of degrees of freedom associated with Ω i.The same decomposition is applied to the nonlinear residual snapshots collected during the stagnation period. Instead of training a single global extraction model using the full residual dataset, the snapshots are restricted to each subdomain to form the local training dataset 
+
+SF,i = R0 
+
+> i
+
+F (Xks ), R 0 
+
+> i
+
+F (Xks+1 ), . . . , R 0 
+
+> i
+
+F (Xkt ) , (17) where i = 1 , . . . , n p. An independent extraction model Gi is then constructed and trained using SF,i on the corresponding processor 
+
+Gi : Rni → Rni , (18) where Gi may be realized either by a local PCA model or by a local autoencoder neural network. 8Figure 4: Subdomain-wise extraction models used in the proposed DD-OLE-NE preconditioner. The computational domain is decomposed into four nonoverlapping subdomains Ω 1, . . . , Ω4. On each subdomain Ωi, local residual snapshots are used to construct an independent extraction model Gi.In the proposed DD-OLE-NE preconditioner, for each residual snapshot F (Xk), k = ks, . . . , k t, its restriction to the i-th nonoverlapping subdomain is R0 
+
+> i
+
+F (Xk). The corresponding local reconstruction is 
+
+Gi
+
+ R0 
+
+> i
+
+F (Xk). The global reconstructed residual is assembled as 
+
+F(Xk) = 
+
+> np
+
+X
+
+> i=1
+
+(R0 
+
+> i
+
+)⊤Gi
+
+ R0 
+
+> i
+
+F (Xk), (19) where ( R0 
+
+> i
+
+)⊤ injects the local reconstruction into the global vector. The use of domain decomposition in the learning-based extraction step is motivated by several considera-tions. 1) The nonlinear residual is often location-sensitive: the dominant structures responsible for Newton stagnation may appear only in a few localized regions. Applying a global PCA or a global autoencoder to the entire residual may mix information from unrelated regions and obscure such localized structures. In the spirit of the domain decomposition PCA strategy for location-sensitive data discussed in [29], local extraction models can better preserve spatially localized features. 2) The dimension of each local residual snapshot R0 
+
+> i
+
+F (Xk) is much smaller than that of the global residual 
+
+F (Xk). Therefore, the local PCA or neural network training problems are cheaper in both memory and computational cost. This is particularly important when the nonlinear system is large and the residual snapshots are collected online within a single Newton solve. 3) The local extraction models are independent across subdomains. Each processor can train its own model Gi using only the local dataset SF,i , and no global training problem is required [30, 31, 32]. Thus, the learning stage fits naturally into the domain decomposition parallel framework already used by the nonlinear solver. After the global reconstructed residual F(X) is assembled, the bad subset is identified by using (11). In this way, the proposed method combines the scalability of domain decomposition with the structure-identification capability of PCA or neural network based models. 
+
+# 3.4 Extraction models 
+
+For the extraction of the dominant structure of the residual vectors, we consider two classes of models: a linear model based on PCA, and nonlinear models based on neural networks, for which we use a multilayer perceptron and a convolutional neural network. 93.4.1 Principal component analysis based model 
+
+In this method, PCA is applied independently on each subdomain to construct a local linear extraction operator from the residual snapshots collected during the stagnation phase. For each i = 1 , . . . , n p, the residual snapshots are restricted to Ω i and assembled into the local snapshot matrix Fi ∈ Rni×ns , where 
+
+Fi = R0 
+
+> i
+
+F (Xks ), R 0 
+
+> i
+
+F (Xks+1 ), . . . , R 0 
+
+> i
+
+F (Xkt ) ,
+
+and ns = kt − ks + 1 is the number of residual snapshots collected during the tolerable stagnation period. For each subdomain, PCA seeks an matrix with orthonormal columns Pi ∈ Rni×d, satisfying P ⊤ 
+
+> i
+
+Pi = Id,where d ≪ ni is the prescribed number of retained modes. The columns of Pi span a low-dimensional local subspace that retains the dominant variability of the residual snapshots R0 
+
+> i
+
+F (Xk), k = ks, . . . , k t.The mean of the local residual snapshots is defined by ¯Fi = 1
+
+nsktX
+
+> ℓ=ks
+
+R0 
+
+> i
+
+F (Xℓ) ∈ Rni .
+
+For k = ks, . . . , k t, the corresponding centered local residual vector is ˆF ki = R0 
+
+> i
+
+F (Xk) − ¯Fi,
+
+and the centered local snapshot matrix is 
+
+bFi =
+
+h ˆF ks 
+
+> i
+
+, ˆF ks+1  
+
+> i
+
+, . . . , ˆF kt
+
+> i
+
+i
+
+∈ Rni×ns .
+
+The local PCA basis is obtained from the singular value decomposition (SVD) 
+
+bFi = ˆUi ˆΣi ˆV ⊤ 
+
+> i
+
+, i = 1 , . . . , n p,
+
+where ˆUi ∈ Rni×ni and ˆVi ∈ Rns×ns are orthogonal matrices, and ˆΣi ∈ Rni×ns contains the singular values 
+
+σ1 
+
+> i
+
+≥ σ2 
+
+> i
+
+≥ · · · ≥ σmin( ni,n s) 
+
+> i
+
+≥ 0in nonincreasing order. The local projection matrix Pi is formed from the first d columns of ˆUi, with 
+
+d ≤ min( ni, n s − 1). The leading left singular vectors represent the most energetic structures shared by the local residual snapshots. Retaining only the first d modes therefore preserves the dominant coherent structure of the local residual while suppressing low-energy oscillatory perturbations. Since the number of snapshots ns is typically small and the SVD is performed independently on each subdomain, the local PCA construction has a modest computational cost and can be carried out in parallel. Using the local PCA bases, the global extracted residual structure is obtained by 
+
+F(Xk) = GPCA 
+
+ F (Xk)
+
+=
+
+> np
+
+X
+
+> i=1
+
+(R0 
+
+> i
+
+)⊤Gi, PCA 
+
+ R0 
+
+> i
+
+F (Xk) (20) where the local PCA reconstruction on subdomain i is given by 
+
+Gi, PCA 
+
+ R0 
+
+> i
+
+F (X) := PiP ⊤
+
+> i
+
+ R0 
+
+> i
+
+F (X) − ¯Fi
+
+ + ¯Fi. (21) The number of retained modes d is the only model parameter, and the same PCA-based reconstruction is carried out independently on all subdomains. 10 3.4.2 Multilayer perceptron based model 
+
+The multilayer perceptron (MLP) is a feed-forward fully connected network that applies linear and nonlinear transformations to the input recursively. For the i-th nonoverlapping subdomain, this model constructs an MLP-based autoencoder to learn a local nonlinear extraction operator that maps the local residual snapshot to its reconstructed dominant residual structure. More precisely, the local MLP-based extraction operator is defined by 
+
+Gi, MLP ( · ; θi) = Di(Ei( · ; θEi ); θDi ), (22) where Ei and Di denote the encoder and decoder on the i-th subdomain, respectively. The corresponding global MLP-based extraction operator is defined by assembling all local reconstructions: 
+
+GMLP (F (Xk); Θ) = 
+
+> np
+
+X
+
+> i=1
+
+(R0 
+
+> i
+
+)⊤Gi, MLP 
+
+ R0 
+
+> i
+
+F (Xk); θi
+
+,
+
+where Θ = {θi}np 
+
+> i=1
+
+collects the trainable parameters over all subdomains. Specifically, the input of the local autoencoder on the i-th subdomain is the restricted residual snapshot 
+
+z0,k i = R0 
+
+> i
+
+F (Xk), k = ks, . . . , k t.
+
+The encoder maps this local residual vector to a low-dimensional bottleneck representation. For ℓ = 1 , . . . , L E ,we define 
+
+zℓ,k i = σ
+
+
+
+W ℓi zℓ−1,k i + bℓi
+
+
+
+,
+
+where LE is the number of encoder layers. W ℓi denotes the weight, bℓi is the bias, and σ(·) is a nonlinear activation function. In our implementation, σ in MLP is set to be ReLU. The bottleneck variable is then given by 
+
+cki = zLE ,k i ∈ Rri , ri ≪ ni.
+
+This bottleneck representation is intended to retain the dominant nonlinear structure of the local residual while suppressing oscillatory perturbations. The decoder maps the bottleneck variable back to the original local residual space. For ℓ = LE +1 , . . . , L −1, we set 
+
+zℓ,k i = σ
+
+
+
+W ℓi zℓ−1,k i + bℓi
+
+
+
+,
+
+and the output layer gives the reconstructed local residual structure 
+
+Gi, MLP 
+
+ R0 
+
+> i
+
+F (Xk); θi
+
+ = W Li zL−1,k i + bLi .
+
+Equivalently, the local reconstruction can be written in the autoencoder form 
+
+Gi, MLP 
+
+ R0 
+
+> i
+
+F (Xk); θi
+
+ = Di
+
+ Ei
+
+ R0 
+
+> i
+
+F (Xk); θEi
+
+; θDi
+
+ .
+
+Here, 
+
+θEi = {W ℓi , b ℓi }LE
+
+> ℓ=1
+
+, θDi = {W ℓi , b ℓi }Lℓ=LE +1 ,
+
+and θi = {θEi , θ Di } = {W ℓi , b ℓi }Lℓ=1 denotes all trainable parameters of the local MLP autoencoder. The local MLP autoencoder is trained in an unsupervised manner by minimizing the reconstruction error over the residual snapshots on the i-th subdomain: min 
+
+> θi
+
+1
+
+nsktX
+
+> k=ks
+
+Gi, MLP 
+
+ R0 
+
+> i
+
+F (Xk); θi
+
+ − R0 
+
+> i
+
+F (Xk) 22 . (23) After the local autoencoders have been trained independently on all subdomains, the global extracted residual structure is obtained by 
+
+F(Xk) = GMLP 
+
+ F (Xk); Θ ∗, (24) where Θ ∗ = {θ∗ 
+
+> i
+
+}np 
+
+> i=1
+
+collects the minimizers of (23). The reconstructed residual F(Xk) is then used in place of the raw residual F (Xk) to identify the bad subset for nonlinear elimination. 11 3.4.3 Convolutional neural network based model 
+
+We also consider a CNN-based autoencoder to define a nonlinear extraction operator on each subdomain. Unlike the MLP autoencoder, which treats the local residual snapshot as an unstructured vector, the CNN autoencoder exploits the spatial arrangement of the degrees of freedom on the underlying mesh. This is particularly useful when the dominant nonlinear structures of the residual are localized and spatially coherent. Before applying the CNN autoencoder, the local residual vector is reshaped into a tensor form 
+
+Z0,k i = Ti
+
+ R0 
+
+> i
+
+F (Xk) ∈ Rhi×wi×c.
+
+where Ti denotes the reshaping operator from the local residual vector to the spatial tensor on Ω i, hi and wi
+
+are the local mesh dimensions, and c is the number of physical components or fields. The local CNN-based extraction operator is defined by an encoder-decoder architecture, 
+
+Gi, CNN (·; θi) = T −1 
+
+> i
+
+◦ D i
+
+ Ei
+
+ Ti(·); θEi
+
+ ; θDi
+
+ ,
+
+where Ei and Di denote the convolutional encoder and decoder on the i-th subdomain, respectively, and 
+
+θi = {θEi , θ Di } collects the trainable parameters. The encoder maps the input tensor Z0,k i to a spatially coarsened bottleneck representation through a sequence of convolutional layers. For ℓ = 1 , . . . , L E ,
+
+Zℓ,k i = σ
+
+
+
+Conv ℓi
+
+
+
+Zℓ−1,k i ; Kℓi
+
+
+
++ bℓi
+
+
+
+,
+
+where Conv ℓi denotes the ℓ-th convolutional operator on the i-th subdomain, Kℓi is the convolution kernel, bℓi
+
+is the bias, and σ(·) is a nonlinear activation function. In our implementation, each convolutional layer uses a stride of two, so that the spatial resolution is approximately halved in each direction per encoder layer, and σ
+
+is taken as the Mish activation. The bottleneck variable is given by 
+
+Cki = ZLE ,k i ∈ Rhci ×wci ×cci , hci < h i, wci < w i.
+
+This bottleneck representation is designed to retain the dominant spatially coherent nonlinear structure of the local residual while suppressing oscillatory perturbations. The decoder then maps the bottleneck representation back to the original local residual space. For 
+
+ℓ = LE + 1 , . . . , L − 1, we define 
+
+Zℓ,k i = σ
+
+
+
+ConvT ℓi
+
+
+
+Zℓ−1,k i ; Kℓi
+
+
+
++ bℓi
+
+
+
+,
+
+where ConvT ℓi denotes a transposed convolutional operator. The transposed convolutions also use a stride of two, with the output padding chosen according to the parity of hi and wi so that the reconstructed tensor recovers the original spatial dimensions. The output layer produces the reconstructed residual tensor 
+
+bZki = ConvT Li
+
+
+
+ZL−1,k i ; KLi
+
+
+
++ bLi .
+
+The reconstructed local residual structure is then obtained by reshaping the tensor back to vector form: 
+
+Gi, CNN 
+
+ R0 
+
+> i
+
+F (Xk); θi
+
+ = T −1
+
+> i
+
+ bZki
+
+
+
+.
+
+The corresponding global CNN-based extraction operator is defined by assembling the local reconstructed residual structures: 
+
+GCNN 
+
+ F (Xk); Θ  =
+
+> np
+
+X
+
+> i=1
+
+(R0 
+
+> i
+
+)⊤Gi, CNN 
+
+ R0 
+
+> i
+
+F (Xk); θi
+
+,
+
+where Θ = {θi}np
+
+> i=1
+
+.The local CNN autoencoder is trained in an unsupervised manner similar to (23). The global extracted residual structure is obtained by 
+
+F(Xk) = GCNN 
+
+ F (Xk); Θ ∗,
+
+12 with Θ ∗ = {θ∗ 
+
+> i
+
+}np 
+
+> i=1
+
+denoting the collection of trained parameters. The reconstructed residual F(Xk) is then used in place of the raw residual F (Xk) to identify the bad subset for nonlinear elimination. In the implementation, each residual component is standardized before being passed to the MLP or CNN, and the reconstructed output is inverse-transformed before the global residual reconstruction is assembled. Moreover, the extraction models are used only to identify the bad subset and to evaluate the residual vectors in the nonlinear elimination phase. That is, when Algorithm 1 is invoked with F in Phase 3, the residual evaluations are based on the reconstructed residual. In contrast, the Jacobian matrices in steps (a), (c), and (d) are assembled from the original nonlinear residual F , restricted to the selected bad subset. Equivalently, the Jacobian F ′ of the original residual is used as an approximation to F′. Hence, no differentiation of the extraction models is required, and F ′ serves as an approximation to F′, which is justified since the reconstruction preserves the dominant structure of the residual. The complete domain decomposition online-learning-enhanced nonlinear elimination (DD-OLE-NE) preconditioned inexact Newton method is summarized in Algorithm 2. 
+
+Algorithm 2 The domain decomposition online-learning-enhanced nonlinear elimination (DD-OLE-NE) preconditioned inexact Newton method. Given an initial guess X0, the nonlinear operator F , the nonoverlap-ping subdomain restriction operators R0 
+
+> i
+
+, i = 1 , . . . , n p, the absolute and relative tolerances γa and γr , the relative tolerance γsr for the inner nonlinear iteration, the residual collection window [ ks, k t], the restart step 
+
+kre ∈ [ks, k t], and the bad subset threshold ρ.
+
+Initialization. Set k = 0, compute F (X0) and ∥F (X0)∥. Initialize the local residual snapshot datasets 
+
+SF,i = ∅, i = 1 , . . . , n p.
+
+Phase 1. The global IN phase: While ∥F (Xk)∥ > max γa, γ r ∥F (X0)∥ , do: (1.1) If ks ≤ k ≤ kt, collect the local nonlinear residual snapshots R0 
+
+> i
+
+F (Xk) and update SF,i =
+
+SF,i ∪ R0 
+
+> i
+
+F (Xk) . If k = kre , store Xkre . If k = kt, go to Phase 2. (1.2) Inexactly solve the global Newton system F ′(Xk)Sk = F (Xk). (1.3) Compute the step length λk using the cubic backtracking line search. (1.4) Update Xk+1 = Xk − λkSk.(1.5) Set k = k + 1, compute F (Xk) and ∥F (Xk)∥.
+
+Phase 2. The online training phase: (2.1) For each subdomain Ω i, construct and train a local extraction model Gi ∈ {G i, PCA , Gi, MLP , Gi, CNN }
+
+from the collected residual snapshots. (2.2) Define the reconstructed global residual by assembling the local reconstructed residual structures: 
+
+F(X) = Pnp
+
+> i=1
+
+(R0 
+
+> i
+
+)⊤Gi
+
+ R0 
+
+> i
+
+F (X).(2.3) Store the trained local extraction models Gi( · ), i = 1 , . . . , n p, and go to Phase 3. 
+
+Phase 3. The nonlinear elimination phase: (3.1) Set Y 0 = Xkre , and compute the reconstructed residual F(Y 0) = Pnp
+
+> i=1
+
+(R0 
+
+> i
+
+)⊤Gi
+
+ R0 
+
+> i
+
+F (Y 0).(3.2) Identify the bad subset from the reconstructed residual by Nb = j ∈ N Fj (Y 0) > ρ ∥F (Y 0)∥∞ ,and construct the corresponding restriction operators Rb and Rg .(3.3) Approximately solve the reconstructed subspace nonlinear system RbF(Y ∗) = 0 by calling Algorithm 1, Y ∗ = NE  F, Y 0, Rb, Rg , γ sr
+
+.(3.4) Set k ← kt + 1 and the new approximate solution Xk = Y ∗, compute F (Xk) and ∥F (Xk)∥, and restart from Phase 1. 13 4 Numerical experiments 
+
+We evaluate the proposed method on the two-dimensional lid-driven cavity flow at high Reynolds numbers. Let Ω = (0 , 1) × (0 , 1). The problem can be modeled by the Navier-Stokes equations in the velocity-vorticity formulation: 
+
+−∆u − ∂ω ∂y = 0 , in Ω,
+
+−∆v + ∂ω ∂x = 0 , in Ω,
+
+− 1
+
+Re ∆ω + u ∂ω ∂x + v ∂ω ∂y = 0 , in Ω,
+
+(25) where u and v are the velocity fields in the x- and y-directions, respectively, and 
+
+ω = ∂v ∂x − ∂u ∂y (26) is the vorticity normal to the xy -plane. The top boundary Γ lid represents a lid moving with velocity u = 1 in the positive x-direction. We impose a no-slip and no-penetration boundary condition on all walls, 
+
+
+
+u = 1 , on Γlid ,u = 0 , on ∂Ω \ Γlid ,v = 0 , on ∂Ω,ω = ∂v ∂x − ∂u ∂y , on ∂Ω.
+
+(27) The boundary condition for the vorticity is discretized by a second-order approximation that uses the mesh points neighboring the boundary [33]. The Reynolds number Re quantifies the relative importance of inertial forces to viscous forces. A standard central second-order finite difference scheme is used for the discretization of both the Laplacian operators and the first order partial derivatives in (25). Let Ω be covered by a M × M mesh, then each point pij = ( xi, y j )is located at the position xi = ( i − 1) h, yj = ( j − 1) h with h = 1 /(M − 1) and i, j = 1 , . . . , M . In this work, we consider the point-block ordering to build up the large sparse nonlinear system of algebraic equations (1), in which the unknown variables uij , vij , ωij associated with a mesh point pij are always together in a 3 × 3 block. For this multi-variable system, the bad subset is defined by a pointwise approach [11] in the NE preconditioner. The numerical experiments are carried out on a computer with an Intel Xeon 6248 2.50GHz CPU and eight NVIDIA Tesla V100-SXM2 32GB GPUs. A zero vector is used as the initial guess, i.e., X0 = 0.Unless otherwise stated, the Jacobian systems are solved by a two-level restricted additive Schwarz (RAS) preconditioned flexible GMRES (fGMRES) method. The default restart value of fGMRES is fixed at 50. The ratio of the mesh size between two adjacent levels is 2, two sweeps of RAS preconditioning are applied as the fine-level smoother, and the coarse-level problem is solved approximately by 10 GMRES iterations. A point-block ILU factorization with 3 fill-in levels is used for the subdomain solver. The relative and absolute tolerances of the global nonlinear solver are γr = 10 −12 and γa = 10 −8, respectively. In all experiments, the number of MPI processes equals the number of subdomains np, with one subdomain assigned to each process. The local extraction models are trained in parallel on GPUs using the Adam optimizer. We first introduce the notation used in this section. For the proposed algorithm (Algorithm 2), N I col 
+
+denotes the number of global Newton iterations performed in Phase 1 for collecting residual snapshots used in training, and N I res denotes the number of Newton iterations required in the restart phase. The global Newton iteration count is reported in the form N I res (N I tot ), with N I tot = N I col + N I res , where N I tot 
+
+is the total number of global Newton iterations. For the original NE preconditioner (Algorithm 1), only a single number is reported for the global Newton iteration count, since no separate snapshot-collection and restart phases are involved. N I sub denotes the number of inner subspace Newton iterations. LI sub 
+
+denotes the average number of fGMRES iterations per Newton step in the subspace nonlinear solve; the same reporting convention is used for the linear iterations in the restart phase. The timings Tcol , Ttra , Tpre , and 
+
+Tres represent the compute time in seconds of snapshot collection, model training, nonlinear preconditioning, 14 and the restarted Newton solve, respectively. The total computational time is denoted by Ttot , with 
+
+Ttot = Tcol + Ttra + Tpre + Tres ,
+
+where the small discrepancies are due to rounding. Figure 5 presents the streamlines of the lid-driven cavity flows at the three Reynolds numbers considered. Figure 6 compares the velocity profiles along the centerlines, including the horizontal velocity u along the vertical centerline and the vertical velocity v along the horizontal centerline, against the benchmark data of Ghia et al. [34]. The computed results agree well with the benchmark profiles for all three Reynolds numbers.         
+
+> (a) Re = 5 ,000 (b) Re = 7 ,500 (c) Re = 10 ,000
+
+Figure 5: Streamlines of the lid-driven cavity flow obtained by using the DD-OLE-NE preconditioned inexact Newton method on the 257 × 257 mesh.      
+
+> (a) ualong the vertical centerline (b) valong the horizontal centerline
+
+Figure 6: Centerline velocity profiles compared with the results of Ghia et al. [34] at Re = 5 ,000 (left/bottom), 7,500 (middle) and 10 ,000 (right/top). 
+
+# 4.1 Comparison between DD-OLE-NE and baseline NE 
+
+In this subsection, we compare three variants of the proposed method, namely DD-OLE-NE(PCA), DD-OLE-NE(MLP), and DD-OLE-NE(CNN), with the original NE method in Algorithm 1, which is used as the baseline. To ensure a fair comparison, the baseline NE preconditioner is activated at the same intervention step kre as the proposed DD-OLE-NE methods. In addition, the threshold parameter ρ and the inner 15 nonlinear relative tolerance γsr are kept identical for all methods. Unlike the proposed methods, however, the baseline NE method does not require a stagnation period for residual-snapshot collection or online training. Figure 7 presents the nonlinear residual histories for the lid-driven cavity flow problem at Re = 7 ,500 and Re = 10 ,000 on a 257 × 257 mesh. The corresponding choices of ρ and γsr are reported in Table 1. For the baseline NE method, the nonlinear residual stagnates around 10 −2, and the iteration fails to reach convergence for both Reynolds numbers. By contrast, the proposed DD-OLE-NE variants learn the dominant residual structures online during the stagnation phase and apply nonlinear elimination at the restart iterate 
+
+Xkre . Once the elimination step is activated, the residual decreases rapidly, and the global Newton iteration converges successfully without further stagnation. Table 1 reports the iteration counts and computational performance of the three DD-OLE-NE variants for the two Reynolds numbers. The baseline NE method stagnates and fails to converge under the prescribed values of ρ and γsr , and is therefore omitted from the table. In contrast, all three proposed variants converge successfully in both cases, demonstrating that extracting the dominant residual structure for the definition of the bad subset can significantly improve the robustness of NE preconditioning. After the nonlinear elimination restart, the restarted Newton iteration converges rapidly for all tested cases, requiring only 9–10 additional global Newton steps. The total number of global Newton iterations remains moderate, ranging from 14 to 19, which indicates relatively stable nonlinear convergence. The three extraction strategies exhibit different advantages. For Re = 7 ,500, the CNN-based method gives the shortest total computational time and the smallest total number of Newton iterations. For Re = 10 ,000, the MLP-based method achieves the lowest total time, whereas the PCA-based method introduces the smallest learning overhead. The table also shows that the online extraction and nonlinear elimination stages introduce only a modest additional cost compared with the full nonlinear solve. Most of the computational effort is still spent on residual collection and on the restarted global Newton iteration. In particular, for Re = 10 ,000, the increase in total cost is mainly reflected in the restarted linear solves rather than in the number of nonlinear iterations. This observation suggests that the proposed DD-OLE-NE methods continue to provide a robust nonlinear convergence mechanism when the nonlinear problem becomes more difficult and the associated linearized systems become more expensive to solve. We note that the network architectures used in this and the subsequent subsections are not tuned for each individual test case; their influence on the solver performance is examined in Section 4.6. 0 10 20 30 Newton iteration 10 -5 10 00 10 20 30 Newton iteration 10 -5 10 0Baseline NE DD-OLE-NE(PCA) DD-OLE-NE(MLP) DD-OLE-NE(CNN) 
+
+Figure 7: Nonlinear residual histories for baseline NE, DD-OLE-NE(PCA), DD-OLE-NE(MLP), and DD-OLE-NE(CNN) at Re = 7 ,500 and 10 ,000. The open markers denote the initial IN phase before nonlinear preconditioning is applied, while the filled markers denote the iterations after applying the preconditioner from the restart iterate Xkre . The dotted arrows indicate the restart from Xkre . The corresponding parameters are provided in Table 1. To further illustrate the effect of the learned residual representation, Figure 8 compares the bad subset selection and the corresponding restricted vorticity residual surfaces for the baseline NE method and DD-OLE-NE(MLP) at Re = 10 ,000. When the bad subset is selected from the raw residual, the selected points are more spread out and the restricted residual remains relatively large after the subspace solve. In contrast, the learned residual representation identifies a more compact bad subset associated with the dominant 16 Table 1: The number of iterations and computational times obtained by DD-OLE-NE(PCA), DD-OLE-NE(MLP), and DD-OLE-NE(CNN) for the cavity flow problem with np = 4 . The mesh size is 257 × 257 ,
+
+ks = 1 and kre = 1 . The MLP architecture is ni-16 -8-16 -ni where ni denotes the local residual dimension, trained for 500 epochs, and the CNN architecture is 3-8-32 -8-3 with kernel sizes 7-4-4-7, trained for 150 
+
+epochs. 
+
+Re d kt ρ γsr Tcol Ttra N I sub LI sub Tpre N I res (N I tot ) LI res Tres Ttot 
+
+DD-OLE-NE(PCA) 7,500 5 9 0.35 0.10 9.7 0.04 5 2.4 1.6 9(18) 5.6 4.0 15.3 10 ,000 8 9 0.20 0.01 16.7 0.07 19 2.9 6.7 10(19) 22.9 15.0 38.5 DD-OLE-NE(MLP) 7,500 – 9 0.35 0.10 9.7 1.7 5 2.4 1.7 9(18) 6.6 5.7 18.7 10 ,000 – 7 0.20 0.01 8.5 1.8 13 3.2 5.0 10(17) 24.1 17.3 32.6 DD-OLE-NE(CNN) 7,500 – 5 0.35 0.10 4.9 1.8 4 3.0 1.5 9(14) 6.2 4.9 13.0 10 ,000 – 9 0.20 0.01 16.7 2.6 19 3.1 7.2 10(19) 23.3 16.6 43.0 
+
+residual structure. After the corresponding subspace solve, the restricted residual is substantially reduced. This comparison provides a local explanation of why applying nonlinear elimination to the learned residual representation leads to more robust convergence than applying NE directly to the raw residual. 
+
+(a) Nb (b)  RbF (Y 0)ω (c)  RbF (Y ∗)ω
+
+(d) Nb (e)  RbF(Y 0)ω (f)  RbF(Y ∗)ω
+
+Figure 8: Comparison of the selected bad subset and the corresponding restricted vorticity residual surfaces at Re = 10 ,000. Panels (a)–(c) correspond to the baseline NE method, where the bad subset is selected from the raw residual. Panels (d)–(f) correspond to DD-OLE-NE(MLP), where the bad subset is selected from the learned residual representation. Panels (a) and (d) show the selected bad subset points. Panels (b) and (e) show the restricted residuals at the initial subspace iterate Y 0, while panels (c) and (f) show the restricted residuals after the subspace solve, denoted by Y ∗.17 4.2 Effect of neural network extraction 
+
+It is well known that neural networks are capable of capturing dominant low-frequency structures from high-dimensional data [35]. To determine whether the improvement obtained with neural-network-based extraction arises from learning the dominant residual structures, rather than merely from applying a fixed smoothing operation, we vary only the extraction operator used during the nonlinear elimination phase. All other components of the solver and all algorithmic parameters are kept unchanged, with ρ = 0 .35 and 
+
+γsr = 0 .05. As reported in Table 2, we compare fixed, data-independent Gaussian smoothing operators with data-adaptive nonlinear autoencoders based on MLP and CNN architectures. The baseline NE preconditioner, which performs nonlinear elimination directly from the raw residual without an extraction step, is also included for reference. For the Gaussian control, the smoothed residual for each residual component F m (m = u, v, ω ) at an interior grid point ( i, j ) is defined by 
+
+eF mij =
+
+> r
+
+X
+
+> p=−rr
+
+X
+
+> q=−r
+
+exp 
+
+
+
+− p2 + q2
+
+2σ2
+
+> g
+
+
+
+F mi+p,j +qrX
+
+> p=−rr
+
+X
+
+> q=−r
+
+exp 
+
+
+
+− p2 + q2
+
+2σ2
+
+> g
+
+ . (28) Near the boundary, the same formula is applied using only the available neighboring grid points and the weights are renormalized accordingly. Here σg controls the width of the Gaussian kernel and r is the stencil radius, corresponding to a local (2 r + 1) × (2 r + 1) stencil in the interior. In this Gaussian approach, the smoothed residual eF plays the same role as the reconstructed residual F in the learned DD-OLE-NE variants. It is used to identify the bad subset and is also used in the corresponding restricted nonlinear elimination correction solve. Thus, this ablation tests whether a fixed local smoothing operator can replace the learned extraction. The results show that only the learned MLP and CNN extractors achieve convergence at both reported Reynolds numbers, whereas the baseline NE preconditioner and both Gaussian smoothing operators fail to converge. This comparison demonstrates that the improvement cannot be attributed solely to replacing the raw residual with a locally smoothed residual. In particular, Gaussian smoothing is a fixed linear extraction procedure whose weights are prescribed independently of the nonlinear iteration, while the MLP and CNN extractors are trained on residual snapshots generated during the stagnation phase and therefore adapt to the residual structures encountered in the current solve. Since neither Gaussian configuration restores convergence, the enhanced robustness is attributed to the ability of the learned extractors to identify problem-dependent dominant residual structures, rather than to fixed residual smoothing alone. Table 2: The number of iterations and computational times obtained using different extraction operators for the cavity flow problem with np = 4 . The mesh size is 257 × 257 , ρ = 0 .35 , γsr = 0 .05 , ks = 1 , kt = 9 ,and kre = 1 . The MLP architecture is ni-16 -8-16 -ni, trained for 500 epochs, and the CNN architecture is 
+
+3-25 -75 -25 -3 with kernel sizes 5-5-5-5, trained for 150 epochs. “ ×” means that the solver does not converge.                                  
+
+> Re = 7 ,500 Re = 10 ,000 Methods N I res (N I tot )LI res Ttot N I res (N I tot )LI res Ttot
+> Baseline NE ××
+> Gaussian smoothing ( σg= 2, r= 2) ××
+> Gaussian smoothing ( σg= 3, r= 5) ××
+> DD-OLE-NE(MLP) 9(18) 6.3 10.1 11(20) 15.6 26.8 DD-OLE-NE(CNN) 9(18) 6.8 12.1 12(21) 16.9 31.5
+
+# 4.3 Effect of domain decomposition 
+
+We further examine the effect of domain decomposition on DD-OLE-NE(CNN) for the cavity flow problem at 
+
+Re = 5 ,000 on a finer mesh, 513 × 513. For this test, we use a three-level hierarchy in the RAS-preconditioned 18 fGMRES solver and set the fGMRES restart value to 100. All other solver parameters are kept unchanged as in the default setting. As shown in Table 3, the performance of DD-OLE-NE(CNN) depends strongly on the subdomain partition. When only two subdomains are used, the method fails to converge, indicating that an overly coarse decomposition does not sufficiently localize the dominant nonlinear structures. In this case, each local CNN must represent a relatively large and heterogeneous residual field, which makes the extraction of the relevant nonlinear features more difficult. Once the domain is divided into four or more subdomains, robust convergence is recovered. As the number of subdomains increases from 4 to 16, the restarted Newton iteration count and the average GMRES iteration count remain relatively stable. The total computational time is consequently reduced from 45 .7 s to 12 .7 s.These results demonstrate two complementary advantages of a finer domain decomposition. First, the local residual snapshots become lower-dimensional and more spatially localized, enabling each subdomain extraction model to identify the dominant nonlinear structure more accurately and making the associated subspace nonlinear problem easier to solve. Second, the local model construction and nonlinear elimination operations can be carried out independently and in parallel across the subdomains. Therefore, within the range tested, using more subdomains improves not only the available parallelism but also the effectiveness of the local extraction models, whereas using too few subdomains may lead to a loss of convergence. Table 3: Effect of subdomain partition on DD-OLE-NE(CNN) for the cavity flow problem at Re = 5 ,000 . The mesh size is 513 × 513 , ρ = 0 .10 , γsr = 0 .01 , kre = 1 , ks = 1 , and kt = 9 . A three-level RAS-preconditioned fGMRES solver with restart value 100 is used as the linear solver. The CNN architecture is 3-8-32 -8-3 with kernel sizes 7-4-4-7, trained for 150 epochs. “ ×” means that the case does not converge. 
+
+np N I sub LI sub N I res LI res Ttot 
+
+2 (2 × 1) ×
+
+4 (2 × 2) 13 3.8 11 5.3 45.7 8 (4 × 2) 8 1.6 9 6.0 17.1 16 (4 × 4) 4 1.0 10 5.5 12.7 
+
+# 4.4 Effect of the restart point and snapshot collection window 
+
+We study the influence of the restart point and the snapshot collection window on the performance of DD-OLE-NE(CNN). In particular, kt determines the end of the tolerable stagnation period, which is used for collecting residual snapshots, while kre specifies the Newton iterate from which the nonlinear elimination restart is performed. The results for the more difficult problem Re = 10 ,000 are reported in Table 4. The results show that an earlier restart is generally more robust. When kre = 1, the solver converges for all tested values of kt. In contrast, larger restart indices lead to less stable behavior, and no convergence is obtained for kre = 7. This indicates that restarting too late from a strongly stagnated Newton trajectory may reduce the effectiveness of the learned nonlinear correction. The choice of kt also affects the overall efficiency. Increasing kt provides more residual snapshots for training, but it does not necessarily improve the restarted solve. Instead, a longer snapshot-collection period may increase the total computational cost. These results suggest that a relatively short stagnation window is sufficient to extract useful residual structures, and that early restart is preferable in the present test. Table 4: The impact of kre and kt on the performance of DD-OLE-NE(CNN) for the cavity flow problem with 
+
+Re = 10 ,000 and np = 4 . The mesh size is 257 × 257 , ks = 1 , ρ = 0 .35 and γsr = 0 .05 . The CNN architecture is 3-8-16 -8-3 with kernel sizes 9-7-7-9, trained for 300 epochs. “ ×” means the solver does not converge.                                       
+
+> kre 147
+> ktN I sub N I res (N I tot )Ttot N I sub N I res (N I tot )Ttot N I sub N I res (N I tot )Ttot
+> 3611(14) 18.9 ––5710(15) 19.0 612(17) 15.9 –7911(18) 23.6 714(21) 28.4 ×
+> 912 11(20) 31.1 717(26) 52.5 ×
+
+19 4.5 Sensitivity to the threshold and relative tolerance 
+
+We assess the sensitivity of DD-OLE-NE(CNN) to the threshold ρ and the inner Newton relative tolerance 
+
+γsr at Re = 10 ,000. The parameters are varied over ρ ∈ { 0.2, 0.3, 0.4, 0.5} and γsr ∈ { 0.01 , 0.025 , 0.05 , 0.1, 0.2}.The results are compared with the baseline NE method in Figure 9. For DD-OLE-NE(CNN), residual snapshots are collected during the initial IN stagnation window from 
+
+ks = 1 to kt = 9. After the CNN extractor is trained, the nonlinear elimination correction is applied by restarting from Xkre with kre = 1. In contrast, the baseline NE does not use the learned extraction or the early restart, and the NE preconditioner is applied directly to the raw residual starting from the ninth Newton iteration. DD-OLE-NE(CNN) converges for all tested parameter pairs. Moreover, the restarted Newton iteration count remains relatively stable over the whole parameter range, indicating that the learned extraction reduces the sensitivity of the bad-subset selection to the choices of ρ and γsr . In contrast, the baseline NE method converges only for part of the parameter space. In particular, it fails for all tested tolerances when ρ = 0 .2 or 
+
+ρ = 0 .3, and also fails for the loosest tolerance γsr = 0 .2 when ρ = 0 .4 or 0 .5. These results show that the main advantage of DD-OLE-NE(CNN) is not merely a reduction in iteration count at a single parameter setting, but a significantly more robust convergence behavior over the parameter space. By applying the bad-subset selection rule to a learned residual representation rather than to the raw residual, DD-OLE-NE(CNN) provides a more stable nonlinear preconditioning strategy.  
+
+> (a) DD-OLE-NE(CNN): converges in all 20 cases (b) NE: converges in 8 of 20 cases
+
+Figure 9: Parameter sensitivity at Re = 10 ,000 for DD-OLE-NE(CNN) and baseline NE over the threshold ρ
+
+and the inner Newton relative tolerance γsr . Converged runs are annotated with the Newton iteration count, following the N I res (N I tot ) convention for DD-OLE-NE(CNN) and using a single number for baseline NE. The CNN architecture is 3-25-75-25-3 with kernel sizes 5-5-5-5 and is trained for 150 epochs. The symbol “ ×”means that the case does not converge. 
+
+# 4.6 Impact of neural network parameters 
+
+We further examine how the network architecture and training affect the performance of the proposed method. The study includes the training-epoch budget, the convolutional kernel sequence, and the channel sequence. All tests in this subsection are conducted for the cavity flow problem at Re = 10 ,000 with np = 4 on a 257 × 257 mesh. Table 5 compares the effect of the training-epoch budget for the MLP and CNN extractors. The CNN-based method converges for all tested epoch numbers, while the MLP-based method requires a sufficiently large training budget to achieve convergence. This indicates that, in this test, the CNN extractor is less sensitive to the number of training epochs. However, increasing the epoch number does not lead to a monotonic reduction in the total computational time, suggesting that excessive training is not necessarily beneficial for the overall solver performance. Tables 6 and 7 report the influence of the CNN kernel sizes and channel sequences. The results show that DD-OLE-NE(CNN) remains effective for a wide range of network architectures. In particular, the total 20 compute time is not solely determined by the number of trainable parameters. Moderate-size networks with a bottleneck structure are sufficient to construct an effective residual extractor, whereas simply increasing the network width or parameter count does not guarantee improved performance. In some cases, larger networks may increase the cost of the restarted Newton solve. Overall, these results suggest that DD-OLE-NE(CNN) is reasonably robust with respect to the neural network design within the tested range. The network should have enough capacity to capture the dominant residual structures, but overly large architectures are unnecessary and may reduce computational efficiency. Table 5: The impact of training epochs on the performance of DD-OLE-NE(MLP) and DD-OLE-NE(CNN) for the cavity flow problem with Re = 10 ,000 and np = 4 . The mesh size is 257 × 257 , ρ = 0 .3, and γsr = 0 .05 .The MLP architecture is ni-16 -8-16 -ni, and the CNN architecture is 3-25 -75 -25 -3 with kernel sizes 5-5-5-5.
+
+MLP CNN 
+
+epoch N I sub Ttot N I sub Ttot 
+
+150 × 12 34.8 300 14 35.3 13 33.1 500 5 27.7 9 41.6 Table 6: Impact of the CNN kernel size sequence on the performance of DD-OLE-NE(CNN) for the cavity flow problem with Re = 10 ,000 and np = 4 . The mesh size is 257 × 257 , with ρ = 0 .1, γsr = 0 .05 , kre = 1 ,
+
+ks = 1 , and kt = 3 . The channel sequence is 3-8-16-8-3 for the first six architectures and 3-8-16-64-16-8-3 for the remaining architectures and the networks are trained for 150 epochs. #Params denotes the number of parameters for each local neural network. 
+
+Kernel sizes #Params N I sub N I res (N I tot ) Ttra Tres Ttot 
+
+5,3,3,5 14156 6 10(13) 1.7 13.3 17.0 5,11,11,5 128844 6 13(16) 1.9 16.0 19.9 7,4,4,7 25932 7 10(13) 1.7 15.3 19.0 7,12,12,7 157004 8 11(14) 2.0 16.8 20.8 9,5,5,9 41292 7 11(14) 1.7 15.3 19.0 9,13,13,9 188748 6 11(14) 2.1 14.0 18.1 3,4,6,6,4,3 313484 7 16(19) 1.8 21.4 25.2 5,5,5,5,5,5 235660 9 13(16) 1.8 22.3 26.1 7,4,3,3,4,7 99980 5 12(15) 1.8 11.5 15.3 7,8,9,9,8,7 738956 5 12(15) 1.9 18.7 22.6 Table 7: Impact of the CNN channel sequence on the performance of DD-OLE-NE(CNN) for the cavity flow problem with Re = 10 ,000 and np = 4 . The mesh size is 257 × 257 , with ρ = 0 .1, γsr = 0 .05 , kre = 1 , ks = 1 ,and kt = 3 . The kernel sizes are fixed to 5 in all layers and the networks are trained for 150 epochs. 
+
+Channels #Params N I sub N I res (N I tot ) Ttra Tres Ttot 
+
+3,4,8,4,3 8876 7 12(15) 1.6 16.6 20.2 3,8,16,8,3 30540 7 13(16) 1.7 16.7 20.4 3,16,32,16,3 112268 8 16(19) 1.7 14.8 18.5 3,8,32,8,3 56204 9 10(13) 1.6 16.3 19.9 3,8,64,8,3 107532 5 11(14) 1.6 11.5 15.1 3,8,16,64,16,8,3 235660 9 13(16) 1.8 22.3 26.1 
+
+# 5 Concluding remarks 
+
+We proposed and studied DD-OLE-NE, an online-learning-enhanced nonlinear elimination preconditioner for inexact Newton methods, targeting nonlinear systems of algebraic equations with strong local nonlinearity. 21 The central idea is to learn the dominant structure of the nonlinear residual online, directly from the residual snapshots that the stagnating global Newton iteration has already generated, and to use the resulting learned extraction to guide the identification of the bad subset eliminated by the nonlinear preconditioner. Because the reconstructed residual exposes the dominant structure of the local high nonlinearity while filtering out undesired perturbations, a more reliable bad subset can be identified with a small threshold and the resulting subspace nonlinear system is more tractable to solve. We considered both a linear extractor based on PCA and nonlinear extractors based on autoencoder neural networks, which are trained independently, so the learning step fits naturally into the existing domain decomposition parallel framework. We evaluated the method on the two-dimensional lid-driven cavity flow at high Reynolds numbers. Compared with the baseline NE preconditioner, DD-OLE-NE converges across a wide range of the NE-related parameters and learning-related parameters. The focus of this paper has been on incompressible flow, but the method is algebraic and is expected to apply to other highly nonlinear problems. 
+
+# References 
+
+[1] Cai, X.C., Li, X.: Inexact newton methods with restricted additive schwarz based nonlinear elimination for problems with high local nonlinearity. SIAM J. Sci. Comput. 33 , 746–762 (2011) [2] Hwang, F.N., Su, Y.C., Cai, X.C.: A parallel adaptive nonlinear elimination preconditioned inexact newton method for transonic full potential equation. Comput. Fluids 110 , 96–107 (2015) [3] Klawonn, A., Lanser, M., Uran, M.: Adaptive nonlinear elimination in nonlinear FETI-DP methods. In: Domain Decomposition Methods in Science and Engineering XXVI, Lecture Notes in Computational Science and Engineering , vol. 145, pp. 337–345. Springer, Cham (2022) [4] Yang, H., Yang, C., Sun, S.: Active-set reduced-space methods with nonlinear elimination for two-phase flow problems in porous media. SIAM J. Sci. Comput. 38 , B593–B618 (2016) [5] Yang, H., Sun, S., Yang, C.: Nonlinearly preconditioned semismooth newton methods for variational inequality solution of two-phase flow in porous media. J. Comput. Phys. 332 , 1–20 (2017) [6] Yang, H., Hwang, F.N.: An adaptive nonlinear elimination preconditioned inexact newton algorithm for highly local nonlinear multicomponent pde systems. Appl. Numer. Math. 133 , 100–115 (2018) [7] Klawonn, A., Lanser, M.: Efficient adaptive elimination strategies in nonlinear FETI-DP methods in combination with adaptive spectral coarse spaces. In: Domain Decomposition Methods in Science and Engineering XXVII, Lecture Notes in Computational Science and Engineering , vol. 149, pp. 295–302. Springer, Cham (2024) [8] Liang, C.W., Hwang, F.N.: Nonlinear elimination preconditioned space-time solution algorithms for hyperbolic PDE problems. In: Domain Decomposition Methods in Science and Engineering XXVIII, 
+
+Lecture Notes in Computational Science and Engineering , vol. 155, pp. 101–108. Springer, Cham (2026) [9] Huang, J., Yang, C., Cai, X.C.: A nonlinearly preconditioned inexact newton algorithm for steady lattice boltzmann equations. SIAM J. Sci. Comput. 38 , A1701–A1724 (2016) [10] Luo, L., Shiu, W.S., Chen, R., Cai, X.C.: A nonlinear elimination preconditioned inexact newton method for blood flow problems in human artery with stenosis. J. Comput. Phys. 399 , 108926 (2019) [11] Luo, L., Cai, X.C., Yan, Z., Xu, L., Keyes, D.E.: A multilayer nonlinear elimination preconditioned inexact newton method for steady-state incompressible flow problems in three dimensions. SIAM J. Sci. Comput. 42 , B1404–B1428 (2020) [12] Luo, L., Cai, X.C., Keyes, D.E.: Nonlinear preconditioning strategies for two-phase flows in porous media discretized by a fully implicit discontinuous galerkin method. SIAM J. Sci. Comput. 43 , S317–S344 (2021) 22 [13] Sirovich, L.: Turbulence and the dynamics of coherent structures. I. coherent structures. Q. Appl. Math. 
+
+45 (3), 561–571 (1987) [14] Holmes, P., Lumley, J.L., Berkooz, G.: Turbulence, Coherent Structures, Dynamical Systems and Symmetry. Cambridge University Press, Cambridge (1996) [15] Taira, K., Brunton, S.L., Dawson, S.T.M., Rowley, C.W., Colonius, T., McKeon, B.J., Schmidt, O.T., Gordeyev, S., Theofilis, V., Ukeiley, L.S.: Modal analysis of fluid flows: An overview. AIAA J. 55 (12), 4013–4041 (2017) [16] Luo, L., Cai, X.C.: PIN L : Preconditioned inexact Newton with learning capability for nonlinear system of equations. SIAM J. Sci. Comput. 45 (2), A849–A871 (2023) [17] Gong, Y., Luo, L., Cai, X.C.: Stagnation-shortening inexact Newton method based on unsupervised learning for highly nonlinear algebraic problems and applications. SIAM J. Sci. Comput. 46 (5), S513–S534 (2024) [18] Schmid, P.J.: Dynamic mode decomposition of numerical and experimental data. J. Fluid Mech. 656 ,5–28 (2010) [19] Towne, A., Schmidt, O.T., Colonius, T.: Spectral proper orthogonal decomposition and its relationship to dynamic mode decomposition and resolvent analysis. J. Fluid Mech. 847 , 821–867 (2018) [20] Kramer, M.A.: Nonlinear principal component analysis using autoassociative neural networks. AlChE J. 
+
+37 (2), 233–243 (1991) [21] Hinton, G.E., Salakhutdinov, R.R.: Reducing the dimensionality of data with neural networks. Science 
+
+313 (5786), 504–507 (2006) [22] Murata, T., Fukami, K., Fukagata, K.: Nonlinear mode decomposition with convolutional neural networks for fluid dynamics. J. Fluid Mech. 882 , A13 (2020) [23] Fukami, K., Nakamura, T., Fukagata, K.: Convolutional neural network based hierarchical autoencoder for nonlinear mode decomposition of fluid field data. Phys. Fluids 32 (9), 095110 (2020) [24] Lee, K., Carlberg, K.T.: Model reduction of dynamical systems on nonlinear manifolds using deep convolutional autoencoders. J. Comput. Phys. 404 , 108973 (2020) [25] Luo, L., Zhang, Q., Wang, X.P., Cai, X.C.: A parallel finite element method for 3d two-phase moving contact line problems in complex domains. J. Sci. Comput. 72 (3), 1119–1145 (2017) [26] Shadid, J.N., Tuminaro, R.S., Walker, H.F.: An inexact newton method for fully coupled solution of the Navier–Stokes equations with heat and mass transport. J. Comput. Phys. 137 , 155–185 (1997) [27] Dennis, J.E., Schnabel, R.B.: Numerical Methods for Unconstrained Optimization and Nonlinear Equations. SIAM, Philadelphia (1996) [28] Liu, L., Hwang, F.N., Luo, L., Cai, X.C., Keyes, D.E.: A nonlinear elimination preconditioned inexact newton algorithm. SIAM J. Sci. Comput. 44 (3), A1579–A1605 (2022) [29] Li, J., Cai, X.C.: Summation pollution of principal component analysis and an improved algorithm for location-sensitive data. Numer. Linear Algebra Appl. 28 (5), e2370 (2021) [30] Jagtap, A.D., Kharazmi, E., Karniadakis, G.E.: Conservative physics-informed neural networks on discrete domains for conservation laws: Applications to forward and inverse problems. Comput. Methods Appl. Mech. Eng. 365 , 113028 (2020) [31] Jagtap, A.D., Karniadakis, G.E.: Extended physics-informed neural networks (XPINNs): A generalized space-time domain-decomposition-based deep learning framework for nonlinear partial differential equations. Commun. Comput. Phys. 28 (5), 2002–2041 (2020) 23 [32] Shukla, K., Jagtap, A.D., Karniadakis, G.E.: Parallel physics-informed neural networks via domain decomposition. J. Comput. Phys. 447 , 110683 (2021) [33] Prudencio, E.E., Byrd, R., Cai, X.C.: Parallel full space SQP lagrange-newton-krylov-schwarz algorithms for PDE-constrained optimization problems. SIAM J. Sci. Comput. 27 , 1305–1328 (2006) [34] Ghia, U., Ghia, K.N., Shin, C.T.: High-Re solutions for incompressible flow using the Navier–Stokes equations and a multigrid method. J. Comput. Phys. 48 , 387–411 (1982) [35] Rahaman, N., Baratin, A., Arpit, D., Draxler, F., Lin, M., Hamprecht, F., Bengio, Y., Courville, A.: On the spectral bias of neural networks. In: International conference on machine learning, pp. 5301–5310. PMLR (2019) 24
