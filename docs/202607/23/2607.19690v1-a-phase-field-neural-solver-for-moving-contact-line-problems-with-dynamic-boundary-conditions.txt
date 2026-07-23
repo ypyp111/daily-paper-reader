@@ -1,0 +1,1254 @@
+Title: A phase-field neural solver for moving contact line problems with dynamic boundary conditions
+
+URL Source: https://arxiv.org/pdf/2607.19690v1
+
+Published Time: Thu, 23 Jul 2026 00:25:08 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# A PHASE -FIELD NEURAL SOLVER FOR MOVING CONTACT LINE PROBLEMS WITH DYNAMIC BOUNDARY CONDITIONS 
+
+Ziyan Chen 
+
+Department of Mathematics, University of Macau Macao SAR, China 
+
+Jinpeng Zhang 
+
+Department of Mathematics, University of Macau Macao SAR, China 
+
+Pai Zhang 
+
+Department of Mathematics, University of Macau Macao SAR, China 
+
+Li Luo ∗
+
+Department of Mathematics, University of Macau Macao SAR, China 
+
+liluo@um.edu.mo 
+
+## ABSTRACT 
+
+Phase-field models based on the Cahn–Hilliard equation coupled with dynamic boundary conditions provide a thermodynamically consistent framework for moving contact line (MCL) problems. Al-though physics-informed neural networks (PINNs) offer a mesh-free approach for solving partial differential equations, their direct application to MCL problems remains challenging due to long-time error accumulation, sharp interfacial profiles, localized contact line dynamics, and complex contact angle evolution. In this work, we propose MCL-PINNs, a specialized phase-field neural solver designed for MCL problems with dynamic boundary conditions. The method is built on a discrete-time formulation and incorporates several key techniques, including a multi-network time-marching scheme, a relaxed distribution constraint on the neural network outputs, variable scaling for sharply varying solution features, adaptive loss weighting, adaptive collocation sampling with interface extraction, and, when applicable, symmetry preservation through neural network inputs. These techniques improve the capability of the neural solver in resolving sharp interfacial profiles and contact line motion. The proposed method is validated through three numerical examples involving droplet coalescence, shear-induced droplet deformation, and dynamic wetting in a heterogeneous channel. The numerical results show that MCL-PINNs significantly improve prediction accuracy and robustness compared with standard PINNs formulations, enabling reliable resolution of complex interfacial evolution and moving contact line dynamics. 
+
+Keywords Moving contact line · Phase field model · Cahn–Hilliard equation · Dynamic boundary conditions ·
+
+Physics-informed neural networks 
+
+## 1 Introduction 
+
+Phase field modeling, originating in the classical formulation by Cahn and Hilliard [ 1], has established itself as a robust framework for simulating interfacial evolution and multiphase dynamics. This approach has been applied to a broad range of complex physical systems, including two-phase flows [ 2 , 3, 4], material phase transitions [ 5], fracture mechanics [ 6], and biomembrane evolution [ 7 ]. By describing the interface as a diffuse region with a continuous order parameter, the phase-field method can naturally handle changes in interface topology. Therefore, it avoids the need for explicit interface reconstruction and remeshing, which are often required in conventional sharp-interface tracking methods [ 8]. For problems involving solid-liquid-gas three-phase contact, dynamic boundary conditions are needed to describe moving contact line (MCL) phenomena, such as wetting and spreading, the evolution of the dynamic contact angle, and contact angle hysteresis (CAH) [9, 10, 11, 12]. 
+
+> ∗
+
+Corresponding authors arXiv:2607.19690v1 [math.NA] 22 Jul 2026 MCL-PINNs Phase-field models for MCL problems, typically based on the fourth-order Cahn–Hilliard equation, are still difficult to solve numerically. When these models are discretized by traditional methods, such as finite element or finite difference methods, the numerical results may be highly sensitive to the mesh resolution, especially when the motion of a thin diffuse interface must be accurately resolved. In such cases, sufficiently fine meshes are required near the interface and the contact line, which can substantially increase the computational cost in large-scale or high-dimensional problems. Moreover, the implementation of traditional solvers is often technically demanding, as it requires the careful discretization of high-order nonlinear terms, the design of stable time-integration schemes, the treatment of coupled bulk-boundary dynamics, and the accurate enforcement of complicated dynamic boundary conditions [ 13 , 14 , 15 ]. These challenges may lead to strong mesh dependence and increased algorithmic complexity, while limiting the adaptability of traditional solvers to evolving interfaces and complex geometries, especially in problems involving moving contact lines and heterogeneous boundaries. They therefore motivate the development of alternative computational paradigms that reduce the reliance on mesh-based discretization. Recent advances in computational hardware and optimization algorithms have laid the computational foundation for the practical implementation of Physics-Informed Neural Networks (PINNs) [ 16 ]. By embedding governing partial differential equations (PDEs), along with initial and boundary conditions, directly into the neural network loss functional, PINNs provide a unified, mesh-free framework for solving both forward and inverse problems. This method has demonstrated notable efficacy in parameter identification and complex system modeling [ 17 , 18 ]. Systematic reviews [ 19 , 20 ], along with benchmark suites such as PINNACLE [ 21 ], have established PINNs as a powerful computational tool for scientific computing. PINNs have been used to solve phase-field models for interfacial evolution problems [ 22 , 23 , 24 , 25 , 26 ]. In these studies, the Cahn–Hilliard equation is usually included in the loss function of the neural network, showing the potential of PINN-type methods for diffuse-interface problems. However, most existing works mainly focus on relatively standard phase-field settings, such as bulk phase separation, interface motion, or simplified boundary conditions. The moving contact line problem considered here is more difficult because it involves the coupled evolution of sharp interfacial layers, moving contact lines, and relaxing contact angles. These difficulties are not fully addressed by existing PINN-based phase-field solvers. First, the sharp phase-field interface is difficult to represent with standard neural network outputs. Since the order parameter changes rapidly between −1 and 1 across a thin diffuse layer, the network may struggle to capture this transition accurately and stably. Second, phase-field evolution over long time intervals can suffer from error accumulation, so a single network trained over the whole time domain may not give reliable long-time predictions [ 27 ]. Third, the important features of MCL dynamics are concentrated near the diffuse interface and the contact line. Standard collocation sampling may miss these localized regions or require a very large number of points, which can reduce both accuracy and efficiency [ 28 , 29 ]. Finally, dynamic wetting involves nonlinear and spatially varying boundary conditions. If these boundary conditions are imposed only through fixed soft penalty terms, the predicted boundary behavior may be inaccurate, especially for contact angle hysteresis and contact line pinning [30, 31]. Although existing PINN-based phase-field studies provide useful ideas for diffuse-interface modeling, they are not directly sufficient for the MCL problems studied in this work. To address this difficulty, we develop MCL-PINNs, a unified computational framework specifically designed for the Cahn–Hilliard equation with dynamic contact angle boundary conditions. By incorporating several key techniques tailored to moving contact line dynamics, the proposed method effectively captures the coupled interfacial and boundary evolution while improving numerical stability and solution accuracy. Importantly, instead of using standard continuous-time formulations that rely on automatic differentiation of temporal derivatives, MCL-PINNs is built upon the discrete-time physics-informed neural networks 
+
+paradigm [ 16 ], with a neural architecture specifically designed to incorporate the implicit Runge–Kutta discretization. In this formulation, the temporal evolution is represented through coupled stage-value equations, thereby reformulating the evolutionary governing equation as a sequence of spatial boundary-value problems evaluated at discrete implicit Runge–Kutta nodes. This discrete-time formulation helps reduce the influence of stiff gradient accumulation and temporal error propagation often observed in continuous-time implementations. To facilitate long-time simulations, the framework employs a time-marching strategy with multiple networks, in which the full time interval is divided into a sequence of shorter temporal windows trained in a marching manner. This design helps reduce error accumulation across long temporal horizons [ 32 , 33 , 23 , 27 ]. Within each discrete temporal window, a variable-scaling transformation is applied to rescale the governing system, spreading sharply varying solution features over a broader coordinate range and reducing their effective frequency for neural-network approximation [ 34 ]. In addition, physical and geometric properties are also incorporated through tailored architectural designs. We introduce a 
+
+relaxed distribution constraint , which employs a scaled latent mapping to bound the required latent activation range, thereby avoiding excessively large bulk activations while maintaining the approximation capability for sharp interfacial layers [ 35 , 36 ]. When the problem configuration is inherently symmetric, a symmetry-preserving input transformation is further employed to embed the symmetry into the neural network representation and restrict the approximation to a 2MCL-PINNs 
+
+Figure 1: Schematic illustration of interfacial tension balance and contact angle definition at a solid wall in a two-phase system. The blue solid and red dashed curves denote the interface profiles corresponding to the static contact angle 
+
+θs and the dynamic contact angle θ, respectively. γ0, γ1, and γ2 denote the interfacial tensions of Phase 1-Phase 2, Phase 1-Solid wall, and Phase 2-Solid wall, respectively. symmetry-consistent function space. To better resolve localized interfacial structures without relying on excessively dense global sampling, an adaptive sampling strategy is devised to identify regions near the diffuse interface and moving contact line, and to adjust the collocation-point distribution accordingly [ 37 , 28 ]. Moreover, to balance the different components of the composite loss, an adaptive loss weighting scheme is further employed to adjust the relative contributions of the PDEs residuals and MCL boundary terms, alleviating training imbalance caused by dominant loss components [ 38 ]. Numerical experiments demonstrate that MCL-PINNs significantly improves prediction accuracy and training robustness compared with standard PINNs formulations [ 16 ], enabling accurate simulations of complex wetting and multiphase interfacial dynamics, including contact line motion and dynamic contact angle hysteresis. The remainder of this paper is organized as follows. Section 2 introduces the mathematical formulation of the phase-field model for moving contact line dynamics. Section 3 presents the MCL-PINNs framework, with emphasis on the key techniques and their integration into the overall neural solver. Section 4 validates the proposed method through three numerical examples, including droplet coalescence, shear-induced droplet deformation, and dynamic wetting through a heterogeneous channel. Finally, Section 5 provides concluding remarks. 
+
+## 2 Modeling of the moving contact line problems 
+
+Let Ω ⊂ Rd (d = 2 , 3) be a bounded domain. We consider the interfacial dynamics of a binary mixture governed by the Cahn–Hilliard equation which can be written as follows, 
+
+
+
+∂ϕ ∂t = M ∆μ, in Ω,μ = δFbulk 
+
+δϕ = −ε2∆ϕ + F ′(ϕ), in Ω.
+
+(1) This model provides a continuum description for the evolution of a conserved order parameter, ϕ(x, t ), which distin-guishes between two immiscible phases. μ is the chemical potential, and M represents the mobility. ε is the parameter which is proportional to the interface thickness. The formulation is rooted in a Ginzburg-Landau free energy functional, 
+
+Fbulk (ϕ), that accounts for both the bulk free energy of the mixture and the energetic penalty associated with spatial gradients of the order parameter. The bulk free energy is given by 
+
+Fbulk (ϕ) = 
+
+Z
+
+> Ω
+
+ ε2
+
+2 |∇ ϕ|2 + F (ϕ)
+
+
+
+dx, (2) where F (ϕ) = 14 (ϕ2 − 1) 2 is the double-well potential ensuring phase separation into pure components corresponding to ϕ = ±1.When the interface intersects the boundary, the problem becomes a moving contact line problem. At equilibrium, the angle between the fluid-fluid interface and the solid wall is known as the static contact angle, denoted by θs. In non-equilibrium situations when the contact line moves along the solid boundary, the contact angle becomes dynamic and depends not only on the local interfacial geometry but also on additional energy dissipation due to microscopic slip or molecular reorganization near the solid surface. To account for this effect, we consider the interfacial free energy per 3MCL-PINNs unit area at the fluid-solid interface 
+
+γ(ϕ) = −√23 cos θs sin 
+
+ π
+
+2 ϕ
+
+
+
+. (3) The corresponding surface energy at the fluid-solid interface is Fsurf (ϕ) = ε R 
+
+> ∂Ω
+
+γ(ϕ) ds . Applying the Onsager variational principle [ 9 ] to the Cahn–Hilliard system with boundary contributions yields the following dynamic boundary conditions, 
+
+ε ∂ϕ ∂n = − ∂γ (ϕ)
+
+∂ϕ − 1
+
+α∂ϕ ∂t , on ∂Ω, (4) 
+
+∇μ · n = 0 , on ∂Ω, (5) where n denotes the outward unit normal vector on ∂Ω. The first condition (4) is a relaxation-type boundary condition, where α denotes the relaxation parameter. It accounts for energy dissipation at the boundary and is capable of capturing the motion of moving contact lines as well as the dynamic behavior of wetting phenomena. In the equilibrium state, the Young’s equation for the static contact angle θs can be derived from the boundary condition (4), 
+
+γ0 cos θs = γ2 − γ1, (6) where γ0, γ1, and γ2 denote the interfacial tensions of Phase 1-Phase 2, Phase 1-Solid wall, and Phase 2-Solid wall, respectively. See [ 9 ] more details. Figure 1 shows a schematic illustration of interfacial tension balance and contact angle definition at a solid wall. The second condition (5) ensures that the total mass within the domain is conserved by preventing any mass flux across the boundary. The Cahn–Hilliard equation (1) , equipped with the dynamic boundary conditions (4) - (5) , remains a gradient flow associated with the following total free energy 
+
+F(ϕ) = Fbulk (ϕ) + Fsurf (ϕ), (7) and satisfies the following energy dissipation law 
+
+ddt F(ϕ) = −M
+
+Z
+
+> Ω
+
+|∇ μ|2 dx − εα 
+
+Z
+
+> ∂Ω
+
+|L(ϕ)|2 ds, (8) where 
+
+L(ϕ) = δF(ϕ)
+
+δϕ ∂Ω
+
+= ε ∂ϕ ∂n + ∂γ (ϕ)
+
+∂ϕ , (9) yielding a thermodynamically consistent mechanism for contact line motion. The initial condition for ϕ is given by 
+
+ϕ(x, y, 0) = ϕ0(x, y ). (10) 
+
+Remark 1 When the interface moves under the action of an external force, an advection term, u · ∇ ϕ, is added to the left-hand side of (1) to describe this effect, where u is the velocity field driving the interface motion. 
+
+## 3 The phase-field neural solver 
+
+This section presents the proposed framework in detail for solving the Cahn–Hilliard equation subject to dynamic boundary conditions. 
+
+3.1 Time-marching scheme with multiple networks 
+
+For the Cahn–Hilliard equation with dynamic boundary conditions, training a single physics-informed neural network over the entire spacetime domain often leads to slow convergence or error accumulation, primarily due to temporal causality violations and the stiff, multiscale nature of the MCL dynamics. To address these issues, we adopt a 
+
+time-marching strategy [22] that decomposes the global problem into a sequence of local-in-time subproblems. Specifically, for a given final time T > 0, the interval [0 , T ] is partitioned into N contiguous, non-overlapping intervals 
+
+[t0, t 1], [t1, t 2], . . . , [tN −1, t N ], (11) where t0 = 0 and tN = T . A separate neural network is employed to approximate the solution on each interval 
+
+[tn, t n+1 ], n = 0 , . . . , N − 1. The training proceeds sequentially. The first network is trained on Ω × [t0, t 1] using the given initial condition at t = t0. Upon convergence, its predicted solution at t = t1 is used as the initial condition for 4MCL-PINNs 
+
+Figure 2: A time-marching framework embedded with multiple Implicit Runge–Kutta (IRK) discretized PINNs. (Left) Global view of the sequential time-marching scheme over discrete time levels {t0, t 1, . . . , t n, t n+1 . . . , t N −1, t N };(Right) Internal architecture of the PINNs associated with a single time interval [tn, t n+1 ], where the IRK stages are encoded as intermediate outputs of a shared neural network and coupled through a backtracking formulation to construct the residual of the Cahn–Hilliard equation. the second network on [t1, t 2]. To accelerate convergence, each subsequent network inherits the trained parameters of its predecessor as a warm start, since the solution at adjacent time windows is expected to be similar. This procedure is carried out iteratively, with the approximation generated by network n at time tn acting as the initial condition for network n + 1 . The solution evolves through time across consecutive intervals. The sequential training procedure is illustrated in Figure 2. This approach reduces the effective learning complexity for each individual network, thereby promoting more stable and efficient training. 
+
+3.2 Discrete-time physics-informed neural networks 
+
+To address the temporal evolution of the Cahn–Hilliard system in each time interval [tn, t n+1 ], we employ a discrete-time PINNs framework. This approach discretizes the governing equations in time using a q-stage Implicit Runge–Kutta (IRK) method [ 39 ], reducing the evolutionary equation to a system of coupled boundary-value problems at each time step. Consider Ω ⊂ R2 and x = ( x, y ). Let the Cahn–Hilliard system be written in the general form ∂tϕ = M [ϕ, μ ], where the nonlinear operator is given by M [ϕ, μ ] = −u · ∇ ϕ + M ∆μ with μ = −ε2∆ϕ + F ′(ϕ) = −ε2∆ϕ − ϕ + ϕ3. Here 
+
+u denotes an external velocity field, which is present only when advection is considered (cf. the remark in Section 2). Applying a q-stage Runge–Kutta scheme with a uniform time step ∆t = T /N to advance the solution from time tn to 
+
+tn+1 = tn + ∆ t, we obtain the stage values ϕn+ci and the final solution ϕn+1 :
+
+ϕn+ci = ϕn + ∆ t
+
+> q
+
+X
+
+> j=1
+
+aij M ϕn+cj , μ n+cj  , i = 1 , . . . , q, ϕn+1 = ϕn + ∆ t
+
+> q
+
+X
+
+> j=1
+
+bj M ϕn+cj , μ n+cj  .
+
+(12) Here, ϕn+cj (x, y ) = ϕ(x, y, t n + cj ∆t) for j = 1 , . . . , q . We adopt the convention c0 = 0 and cq+1 = 1 , such that 
+
+ϕn+c0 = ϕn denotes the known state at the beginning of the time interval, while ϕn+cq+1 = ϕn+1 represents the target state to be predicted by the discrete-time PINNs. This unified formulation encompasses both explicit and implicit time-integration schemes, determined by the specific selection of the Runge–Kutta coefficients {aij , b j , c j }. In this work, we focus on IRK schemes to ensure unconditional stability for stiff phase field dynamics. 5MCL-PINNs Equations (12) can be equivalently expressed as 
+
+ϕn = ϕni , i = 1 , . . . , q, ϕn = ϕnq+1 , (13) where 
+
+ϕni := ϕn+ci − ∆t
+
+> q
+
+X
+
+> j=1
+
+aij M ϕn+cj , μ n+cj  , i = 1 , . . . , q, ϕnq+1 := ϕn+1 − ∆t
+
+> q
+
+X
+
+> j=1
+
+bj M ϕn+cj , μ n+cj  .
+
+(14) We begin by assuming that the quantities 
+
+ϕn+c1 (x, y ), . . . , ϕ n+cq (x, y ), ϕ n+1 (x, y ), μ n+c1 (x, y ), . . . , μ n+cq (x, y ), μ n+1 (x, y ) , (15) are jointly approximated by the outputs of a neural network 
+
+h ˜ϕn+c1 (x, y ), . . . , ˜ϕn+cq (x, y ), ˜ϕn+1 (x, y ), ˜μn+c1 (x, y ), . . . , ˜μn+cq (x, y ), ˜μn+1 (x, y )
+
+i
+
+. (16) Substituting the neural network approximations (16) into the back-projection formula (14) , we obtain the quantities ˜ϕnj
+
+for j = 1 , . . . , q + 1 . This yields the prediction 
+
+h ˜ϕn 
+
+> 1
+
+(x, y ), . . . , ˜ϕnq (x, y ), ˜ϕnq+1 (x, y ), ˜μn+c1 (x, y ), . . . , ˜μn+cq (x, y ), ˜μn+1 (x, y )
+
+i
+
+. (17) The network parameters θ are then determined by minimizing the discrepancy between these back-projected values and the known state ϕn, together with the residuals of the boundary conditions and the chemical potential definition, which are grouped into the following composite loss function 
+
+L(θ) = λrϕ Lrϕ (θ) + λrμ Lrμ (θ) + λbϕ Lbϕ (θ) + λbμ Lbμ (θ), (18) where λrϕ , λrμ , λbϕ , and λbμ are self-adaptive weighting parameters to be introduced in Section 3.5. The residual losses 
+
+Lrϕ and Lrμ enforce the condition that the stage-wise predictions of the neural network satisfy the IRK discretization of the Cahn–Hilliard equation. Specifically, Lrϕ represents the discrepancy between the network predictions projected back to time level tn (as defined in (14)) and the known solution ϕn at Nr interior collocation points {(xkr , y kr )}Nr
+
+> k=1
+
+,
+
+Lrϕ (θ) = 1(q + 1) Nrq+1 X
+
+> j=1
+> Nr
+
+X
+
+> k=1
+
+˜ϕnj (xkr , y kr ; θ) − ϕn(xkr , y kr ) 2
+
+. (19) The term Lrμ enforces the definition of the chemical potential, 
+
+Lrμ (θ) = 1
+
+qN rqX
+
+> j=1
+> Nr
+
+X
+
+> k=1
+
+R
+
+h ˜ϕn+cj (xkr , y kr ; θ), ˜μn+cj (xkr , y kr ; θ)
+
+i 2
+
+, (20) where 
+
+R
+
+h ˜ϕn+cj (xkr , y kr ; θ), ˜μn+cj (xkr , y kr ; θ)
+
+i
+
+= ˜ μn+cj (xkr , y kr ; θ)
+
+−
+
+
+
+−ε2∆ ˜ϕn+cj (xkr , y kr ; θ) − ˜ϕn+cj (xkr , y kr ; θ) + ( ˜ϕn+cj )3(xkr , y kr ; θ)
+
+
+
+.
+
+(21) For the initial time interval ( n = 0 ), ϕ0(x, y ) is given by the initial condition. For subsequent time intervals ( n > 0), 
+
+ϕn(x, y ) is the solution predicted by the network trained at the previous time step, as described in Section 3.1. 
+
+Remark 2 Note that the back-projection residual in (19) is enforced at all q + 1 time levels (including tn+1 ), whereas the chemical potential constitutive residual in (20) is enforced only at the q IRK stage points tn+c1 , . . . , t n+cq . This is because the IRK update formula (14) involves μn+cj only for j = 1 , . . . , q ; the chemical potential at tn+1 does not enter the stage equations and is therefore constrained indirectly through the boundary loss. 
+
+6MCL-PINNs Neural Network ( x, y ; θ) Cahn-Hilliard equation with IRK discretization in time 
+
+Dynamic boundary conditions 
+
+x
+
+y
+
+... ...
+
+˜ϕn+c1
+
+...
+
+˜ϕn+cq
+
+˜ϕn+1 
+
+˜μn+c1
+
+...
+
+˜μn+cq
+
+˜μn+1 
+
+∆
+
+> ∂∂n
+
+I
+
+N [ ˜ϕn+cj , ˜μn+cj ] := −u · ∇ ˜ϕn+cj
+
++ M ∆˜ μn+cj ;
+
+j = 1 , . . . , q + 1 
+
+R[ ˜ϕn+cj , ˜μn+cj ] := ˜ μn+cj + ε2∆ ˜ϕn+cj + ˜ϕn+cj − ( ˜ϕn+cj )3; j = 1 , ..., q 
+
+Bϕ[ ˜ϕ n+cj , ˜μ n+cj ] := ε∂ ˜ϕ n+cj
+
+∂n + 1
+
+α∂ ˜ϕ n+cj
+
+∂t −√2 π
+
+6 cos θs cos 
+
+(π
+
+2 ˜ϕ n+cj
+
+)
+
+; j = 1 , . . . , q + 1 
+
+Bμ[ ˜ϕ n+cj , ˜μ n+cj ] := ∇˜μ n+cj · n; j = 1 , . . . , q + 1 
+
+˜ϕn 
+
+> 1
+
+= ˜ϕ n+c1 − ∆t
+
+> q
+
+∑
+
+> j=1
+
+a1j N [ ˜ϕ n+cj , ˜μ n+cj ]
+
+> ...
+
+˜ϕnq = ˜ϕ n+cq − ∆t
+
+> q
+
+∑
+
+> j=1
+
+aqj N [ ˜ϕ n+cj , ˜μ n+cj ]
+
+˜ϕnq+1 = ˜ϕ n+1 − ∆t
+
+> q
+
+∑
+
+> j=1
+
+bj N [ ˜ϕ n+cj , ˜μ n+cj ]
+
+˜ϕn 
+
+> 1
+
+− ϕn
+
+> ...
+
+˜ϕnq − ϕn
+
+˜ϕnq+1 − ϕn
+
+L(θ) θ
+
+Minimize 
+
+Lr(θ)
+
+Lb(θ)
+
+Input ( x, y )
+
+Hidden neurons 
+
+Neural network outputs ( ˜ϕ, ˜μ)
+
+Auto-differentiation operators 
+
+PDE residual expressions 
+
+Boundary condition residuals 
+
+IRK consistency conditions 
+
+Time-stepping residuals 
+
+Total loss L(θ)
+
+Neural network parameter θ
+
+Figure 3: Discrete-time physics-informed neural network framework based on Implicit Runge–Kutta (IRK) method for solving the moving contact line problem modeled by the Cahn–Hilliard equation with dynamic wetting boundary conditions. The boundary losses Lbϕ (θ) and Lbμ (θ) penalize deviations from the specified boundary conditions at a set of Nb
+
+boundary points {(xkb , y kb )}Nb
+
+k=1 for all q + 1 IRK stages, specifically, 
+
+Lbϕ (θ) = 1(q + 1) Nbq+1 X
+
+j=1 
+
+NbX
+
+k=1 
+
+Bϕ
+
+h ˜ϕn+cj (xkb , y kb ; θ)
+
+i 2
+
+, (22) and 
+
+Lbμ (θ) = 1(q + 1) Nbq+1 X
+
+j=1 
+
+NbX
+
+k=1 
+
+Bμ
+
+˜μn+cj (xkb , y kb ; θ) 2 . (23) Here, the boundary operators Bϕ and Bμ are given by 
+
+Bϕ
+
+h ˜ϕn+cj (xkb , y kb ; θ)
+
+i
+
+= ε ∂ ˜ϕn+cj (xkb , y kb ; θ)
+
+∂n −√2π
+
+6 cos θs cos 
+
+ π
+
+2 ˜ϕn+cj (xkb , y kb ; θ)
+
+
+
++ 1
+
+α∂ ˜ϕn+cj (xkb , y kb ; θ)
+
+∂t , (24) and 
+
+Bμ
+
+˜μn+cj (xkb , y kb ; θ) = ∇˜μn+cj (xkb , y kb ; θ) · n. (25) Define tn+cj = tn + cj ∆t for j = 0 , 1, . . . , q + 1 . Then, for j = 1 , 2, . . . , q + 1 , the time derivative ∂t ˜ϕn+cj at the time level tn+cj is approximated by the backward finite difference 
+
+∂ ˜ϕn+cj (xkb , y kb ; θ)
+
+∂t ≈ ˜ϕn+cj (xkb , y kb ; θ) − ˜ϕn+cj−1 (xkb , y kb ; θ)
+
+tn+cj − tn+cj−1 , j = 1 , 2, . . . , q + 1 . (26) The spatial derivatives ∂n ˜ϕn+cj in (24) are obtained via automatic differentiation from the neural network output (16) .Figure 3 presents a schematic illustration of this discrete-time PINNs framework. The architecture comprises a fully connected neural network mapping (x, y ) to the IRK stage values ˜ϕn+cj , ˜μn+cj , an automatic differentiation module for computing spatial derivatives, and residual blocks encoding the governing equations and boundary conditions. Stage-wise consistency is enforced by regressing the back-projected values ˜ϕnj against the known state ϕn.7MCL-PINNs 
+
+Figure 4: Illustration of the relaxed distribution constraint (RDC) mapping. (a) Target phase-field variable ϕ, which exhibits a sharp diffuse-interface transition between the bulk phases. (b) Network output variable z = arctanh( ϕ)
+
+required by the standard distribution constraint, where the interfacial jump is mapped into a smooth transition but the bulk phases require a large output range. (c) Scaled phase-field variable cϕ with c = 0 .9999 . (d) Relaxed output variable z = arctanh( cϕ ), for which the scaling factor bounds the required output range while retaining the smooth transition structure. 
+
+3.3 Relaxed distribution constraint 
+
+Solutions of the Cahn–Hilliard equation typically exhibit a sharp interfacial profile: the order parameter ϕ rapidly transitions between the two bulk values ±1 across a diffuse interface of width O(ε). Such localized transitions are difficult to approximate using standard fully connected neural networks, whose smooth activation functions tend to favor low-frequency components and may therefore struggle to represent steep interfacial layers, a phenomenon commonly associated with spectral bias [35]. To incorporate this phase-field structure into the network representation, a natural strategy is to impose a distribution constraint at the output level. Specifically, one may represent the phase variable as ˜ϕ = tanh( z), where z denotes the output of the neural network. Unlike hard constraints designed to exactly enforce initial or boundary conditions [ 36 ], this constraint targets the intrinsic shape of the solution. The tanh function provides a smooth monotone transition between −1 and 1, which is consistent with the qualitative structure of the phase-field profile and reduces the burden on the hidden layers to learn the interfacial jump from scratch. However, this direct formulation also introduces a practical issue. Since tanh( z) approaches ±1 only in the limit |z| → ∞ , the network must generate large output values in the bulk regions where ϕ ≈ ± 1, which can lead to ill-conditioning and slow convergence during training. To address this issue, we introduce a relaxed distribution constraint (RDC) by incorporating a scaling factor c < 1:
+
+˜ϕ = tanh( z)
+
+c . (27) Consequently, the physical bulk values ˜ϕ = ±1 can be reached at finite output values, namely z = ± arctanh( c). For instance, when c = 0 .9999 , one has arctanh( c) ≈ 4.95 . Therefore, the proposed constraint preserves the smooth transition structure induced by the tanh function while avoiding the need for excessively large outputs in the bulk phases. This relaxation improves the conditioning of the output representation and facilitates more stable optimization. Figure 4 illustrates the effect of this relaxation on the required output representation. Figure 4(a) shows a representative target phase field ϕ containing a circular droplet, spanning the full physical range [−1, 1] . Under the standard distribution constraint ( c = 1 ), reproducing this field requires the network to output z = arctanh( ϕ), displayed in Figure 4(b); since ϕ approaches ±1 in the bulk phases, the corresponding values of z increase sharply and cover a wide range, approximately [−50 , 20] in this example. Figures 4(c) and 4(d) show the relaxed mapping with c = 0 .9999 . By first scaling the phase-field variable as cϕ , the required network output becomes z = arctanh( cϕ ), which is confined to 8MCL-PINNs a much narrower range, approximately [−4.95 , 4.95] . Therefore, RDC substantially reduces the magnitude of the required network output while preserving the smooth interfacial transition structure. We note that the proposed RDC is not specific to the Cahn–Hilliard equation. It can be applied more generally to partial differential equations whose solutions contain sharp transition layers between known asymptotic states. 
+
+3.4 Variable scaling 
+
+When applying PINNs to MCL problems, the main training difficulty arises from the strongly localized and multiscale nature of the phase-field solution near the diffuse interface and the solid boundary. In particular, the order parameter ϕ
+
+exhibits sharp transitions across a thin interfacial layer, while the contact line region involves steep spatial gradients coupled with dynamic boundary conditions. These features worsen the ill-conditioning of the loss landscape, particularly when optimizing the Cahn–Hilliard residual and boundary residuals simultaneously. To address this challenge, we apply a variable-scaling coordinate transformation to the governing equations prior to training [ 34 ]. The core idea is to rescale the coordinates associated with fine-scale interfacial and contact-line structures so that these localized variations are distributed over a larger computational range, thereby improving the stability and accuracy of PINNs training. The method starts with a linear scaling of the independent variables. For the original computational domain in space and time, denoted as (x, y, t ) ∈ Ω × [tmin , t max ] (i.e., tmin = tn, tmax = tn+1 when applied within the time-marching scheme introduced in Section 3.1, we define a set of scaled coordinates (x′, y ′, t ′) as: 
+
+x′ = Nxx, y′ = Ny y, t′ = Ntt, (28) where Nx, N y , N t > 0 are positive, tunable scaling hyperparameters. This transformation maps the original domain 
+
+Ω × [tmin , t max ] to a new scaled domain Ω′ × [Nttmin , N ttmax ], where Ω′ is the scaled spatial domain defined by the original bounds multiplied by the corresponding scaling factors. Under this scaling, the differential operators transform via the chain rule as ∂x = Nx ∂x′ , ∂2 
+
+> x
+
+= N 2 
+
+> x
+
+∂2 
+
+> x′
+
+, with analogous expressions for y and t. Substituting into the governing equations (1), the initial condition (10), and the boundary conditions (4)-(5), the scaled problem becomes 
+
+
+
+Nt
+
+∂ϕ ∂t ′ = M
+
+
+
+N 2
+
+> x
+
+∂2μ∂x ′2 + N 2
+
+> y
+
+∂2μ∂y ′2
+
+
+
+, (x′, y ′) ∈ Ω′,μ = −ε2
+
+
+
+N 2
+
+> x
+
+∂2ϕ∂x ′2 + N 2
+
+> y
+
+∂2ϕ∂y ′2
+
+
+
++ F ′(ϕ), (x′, y ′) ∈ Ω′,ϕ
+
+ x′
+
+Nx
+
+, y′
+
+Ny
+
+, 0
+
+
+
+= ϕ0
+
+ x′
+
+Nx
+
+, y′
+
+Ny
+
+
+
+, (x′, y ′) ∈ Ω′,Nx
+
+∂ϕ ∂x ′ nx′ + Ny
+
+∂ϕ ∂y ′ ny′ = 1
+
+ε
+
+√2π
+
+6 cos( θs) cos 
+
+ π
+
+2 ϕ
+
+
+
+− Nt
+
+α∂ϕ ∂t ′
+
+!
+
+, (x′, y ′) ∈ ∂Ω′,Nx
+
+∂μ ∂x ′ nx′ + Ny
+
+∂μ ∂y ′ ny′ = 0 , (x′, y ′) ∈ ∂Ω′,
+
+(29) where (nx′ , n y′ ) is the outward unit normal vector on ∂Ω′. The neural network is then trained to solve this modified system in the scaled coordinate space (x′, y ′, t ′). The scaling hyperparameters Nx, N y , N t are problem-dependent and selected empirically. In this paper, Nx and Ny used in each numerical experiment are reported in Section 4, while Nt
+
+is fixed to 1. Once the training is completed, the solution predicted in the scaled coordinate space is mapped back to the original physical domain via the inverse transformation x = x′/N x, y = y′/N y , and t = t′/N t to recover the true physical solution. 
+
+3.5 Adaptive loss weighting 
+
+In discrete-time PINNs, the composite loss (18) consists of several residual terms associated with the governing equations and boundary conditions. The relative magnitudes of weights λrϕ , λrμ , λbϕ , and λbμ play an important role in the training process. If the gradient contribution from one loss component is significantly larger than the others, the optimization may become biased toward that component, leading to an imbalanced enforcement of the governing equations and boundary conditions. To reduce the dependence on manually selected loss weights, we adopt the uncertainty-based multi-task weighting strategy proposed by Kendall et al. [ 40 ] and subsequently adapted to PINNs by Hou et al. [ 37 ]. In this approach, each loss component is modeled through a Gaussian likelihood with a learnable variance σ2
+
+> m
+
+. Maximizing the corresponding joint log-likelihood leads to adaptive weights of the form λm = e−sm , where sm = log σ2 
+
+> m
+
+and m ∈ { rϕ, r μ, b ϕ, b μ}.9MCL-PINNs For the four loss components considered here, the resulting objective is given by 
+
+L(θ, {sm}) = X
+
+> m∈{ rϕ, r μ, b ϕ, b μ}
+
+ e−sm Lm(θ) + sm
+
+ , (30) where the log-variance parameters sm are trained together with the neural-network parameters θ. The factor e−sm acts as an adaptive weight for Lm(θ), whereas the regularization term sm penalizes excessive variance growth and prevents the corresponding loss component from being trivially down-weighted. This formulation enables an automatic balance between the governing-equation residuals and the boundary-condition residuals during training. The composite loss function in (18) consists of multiple competing objectives, whose gradient directions may be mutually conflicting. To improve the stability of the network optimization, we employ the Second-Order Aligned with Preconditioner (SOAP) optimizer [ 41 ] to update the neural-network parameters θ. The adaptive weighting parameters 
+
+{sm} are optimized separately using the Adam optimizer [ 42 ] with an independent learning rate. At each training iteration, the two parameter groups are updated in an alternating manner. Specifically, SOAP is first applied to update 
+
+θ by minimizing L(θ), while the adaptive weights {sm} are kept fixed. Subsequently, Adam is used to update {sm}
+
+according to the likelihood-based objective L(θ, {sm}), with θ held fixed. This alternating optimization strategy separates the training of the neural-network parameters from the adaptation of the loss weights, thereby reducing unstable coupling between the two optimization processes. 
+
+3.6 Adaptive sampling of collocation points 
+
+In the Cahn–Hilliard equation, the dynamics are dominated by thin interfacial layers where the order parameter transitions between the bulk values ϕ ≈ ± 1. A uniform distribution of collocation points is therefore inefficient, as it allocates most resources to regions of nearly constant solution. To concentrate computational effort on the interfacial region, we employ an adaptive sampling strategy that selects collocation points based on the initial condition of each time interval. The strategy is implemented by first identifying the diffuse interface region from the initial condition at t = 0 .Specifically, the initial phase field ϕ0(x, y ) is evaluated on a fine uniform grid, and the points away from the bulk phases are selected according to 
+
+|ϕ0(x, y ) − 1| > τ and |ϕ0(x, y ) + 1 | > τ, (31) where τ is a prescribed tolerance, taken as τ = 0 .1 in this study. This adaptive sampling procedure is applied at the beginning of each time interval in the time-marching scheme. For the network trained on [tn, t n+1 ], the diffuse-interface region is re-extracted using the predicted solution at tn from the preceding network as the updated initial condition. In this way, the collocation points are refreshed at every time interval, allowing the sampling distribution to track the evolving interface. Figure 5 illustrates the spatial distribution of collocation points at two distinct time intervals. The collocation points consist of two different sets: the background points generated via Latin Hypercube Sampling (LHS), shown in black, and the adaptive points generated by the proposed sampling strategy, shown in green. The black points are sparsely distributed across the entire domain, whereas the green points are concentrated densely along the diffuse interface. As observed in the transition from t ∈ [0 .9, 1] to t ∈ [3 .9, 4] , the cluster of green points dynamically shifts to track the propagation of the interface, demonstrating that the adaptive strategy effectively concentrates the computational efforts near the evolving interfacial region while the LHS points provide a sparse baseline coverage. 
+
+Remark 3 The tolerance τ should be chosen in relation to the interface thickness parameter ε: a value τ ≪ 1 is needed to capture the full diffuse-interface profile, while excessively small τ may include near-bulk points and reduce sampling efficiency. In this work, τ = 10 −1 provides a robust selection across all test cases. We note that the sampling band defined by this criterion is much wider than the diffuse interface itself. Since the collocation points are determined from the initial condition of each time interval and remain fixed throughout that interval, the wide sampling band provides a spatial buffer that accommodates interface displacement, and the continuous parameterization of the neural network enables it to generalize to nearby regions even where collocation points are sparser. The high-order IRK discretization ( q ≫ 1) further provides fine temporal resolution within each interval, allowing the network to track the evolving interface through its stage values. 
+
+3.7 Symmetry preservation through neural network inputs 
+
+When the governing equations, initial data, and boundary conditions are invariant under a spatial transformation, the exact solution is expected to preserve the same symmetry. To incorporate this property, we enforce symmetry preservation at the level of the neural network inputs by constructing input transformations that are invariant under 10 MCL-PINNs          
+
+> (a) t∈[0 .9,1] (b) t∈[3 .9,4]
+
+Figure 5: Distribution of collocation points generated by the adaptive sampling method, illustrated using the droplet coalescence case at two selected time intervals. Black dots represent background points generated by Latin Hypercube Sampling (LHS), while green dots denote adaptive sampling points concentrated along the diffuse interface. the prescribed spatial symmetry. This architectural design embeds the symmetry prior directly into the network representation and helps prevent the optimizer from exploring nonphysical, symmetry-breaking configurations. In the droplet coalescence problem considered in Section 4, the initial condition (two nuclei symmetric with respect to the y-axis) and the boundary conditions are both invariant under the reflection x 7 → − x, so that ϕ(−x, y, t ) = ϕ(x, y, t )
+
+for all t ≥ 0. To embed this even symmetry, we preprocess the x-coordinate via the mapping 
+
+x 7 → Nx cos 
+
+ xNx
+
+
+
+, (32) where Nx is the scaling factor along the x-direction used in the variable-scaling method. Since cos( −z) = cos( z), the network receives identical inputs for any pair (x, y ) and (−x, y ), so that ϕ(x, y, t ) = ϕ(−x, y, t ) by construction. The 
+
+y-coordinate is passed directly to the network without transformation. 
+
+Remark 4 This symmetry-preserving input transformation is applied only when the computational domain and the solution are both invariant under the reflection x 7 → − x. In particular, the physical domain [xmin , x max ] must be symmetric with respect to x = 0 , i.e., xmin = −xmax , so that the problem can be reduced to the half-domain [0 , x max ].On this reduced domain, the mapping x 7 → Nx cos( x/N x) is one-to-one provided that [0 , x max ] ⊂ [0 , πN x]. If either the computational domain is not symmetric about x = 0 , or the solution does not possess even symmetry in x, such as the shear-induced deformation problem in Section 4, this input transformation is not applied. 
+
+Algorithm 1 summarizes the proposed neural solver MCL-PINNs, integrating all components described in the preceding subsections. 
+
+## 4 Experimental results 
+
+In this section, we assess the performance of MCL-PINNs through three representative problems, namely droplet coalescence, shear-induced droplet deformation, and dynamic wetting through a heterogeneous channel. The MCL-PINNs predictions are quantitatively evaluated against finite element method (FEM) reference solutions using two standard metrics: the mean squared error (MSE) and the relative L2 error. These metrics are defined as MSE = 1
+
+Ntest Ntest X
+
+> i=1
+
+|ϕMCL-PINNs (xi) − ϕFEM (xi)|2 , (33) Relative L2 Error =
+
+qPNtest  
+
+> i=1
+
+|ϕMCL-PINNs (xi) − ϕFEM (xi)|2
+
+qPNtest  
+
+> i=1
+
+|ϕFEM (xi)|2
+
+, (34) where Ntest denotes the total number of test points, xi represents the spatial coordinates of the i-th evaluation point, and 
+
+ϕMCL-PINNs and ϕFEM denote the phase field solutions predicted by MCL-PINNs and computed by the FEM reference solver, respectively. For the FEM reference solver, we use continuous piecewise linear ( P1) finite elements on a structured mesh, with the mesh size set to one-half of the interface thickness to adequately resolve the interfacial evolution. An energy-stable second-order accurate scheme [4] is employed for time integration. 11 MCL-PINNs 
+
+Algorithm 1 A phase-field neural solver for moving contact line problems (MCL-PINNs) 
+
+Require: Initial condition ϕ0(x, y ); final time T ; number of time intervals N ; IRK coefficients {aij , b j , c j }; scaling parameters Nx, N y , N t; tolerance τ ; number of training iterations Niter .
+
+Ensure: Sequence of trained networks {N n}N −1 
+
+> n=0
+
+approximating ϕ on Ω × [0 , T ]. 
+
+> 1:
+
+Set ∆t ← T /N . 
+
+> 2:
+
+Variable scaling : scale the system using Nx, N y , N t via (28).  
+
+> 3:
+
+Time-marching scheme : 
+
+> 4:
+
+for n = 0 , 1, . . . , N − 1 do  
+
+> 5:
+
+Adaptive sampling: Identify interfacial collocation points from ϕn using criterion (31) with tolerance τ ; combine with background points.  
+
+> 6:
+
+Initialize network Nn: if n = 0 , initialize θ randomly; otherwise, warm-start by inheriting the parameters of Nn−1. Apply the relaxed distribution constraint (27) to the outputs, if applicable. Apply the symmetry preservation mapping (32) to the inputs, if applicable.  
+
+> 7:
+
+Initialize adaptive loss weighting parameters {sm}, m ∈ { rϕ, r μ, b ϕ, b μ}. 
+
+> 8:
+
+for iter = 1 , . . . , N iter do  
+
+> 9:
+
+Evaluate the loss components Lrϕ , Lrμ , Lbϕ , and Lbμ . 
+
+> 10:
+
+Form the weighted network loss L(θ) using the current adaptive weights (18).  
+
+> 11:
+
+Take one SOAP step to update θ using ∇θ L(θ), while keeping {sm} fixed.  
+
+> 12:
+
+Form the likelihood-based weighting objective L(θ; {sm}) (30).  
+
+> 13:
+
+Take one Adam step to update {sm} using ∇{sm}L(θ; {sm}), while keeping θ fixed.  
+
+> 14:
+
+end for  
+
+> 15:
+
+Evaluate the terminal prediction ˜ϕn+1 from the trained network Nn and set ϕn+1 ← ˜ϕn+1 . 
+
+> 16:
+
+end for 
+
+For all numerical experiments presented in this work, a consistent implementation framework is employed to ensure fair comparison and reproducibility. The MCL-PINNs architecture comprises 6 fully connected hidden layers, each containing 128 neurons. A fixed time-marching step ∆t = 0 .1 is applied for all simulations. A fixed learning rate of 10 −3 is used for the SOAP optimizer to update the neural network parameters θ. For the adaptive loss weighting mechanism, the learnable log-variance parameters {sm}m∈{ rϕ, r μ, b ϕ, b μ} are initialized as srϕ = − log(1000) and 
+
+sbϕ = srμ = sbμ = 0 , and are optimized using the Adam optimizer with a fixed learning rate of 10 −3. The selected interface-focused collocation points are chosen according to criterion (31) with τ = 0 .1. All numerical experiments are implemented using PyTorch 2.0.0 and executed on a workstation equipped with a single NVIDIA GeForce RTX 4090 GPU. 
+
+4.1 Droplet coalescence 
+
+We first examine the droplet coalescence problem to validate the effectiveness and accuracy of MCL-PINNs. The computational domain is Ω = [ −1, 1] × [−1, 0] and t ∈ [0 , 8] . The initial setup consists of two circular droplets centered at (±0.28 , −1) with a radius of r = 0 .4. The initial condition is given by 
+
+ϕ0(x, y ) = max 
+
+(
+
+tanh 0.4 − p(x − 0.28) 2 + ( y + 1) 2
+
+2ε
+
+!
+
+, tanh 0.4 − p(x + 0 .28) 2 + ( y + 1) 2
+
+2ε
+
+!) 
+
+,
+
+where the interface thickness parameter is set to ε = 0 .02 . Dynamic boundary conditions (4) - (5) are imposed on all boundaries. Two representative static contact angles are considered: θs = 50 ◦ and θs = 120 ◦, representing hydrophilic and hydrophobic wetting regimes. The mobility coefficient and contact line relaxation parameter are set to M = 1 and 
+
+α = 100 , respectively. The external force is neglected in this problem, i.e., u = 0.A q-stage IRK scheme with a fixed time step ∆t = 0 .1 is used for the temporal discretization. The number of stages is adjusted to address the numerical stiffness of each case: q = 20 for θs = 50 ◦ and q = 50 for θs = 120 ◦. The relaxed distribution constraint (27) with c = 0 .9 is applied to the network output, and the symmetry preservation mapping (32) is used for the input in this problem. A variable-scaling transformation is applied with scaling factors 
+
+Nx = 20 , Ny = 20 , and Nt = 1 . The interior collocation points are generated using a hybrid approach that combines interface-aware location with randomly distributed interior samples. For the initial time interval, a uniform candidate grid of 50 × 50 nodes is generated over the domain. In subsequent time intervals, this selection process is applied to a refined candidate grid of 129 × 129 nodes to better capture the evolving interface with higher spatial resolution. These interface-focused points are then combined with 1,000 additional interior points distributed via LHS, ensuring the capture of interface dynamics while maintaining sufficient coverage of the bulk phases. Moreover, we use 41 uniformly 12 MCL-PINNs      
+
+> (a) θs= 50 ◦(b) θs= 120 ◦
+
+Figure 6: Evolution of the interface ( ϕ = 0 ) using MCL-PINNs for the droplet coalescence problem with different static contact angles. distributed nodes along the horizontal boundaries and 21 nodes along the vertical boundaries. The number of training iterations is Niter = 10 , 000 for case 50 ◦ and Niter = 20 , 000 for case 120 ◦, respectively. Figure 6 illustrates the temporal evolution of the interface ( ϕ = 0 ) for both contact angle configurations. For different static contact angles, the droplet moves away from its initial position in different directions under the effect of the unbalanced Young stress and the surface tension, and eventually reaches a stable state after attaining the prescribed static contact angle. For the hydrophilic case ( θs = 50 ◦), the coalesced droplet spreads more readily along the substrate, forming a flatter equilibrium profile with a smaller contact angle. In contrast, the hydrophobic case ( θs = 120 ◦) exhibits a more pronounced spherical cap shape with limited spreading. The coalescence process completes around t ≈ 3.0-4.0,after which the merged droplet gradually relaxes toward its equilibrium configuration. The smooth evolution of the interface demonstrates the capability of MCL-PINNs to capture complex topological changes and moving contact line dynamics. 
+
+4.1.1 Ablation study 
+
+To systematically evaluate the contribution of each component in the MCL-PINNs framework, we conduct compre-hensive ablation experiments. The standard PINNs [ 16 ] and a time-marching PINNs (TM-PINNs) [ 22 ] are also used for comparison. Table 1 presents the quantitative comparison of MSE and relative L2 errors for different method configurations across both contact angle cases. It can be observed that standard PINNs without time-marching result in 
+
+O(1) mean squared and relative L2 errors, confirming that temporal decomposition is essential for long-time integration. The time-marching scheme alone reduces errors by roughly one order of magnitude yet still leaves notable residuals near interfaces. The complete MCL-PINNs framework achieves mean squared errors of 2.49 × 10 −4 for the 50 ◦ case and 1.83 × 10 −3
+
+for 120 ◦, with corresponding relative L2 errors of 1.63 × 10 −2 and 4.41 × 10 −2. These results represent significant improvement over baseline PINNs and TM-PINNs. Among individual components, removing adaptive sampling causes the largest performance drop, increasing mean squared error by over 80 times at 50 ◦ and roughly 180 times at 120 ◦,which highlights its critical role in resolving sharp interfaces. Ablating variable scaling or symmetry preservation raises errors by 20 to 30 times, while removing relaxed distribution constraint or disabling adaptive weighting leads to more moderate but still noticeable degradation. We also notice that the hydrophobic configuration at 120 ◦ consistently exhibits greater sensitivity to component removal. This suggests that hydrophobic wetting dynamics, characterized by more active contact line motion, impose higher demands on the stabilization of prediction. Figures 7 and 8 present comparisons of the results at the final time step t = 8 , when the system reaches near-equilibrium. For the case θs = 50 ◦ (Figure 7), MCL-PINNs produces phase-field distributions almost identical to the FEM reference solution. The error distribution reveals that deviations are primarily confined to the immediate interfacial region. In contrast, TM-PINNs exhibits noticeable errors near the interface and the boundaries, while standard PINNs fails to capture the correct equilibrium configuration, producing a completely incorrect droplet shape with substantial phase mixing. The case θs = 120 ◦ in Figure 8 presents more demanding dynamics due to the pronounced curvature. MCL-PINNs successfully captures the spherical cap morphology, demonstrating robustness across different wetting regimes. TM-PINNs shows significant deviation in the predicted contact line position, whereas standard PINNs produces a severely distorted interface profile. The detailed interface comparisons in Figure 9 and Figure 10 serve as direct visual evidence of the predictive accuracy and structural robustness of the proposed MCL-PINNs framework. The complete MCL-PINNs framework demonstrates good agreement with the FEM reference solution, with the interfaces nearly indistinguishable across all regions. In 13 MCL-PINNs Table 1: Ablation study comparing the performance of different method configurations for the droplet coalescence problem at t = 8 . TM: time-marching scheme; AS: adaptive sampling strategy; VS: variable scaling scheme; SYM: symmetry preservation in neural network inputs; RDC: Relaxed distribution constraint; AW: adaptive weighting method. MSE: Mean squared error; Rel. err.: Relative L2 error. The notation “(w/o X)” denotes the ablation variant without using technique “X”, while the rest of the proposed framework remains unchanged. 
+
+Method TM AS VS SYM RDC AW θs = 50 ◦ θs = 120 ◦
+
+MSE Rel. err. MSE Rel. err. PINNs ✗ ✗ ✗ ✗ ✗ ✗ 1.14 1.10 1.77 1.37 TM-PINNs ✓ ✗ ✗ ✗ ✗ ✗ 8.97e-1 9.75e-1 3.85e-1 6.40e-1 MCL-PINNs ✓ ✓ ✓ ✓ ✓ ✓ 2.49e-4 1.63e-2 1.83e-3 4.41e-2 MCL-PINNs (w/o TM) ✗ ✓ ✓ ✓ ✓ ✓ 9.29e-1 9.93e-1 8.33e-1 9.42e-1 MCL-PINNs (w/o AS) ✓ ✗ ✓ ✓ ✓ ✓ 2.03e-2 1.47e-1 3.23e-1 5.86e-1 MCL-PINNs (w/o VS) ✓ ✓ ✗ ✓ ✓ ✓ 6.83e-4 2.69e-2 5.48e-2 2.41e-1 MCL-PINNs (w/o SYM) ✓ ✓ ✓ ✗ ✓ ✓ 9.66e-3 1.01e-1 3.62e-2 1.96e-1 MCL-PINNs (w/o RDC) ✓ ✓ ✓ ✓ ✗ ✓ 6.41e-3 8.24e-2 2.05e-2 1.48e-1 MCL-PINNs (w/o AW) ✓ ✓ ✓ ✓ ✓ ✗ 2.11e-3 4.73e-2 1.26e-1 3.67e-1 −1.0 −0.5 0.0 0.5 1.0                              
+
+> x
+> −1.0
+> −0.8
+> −0.6
+> −0.4
+> −0.2
+> 0.0
+> y
+> ϕMCL−PINNs (MCL-PINNs)
+> −1.0 −0.5 0.0 0.5 1.0
+> x
+> −1.0
+> −0.8
+> −0.6
+> −0.4
+> −0.2
+> 0.0
+> ϕTM−PINNs (TM-PINNs)
+> −1.0 −0.5 0.0 0.5 1.0
+> x
+> −1.0
+> −0.8
+> −0.6
+> −0.4
+> −0.2
+> 0.0
+> ϕPINNs (PINNs)
+> −1.0
+> −0.5
+> 0.0
+> 0.5
+> 1.0
+> ϕ
+> −1.0 −0.5 0.0 0.5 1.0
+> x
+> −1.0
+> −0.8
+> −0.6
+> −0.4
+> −0.2
+> 0.0
+> y
+> |ϕMCL−PINNs −ϕFEM |
+> −1.0 −0.5 0.0 0.5 1.0
+> x
+> −1.0
+> −0.8
+> −0.6
+> −0.4
+> −0.2
+> 0.0
+> |ϕTM−PINNs −ϕFEM |
+> −1.0 −0.5 0.0 0.5 1.0
+> x
+> −1.0
+> −0.8
+> −0.6
+> −0.4
+> −0.2
+> 0.0
+> |ϕPINNs −ϕFEM |
+> −2
+> −1
+> 0
+> 1
+> 2
+> Error
+
+Figure 7: Comparison of results from MCL-PINNs, TM-PINNs, and standard PINNs at t = 8 for case θs = 50 ◦ of the droplet coalescence problem. Top row: phase-field distributions. Bottom row: absolute error distributions. −1.0 −0.5 0.0 0.5 1.0                              
+
+> x
+> −1.0
+> −0.8
+> −0.6
+> −0.4
+> −0.2
+> 0.0
+> y
+> ϕMCL−PINNs (MCL-PINNs)
+> −1.0 −0.5 0.0 0.5 1.0
+> x
+> −1.0
+> −0.8
+> −0.6
+> −0.4
+> −0.2
+> 0.0
+> ϕTM−PINNs (TM-PINNs)
+> −1.0 −0.5 0.0 0.5 1.0
+> x
+> −1.0
+> −0.8
+> −0.6
+> −0.4
+> −0.2
+> 0.0
+> ϕPINNs (PINNs)
+> −0.5
+> 0.0
+> 0.5
+> 1.0
+> ϕ
+> −1.0 −0.5 0.0 0.5 1.0
+> x
+> −1.0
+> −0.8
+> −0.6
+> −0.4
+> −0.2
+> 0.0
+> y
+> |ϕMCL−PINNs −ϕFEM |
+> −1.0 −0.5 0.0 0.5 1.0
+> x
+> −1.0
+> −0.8
+> −0.6
+> −0.4
+> −0.2
+> 0.0
+> |ϕTM−PINNs −ϕFEM |
+> −1.0 −0.5 0.0 0.5 1.0
+> x
+> −1.0
+> −0.8
+> −0.6
+> −0.4
+> −0.2
+> 0.0
+> |ϕPINNs −ϕFEM |
+> −2
+> −1
+> 0
+> 1
+> 2
+> Error
+
+Figure 8: Comparison of results from MCL-PINNs, TM-PINNs, and standard PINNs at t = 8 for case θs = 120 ◦ of the droplet coalescence problem. Top row: phase-field distributions. Bottom row: absolute error distributions. 14 MCL-PINNs 1.000 0.975 0.950                 
+
+> 0.04
+> 0.02
+> 0.00 (A)
+> 0.9 0.8
+> 1.00
+> 0.95
+> 0.90
+> (B)
+> 1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00
+> x
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> y
+> (A) (C)
+> (B) (D)
+> MCL-PINNs
+> MCL-PINNs (w/o RDC)
+> MCL-PINNs (w/o SYM)
+> MCL-PINNs (w/o VS)
+> MCL-PINNs (w/o AW)
+> MCL-PINNs (w/o AS)
+> FEM
+> 0.950 0.975 1.000
+> 0.04
+> 0.02
+> 0.00 (C)
+> 0.8 0.9
+> 1.00
+> 0.95
+> 0.90
+> (D)
+
+Figure 9: A comparison of the interface ( ϕ = 0 ) at t = 8 for case θs = 50 ◦ of the droplet coalescence problem. Panels (A) and (C) provide enlarged views of the upper-left and upper-right corner regions, respectively. Panels (B) and (D) show enlarged views of the contact line region near the solid substrate. 0.4 0.3              
+
+> 0.65
+> 0.60
+> 0.55
+> (A)
+> 0.5 0.4
+> 1.00
+> 0.95
+> 0.90
+> (B)
+> 1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00
+> x
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> y (A) (C)
+> (B) (D)
+> MCL-PINNs
+> MCL-PINNs (w/o AS)
+> MCL-PINNs (w/o AW)
+> MCL-PINNs (w/o SYM)
+> MCL-PINNs (w/o VS)
+> MCL-PINNs (w/o RPC)
+> FEM
+> 0.4 0.5
+> 0.65
+> 0.60
+> 0.55
+> (C)
+> 0.4 0.5
+> 1.00
+> 0.95
+> 0.90
+> (D)
+
+Figure 10: A comparison of the interface ( ϕ = 0 ) at t = 8 for case θs = 120 ◦ of the droplet coalescence problem. Panels (A) and (C) enlarge the views near the middle part of the interface, while panels (B) and (D) provide enlarged views near the solid boundary. contrast, the ablated variants exhibit varying degrees of deviation from the benchmark, confirming that each integrated component is necessary for maintaining quantitative accuracy. Specifically, for the hydrophilic case ( θs = 50 ◦,Figure 9), the enlarged views in panels (A) and (C) demonstrate a critical failure when the RDC is not used, which generates spurious interface artifacts in these regions. This phenomenon arises because, in the absence of RDC, the neural network is free to produce unphysical overshoots and undershoots, violating the bounds ϕ ∈ [−1, 1] . For the hydrophobic case ( θs = 120 ◦, Figure 10), the enlarged views in panels (A)–(D) show that the ablated variants lead to great deviations. In particular, the configurations without adaptive weighting or adaptive sampling of collocation points lead to substantial shifts in the contact position and interface profile, indicating that these two components are crucial for resolving hydrophobic cases. These comparisons demonstrate that the combined use of all proposed components establishes MCL-PINNs as a robust and reliable framework for simulating moving contact line dynamics. 
+
+4.1.2 Effect of the relaxed distribution constraint factor 
+
+To investigate the influence of relaxed distribution constraint (RDC) on the performance of the neural solver, we conduct a sensitivity analysis with respect to the scaling factor c in (27) for the droplet coalescence problem with θs = 50 ◦.Figure 11 shows a comparison of the interface ( ϕ = 0 ) at t = 8 across different values of c. Table 2 reports the MSE and relative L2 error between the neural network predictions and the FEM reference solutions. As observed, although the standard profile constraint with c = 1 .0 suppresses the spurious interfacial artifacts near the top corners, it yields a larger error than the configuration without this technique. This suggests that enforcing ˜ϕ = tanh( z) without relaxation introduces an overly restrictive output representation, since the bulk values ˜ϕ ≈ ± 1 require large pre-activation values. In contrast, introducing the relaxation factor c < 1 significantly mitigates this issue by confining the admissible output range of the network to (− arctanh( c), arctanh( c)) . These results indicate that choosing c in the range 0.90 –0.97 is effective for resolving sharp interfacial dynamics, with relatively low errors observed at c = 0 .90 and c = 0 .97 . Since 15 MCL-PINNs 0.5 0.4 0.3                
+
+> 0.75
+> 0.70
+> 0.65
+> (A)
+> 0.9 0.8
+> 1.00
+> 0.95
+> 0.90
+> (B)
+> 1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00
+> x
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> y
+> (A) (C)
+> (B) (D)
+> c = 0.89
+> c = 0.9
+> c = 0.91
+> c = 0.92
+> c = 0.93
+> c = 0.94
+> c = 0.95
+> c = 0.96
+> c = 0.97
+> c = 0.98
+> c = 0.99
+> c = 1
+> w/o RDC
+> FEM 0.3 0.4 0.5
+> 0.75
+> 0.70
+> 0.65
+> (C)
+> 0.8 0.9
+> 1.00
+> 0.95
+> 0.90
+> (D)
+
+Figure 11: A comparison of the interface ( ϕ = 0 ) obtained by using the relaxed distribution constraint (RDC) method in MCL-PINNs with different values of the factor c, MCL-PINNs without RDC (‘w/o RDC’), and the FEM solution at t = 8 for case θs = 50 ◦ of the droplet coalescence problem. Panels (A)–(D) present zoomed-in views of selected regions. 0.1 0.5 1.0 2.0 3.0 4.0 5.0 6.0 7.0 8.0 
+
+t         
+
+> 0
+> 1
+> 2
+> 3
+> Mean square error
+> 1e−1
+> FEM Δ t= 0.002
+> FEM Δ t= 0.0025
+> FEM Δ t= 0.005
+> FEM Δ t= 0.01
+> FEM Δ t= 0.025
+> FEM Δ t= 0.05
+> FEM Δ t= 0.1
+> MCL-PINNs Δt= 0.1
+
+Figure 12: Temporal evolution of mean squared error (MSE) for case θs = 120 ◦ of the droplet coalescence problem. The proposed MCL-PINNs framework with ∆t = 0 .1 achieves accuracy comparable to the reference FEM solution with ∆t = 0 .001 , while FEM solutions with coarser time steps exhibit pronounced error accumulation. a smaller value of c further reduces the magnitude of the required pre-activation values, it provides a more favorable output representation for network training. Therefore, we set c = 0 .90 in the subsequent experiments. Table 2: Computational error at t = 8 between the neural network solution and FEM reference under varying relaxation factors c in the droplet coalescence case with θs = 50 ◦. MSE: Mean squared error; Rel. err.: Relative L2 error. 
+
+c 0.89 0.90 0.91 0.92 0.93 0.94 0.95 0.96 0.97 0.98 0.99 1.00 MSE 2.32e-3 2.49e-4 2.11e-3 2.51e-3 1.27e-3 1.27e-3 8.25e-4 2.16e-3 1.51e-4 1.34e-3 6.20e-3 9.15e-2 Rel. err. 4.96e-2 1.63e-2 4.73e-2 5.16e-2 3.67e-2 3.66e-2 2.96e-2 4.79e-2 1.26e-3 3.77e-2 8.11e-2 3.12e-1 
+
+4.1.3 Temporal accuracy and stability 
+
+Figure 12 provides a detailed comparison of the temporal evolution of mean squared error (MSE) between the MCL-PINNs framework and the FEM solver for the hydrophobic case ( θs = 120 ◦). All errors are measured relative to the reference FEM solution obtained with the finest time step ∆t = 0 .001 , which serves as the accuracy benchmark. A notable distinction emerges in the error propagation of the two approaches. FEM solutions display a clear accumulation of error over time, with MSE values increasing monotonically throughout the simulation. This effect is especially pronounced for larger time step sizes ∆t ≥ 0.025 , where the error grows nearly an order of magnitude from t = 0 to 
+
+t = 8 . Even for small time step sizes ∆t = 0 .002 –0.01 , the cumulative error exhibits a consistent upward trend. In contrast, the MCL-PINNs framework with ∆t = 0 .1 demonstrates high temporal accuracy and stability, maintaining nearly constant MSE values over the entire simulation duration. The magnitude of error is often smaller than that of FEM solutions computed with time step sizes 10 to 100 times finer. This superior performance shows the benefits of the 16 MCL-PINNs 2 4 6 8
+
+t        
+
+> 0
+> 2
+> 4
+> 6
+> Mean square error  1e−3
+> MCL-PINNs Δt= 0.1
+> MCL-PINNs Δt= 0.25
+> MCL-PINNs Δt= 0.4
+> MCL-PINNs Δt= 0.5
+
+Figure 13: Temporal evolution of mean squared error (MSE) for case θs = 50 ◦ of the droplet coalescence problem under varying time step sizes ∆t = 0 .1, 0.25 , 0.4, and 0.5 in MCL-PINNs. discrete-time PINNs approach with a high-order IRK scheme ( q = 50 ) combined with the time-marching method in mitigating error propagation. Figure 13 shows the sensitivity of the MCL-PINNs framework to the choice of time step size for the hydrophilic case (θs = 50 ◦). Four different time step sizes are tested: ∆t = 0 .1, 0.25 , 0.4, 0.5. The results demonstrate remarkable stability of the MCL-PINNs framework across all tested time step sizes. Even at ∆t = 0 .5, the mean squared error remains bounded and within a reasonable range throughout the simulation, while most conventional numerical methods fail for this phase-field simulation at such a large time step size. For the selected time step size ∆t = 0 .1, the error converges to approximately 2.5 × 10 −4, suggesting this choice as an effective balance between computational cost and solution accuracy. These findings indicate that MCL-PINNs can provide competitive predictive performance relative to conventional phase-field solvers, while showing potential advantages for long-time simulations. 
+
+4.2 Shear-induced droplet deformation 
+
+In this subsection, we examine the deformation and migration of a droplet under shear flow, a classical problem involving moving contact lines. As noted in Remark 1, when the interface is driven by an external flow, an advection term is introduced into the Cahn–Hilliard equation. The governing equation for the order parameter ϕ becomes: 
+
+∂ϕ ∂t + u · ∇ ϕ = M ∆μ, (35) where u = ( ux, 0) is the prescribed velocity field. The computational domain is Ω = [0 , 6] × [0 , 0.8] and t ∈ [0 , 8] .We consider a Poiseuille flow profile for the velocity field ux(y) = C0 4y(H−y) 
+
+> H2
+
+, where C0 represents the characteristic velocity magnitude. The initial condition describes a circular droplet centered at (1 , 0) with radius r = 0 .4:
+
+ϕ0(x, y ) = tanh 0.4 − p(x − 1) 2 + y2
+
+2ε
+
+!
+
+. (36) The following model parameters are used: M = 0 .05 , ε = 0 .02 , and α = 1000 . We examine two distinct wettability conditions characterized by the static contact angle θs: a hydrophilic surface ( θs = 50 ◦) and a hydrophobic surface (θs = 150 ◦). Dynamic boundary conditions (4) -(5) are imposed on the bottom and top walls. Homogeneous Neumann boundary conditions ∇ϕ · n = 0 and ∇μ · n = 0 are applied on the left and right boundaries. The proposed framework is configured with problem-specific hyperparameters. The variable-scaling transformation is applied with factors Nx = 10 , Ny = 10 , and Nt = 1 , which balance the magnitudes of spatial and temporal derivatives. For the initial time interval, a uniform candidate grid of 375 × 50 nodes is constructed over the computational domain. In subsequent time intervals, this extraction procedure is applied to a refined candidate grid of 751 × 101 nodes. These interface-focused points are combined with additional interior samples distributed via LHS: 2,000 points for the hydrophilic case ( θs = 50 ◦) and 1,000 points for the hydrophobic case ( θs = 150 ◦). In addition, 158 uniformly distributed nodes are used for the horizontal boundaries and 21 nodes for the vertical boundaries. For the IRK scheme, the stage number is adjusted according to the numerical stiffness induced by the coupling of advection and wetting dynamics: q = 50 for θs = 50 ◦ and q = 100 for θs = 150 ◦. A fixed time step ∆t = 0 .1 is used. The number of training iterations is Niter = 20 , 000 for both contact angle configurations. First, we validate the effectiveness of the proposed MCL-PINNs by comparing its predictions with reference solutions obtained from the FEM. Figure 14 displays the phase-field variable ϕ at time instances t = 2 and t = 6 for a scaled flow velocity C0 = 0 .5. Under the imposed shear flow, the droplet interface undergoes pronounced deformation, 17 MCL-PINNs                   
+
+> (a) θs= 50 ◦,T= 2 (b) θs= 150 ◦,T= 2
+> (c) θs= 50 ◦,T= 6 (d) θs= 150 ◦,T= 6
+
+Figure 14: Comparison of phase field ϕ between MCL-PINNs and FEM solutions, along with the distribution of collocation points, for shear-induced droplet deformation at different static contact angles and time instances. The background flow is a scaled Poiseuille profile. accompanied by substantial contact line motion along the slip boundary. For the hydrophilic case with θs = 50 ◦, as shown in Figures 14a and 14c, the strong affinity between the droplet and the solid substrate promotes spreading along the bottom boundary. As the shear flow drives the interface downstream, the upstream and downstream contact positions migrate at different rates, leading to a highly stretched interfacial profile. At the later time T = 6 , the upper portion of the droplet is further elongated and eventually separates from the near-wall liquid layer. In contrast, for the hydrophobic case with θs = 150 ◦, shown in Figures 14b and 14d, the weaker surface affinity limits the spreading of the droplet along the wall. The interface is primarily convected and elongated by the shear flow, while the contact line motion remains more localized compared with the hydrophilic case. In both wetting regimes, the MCL-PINNs predictions show good agreement with the FEM reference solutions, accurately capturing the interface position, curvature variation, and contact line evolution. The middle row of Figure 14 shows the corresponding spatial distribution of collocation points. The black dots denote the background samples generated by LHS, while the green dots represent the additional collocation points introduced by the adaptive sampling strategy described in Section 3.6. As observed, the green points are concentrated along the diffuse interface and move consistently with the evolving interfacial region. This demonstrates that the adaptive sampling strategy effectively tracks the strongly deformed interface during the shear-induced wetting process. To further analyze the effects of flow velocity and wettability on droplet dynamics, we track the evolution of the interface ( ϕ = 0 ) over the time interval t ∈ [0 , 8] . Figures 15 and 16 show the interface evolution under different flow velocities and wettability conditions. In each figure, subplots (a), (b), and (c) correspond to C0 = 0 .2, C0 = 0 .4, and 
+
+C0 = 0 .6, respectively, while the static contact angle is set to θs = 50 ◦ in Figure 15 and θs = 150 ◦ in Figure 16. As shown in these figures, increasing the convection velocity enhances the shear force, causing the upper portion of the droplet to move faster than the lower portion and thereby promoting droplet breakup. For cases with the same convection velocity but different contact angles, stronger wall hydrophobicity induces a more evident contraction of the lower portion of the droplet. This increases the volume of the droplet exposed to the high velocity region, leading to 18 MCL-PINNs 
+
+Figure 15: Evolution of the interface ( ϕ = 0 ) for the hydrophilic case ( θs = 50 ◦) at different flow intensities: (a) 
+
+C0 = 0 .2, (b) C0 = 0 .4, and (c) C0 = 0 .6. The time range is from t = 0 to t = 8 . Higher flow rates induce significant elongation and eventual pinch-off of the droplet. 
+
+Figure 16: Evolution of the interface ( ϕ = 0 ) for the hydrophobic case ( θs = 150 ◦) at different flow intensities: (a) 
+
+C0 = 0 .2, (b) C0 = 0 .4, and (c) C0 = 0 .6. The reduced wall adhesion leads to faster migration and easier breakup of the droplet compared to the hydrophilic case. the formation of a larger detached droplet after pinch-off. These results demonstrate that the proposed MCL-PINNs can effectively capture the complex interplay between hydrodynamic forces, capillary forces, and wetting properties, accurately resolving topological changes such as droplet breakup. 
+
+4.3 Dynamic wetting through a heterogeneous channel 
+
+In this subsection, we investigate the dynamic wetting behavior of a binary fluid interface driven over a chemically patterned channel. An illustration of the problem setup is shown in Figure 17. The computational domain is Ω = [0 , 5] × [0 , 0.5] and t ∈ [0 , 9] . The top and bottom boundaries are chemically patterned in a periodic manner, alternating between two wetting properties. Specifically, the dynamic boundary conditions (4) - (5) are imposed with a spatially varying static contact angle θs(x) with period 1:
+
+θs(x) = Θ( ξ), ξ = x − ⌊ x⌋ ∈ [0 , 1) , (37) 19 MCL-PINNs 
+
+Figure 17: An illustration of the computational domain and boundary configuration for the heterogeneous channel problem. The top and bottom boundaries are periodically patterned with two wetting properties, where yellow and green segments denote regions with static contact angles θs1 = 60 ◦ and θs2 = 120 ◦, respectively. The black dashed line denotes the initial position of the interface. where 
+
+Θ( ξ) = 
+
+
+
+θs2 − (ξ + δ)( θs2 − θs1 )2δ , 0 ≤ ξ < δ, θs1 , δ ≤ ξ < 12 − δ, θs1 + (ξ − 12 + δ)( θs2 − θs1 )2δ , 12 − δ ≤ ξ < 12 + δ, θs2 , 12 + δ ≤ ξ < 1 − δ, θs2 − (ξ − 1 + δ)( θs2 − θs1 )2δ , 1 − δ ≤ ξ < 1.
+
+(38) Here, θs1 = 60 ◦, θs2 = 120 ◦, and the transition half-width is δ = ε/ 2 = 0 .0125 . Homogeneous Neumann boundary conditions ∇ϕ · n = 0 and ∇μ · n = 0 are applied on the left and right boundaries. A uniform velocity field u = ( ux, 0) 
+
+is prescribed as a driving force, where ux = 0 .5 for advancing motion and ux = −0.5 for receding motion. The initial condition is given as ϕ0(x, y ) = tanh  (x − xc)/(2 ε), where xc = 0 .5 for the advancing case and xc = 4 .5 for the receding case. The following model parameters are used: M = 1 , ε = 0 .025 , and α = 100 . For the proposed MCL-PINNs framework, the variable-scaling transformation is applied with scaling factors Nx = 10 , Ny = 10 , and Nt = 1 .A uniform 751 × 101 grid is used as the candidate pool for adaptive sampling. These points are further supplemented by 2, 000 interior collocation points generated using LHS to provide baseline coverage of the computational domain. For the boundary residuals, 158 uniformly distributed nodes are placed on the horizontal boundaries, while 21 nodes are used on the vertical boundaries. In both the advancing and receding configurations, we use a fixed time step ∆t = 0 .1
+
+and an IRK scheme with q = 50 stages. The number of training iterations is set to Niter = 10 , 000 for both cases. Figure 18 shows the interfacial motion through a heterogeneous channel under the imposed driving force. The blue curves represent the phase interfaces at successive time instants, with a time interval of ∆t = 0 .02 between adjacent profiles. As the contact points pass across the junctions between regions with different wetting properties, the interface undergoes pronounced deformation and exhibits characteristic stick–slip motion. When the phase ϕ = −1 advances from the green region to the yellow region, it moves toward a less favorable wetting region and therefore experiences a larger surface-energy barrier. Consequently, the contact line is temporarily pinned near the top and bottom chemical junctions, leading to slow displacement of the contact points. During this stage, the interface is stretched and capillary energy gradually accumulates. Once the hydrodynamic driving force overcomes the local pinning threshold, depinning occurs and the contact line rapidly slips forward. In contrast, when the phase ϕ = −1 moves from the yellow region to the green region, the motion is directed toward a more favorable wetting region. The resistance at the chemical junction is therefore reduced, allowing the interface to pass through the junction more rapidly and resulting in a slip-dominated response. To understand how the objective is optimized during training, we examine the evolution of the individual loss components and the corresponding learned adaptive weights over an intermediate time interval, t ∈ [0 .3, 0.4] , as shown in Figure 19. The left panel shows that all residual terms decrease rapidly in the early stage and continue to decay over subsequent epochs, although their magnitudes remain different. In particular, the boundary residual Lbϕ remains relatively larger, reflecting the stronger stiffness and nonlinear coupling associated with the dynamic boundary condition for ϕ. In contrast, 
+
+Lrϕ , Lrμ , and Lbμ are reduced to much smaller levels as training proceeds. The right panel presents the evolution of the learned self-adaptive weights e−sm for the individual loss components. These weights are optimized during training instead of being manually prescribed. The different growth rates indicate that the adaptive weighting strategy assigns 20 MCL-PINNs 
+
+Figure 18: Advancing phase interface in a channel with heterogeneous wetting patterns. The blue curves represent the phase interfaces at successive time instants, with a time interval of ∆t = 0 .02 between adjacent curves. The alternating yellow and green wall segments denote hydrophilic regions with θs1 = 60 ◦ and hydrophobic regions with θs2 = 120 ◦,respectively. The interface is driven from left to right by a uniform velocity ux = 0 .5.0 2000 4000 6000 8000 10000              
+
+> Epoch
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> 10 3
+> Loss
+> b
+> b
+> r
+> r
+> 02000 4000 6000 8000 10000
+> Epoch
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> 10 5
+> Self-adaptive weight
+> esb
+> esb
+> esr
+> esr
+
+Figure 19: (Left) Logarithmic evolution of the boundary and residual loss components. (Right) Corresponding evolution of the adaptive weights, which dynamically adjust to balance the magnitude of each loss term. different levels of emphasis to the residual terms according to their optimization behavior. In particular, e−srϕ exhibits the largest value, showing that the phase-field residual receives a progressively stronger weight in the objective. The boundary-condition weights e−sbϕ and e−sbμ also increase substantially, which strengthens the enforcement of the dynamic boundary conditions. In comparison, e−srμ is relatively small, indicating that the chemical-potential residual is more readily balanced during training. The quantitative wetting response is further analyzed in Figure 20, where the dynamic contact angle θ is plotted as a function of the contact position x. The corresponding interfacial evolution during the advancing and receding processes is shown in Figure 21. In Figure 20, the orange curve corresponds to the advancing case in Figure 21(a), whereas the blue curve corresponds to the receding case in Figure 21(b). It should be noted that the computed dynamic contact angle does not coincide with the prescribed static contact angle profile θs(x). The static contact angle represents the local equilibrium wettability of the channel walls, whereas the dynamic contact angle is an apparent non-equilibrium quantity determined by the instantaneous interface morphology, contact-line motion, and relaxation of the phase field near the wall. Therefore, when the contact line moves across heterogeneous wettability patterns, the interface cannot instantaneously adjust to the local value of θs(x), leading to a delayed and path-dependent response. Moreover, a clear contact angle hysteresis induced by the heterogeneous walls can be observed. In particular, several sharp variations in the contact angle occur near the wettability transition points, for example at x = 0 .5, 1.5, 2.5, and 3.5 in the receding case. When the interface moves from the green boundary region to the yellow boundary region, the contact line encounters stronger surface-energy resistance, since the phase ϕ = −1 being displaced tends to remain in the energetically favorable region. As a result, the angle between the interface and the solid boundary increases abruptly. Subsequently, driven by interfacial-energy relaxation, the contact angle gradually decreases toward a smaller value. A similar mechanism can be observed in the advancing case, where the response follows a different branch due to the opposite direction of contact-line motion. These results demonstrate that the heterogeneous wettability pattern gives rise to a pronounced advancing-receding asymmetry and a clear hysteresis loop in the dynamic contact angle response. The close agreement between the dynamic contact angle response and the corresponding interface evolution 21 MCL-PINNs 0 1 2 3 4 5
+
+x
+
+> 40
+> 60
+> 80
+> 100
+> 120
+> 140
+> θ
+
+θs Receding Advancing 
+
+Figure 20: Evolution of the dynamic contact angle θ along the channel walls as a function of the contact line position x.The solid curves represent the computed contact angles during advancing and receding motions, while the dashed line indicates the prescribed static contact angle θs(x). The difference between the advancing and receding curves indicates a clear contact angle hysteresis induced by the heterogeneous walls. 
+
+Figure 21: Comparison of the interface ( ϕ = 0 ) trajectories between advancing and receding cases. further demonstrates that the proposed MCL-PINNs can effectively capture the hysteretic wetting behavior induced by boundary heterogeneity. 
+
+## 5 Concluding remarks 
+
+In this study, we propose MCL-PINNs, a neural solver for moving contact line problems with dynamic boundary conditions. By embedding the Cahn–Hilliard equation and the associated boundary constraints into a physics-informed neural network framework, the proposed method addresses several numerical challenges arising from long-time error accumulation, sharp interfacial profiles, localized contact line dynamics, and complex contact angle evolution. Building upon the discrete-time formulation, the proposed framework integrates several key techniques, including a time-marching strategy with multiple networks, a relaxed distribution constraint on the neural network outputs, a variable-scaling method, adaptive loss weighting, adaptive collocation sampling, and, when applicable, symmetry preservation through neural network inputs. These components work together to improve training stability, enhance the balance among competing loss terms, and accurately capture complex interfacial evolution in moving contact line dynamics. Numerical validation is conducted on three examples, including droplet coalescence, shear-induced droplet deformation, and dynamic wetting in a heterogeneous channel. The results demonstrate the effectiveness and robustness of the 22 MCL-PINNs proposed method. The computed solutions show good agreement with reference solutions obtained by finite element methods, indicating that MCL-PINNs can accurately capture the governing phase-field dynamics and the associated moving contact line motion. To the best of our knowledge, this work represents the first PINN-type approaches for solving the Cahn–Hilliard equation with dynamic boundary conditions, providing a step toward connecting mesh-free deep learning solvers with thermodynamically consistent phase-field modeling of moving contact line problems. One direction for future research is to extend the present framework to the coupled Cahn–Hilliard–Navier–Stokes (CHNS) system for moving contact line problems with dynamic boundary conditions. 
+
+## References 
+
+[1] John W Cahn and John E Hilliard. Free energy of a nonuniform system. I. Interfacial free energy. J. Chem. Phys. ,28(2):258–267, 1958. [2] David M Anderson, Geoffrey B McFadden, and Alan A Wheeler. Diffuse-interface methods in fluid mechanics. 
+
+Annu. Rev. Fluid Mech. , 30:139–165, 1998. [3] Jinpeng Zhang, Chaoyu Quan, and Xiao-Ping Wang. A relaxed Lagrange multiplier approach for phase field models. Comput. Methods Appl. Mech. Eng. , 454:118871, 2026. [4] Jinpeng Zhang, Li Luo, and Xiao-Ping Wang. A fully-decoupled second-order-in-time and unconditionally energy stable scheme for the Cahn–Hilliard–Navier–Stokes equations with variable density. J. Comput. Phys. ,532:113943, 2025. [5] Long-Qing Chen. Phase-field models for microstructure evolution. Annu. Rev. Mater. Res. , 32:113–140, 2002. [6] Christian Miehe, Frank Welschinger, and Martina Hofacker. Thermodynamically consistent phase-field models of fracture: Variational principles and multi-field FE implementations. Int. J. Numer. Methods Eng. , 83(10):1273– 1311, 2010. [7] Qiang Du, Chun Liu, and Xiaoqiang Wang. Simulating the deformation of vesicle membranes under elastic bending energy in three dimensions. J. Comput. Phys. , 212(2):757–777, 2006. [8] John Lowengrub and Lev Truskinovsky. Quasi–incompressible Cahn–Hilliard fluids and topological transitions. 
+
+Proc. R. Soc. Lond. A , 454(1978):2617–2654, 1998. [9] Tiezheng Qian, Xiao-Ping Wang, and Ping Sheng. A variational approach to moving contact line hydrodynamics. 
+
+J. Fluid Mech. , 564:333–360, 2006. [10] Xianmin Xu and Xiao-Ping Wang. Derivation of the Wenzel and Cassie equations from a phase field model for two phase flow on rough surface. SIAM J. Appl. Math. , 70(8):2929–2941, 2010. [11] Xianmin Xu and Xiao-Ping Wang. Analysis of wetting and contact angle hysteresis on chemically patterned surfaces. SIAM J. Appl. Math. , 71(5):1753–1779, 2011. [12] Xiao-Ping Wang and Xianmin Xu. A dynamic theory for contact angle hysteresis on chemically rough boundary. 
+
+Discrete Contin. Dyn. Syst. , 37(2):1061–1073, 2017. [13] Li Luo, Qian Zhang, Xiao-Ping Wang, and Xiao-Chuan Cai. A parallel finite element method for 3D two-phase moving contact line problems in complex domains. J. Sci. Comput. , 72(3):1119–1145, 2017. [14] Li Luo, Xiao-Ping Wang, and Xiao-Chuan Cai. An efficient finite element method for simulation of droplet spreading on a topologically rough surface. J. Comput. Phys. , 349:233–252, 2017. [15] Li Luo, Qian Zhang, Haochen Liu, Jinpeng Zhang, and Xiao-Ping Wang. A numerical study of two-phase flows in complex domain with a generalized navier slip and penetration boundary condition on permeable boundaries. J. Comput. Phys. , 533:113980, 2025. [16] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. J. Comput. Phys. , 378:686–707, 2019. [17] Maziar Raissi, Alireza Yazdani, and George Em Karniadakis. Hidden fluid mechanics: Learning velocity and pressure fields from flow visualizations. Science , 367(6481):1026–1030, 2020. [18] Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM J. Sci. Comput. , 43(5):A3055–A3081, 2021. [19] Salvatore Cuomo, Vincenzo Schiano Di Cola, Fabio Giampaolo, Gianluigi Rozza, Maziar Raissi, and Francesco Piccialli. Scientific machine learning through physics-informed neural networks: Where we are and what’s next. 
+
+J. Sci. Comput. , 92(3):88, 2022. 23 MCL-PINNs [20] Derick Nganyu Tanyu, Jianfeng Ning, Tom Freudenberg, Nick Heilenkötter, Andreas Rademacher, Uwe Iben, and Peter Maass. Deep learning methods for partial differential equations and related parameter identification problems. Inverse Problems , 39(10):103001, 2023. [21] Hao Zhongkai, Jiachen Yao, Chang Su, Hang Su, Ziao Wang, Fanzhi Lu, Zeyu Xia, Yichi Zhang, Songming Liu, Lu Lu, et al. PINNACLE: A comprehensive benchmark of physics-informed neural networks for solving pdes. 
+
+Adv. Neural Inf. Process. Syst. , 37:76721–76774, 2024. [22] Colby L Wight and Jia Zhao. Solving Allen–Cahn and Cahn–Hilliard equations using the adaptive physics informed neural networks. Commun. Comput. Phys. , 29(3):930–954, jan 2021. [23] Rundi Qiu, Renfang Huang, Yao Xiao, Jingzhu Wang, Zhen Zhang, Jieshun Yue, Zhong Zeng, and Yiwei Wang. Physics-informed neural networks for phase-field method in two-phase flow. Phys. Fluids. , 34(5):052109, 2022. [24] Nanxi Chen, Sergio Lucarini, Rujin Ma, Airong Chen, and Chuanjie Cui. PF-PINNs: Physics-informed neural networks for solving coupled Allen–Cahn and Cahn–Hilliard phase field equations. J. Comput. Phys. , 529:113843, 2025. [25] Nanxi Chen, Chuanjie Cui, Rujin Ma, Airong Chen, and Sifan Wang. Sharp-PINNs: Staggered hard-constrained physics-informed neural networks for phase field modelling of corrosion. Comput. Methods Appl. Mech. Eng. ,447:118346, 2025. [26] Rundi Qiu, Junzhe Li, Jingzhu Wang, Chun Fan, and Yiwei Wang. Direct numerical simulations of three-dimensional two-phase flow using physics-informed neural networks with a distributed parallel training algorithm. 
+
+J. Fluid Mech. , 1017:A15, 2025. [27] Revanth Mattey and Susanta Ghosh. A novel sequential method to train physics informed neural networks for Allen Cahn and Cahn Hilliard equations. Comput. Methods Appl. Mech. Eng. , 390:114474, 2022. [28] Chenxi Wu, Min Zhu, Qinyang Tan, Yadhu Kartha, and Lu Lu. A comprehensive study of non-adaptive and residual-based adaptive sampling for physics-informed neural networks. Comput. Methods Appl. Mech. Eng. ,403:115671, 2023. [29] Aditi Krishnapriyan, Amir Gholami, Shandian Zhe, Robert Kirby, and Michael W Mahoney. Characterizing possible failure modes in physics-informed neural networks. In Adv. Neural Inf. Process. Syst. , volume 34, pages 26548–26560, 2021. [30] Pengtao Yue. Thermodynamically consistent phase-field modelling of contact angle hysteresis. J. Fluid Mech. ,899:A15, 2020. [31] Songming Liu, Hao Zhongkai, Chengyang Ying, Hang Su, Jun Zhu, and Ze Cheng. A unified hard-constraint framework for solving geometrically complex pdes. Adv. Neural Inf. Process. Syst. , 35:20287–20299, 2022. [32] Ameya D Jagtap and George Em Karniadakis. Extended physics-informed neural networks (XPINNs): A generalized space-time domain decomposition based deep learning framework for nonlinear partial differential equations. Commun. Comput. Phys. , 28(5):2002–2041, 2020. [33] Xuhui Meng, Zhen Li, Dongkun Zhang, and George Em Karniadakis. PPINN: Parareal physics-informed neural network for time-dependent PDEs. Comput. Methods Appl. Mech. Eng. , 370:113250, 2020. [34] Seungchan Ko and Sanghyeon Park. VS-PINN: A fast and efficient training of physics-informed neural networks using variable-scaling methods for solving pdes with stiff behavior. J. Comput. Phys. , 529:113860, 2025. [35] Nasim Rahaman, Aristide Baratin, Devansh Arpit, Felix Draxler, Min Lin, Fred Hamprecht, Yoshua Bengio, and Aaron Courville. On the spectral bias of neural networks. In Int. Conf. Mach. Learn. , pages 5301–5310. PMLR, 2019. [36] Lu Lu, Raphael Pestourie, Wenjie Yao, Zhicheng Wang, Francesc Verdugo, and Steven G Johnson. Physics-informed neural networks with hard constraints for inverse design. SIAM J. Sci. Comput. , 43(6):B1105–B1132, 2021. [37] Jie Hou, Ying Li, and Shihui Ying. Enhancing PINNs for solving pdes via adaptive collocation point movement and adaptive loss weighting. Nonlinear Dyn. , 111(16):15233–15261, 2023. [38] Sifan Wang, Shyam Sankaran, and Paris Perdikaris. Respecting causality for training physics-informed neural networks. Comput. Methods Appl. Mech. Eng. , 421:116813, 2024. [39] Arieh Iserles. A First Course in the Numerical Analysis of Differential Equations . Number 44. Cambridge University Press, 2009. [40] Alex Kendall, Yarin Gal, and Roberto Cipolla. Multi-task learning using uncertainty to weigh losses for scene geometry and semantics. In Proc. IEEE Conf. Comput. Vis. Pattern Recognit. , pages 7482–7491, 2018. 24 MCL-PINNs [41] Nikhil Vyas, Depen Morwani, Rosie Zhao, Itai Shapira, David Brandfonbrener, Lucas Janson, and Sham M Kakade. SOAP: Improving and stabilizing Shampoo using Adam for language modeling. In 13th Int. Conf. Learn. Represent. , 2025. [42] Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In Proc. 3rd Int. Conf. Learn. Represent. (ICLR) , 2015. 25
