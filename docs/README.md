@@ -6,35 +6,28 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-24
-- 运行时间：2026-07-24 20:56:45 UTC
+- 最新运行日期：2026-07-25
+- 运行时间：2026-07-25 20:29:42 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：2
-- 速读区：3
+- 本次总论文数：2
+- 精读区：1
+- 速读区：1
 
 ### 今日简报（AI）
-今日精选5篇论文，重点聚焦神经PDE求解器（FlashPDE得8分）与物理信息神经网络训练动力学（Double screening得8分），同时速读关注LLM智能体知识蒸馏与轨迹评估。最值得深入的两篇精读：FlashPDE提供高效融合Triton算子库，可直接嵌入现有神经PDE求解器；Double screening揭示变分PINNs在异质耦合抛物系统中的双重筛选机制。建议普通读者优先精读FlashPDE以快速提升PDE求解性能，速读AgentBrew和Otap以了解智能体知识蒸馏与规划评估的前沿方法。
-- 详情：[/202607/24/README](/202607/24/README)
+今日精读高评分论文揭示吸引子几何决定系统发现的可辨识性极限，速读介绍多模态AI科学工作台SciForge。
+最值得关注的方向：吸引子几何与系统可辨识性的理论突破，以及AI驱动的科学发现工具整合。
+建议普通读者先理解吸引子几何如何影响系统辨识的边界，再试用SciForge类工具提升科研效率。
+- 详情：[/202607/25/README](/202607/25/README)
 
 ### 精读区论文标签
-1. [FlashPDE: A Drop-In Fused Triton Operator Library for Neural PDE Solvers](/202607/24/2607.18020v2-flashpde-a-drop-in-fused-triton-operator-library-for-neural-pde-solvers)  
+1. [Attractor Geometry Determines the Identifiability Limits of System Discovery](/202607/25/2607.18490v1-attractor-geometry-determines-the-identifiability-limits-of-system-discovery)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：提供用于神经PDE求解器的融合算子库，直接支持PINNs
-2. [Double screening in the training dynamics of variational physics-informed neural networks for heterogeneous coupled parabolic systems](/202607/24/2607.21352v1-double-screening-in-the-training-dynamics-of-variational-physics-informed-neural-networks-for-heterogeneous-coupled-parabolic-systems)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：变分物理信息神经网络的训练动力学分析
+   evidence：符号系统发现的可辨识性极限
 
 ### 速读区论文标签
-1. [AgentBrew: Lifelong Knowledge Brewing from Strong Teachers to Weak LLM Agents](/202607/24/2607.16851v1-agentbrew-lifelong-knowledge-brewing-from-strong-teachers-to-weak-llm-agents)  
+1. [SciForge: An AI-Native, Multimodal Workbench for Scientific Discovery](/202607/25/2607.16038v1-sciforge-an-ai-native-multimodal-workbench-for-scientific-discovery)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：面向智能体技能的知识酿造方法，无需权重更新，可应用于科学计算智能体
-2. [Otap:Structure-Aware Optimal Transport for Evaluating Planning and Execution in Agent Trajectories](/202607/24/2607.17082v1-otapstructure-aware-optimal-transport-for-evaluating-planning-and-execution-in-agent-trajectories)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：基于结构感知最优传输的智能体规划与执行评估方法
-3. [SciExplore: Evaluating Autonomous Agents from Scientific Navigation to Information Integration](/202607/24/2607.20926v1-sciexplore-evaluating-autonomous-agents-from-scientific-navigation-to-information-integration)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：评估智能体科学信息检索能力的基准
+   evidence：用于科学发现的AI原生工作台，提供智能体可访问的服务
 
 
 <div class="dpr-home-promo-card">
