@@ -1,0 +1,885 @@
+Title: Graph Neural Multilevel Preconditioners for Iterative Solvers
+
+URL Source: https://arxiv.org/pdf/2607.28456v1
+
+Published Time: Fri, 31 Jul 2026 01:18:57 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Graph Neural Multilevel Preconditioners for Iterative Solvers 
+
+# Zechen Zhang 
+
+University of Minnesota Minneapolis, MN, USA 
+
+zhan5260@umn.edu 
+
+# Rui Peng Li 
+
+CASA, Lawrence Livermore National Laboratory Livermore, CA, USA 
+
+li50@llnl.gov 
+
+# Yousef Saad 
+
+University of Minnesota Minneapolis, MN, USA 
+
+saad@umn.edu 
+
+## Abstract 
+
+Solving large, sparse linear systems is a core task in scientific com-puting, and efficient iterative solvers rely critically on effective and robust preconditioning. While classical methods such as algebraic multigrid (AMG) are highly scalable, their robustness can degrade on indefinite or nonsymmetric systems where heuristics originally developed for elliptic PDEs are less reliable. Recently, Graph Neural Networks (GNNs) have emerged as data-driven preconditioners; yet, the practical impact of imposing an AMG-style hierarchy re-mains underexplored for general sparse matrices. In this work, we propose a Graph Neural Multilevel Preconditioner (GMP) that adopts an AMG hierarchy as a structural prior and learns smooth-ing, restriction, and interpolation operators in a unified framework. Our method targets general sparse systems and is instantiated as a drop-in preconditioner for standard Krylov solvers. On a bench-mark of over 800 sparse matrices, we compare against classical AMG, single-level ILUT, and state-of-the-art GNN precondition-ers, and characterize the regimes where multilevel graph neural preconditioning improves convergence or, conversely, introduces overhead relative to strong single-level baselines. These results highlight both the promise and the limitations of enforcing AMG-style multilevel structure in learned preconditioners for large-scale scientific simulations. 
+
+## CCS Concepts 
+
+• Mathematics of computing → Numerical analysis ; Interpo-lation ; • Computing methodologies → Neural networks .
+
+## Keywords 
+
+Preconditioning; Graph Neural Networks; Multilevel Methods; Iter-ative Solvers 
+
+ACM Reference Format: 
+
+Zechen Zhang, Rui Peng Li, and Yousef Saad. 2026. Graph Neural Multi-level Preconditioners for Iterative Solvers. In Proceedings of the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining V.2 (KDD ’26), August 09–13, 2026, Jeju Island, Republic of Korea. ACM, New York, NY, USA, 12 pages. https://doi.org/10.1145/3770855.3818863  
+
+> ACM acknowledges that this contribution was authored or co-authored by an employee, contractor, or affiliate of the United States government. As such, the United States government retains a nonexclusive, royalty-free right to publish or reproduce this article, or to allow others to do so, for government purposes only. Request permissions from owner/author(s).
+> KDD ’26, Jeju Island, Republic of Korea
+> ©2026 Copyright held by the owner/author(s). ACM ISBN 979-8-4007-2259-2/2026/08
+> https://doi.org/10.1145/3770855.3818863
+
+## 1 Introduction 
+
+The computational cost of many scientific simulations is dominated by the performance of iterative solvers for sparse linear systems. To achieve fast convergence in complex applications, these solvers require sophisticated preconditioning tailored to the underlying matrix structure. A broad range of classical preconditioners has been developed, including incomplete factorizations [ 21 ], sparse ap-proximate inverses [ 8 ], and algebraic multigrid [ 20 ]. Yet, designing preconditioners that remain robust across general sparse matri-ces, especially ill-conditioned, nonsymmetric, or indefinite systems, remains challenging. Recent work has explored data-driven preconditioning strate-gies that learn an approximate inverse directly from the matrix graph. In particular, Chen [6] showed that single-level graph neural preconditioners based on graph convolution can be competitive in both stability and performance on ill-conditioned, nonsymmetric systems. Despite this promise, standard GCN-style architectures are fundamentally local: each layer aggregates information over one-hop neighborhoods, and enlarging the receptive field requires stacking many layers [ 12 ]. Deep message passing is known to suf-fer from optimization difficulties [ 7] and over-smoothing [ 13 , 19 ], where node embeddings become progressively indistinguishable and lose discriminative information. For sparse linear solvers, this locality can be especially limiting because the error components that stall Krylov iterations are often global (low-energy) modes that can be poorly eliminated by shallow, local operators [ 22 ]. Classi-cal multilevel methods address exactly this spectral separation by constructing a hierarchy of scales so that inexpensive relaxation reduces high-frequency (local) error, while coarse-grid correction targets low-frequency (global) components [ 24 ]. However, this suc-cess comes with a major caveat: multilevel preconditioners are in-trinsically coupled systems in which several operators—smoothers, grid transfer operators, and coarse solvers—must work coherently. In classical AMG, these operators are typically produced by hand-crafted rules that were developed primarily for elliptic PDEs. On sparse matrices that deviate from that regime, these heuristics can fail to produce effective methods, and the resulting preconditioner may stagnate or even destabilize Krylov iterations. Refining heuristic components in classical AMG has motivated the development of data-driven multilevel methods. Early work in this direction largely followed a component-replacement strategy: specific AMG components were learned (e.g., smoothers [ 10 ], in-terpolation sparsity patterns [ 25 ], or their weights [ 15 ]), while the overall Galerkin framework and V-cycle structure were retained. In these pipelines, coarse correction is typically still performed by a standard direct solve on the coarsest level; thus, learning primarily targets setup quality rather than replacing AMG end-to-end. Re-cently, multilevel learning has been explored in PDE settings, where arXiv:2607.28456v1 [math.NA] 30 Jul 2026 KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Zechen Zhang, Rui Peng Li, & Yousef Saad 
+
+hierarchy serves as an architectural prior for operator learning. For example, AMGNet [ 28 ] uses AMG-inspired coarsening to enable message passing across multiple mesh scales for flow-field predic-tion, and M2NO [ 14 ] leverages predefined multi-wavelet spaces within a multigrid-like design. A more recent work, ROBIN [ 27 ], combines an AMGNet-style hierarchy with diffusion-based refine-ment for physical simulations. However, these approaches typically assume access to geometric meshes and are trained with supervised solution data (or trajectory ground truth), distinguishing them from the matrix-only preconditioning setting targeted in this work. We summarize our contributions as follows: 
+
+• Residual-conditioned multilevel preconditioning for matrix-only problems. We integrate an AMG-generated hierarchy into a learnable, end-to-end pipeline that maps the current residual to a correction direction and is compatible with flexible Krylov solvers. 
+
+• Bipartite cross-attention for learned grid transfer be-yond SPD. Motivated by the local reconstruction view of BAMG [ 3], we parameterize interpolation and restriction on AMG-induced bipartite graphs using cross-attention, em-ploying distinct parameter sets for the two directions to support Petrov–Galerkin coarse operators. 
+
+• Large-scale evaluation on challenging non-SPD and nonsymmetric systems. We evaluate on 867 SuiteSparse [ 9]non-SPD matrices (up to 100K unknowns and 2M nonzeros) and compare against classical preconditioners and a strong single-level learned baseline, analyzing both convergence behavior and practical failure modes. 
+
+## 2 Background 2.1 Algebraic Multigrid Methods 
+
+Classical algebraic multigrid (AMG) achieves rapid convergence through two complementary components: (i) relaxation, which ef-ficiently attenuates error components that are oscillatory (“high energy”) with respect to 𝐴 , and (ii) coarse-grid correction, which removes the remaining algebraically smooth (“low energy”) error. For symmetric positive definite (SPD) operators, the algebraic ana-logue of geometric smoothness is often characterized by a small Rayleigh quotient (𝑒, 𝑒 )𝐴 /( 𝑒, 𝑒 ).The role of the coarse level is to represent the remaining low-energy components in a smaller subspace so they can be removed efficiently. Let 𝑃 ∈ R𝑛 ×𝑛 𝑐 denote the interpolation operator, whose range range (𝑃 ) defines the coarse space. A standard requirement is that algebraically smooth errors be accurately approximated in 
+
+range (𝑃 ), which is formalized through an approximation property of the form 
+
+min   
+
+> 𝑒 𝑐 ∈R𝑛𝑐
+
+∥𝑒 − 𝑃𝑒 𝑐 ∥2 
+
+> 𝑀
+
+≤ 𝐶 𝑃 (𝑒, 𝑒 )𝐴 , (1) where ∥·∥ 𝑀 denotes a relaxation norm associated with the smoother, and the constant 𝐶 𝑃 is mesh-independent. This inequality provides the two-grid link: the same quantity (𝑒, 𝑒 )𝐴 that tends to be small after relaxation controls how well the remaining error can be rep-resented on the coarse level. Given a restriction operator 𝑅 , the coarse-grid correction is obtained by enforcing the Petrov–Galerkin condition 𝑒 − 𝑃𝑒 𝑐 ⊥
+
+range (𝐴𝑅 ⊤), which leads to 𝑅𝐴𝑃𝑒 𝑐 = 𝑅𝐴𝑒 . The operator 𝐴 𝑐 = 𝑅𝐴𝑃 
+
+is referred to as the Petrov–Galerkin coarse-grid operator, and the corresponding coarse-grid correction operator is 
+
+𝐶 = 𝐼 − 𝑃 (𝑅𝐴𝑃 )−1𝑅𝐴. (2) Together with pre- and post-relaxation with matrix 𝑀 , the two-grid error propagation from one iteration to the next is given by 
+
+𝑒 ′ = (𝐼 − 𝑀 −⊤ 𝐴 )𝐶 (𝐼 − 𝑀 −1𝐴 )𝑒 ≡ 𝐸 𝑇𝐺 𝑒. (3) For an SPD matrix 𝐴 , a typical choice is 𝑅 = 𝑃 ⊤, in which case 𝐶 
+
+in Eq. (2) is an 𝐴 -orthogonal projector (equivalently, the energy-minimizing best-approximation update) onto the complement of 
+
+range (𝑃 ); consequently, the correction is energy non-increasing: 
+
+∥𝐶𝑒 ∥𝐴 ≤ ∥ 𝑒 ∥𝐴 .Equation (3) shows that two-grid performance is determined by the triple (𝑀, 𝑃, 𝑅 ). We next revisit how classical AMG con-structs 𝑃 so that range (𝑃 ) captures the smooth error remaining after relaxation. In practice, 𝑃 is constructed to be sparse by first selecting for each fine node 𝑖 a small coarse stencil 𝐶 𝑖 (typically guided by strength-of-connection heuristics [ 24 ]), and subsequently determining the interpolation weights on this fixed pattern. 
+
+2.1.1 Interpolation as Local Reconstruction. After partitioning the vertex set V into two disjoint sets: fine nodes V𝐹 and coarse nodes 
+
+V𝐶 , the interpolation operator 𝑃 specifies how a coarse-grid vector is reconstructed on the fine nodes. For any fine node 𝑖 ∈ V 𝐹 , the interpolated value (𝑃𝑣 )𝑖 is defined as a weighted linear combination of the values at its coarse neighbors: 
+
+(𝑃𝑣 )𝑖 =∑︁  
+
+> 𝑗 ∈𝐶 𝑖
+
+𝑤 𝑖 𝑗 𝑣 𝑗 , for 𝑖 ∈ V 𝐹 , (4) where 𝐶 𝑖 ⊆ V 𝐶 denotes the interpolatory set of 𝑖 , and 𝑤 𝑖 𝑗 are the interpolation weights. A central objective in computing 𝑤 𝑖 𝑗 
+
+is to ensure that the local reconstruction in Eq. (4) is accurate for algebraically smooth modes, i.e., vectors satisfying 𝐴𝑣 ≈ 0.BAMG achieves this objective by utilizing a set of (smoothed) test vectors {𝑣 (𝑚 ) }𝑞 𝑚 =1, to determine 𝑤 𝑖 𝑗 through a weighted least-squares (L-S) minimization, where 𝑟 (𝑚 ) = 𝐴𝑣 (𝑚 ) :
+
+min  
+
+> {𝑤 𝑖 𝑗 }
+> 𝑞
+
+∑︁ 
+
+> 𝑚 =1
+
+𝜔 𝑚 𝑣 (𝑚 ) 
+
+> 𝑖
+
+− 𝑟 (𝑚 )
+
+> 𝑖
+
+𝑎 𝑖𝑖 
+
+−∑︁  
+
+> 𝑗 ∈𝐶 𝑖
+
+𝑤 𝑖 𝑗 𝑣 (𝑚 )
+
+> 𝑗
+
+!2
+
+. (5) The term 𝑟 (𝑚 ) 
+
+> 𝑖
+
+/𝑎 𝑖𝑖 , introduced by the residual-based BAMG, cor-responds to implicitly enforcing the 𝑖 -th equation by one step of point-wise Jacobi relaxation. BAMG can further refine interpolation adaptively by improving the test vectors using the current hierarchy and recomputing the local L-S problems. In practice, however, computing 𝑃 via Eq. (5) presents several challenges. First, a well-posed local L-S problem requires that the local test vectors (restricted to 𝐶 𝑖 ) must form a basis for the |𝐶 𝑖 |-dimensional subspace, which in turn requires 𝑞 ≥ | 𝐶 𝑖 |.This condition can be difficult to satisfy when |𝐶 𝑖 | varies widely across fine points. Second, for nonsymmetric or indefinite systems, the local algebraically smooth space may not be well-represented by a small local stencil 𝐶 𝑖 , potentially leading to nearly rank-deficient or ill-conditioned L-S systems and unstable weights. Finally, the quality of interpolation depends strongly on the choice of 𝐶 𝑖 as well as the number and quality of the test vectors. Generating and adaptively updating these vectors can incur significant setup costs. Graph Neural Multilevel Preconditioners for Iterative Solvers KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+2.1.2 Nonsymmetric and Indefinite Operators. While constructing a stable interpolation operator 𝑃 is practically challenging even in the SPD setting, the difficulty is amplified for nonsymmetric and indefinite systems. These systems introduce a distinct left smooth space, so multilevel stability depends not only on 𝑃 but also on the construction of an appropriate restriction operator 𝑅 . In this regime, the clean SPD variational picture breaks down. Since the algebraically smooth components associated with 𝐴 (right modes) and with 𝐴 ⊤ (left modes) can differ substantially, the choice 𝑅 = 𝑃 ⊤
+
+is no longer well-motivated. The resulting coarse correction be-comes an oblique projection, which may be non-contractive in standard norms, making stability of multilevel correction a central challenge in nonsymmetric AMG [ 16 ]. Strong theoretical results on convergence of AMG methods for non-SPD matrices are difficult to establish. Two-grid convergence for aggregation-based nonsym-metric AMG formulated in the √𝐴 ⊤𝐴 -norm was introduced in [ 5]. An optimal AMG theory for non-SPD matrices where the columns of 𝑃 and 𝑅 are right and left generalized eigenvectors can be found in [ 1 ]. As a practical alternative to ideal restriction in the nonsym-metric setting, a local approximate ideal restriction strategy was proposed in ℓAIR [17]. These challenges motivate us to avoid explicitly enforcing 𝑅 =
+
+𝑃 ⊤ or relying on problem-specific heuristics for transfer operators. Instead, we parameterize restriction and interpolation with separate, learnable models and optimize them jointly through a residual-based objective, ensuring that multilevel correction remains stable beyond the SPD setting. To lay the foundation for our learned operators, we first review the message passing neural network (MPNN) architecture used throughout this work. 
+
+## 2.2 Message Passing Neural Networks (MPNNs) 
+
+For an input graph G = (V , E) , let h𝑘 𝑖 ∈ R𝑑 ℎ and 𝜺 𝑘 𝑖 𝑗 ∈ R𝑑 𝜀 denote the node and edge features at MPNN layer 𝑘 . The update rules for a single message-passing layer are defined as: 
+
+𝜺 𝑘 +1 
+
+> 𝑖 𝑗
+
+= 𝜙 𝜀 
+
+
+
+𝜺 𝑘 𝑖 𝑗 , h𝑘 𝑖 , h𝑘 𝑗 
+
+
+
+, (6) 
+
+𝑚 𝑘 +1 
+
+> 𝑖
+
+= 𝜌 
+
+ 𝜺 𝑘 +1 
+
+> 𝑖 𝑗
+
+: 𝑗 ∈ N ( 𝑖 )
+
+
+
+, (7) 
+
+h𝑘 +1 
+
+> 𝑖
+
+= 𝜙 𝑣 
+
+
+
+h𝑘 𝑖 , 𝑚 𝑘 +1
+
+> 𝑖
+
+
+
+, (8) where 𝜙 𝜀 and 𝜙 𝑣 are learnable multilayer perceptrons (MLPs) that update the edge and node features, respectively; 𝜌 is a permutation-invariant aggregator (e.g., sum, mean, or max); and N ( 𝑖 ) denotes the set of in-neighbors of node 𝑖 . Stacking 𝐾 such layers forms a depth-𝐾 MPNN at each hierarchy level. In the following sections, we denote this 𝐾 -layer update as 
+
+(h𝐾 , 𝜺 𝐾 ) = MPNN  h0, 𝜺 0; 𝐴 . (9) 
+
+## 3 Residual-Conditioned Multilevel Graph Neural Preconditioner 
+
+We now introduce the architecture of GMP, which mirrors classical AMG hierarchies. We define GMP as a learnable operator that maps an input resid-ual 𝑟 to a correction 𝑒 for the residual equation 𝐴𝑒 = 𝑟 :
+
+𝑒 = GMP 𝜃 (𝑟 ; 𝐴, H ( 𝐴 )) , (10) Level 0 (Fine)  
+
+> Pre-Smooth MPNN
+> r
+> Input
+> Post-Smooth MPNN e
+> Output
+
+# +
+
+> Restr.
+> Rθ
+> Interp.
+> Pθ
+> Coarse Solve MPNN
+> Level 1 (Coarse)
+
+Figure 1: Two-level GMP V-cycle with learned operators. Given the fine-level residual 𝑟 , a pre-smoothing MPNN gen-erates an initial fine-grid correction. The residual is then mapped to the coarse level via a learned restriction R𝜃 . A coarse-solve MPNN computes a coarse correction, which is interpolated back to the fine level via a learned interpolation 
+
+P𝜃 and added to the initial correction (skip connection). Fi-nally, a post-smoothing MPNN produces the final update 𝑒 .
+
+where H ( 𝐴 ) denotes a multilevel hierarchy that serves as a struc-tural prior. When used within an iterative solver, GMP acts as a nonlinear preconditioner, adaptively producing a correction direction 𝑒 based on the current system state 𝑟 . Fig. 1 illustrates a simplified two-level GMP architecture. In the remainder of this section, we provide a detailed description of each component. 
+
+## 3.1 Structural Prior 
+
+Given the input sparse matrix 𝐴 (0) ∈ R𝑛 0 ×𝑛 0 , we construct a mul-tilevel hierarchy that serves as the topological skeleton for our learned preconditioner. We utilize classical AMG routines to generate a sequence of progressively coarser operators H = {𝐴 (ℓ ) }𝐿 ℓ=0 and the associated grid transfer operators {𝑅 (ℓ ) , 𝑃 (ℓ ) }, where each coarse operator is defined via the Petrov–Galerkin condition 𝐴 (ℓ+1) = 𝑅 (ℓ ) 𝐴 (ℓ ) 𝑃 (ℓ ) .We leverage this hierarchy to define both the graph topology and the message-passing features. The sparsity patterns of 𝐴 (ℓ ) and the transfer operators determine the intra-level and inter-level connectivity, respectively. To account for the multilevel hierarchy and the multiple layers in MPNN, we employ a dual indexing notation (ℓ, 𝑘 ) in the following sections. The index ℓ denotes the AMG level, while 𝑘 ∈ { 0, . . . , 𝐾 }
+
+denotes the message-passing layer within level ℓ.
+
+## 3.2 Relaxation by Intra-Level Message Passing 
+
+At each hierarchy level ℓ, relaxation is performed on G𝐴 (ℓ ) , the graph induced by the sparsity pattern of the operator 𝐴 (ℓ ) . On 
+
+G𝐴 (ℓ ) , we treat the node feature h(ℓ,𝑘 ) and edge attributes 𝜺 (ℓ,𝑘 )
+
+as the evolving algebraic state, which is updated by the MPNN described in Section 2.2. The node features are initialized as follows: at the finest level, we set h(0,0) = 𝑟 (0) , the fine-level residual; at coarser levels ( ℓ >
+
+0), h(ℓ, 0) = 0, following the configuration in AMGNet [ 28 ]. Edge features are initialized from the operator entries, i.e., 𝜺 (ℓ, 0) 
+
+> 𝑖 𝑗
+
+= 𝑎 (ℓ ) 
+
+> 𝑖 𝑗
+
+.KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Zechen Zhang, Rui Peng Li, & Yousef Saad 
+
+The relaxation is performed by 𝐾 message-passing layers: 
+
+(h(ℓ,𝐾 ) , 𝜺 (ℓ,𝐾 ) ) = MPNN 
+
+
+
+h(ℓ, 0) , 𝜺 (ℓ, 0) ; 𝐴 (ℓ ) 
+
+, (11) where each layer follows the edge update, aggregation, and node update in Eqs. (6) – (8) , and the output h(ℓ,𝐾 ) is the relaxed latent state. This output serves as the input for the subsequent multilevel operator. We do not decode h(ℓ, 𝐾 ) into a scalar correction, but instead maintain it in the high-dimensional feature space. This design provides an alternative to an explicit residual update of the form 𝑟 ← 𝑟 − 𝐴 (ℓ ) 𝑒 . In classical relaxation schemes, such a subtraction arises because the residual is explicitly maintained as a separate vector throughout the iterations. In contrast, in our formulation, the iteration state is the node feature h itself, and the MPNN update has direct access to the local action of 𝐴 (ℓ ) on the current state through message passing. Since the edge features 𝜺 𝑖 𝑗 
+
+are initialized from matrix entries 𝑎 (ℓ ) 
+
+> 𝑖 𝑗
+
+, the aggregation in Eq. (7) can represent neighborhood summations analogous to sparse matrix-vector products. More specifically, the aggregated message at node 
+
+𝑖 can be written as 
+
+𝑚 (ℓ, 𝑘 +1) 
+
+> 𝑖
+
+=∑︁    
+
+> 𝑗 ∈ N ℓ(𝑖 )
+
+𝑎 (ℓ ) 
+
+> 𝑖 𝑗
+
+𝜙 𝜀 
+
+
+
+h(ℓ, 𝑘 )
+
+> 𝑗
+
+
+
+, (12) where 𝜙 𝜀 is a learnable map induced by the edge attribute update in Eq. (6) . The node update in Eq. (8) then combines h(ℓ,𝑘 ) 
+
+> 𝑖
+
+and the 
+
+𝐴 (ℓ ) -conditioned signal 𝑚 (ℓ,𝑘 +1) 
+
+> 𝑖
+
+to produce h(ℓ,𝑘 +1) 
+
+> 𝑖
+
+. In this way, residual-style corrections can be implemented implicitly within the feature update. Consequently, the operation “ 𝑟 −𝐴 (ℓ ) (·) ” is absorbed into the node update map 𝜙 𝑣 , rather than being performed as a separate sparse matrix-vector product followed by a subtraction. 
+
+## 3.3 Grid Transfer via Bipartite Cross-Attention 
+
+In this section, we discuss the construction of the learnable grid transfer operators: the interpolation operator P𝜃 : V𝐶 → V 𝐹 and the restriction operator R𝜃 : V𝐹 → V 𝐶 . We further establish the connection between the BAMG scheme introduced in Sec. 2.1.1 and graph attention mechanism on bipartite graphs. 
+
+3.3.1 Graph Cross-Attention as Dynamic Interpolation. Interpret-ing AMG interpolation as a form of neighborhood aggregation suggests that the weights encode the relative importance of neigh-boring coarse nodes when reconstructing smooth modes at fine points. While BAMG computes these weights through explicit lo-cal L-S solves, the underlying objective, i.e., accurate local recon-struction of smooth error using neighboring information, can be expressed more generally. Graph attention mechanisms [ 23 , 26 ] of-fer a flexible framework for parameterizing such local aggregation rules. In our framework, we interpret the attention mechanism not merely as feature aggregation, but as a learnable, dynamic solver 
+
+for the interpolation weights. To formalize this, let GB 
+
+> 𝑃
+
+= (V , E) denote the graph induced by the sparsity pattern of the interpolation operator 𝑃 ∈ R𝑛 ×𝑛 𝑐 .In this context, the graph is naturally bipartite , partitioning the vertex set V into two disjoint sets: V𝐶 (coarse nodes) and V𝐹 (fine nodes). The edge set E is restricted to pairs (𝑖, 𝑗 ) where 𝑖 ∈ V 𝐹 
+
+and 𝑗 ∈ V 𝐶 , such that the neighborhood N ( 𝑖 ) of a fine node 𝑖 
+
+corresponds exactly to its immediate interpolatory set 𝐶 𝑖 .k1
+
+> Kk1
+> Vk1
+
+# ...   
+
+> kp
+> Kkp Vkp
+> VCi1Qi1
+> i2Qi2
+
+# ...  
+
+> im Qim
+> in Qin
+> VF
+> α1,1
+> α2,1
+> αm,p
+> αn, 1
+> αn,p
+
+Figure 2: Interpolation via Coarse-to-Fine Attention. Active nodes (solid) illustrate the aggregation process for a fine query node 𝑖 , gathering information from its coarse neighbor. 
+
+To ensure end-to-end training across all hierarchy components, we use the output of the intra-level message passing at level ℓ to initialize the ℓ → ℓ − 1 bipartite attention operator P𝜃 . Specifically, we set the node and edge features as follows: 
+
+h(ℓ −1, 0) 
+
+> 𝑖
+
+= h(ℓ,𝐾 ) 
+
+> 𝑖
+
+, 𝑖 ∈ V 𝐶 (13) 
+
+h(ℓ −1, 0) 
+
+> 𝑖
+
+= (𝑃 (ℓ −1) h(ℓ,𝐾 ) )𝑖 , 𝑖 ∈ V 𝐹 (14) 
+
+𝜺 (ℓ −1, 𝐾 ) 
+
+> 𝑖 𝑗
+
+= 𝑃 (ℓ −1) 
+
+> 𝑖 𝑗
+
+, (15) where h(ℓ,𝐾 ) 
+
+> 𝑖
+
+is the output of the relaxation MPNN in Eq. (11) , 𝑃 (ℓ −1)
+
+is the interpolation operator generated by the classical AMG algo-rithm described in Sec. 3.1, and the edge features are initialized by the entries in 𝑃 . For the remainder of this subsection, we omit the level superscripts on h and 𝜺 to simplify notation. These embeddings, having aggregated local information via the operator 𝐴 (ℓ ) , effectively serve as learned surrogates for the al-gebraically smooth error modes. We denote by 𝑊 self ,𝑊 val ,𝑊 edge 
+
+the neural weight matrices used to transform the fine node’s own features, project the features of its neighboring coarse nodes, and encode edge attributes, respectively. A bipartite graph attention layer models the interpolation operator 𝑃 by updating the fine node features h𝑖 via an aggregation of coarse-grid corrections h𝑗 :
+
+h𝑖 = 𝑊 self h𝑖 +∑︁  
+
+> 𝑗 ∈𝐶 𝑖
+
+𝛼 𝑖 𝑗 
+
+ 𝑊 val h𝑗 + 𝑊 edge 𝜺 𝑖 𝑗 
+
+, for 𝑖 ∈ V 𝐹 . (16) Comparing Eq. (16) with classical interpolation in Eq. (4) , the attention coefficients 𝛼 𝑖 𝑗 play precisely the role of the interpola-tion weights 𝑤 𝑖 𝑗 . However, graph attention predicts these weights dynamically using a parameterized scoring function. Specifically, we employ a dot-product attention mechanism sim-ilar to graph transformers [ 23 ], where the roles of Query, Key, and Value are strictly partitioned according to the grid hierarchy, as illustrated in Fig. 2: 
+
+• Queries ( q𝑖 ): Derived from the target fine nodes (𝑖 ∈ V 𝐹 ), representing the local error state requiring correction. 
+
+• Keys ( k𝑖 𝑗 ) and Values ( v𝑖 𝑗 ): Derived from the source coarse nodes (𝑗 ∈ V 𝐶 ) and the connecting edges, providing the coarse-grid information. Graph Neural Multilevel Preconditioners for Iterative Solvers KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+We employ the projection matrices 𝑊 𝑄 ,𝑊 𝐾 ∈ R𝑑 ×𝑑 and 𝑊 𝐸 ∈ R𝑑 ×𝑑 𝜀 
+
+to map these features into the attention space, and compute the attention score as: 
+
+𝛼 𝑖 𝑗 = softmax 𝑗 ∈𝐶 𝑖 
+
+ (𝑊 𝑄 h𝑖 )⊤ (𝑊 𝐾 h𝑗 + 𝑊 𝐸 𝜺 𝑖 𝑗 )√𝑑 
+
+
+
+. (17) In this formulation, the attention score measures the compatibility between the fine-grid error mode (Query) and coarse-grid infor-mation (Key), determining an adaptive interpolation weight 𝛼 𝑖 𝑗 
+
+that updates the edge attribute 𝜺 𝑖 𝑗 . The weights derived from the attention mechanism inherently guarantee that the resulting inter-polation operator is stable in the ℓ∞-norm and preserves constant vectors; see Appendix A.1 for details. 
+
+3.3.2 Graph Cross-Attention as Restriction. The restriction opera-tor R𝜃 , which maps from the fine grid to the coarse grid, is realized by reversing the direction of the bipartite graph attention mech-anism. In this setting, the roles are inverted when computing the node feature update: the coarse nodes V𝐶 act as Queries, while the fine nodes V𝐹 serve as Keys and Values. By employing a distinct set of learnable parameters for this reverse direction, this formulation becomes compatible with non-symmetric Petrov–Galerkin coarse-grid operators constructed via 
+
+𝐴 𝑐 = R𝜃 𝐴 P𝜃 where R𝜃 ≠ P⊤ 
+
+> 𝜃
+
+. This added flexibility is particularly crucial for nonsymmetric systems, allowing the model to learn restriction weights that are specifically optimized for aggregating residuals, distinct from the interpolation weights used for correct-ing errors. 
+
+3.3.3 Connections between BAMG and Graph Cross-Attention. We conclude by examining the structural correspondence between AMG and our proposed learnable transfer operator. In BAMG, the “data” used to determine interpolation weights are the smooth test vectors 𝑣 (𝑚 ) , and the weights are derived by solving local L-S prob-lems. The graph attention framework mirrors this logic but gen-eralizes the representation: the learned node embeddings h𝑖 serve as high-dimensional surrogates for the algebraically smooth error modes. Generated through stacked message-passing layers, these embeddings aggregate features from an expanded receptive field, capturing structural dependencies from multi-hop neighborhoods rather than relying solely on direct adjacencies. From this perspec-tive, the dot product (𝑊 𝑄 h𝑖 )⊤ (𝑊 𝐾 h𝑗 ) in Eq. (17) serves as a learned measure of alignment between nodes 𝑖 and 𝑗 , analogous to the cor-relation terms ( 𝑣 (𝑚 ) 
+
+> 𝑖
+
+, 𝑣 (𝑚 ) 
+
+> 𝑗
+
+) that appear in the normal equations of the local L-S systems of BAMG. By replacing the explicit solution of these L-S systems with a differentiable attention mechanism, the proposed approach enables the adaptive generation of inter-polation weights. This potentially improves robustness in regimes where the local L-S problems become ill-conditioned, such as for nonsymmetric or indefinite matrices. 
+
+## 3.4 Coarse-Level Correction by Message Passing 
+
+We next describe a simplified two-level architecture by specifying the node feature updates at every stage and discussing the coarse solve. A multilevel architecture and the training scheme can be extended naturally by applying the two-level approach recursively. Let h(0,𝐾 ) 
+
+> pre
+
+denote the output of the pre-smoothing MPNN applied to the fine-level graph associated with 𝐴 (0) ; see Eq. (11) . The coarse-level node features are initialized by restricting the fine-level latent state using the learned restriction operator: 
+
+h(1,0) 
+
+> 𝑐
+
+= R𝜃 
+
+
+
+h(0,𝐾 )
+
+> pre
+
+
+
+, (18) where R𝜃 is parameterized via the bipartite cross-attention mech-anism described in Section 3.3. For the coarse-solve MPNN, the coarse-level edge features are initialized from the entries of the coarse-grid operator: 
+
+𝜺 (1,0) 
+
+> 𝑖 𝑗
+
+= 𝑎 (1) 
+
+> 𝑖 𝑗
+
+, (𝑖, 𝑗 ) ∈ E (1) , (19) where 𝑎 (1) 
+
+> 𝑖 𝑗
+
+is an entry of the coarse-grid operator 𝐴 (1) , the structural prior constructed following Sec. 3.1. On the graph induced by the structure of the coarse-grid operator 
+
+𝐴 (1) , we apply a dedicated coarse-solve MPNN with a parameter set distinct from that used in the fine-level smoother MPNNs: 
+
+ h(1,𝐾 ) 
+
+> 𝑐
+
+, 𝜺 (1,𝐾 )
+
+> 𝑐
+
+ = MPNN 𝑐 
+
+
+
+h(1,0) 
+
+> 𝑐
+
+, 𝜺 (1,0) ; 𝐴 (1) 
+
+. (20) The resulting coarse-level correction is interpolated back to the fine level using the learned operator P𝜃 and combined additively with the pre-smoothed fine-level state: 
+
+h′ = h(0,𝐾 ) 
+
+> pre
+
++ P 𝜃 
+
+
+
+h(1,𝐾 )
+
+> 𝑐
+
+
+
+. (21) The post-smoothing MPNN takes h′ as its input state on the fine level and produces the final correction 𝑒 ; see Fig. 1. 
+
+## 4 Experiments 
+
+We evaluate the proposed GMP as a drop-in preconditioner for Krylov subspace methods on sparse linear systems arising from a variety of applications. Our experiments are designed to address the following questions: 
+
+Q1 : Is a multilevel architecture beneficial for machine-learning-based preconditioning? 
+
+Q2 : GNN-based preconditioners are known for their robustness [ 6]; does introducing a multilevel structure compromise this property? 
+
+Q3 : How do learned preconditioners compare with classical meth-ods in terms of both convergence and timing behavior? 
+
+Q4 : How does GMP perform in challenging cases where classical AMG methods struggle to provide effective preconditioners? 
+
+## 4.1 Experiment settings 
+
+4.1.1 Baseline Setup. To evaluate our method across diverse appli-cations, we select 867 square, real-valued, and non-SPD matrices in the size range of 1K to 100 K with fewer than 2M nonzeros from the SuiteSparse Matrix Collection [ 9]. The chosen problems span over 50 application areas, including PDEs, economics, and graph problems. 1
+
+Baseline Methods. We compare against the single-level graph neu-ral preconditioner (GNP) [ 6], as well as the classical preconditioners, Jacobi, ILUT [ 21 ], and AMG. The ILUT preconditioner is provided by 
+
+scipy.sparse.linalg.spilu using default parameters. The AMG method is obtained from PyAMG [ 2], specifically using the pyamg. blackbox.solver() routine. The configuration of the blackbox   
+
+> 1Code available at https://github.com/zzechenzhang/GMP .KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Zechen Zhang, Rui Peng Li, & Yousef Saad
+
+solver is computed via pyamg.blackbox.solver_configuration .We also experimented with the Approximate Ideal Restriction (AIR) method [ 17 ] ( pyamg.classical.air_solver ) but found it to be less robust than blackbox (consistent with the findings of Chen [6] ). Therefore, we adopt the blackbox solver for the primary com-parisons, while retaining AIR as a baseline for the case study in Section 4.4 and in the supplementary results in Appendix A.2. The GNP model is trained according to the exact hyperparameter con-figuration specified by Chen [6]. We pre-scale each test matrix 𝐴 using an upper bound on its spectral radius derived from the Gershgorin estimate: 
+
+ˆ𝐴 = 𝐴 /𝛾 where 𝛾 = min 
+
+(
+
+max 
+
+> 𝑖
+
+(∑︁ 
+
+> 𝑗
+
+|𝑎 𝑖 𝑗 |
+
+)
+
+, max 
+
+> 𝑗
+
+(∑︁ 
+
+> 𝑖
+
+|𝑎 𝑖 𝑗 |
+
+)) 
+
+.
+
+We then apply the parameter-free scaling 𝑠 (·) = √𝑛 /∥ 𝑏 ∥2, and scale back by 𝑠 −1 to ensure the model remains scale-equivariant. All the preconditioners are used with the flexible GMRES (FGM-RES) method. For all linear systems, the exact solution is assumed to be 𝑥 ∗ = 1, and the initial guess is set to 𝑥 0 = 0. The stopping criteria for FGMRES are a reduction of the relative residual norm to 
+
+rtol = 10 −8 or reaching a maximum number of iterations imax =100 .
+
+Compute Environment. All code is implemented in Python with PyTorch and PyTorch-Geometric. All experiments are conducted on a machine equipped with a single NVIDIA Tesla A100 GPU with 40GB of memory. 
+
+4.1.2 GMP configurations. To support evaluation across more than 800 matrices, we adopt the following practical design choices. 
+
+(1) Node-only message passing (i.e., no edge feature updates). 
+
+We omit all edge update steps in the MPNN formulation (Eq. (6) )and train the pipeline end-to-end using only node features. This choice is due to computational considerations: applying an MLP to every edge can be a dominant cost when a matrix contains up to 
+
+∼ 2M nonzeros, making the large-scale evaluation impractical. 
+
+(2) AMG initialization with robustness checks. We generate the initial AMG hierarchy using PyAMG by applying the sequence of: classical_strength_of_connection → pyamg.classical. split.RS (the Ruge–Stüben coarsening algorithm) → pyamg.class ical.interpolate.classical_interpolation . The resulting in-terpolation operator 𝑃 is used to initialize the node features asso-ciated with the learned operators P𝜃 as discussed in Sec. 3.3. To ensure numerical stability, we check for invalid entries; if detected, they are replaced with random values, and each row is renormalized to sum to one. We initialize the learning-based restriction operator 
+
+R𝜃 with 𝑅 = 𝑃 ⊤, and allow the bipartite cross-attention module to learn distinct restriction and interpolation operators R𝜃 and P𝜃 .
+
+(3) Training protocol. For each training instance, we sample a target solution 𝑥 and form the corresponding right-hand side 𝑏 =
+
+𝐴𝑥 . The GMP model is trained to output a correction 𝑒 = GMP 𝜃 (𝑏 ),where at training time the input is the right-hand side 𝑏 in place of the inference-time Krylov residual 𝑟 . We then minimize the ℓ1-norm of the residual 
+
+L( 𝜃 ) = ∥𝐴𝑒 − 𝐴𝑥 ∥1 = ∥𝐴𝑒 − 𝑏 ∥1, (22) which is a commonly used robust regression objective. The target solutions 𝑥 are drawn from a mixture of the standard normal dis-tribution N ( 0, I𝑛 ) and the distribution N ( 0, Σx 
+
+> 𝑚
+
+), where the latter uses the Arnoldi process to capture the important eigen-subspace of 𝐴 corresponding to the smallest eigenvalues. We optimize with Adam [11] for 2000 epochs using a learning rate of 10 −3.
+
+(4) GMP levels for training and testing. We focus primarily on two-level GMP in the experimental section and demonstrate its extension to the multilevel setting on a subset of matrices; see Section 4.3.1 for details. There are two main reasons for emphasizing the two-level GMP. First, classical AMG employs multiple levels to avoid solving a large system at the coarsest grid. On the other hand, GMP replaces the coarse-grid solve with a (multilayer) ResGCN, which significantly reduces the need for additional coarsening levels and makes a two-level hierarchy effective in practice. Second, for the non-SPD problems considered, the standard convergence theory of AMG does not apply, and increasing levels can even degrade convergence. The optimal hierarchy is highly problem-dependent, making it challenging to tune across 867 matrices in our test suite. 
+
+(5) GMP hyperparameters. We do not tune hyperparameters. The 867 matrices constitute a collection of general sparse linear systems that cannot be assumed to share a common distribution. Consequently, one cannot assume a shared structure that a single model can exploit. We therefore adopt a per-matrix training protocol rather than learning a shared model. Since tuning hyperparameters separately for each matrix is computationally prohibitive, we in-stead use a fixed configuration across the entire dataset. When such a distributional assumption does hold—e.g., when matrices arise from the same PDE family with varying parameters—cross-matrix training becomes not only feasible but beneficial. In such settings, the learned operators generalize to unseen problems and even un-seen grid resolutions. We demonstrate this regime on a controlled Poisson/anisotropic-diffusion benchmark in Appendix A.4. For the MPNNs in both the smoother and coarse-grid solve mod-ules, we use the same ResGCN backbone as in GNP [ 6], stacking 8 layers with input/output dimension 16. We use 2-layer MLPs with hidden dimension 32 for feature lifting and projection. We do not include a post-smoothing stage. For the bipartite cross-attention module, we use 4 attention heads with hidden dimension 32. We do not apply dropout in any layer. 
+
+## 4.2 Metrics 
+
+We evaluate the performance of preconditioners along two axes: 
+
+robustness and convergence .
+
+Robustness. We report a failure rate accounting for two disjoint failure modes. Construction failures occur when the preconditioner cannot be built, e.g., due to numerical breakdown. Solution failures 
+
+occur when the Krylov iteration becomes unreliable, as indicated by a significant inconsistency between internally monitored residual norms and explicitly computed residual norms. 
+
+Convergence. Restricted to successful runs, we quantify conver-gence using two complementary metrics. 
+
+(1) Iter-AUC. Following prior work [ 6 ], we report the area under the relative residual curve (on a logarithmic scale) with respect to iteration count: 
+
+Iter -AUC =
+
+> iters
+
+∑︁ 
+
+> 𝑖 =0
+
+
+
+log 10 𝑟 𝑘 − log 10 (rtol )
+
+
+
+, 𝑟 𝑘 = ∥𝑏 − 𝐴𝑥 𝑘 ∥2
+
+∥𝑏 ∥2
+
+,
+
+(23) Graph Neural Multilevel Preconditioners for Iterative Solvers KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Table 1: Head-to-head win rates (%) of GMP vs. GNP under different convergence metrics. 
+
+Iter-AUC 10 −2 10 −3 10 −4 10 −5
+
+GNP wins 37.9% 21.0% 23.8% 19.7% 17.2% Tie — 30.8% 22.8% 19.7% 19.3% GMP wins 62.1% 48.1% 53.4% 60.7% 63.5% where iters denotes the number of iterations actually executed when FGMRES terminates (capped by the iteration budget). Iter-AUC summarizes the entire convergence trajectory and remains informative for difficult cases that make substantial progress but do not reach rtol within the iteration budget. 
+
+(2) Iteration count to tolerance. Because Iter-AUC is an aggregate trajectory-level metric, we additionally report the smallest number of iterations that reaches the target tolerance: 
+
+𝑘 ★ = min {𝑘 : ∥𝑟 𝑘 ∥2 < rtol and 𝑘 < imax } . (24) Iter-AUC captures global convergence behavior , but it does not explicitly distinguish between (i) whether the solver reaches the prescribed tolerance and (ii) how quickly it does so. In particular, distinct convergence profiles can achieve similar Iter-AUC values; for example, a method that rapidly reduces the residual but plateaus above rtol may have a comparable Iter-AUC to one that converges more slowly but successfully. For this reason, we report failure rate to assess robustness, use 𝑘 ★ to quantify efficiency on successful solves, and employ Iter-AUC as a stable trajectory-level summary for both solved and near-solved cases. 
+
+## 4.3 Main results 
+
+We now address the questions posed at the beginning of this section. 
+
+4.3.1 Multilevel vs. Single-level. We begin with a comparison be-tween the proposed GMP preconditioner, evaluated in its two-level configuration, and the single-level graph neural preconditioner (GNP) [ 6 ]. Table 1 reports a head-to-head win-rate comparison on the subset of matrices where both methods converge, so that the results isolate the convergence behavior rather than the robustness. GMP achieves a lower Iter-AUC on 62 .1% of the matrices, indicat-ing stronger trajectory-level residual reduction on average. More-over, GMP increasingly dominates as the convergence tolerance becomes stricter: the win rate increases from 48 .1% at rtol = 10 −2
+
+to 63 .5% at rtol = 10 −5, whereas GNP achieves a win rate of 21 .0% 2
+
+and 17 .2% , respectively. These results suggest that incorporating a coarse-grid correction yields consistent advantages beyond single-level message passing, particularly when high-accuracy solutions are required. The comparison above fixes GMP to two levels. We now ask whether deeper hierarchies can help. Selecting the best number of levels requires a separate training for each matrix, which is prohib-itively expensive for all the 867 matrices; we therefore conduct this multilevel study on the first 100 non-SPD SuiteSparse matrices (in alphabetical order from the dataset), training GMP with 2 to 5 levels. 
+
+> 2Note: The percentage in Table 1 and Table 5 may not sum to 100% due to rounding.
+
+Table 2: Win rate of GMP vs GNP by final residual norm (2-level only vs. best level across 2–5 levels).              
+
+> Tests 2-level GMP best levels ( ≥2)
+> All matrices 65.6% 72.0% Matrices that AMG reaches 10 −270.5% 77.3% Matrices that AMG reaches 10 −474.1% 77.8% Matrices that AMG reaches 10 −576.0% 80.0%
+
+For each matrix, we select the best number of levels according to the final residual norm. The results are in Table 2. For context, pyamg.blackbox (the reference traditional AMG solver) uses an average of only 2.6 levels on these 100 matrices (53% use 2, 35% use 3, 11% use 4, 1% use 5), and 2.7 levels on all 867 non-SPD matrices—classical AMG itself rarely finds deep hierarchies beneficial on non-SPD problems. The best GMP level distribution follows the same trend: 2-level is optimal on 71%, 3-level on 12%, 4-level on 9%, and 5-level on 9%, with an average best depth of 2.5—closely matching AMG’s average. We use AMG convergence as a proxy for hierarchy quality: when AMG converges to a tight tolerance, the underlying hierarchy is reliable, and GMP can effectively exploit it at deeper levels. We draw two conclusions from the results in Table 2: (1) Multilevel improves over 2-level. Tuning for the best number of levels consistently provides ∼4% –7% improvement in win rate over the 2-level approach (e.g., 65 .6% → 72 .0% for all the matrices). (2) Better hierarchy quality improves GMP. Comparing the rows of Table 2, GMP’s win rate increases as the evaluation is restricted to matrices on which AMG can converge to progressively tighter tolerances: from 72.0% on all matrices to 80.0% on those where AMG reaches a residual tolerance 10 −5. This trend suggests that the primary limitation of deeper GMP on non-SPD matrices is the quality of the underlying multigrid hierarchy rather than instability in the learned components. When the hierarchy itself is ineffective, adding more levels cannot compensate for the deficiency and may in fact degrade performance due to the increased instability of the hierarchy. 
+
+4.3.2 Robustness. We summarize the failure rates in Table 3. While GMP and AMG exhibit comparable overall failure rates ( ≈6–7%), their failure mechanisms differ fundamentally. AMG failures are primarily numerical, errors indicating the presence of invalid val-ues (e.g., infs or NaNs), despite the safeguards implemented in 
+
+pyamg.blackbox to handle zero or near-zero diagonal entries. In contrast, all GMP construction failures (6.2%) are attributed exclu-sively to out-of-memory (OOM) constraints rather than algorithmic instability. We perform a detailed breakdown for the OOM occur-rence in Appendix A.3. Turning to algorithmic stability, this distinc-tion is further highlighted by ILUT, which fails on approximately 40% of the test problems due to numerical singularities. Finally, GNP exhibits the highest stability with no construction failures and only a single solution failure. 
+
+4.3.3 Timing. We provide a full timing breakdown on the 867 non-SPD matrices in Tab. 4. The reported timing reflects a single fixed hyperparameter configuration (i.e., 𝐵 =16 , 𝐻 =4, 𝑑 =32 , 𝐿 =3,training for 2000 epochs) applied uniformly across all matrices. KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Zechen Zhang, Rui Peng Li, & Yousef Saad 
+
+Table 3: Failures of preconditioners (count and percentage).               
+
+> GMP GNP ILUT AMG Jacobi
+> Construction failure 54 (6.2%) 0 (0.00%) 348 (40.14%) 62 (7.15%) N/A Solution failure 2 (0.23%) 1 (0.12%) 61 (7.04%) 5 (0.58%) 53 (6.11%)
+
+Table 4: Wall-clock timing breakdown on the 867 non-SPD matrices. Setup: ILUT factorization, AMG hierarchy construction, or GNP/GMP training. Solve: GMRES solve phase (all iterations). 
+
+Method Setup Med. (s) Setup Avg. (s) Solve Med. (s) Solve Avg. (s) No Precond — — 0.54 0.54 ILUT 0.04 93.79 0.26 11.26 AMG 0.18 103.22 1.31 50.87 GNP 37.18 55.25 2.20 2.20 GMP 135.77 210.90 8.08 9.17 This configuration is not tuned per matrix and may be larger than necessary for some problems; for a specific application, a smaller model or batch size may suffice and can reduce both training and per-iteration costs. As an illustration, we report a single-matrix memory–accuracy–runtime trade-off study in Appendix A.5. 
+
+4.3.4 Convergence Efficiency. Table 5 reports three-way win rates on the matrices where all methods produce valid runs. Iter-AUC measures trajectory-level progress, while the columns labeled 10 −2 – 10 −5 measure the convergence speed 𝑘 ★.
+
+GMP vs. GNP. Across all three comparison groups (Jacobi, ILUT, and AMG), GMP consistently achieves higher win rates than GNP under both Iter-AUC and strict tolerance metrics. Notably, in the AMG comparison group, GMP outperforms GNP on a substantial fraction of matrices (e.g., 27 .2% at rtol = 10 −5), whereas GNP wins only 
+
+3.7% under the same criterion. This gap indicates that a multilevel coarse-grid correction enables convergence improvements that are rarely attained by the single-level GNP baseline. 
+
+Against classical baselines. Table 5 should be interpreted as follows: the win rates are computed only on matrices where all compared methods yield valid runs, and therefore reflect convergence effi-ciency conditional on success . Under this conditioning, (i) Jacobi is consistently dominated by GMP (e.g., 55 .4% Iter-AUC wins and 
+
+71 .4% wins at rtol = 10 −5), highlighting the substantial gains that learned preconditioning provides over simple relaxation schemes. (ii) ILUT overwhelmingly outperforms on the subset where it suc-ceeds, which is expected when the factorization is numerically sta-ble; however, as shown in Table 3, ILUT frequently fails to construct. Thus, its strong performance applies only in the conditional regime where it is numerically feasible. (iii) AMG remains a strong general-purpose baseline, yet GMP is competitive, achieving a 22% –32% win share across metrics and 27 .2% wins at rtol = 10 −5. This indicates that learned multilevel correction can accelerate convergence on a substantial subset of systems where the classical AMG method is less effective. 
+
+## 4.4 Case Study on Challenging Matrices 
+
+In this section, we analyze representative scenarios where GMP outperforms classical AMG to identify problem domains in which 
+
+Table 5: Three-way win rate (%) among valid runs. The num-bers are the percentage of matrices on which the method attains the best score (ties broken uniformly). 
+
+Method Iter-AUC 10 −2 10 −3 10 −4 10 −5
+
+vs Jacobi Jacobi 10.6% 11.3% 11.4% 17.9% 23.4% GNP 34.0% 12.6% 12.5% 8.4% 5.2% GMP 55.4% 76.2% 76.1% 73.7% 71.4% 
+
+vs ILUT ILUT 77.3% 95.3% 95.3% 97.7% 97.3% 
+
+GNP 8.6% 0.8% 1.4% 0.6% 0.7% GMP 14.1% 3.9% 3.3% 1.7% 2.0% vs AMG AMG 46.1% 69.5% 73.6% 71.1% 69.1% 
+
+GNP 21.6% 6.0% 4.0% 5.2% 3.7% GMP 32.3% 24.6% 22.4% 23.7% 27.2% learning-based preconditioning offers a distinct advantage. Among these instances, we identify 28 different categories, the most preva-lent of which arise from circuit simulation, optimization problems, and computational fluid dynamics (CFD). These matrices exhibit ex-treme numerical variability, with condition numbers ranging from 
+
+2.71 to 1.05 × 10 65 , and matrix norms spanning from 2.44 × 10 −10 
+
+to 1.00 × 10 20 .Notably, in 8.9% of these cases, GMP achieves a strong win , de-fined as successfully converging to a tolerance of 10 −6 while the clas-sical AMG method stagnates at an early stage. To further investigate this regime, we selected eight representative matrices for detailed analysis. For the experiments with these matrices, we additionally include the AIR method obtained from pyamg.classical.air_ solver as a baseline, since it is a specialized nonsymmetric AMG method. As shown in Fig. 3, FGMRES preconditioned with classical AMG and AIR fail to achieve substantial residual reduction, per-forming no better than non-preconditioned FGMRES. Conversely, the GMP preconditioner yields significantly faster convergence and attains a remarkably greater reduction in the residual norm. This behavior indicates that the learning-based multilevel approach can be more effective than classical AMG in the nonsymmetric regime. Graph Neural Multilevel Preconditioners for Iterative Solvers KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Figure 3: Convergence trajectories on representative challenging nonsymmetric systems. Log 10 relative residual versus FGMRES iteration. We compare no preconditioner, AMG, AIR, and the proposed GMP. 
+
+In such problems, fundamental assumptions underlying classical AMG are often violated. In contrast, GMP does not rely on fixed algebraic heuristics; instead, it learns directly from data, allowing it to adapt to highly nonsymmetric cases. Moreover, the multilevel structure of GMP combines local message-passing-based relaxation with learned coarse-grid correction, enabling it to capture global error components that are poorly represented by classical AMG heuristics. Together, these factors help explain why GMP is able to achieve robust residual reduction in cases where both classical AMG and AIR struggle. For a balanced comparison, we also include in Appendix A.6 several examples in which AMG and AIR outperform GMP. 
+
+## 5 Conclusion 
+
+In this work, we present Graph Neural Multilevel Preconditioner 
+
+(GMP), a residual-conditioned learned preconditioner that lifts classical AMG into a data-driven setting by (i) reusing an AMG-generated hierarchy as a structural prior and (ii) learning multilevel operators end-to-end. A key ingredient is parameterizing restric-tion and interpolation with bipartite cross-attention and allowing 
+
+separate parameterizations for the two transfer directions, enabling Petrov–Galerkin-style coarse operators and making the framework naturally applicable to non-SPD and nonsymmetric systems. 
+
+Future work. Our current implementation incurs, on average, approximately 4× higher per-application cost than the single-level GNP due to multilevel traversal and bipartite attention. Exploring 
+
+cross-matrix generalization for graph-neural preconditioners on gen-eral sparse systems is therefore a particularly meaningful direction: if a single model could generalize across matrices (or across matrix families), the training cost would be amortized over many systems rather than paid per matrix, turning learned preconditioning from a per-instance procedure into a reusable component. 
+
+## 6 Limitations and Ethical Considerations 
+
+This work studies learned preconditioners and evaluates them on publicly available numerical benchmarks. Consequently, common concerns such as demographic bias and privacy leakage are not directly applicable. The primary impact of this work is computa-tional: improving solver efficiency can reduce runtime and energy consumption in scientific and engineering workloads. 
+
+## 7 Use of GenAI 
+
+We employed Claude 4.5 Opus to assist with code implementation, and ChatGPT-5.2 to assist with paper revision. 
+
+## Acknowledgments 
+
+This work was performed under the auspices of the U.S. Depart-ment of Energy by Lawrence Livermore National Laboratory under Contract DE-AC52-07NA27344 (LLNL-PROC-2020426) and was sup-ported by the LLNL-LDRD program under Project No. 24-ERD-033. 
+
+## References                          
+
+> [1] Ahsan Ali, James J. Brannick, Karsten Kahl, Oliver A. Krzysik, Jacob B. Schroder, and Ben S. Southworth. 0. Generalized Optimal AMG Convergence Theory for Nonsymmetric and Indefinite Problems. SIAM Journal on Scientific Comput-ing 0, 0 (0), S89–S111. arXiv:https://doi.org/10.1137/24M1679288 doi: 10.1137/ 24M1679288
+> [2] Nathan Bell, Luke N. Olson, Jacob Schroder, and Ben Southworth. 2023. PyAMG: Algebraic Multigrid Solvers in Python. Journal of Open Source Software 8, 87 (2023), 5495. doi: 10.21105/joss.05495
+> [3] Achi Brandt, James Brannick, Karsten Kahl, and Irene Livshits. 2011. Bootstrap amg. SIAM Journal on Scientific Computing 33, 2 (2011), 612–632. [4] James Brannick and Ludmil Zikatanov. 2007. Algebraic Multigrid Methods Based on Compatible Relaxation and Energy Minimization. In Domain Decomposition Methods in Science and Engineering XVI , Olof B. Widlund and David E. Keyes (Eds.). Springer Berlin Heidelberg, Berlin, Heidelberg, 15–26. [5] M. Brezina, T. Manteuffel, S. McCormick, J. Ruge, and G. Sanders. 2010. Towards Adaptive Smoothed Aggregation ( 𝛼 SA) for Nonsymmet-ric Problems. SIAM Journal on Scientific Computing 32, 1 (2010), 14–39.
+
+KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Zechen Zhang, Rui Peng Li, & Yousef Saad 
+
+arXiv:https://doi.org/10.1137/080727336 doi: 10.1137/080727336 
+
+[6] Jie Chen. 2025. Graph Neural Preconditioners for Iterative Solutions of Sparse Linear Systems. In The Thirteenth International Conference on Learning Represen-tations . https://openreview.net/forum?id=Tkkrm3pA35 
+
+[7] Jie Chen, Tengfei Ma, and Cao Xiao. 2018. FastGCN: Fast Learning with Graph Convolutional Networks via Importance Sampling. In ICLR (Poster) . OpenRe-view.net. [8] Edmond Chow and Yousef Saad. 1998. Approximate inverse preconditioners via sparse-sparse iterations. SIAM Journal on Scientific Computing 19, 3 (1998), 995–1023. [9] Timothy A. Davis and Yifan Hu. 2011. The university of Florida sparse matrix collection. ACM Trans. Math. Softw. 38, 1, Article 1 (Dec. 2011), 25 pages. doi: 10. 1145/2049662.2049663 
+
+[10] Ru Huang, Ruipeng Li, and Yuanzhe Xi. 2023. Learning Optimal Multigrid Smoothers via Neural Networks. SIAM Journal on Scientific Computing 45, 3 (2023), S199–S225. arXiv:https://doi.org/10.1137/21M1430030 doi: 10.1137/21M1430030 
+
+[11] Diederik P. Kingma and Jimmy Ba. 2015. Adam: A Method for Stochastic Opti-mization. In 3rd International Conference on Learning Representations, ICLR 2015, San Diego, CA, USA, May 7-9, 2015, Conference Track Proceedings , Yoshua Bengio and Yann LeCun (Eds.). http://arxiv.org/abs/1412.6980 
+
+[12] Thomas N. Kipf and Max Welling. 2017. Semi-Supervised Classification with Graph Convolutional Networks. In International Conference on Learning Repre-sentations . https://openreview.net/forum?id=SJU4ayYgl 
+
+[13] Qimai Li, Zhichao Han, and Xiao-Ming Wu. 2018. Deeper insights into graph convolutional networks for semi-supervised learning. In Proceedings of the Thirty-Second AAAI Conference on Artificial Intelligence and Thirtieth Innovative Ap-plications of Artificial Intelligence Conference and Eighth AAAI Symposium on Educational Advances in Artificial Intelligence (New Orleans, Louisiana, USA) 
+
+(AAAI’18/IAAI’18/EAAI’18) . AAAI Press, Article 433, 8 pages. [14] Zhihao Li, Zhilu Lai, Xiaobo Zhang, and Wei Wang. 2026. M2NO: An Efficient Multi-Resolution Operator Framework for Dynamic Multi-Scale PDE Solvers. In 
+
+Proceedings of the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining (KDD 2026) . doi: 10.1145/3770854.3780179 
+
+[15] Ilay Luz, Meirav Galun, Haggai Maron, Ronen Basri, and Irad Yavneh. 2020. Learning algebraic multigrid using graph neural networks. In Proceedings of the 37th International Conference on Machine Learning (ICML’20) . JMLR.org, Article 602, 11 pages. [16] Tom Manteuffel and Ben S Southworth. 2019. Convergence in norm of nonsym-metric algebraic multigrid. SIAM Journal on Scientific Computing 41, 5 (2019), S269–S296. [17] Thomas A Manteuffel, John Ruge, and Ben S Southworth. 2018. Nonsymmetric algebraic multigrid based on local approximate ideal restriction ( ℓAIR). SIAM Journal on Scientific Computing 40, 6 (2018), A4105–A4130. [18] Luke N. Olson, Jacob B. Schroder, and Raymond S. Tuminaro. 2011. AGeneral Interpolation Strategy for Algebraic Multigrid Using Energy Min-imization. SIAM Journal on Scientific Computing 33, 2 (2011), 966–991. arXiv:https://doi.org/10.1137/100803031 doi: 10.1137/100803031 
+
+[19] Kenta Oono and Taiji Suzuki. 2020. Graph Neural Networks Exponentially Lose Expressive Power for Node Classification. In International Conference on Learning Representations . https://openreview.net/forum?id=S1ldO2EFPr 
+
+[20] John W Ruge and Klaus Stüben. 1987. Algebraic multigrid. In Multigrid methods .SIAM, 73–130. [21] Yousef Saad. 1994. ILUT: A dual threshold incomplete LU factorization. Numerical linear algebra with applications 1, 4 (1994), 387–402. [22] Yousef Saad. 2003. Iterative methods for sparse linear systems . SIAM. [23] Yunsheng Shi, Zhengjie Huang, Shikun Feng, Hui Zhong, Wenjing Wang, and Yu Sun. 2021. Masked Label Prediction: Unified Message Passing Model for Semi-Supervised Classification. In IJCAI . ijcai.org, 1548–1554. [24] K. Stüben. 2001. A review of algebraic multigrid. J. Comput. Appl. Math. 128, 1–2 (March 2001), 281–309. doi: 10.1016/S0377-0427(00)00516-1 Numerical Analysis 2000. Vol. VII: Partial Differential Equations. [25] Ali Taghibakhshi, Scott MacLachlan, Luke Olson, and Matthew West. 2021. Optimization-based algebraic multigrid coarsening using reinforcement learning. In Proceedings of the 35th International Conference on Neural Information Process-ing Systems (NIPS ’21) . Curran Associates Inc., Red Hook, NY, USA, Article 928, 12 pages. [26] Petar Veličković, Guillem Cucurull, Arantxa Casanova, Adriana Romero, Pietro Liò, and Yoshua Bengio. 2018. Graph Attention Networks. In International Con-ference on Learning Representations . https://openreview.net/forum?id= rJXMpikCZ 
+
+[27] Tobias Würth, Niklas Freymuth, Gerhard Neumann, and Luise Kärger. 2025. Diffusion-Based Hierarchical Graph Neural Networks for Simulating Nonlinear Solid Mechanics. In The Thirty-ninth Annual Conference on Neural Information Processing Systems . https://openreview.net/forum?id=MfBw0dlBfi 
+
+[28] Zhishuang Yang, Yidao Dong, Xiaogang Deng, and Laiping Zhang. 2022. AMGNET: multi-scale graph neural networks for flow field prediction. Connection Science 34, 1 (2022), 2500–2519. arXiv:https://doi.org/10.1080/09540091.2022.2131737 doi: 10.1080/09540091. 2022.2131737 
+
+## A Appendix A.1 Theorem 
+
+Theorem A.1 (Stability of Attention-Based Interpolation). 
+
+Let 𝑃 ∈ R𝑛 ×𝑛 𝑐 be the interpolation operator with the interpolation weights given by 
+
+𝑃 𝑖 𝑗 = 𝛼 𝑖 𝑗 , 𝑖 ∈ V 𝐹 , 𝑗 ∈ 𝐶 𝑖 , (25) 
+
+where 𝛼 𝑖 𝑗 ≥ 0 and Í𝑗 ∈𝐶 𝑖 𝛼 𝑖 𝑗 = 1, as produced by a normalized (softmax) attention mechanism. For coarse points 𝑖 ∈ V 𝐶 , let 𝑃 𝑖𝑖 = 1
+
+and 𝑃 𝑖 𝑗 = 0 for 𝑗 ≠ 𝑖 . Then the following properties hold: 
+
+(1) ∥𝑃 ∥∞ = 1;
+
+(2) For any coarse vector 𝑣 𝑐 , ∥𝑃𝑣 𝑐 ∥∞ ≤ ∥ 𝑣 𝑐 ∥∞;
+
+(3) For any constant coarse-grid vector 𝑣 𝑐 = 𝑐 1𝑐 , the interpolated vector satisfies 𝑃𝑣 𝑐 = 𝑐 1𝑓 .
+
+Proof. For any point 𝑖 ∈ V 𝐹 and coarse-grid vector 𝑣 𝑐 , we have 
+
+|( 𝑃𝑣 𝑐 )𝑖 | =∑︁  
+
+> 𝑗 ∈𝐶 𝑖
+
+𝛼 𝑖 𝑗 (𝑣 𝑐 )𝑗 ≤∑︁  
+
+> 𝑗 ∈𝐶 𝑖
+
+𝛼 𝑖 𝑗 |( 𝑣 𝑐 )𝑗 | ≤ ∥ 𝑣 𝑐 ∥∞∑︁  
+
+> 𝑗 ∈𝐶 𝑖
+
+𝛼 𝑖 𝑗 = ∥𝑣 𝑐 ∥∞.
+
+For coarse points 𝑖 ∈ V 𝐶 , (𝑃𝑣 𝑐 )𝑖 = (𝑣 𝑐 )𝑖 by definition. Hence, 
+
+∥𝑃𝑣 𝑐 ∥∞ ≤ ∥ 𝑣 𝑐 ∥∞, which implies ∥𝑃 ∥∞ ≤ 1. Equality follows since 
+
+𝑃 contains identity rows on coarse points. For constant vectors 𝑣 𝑐 = 𝑐 1𝑐 , we have 
+
+(𝑃𝑣 𝑐 )𝑖 =∑︁  
+
+> 𝑗 ∈𝐶 𝑖
+
+𝛼 𝑖 𝑗 𝑐 = 𝑐 for all 𝑖 ∈ V 𝐹 ,
+
+and trivially (𝑃𝑣 𝑐 )𝑖 = 𝑐 for 𝑖 ∈ V 𝐶 . This proves constant reproduc-tion. □
+
+In energy minimization approaches [ 4 , 18 ] for AMG interpo-lation, the energy-stability is typically controlled by minimizing 
+
+Tr (𝑃 ⊤𝐴𝑃 ), or equivalently minimizing each column 𝑝 of 𝑃 in the 
+
+𝐴 -norm. For diffusion-type and 𝑀 -matrix operators, this admits the expression 
+
+𝑝 ⊤𝐴𝑝 ∼∑︁  
+
+> 𝑖 <𝑗
+
+|𝑎 𝑖 𝑗 |( 𝑝 𝑖 − 𝑝 𝑗 )2, (26) which promotes coarse basis functions that vary slowly across strongly connected graph edges |𝑎 𝑖 𝑗 |. However, this criterion alone does not control the magnitude of the interpolation weights and permits large but slowly varying values, which can lead to unstable coarse-to-fine transfer. The row-stochastic constraint enforced by the attention-based construction provides a complementary stabil-ity mechanism in the ℓ∞ norm. 
+
+## A.2 Results on PyAMG AIR 
+
+Compared with classical pyamg.aggregation.smoothed_aggregation _solver (SA), the AIR method [ 17 ] is a preferable choice for non-SPD matrices. However, due to long construction time on specific matrices (e.g., from groups GHS_indef, Schenk_IBMNA, Rajat), which can take hours to process a single instance, we report results for only the first 647 out of 867 matrices here. Graph Neural Multilevel Preconditioners for Iterative Solvers KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Table 6: Head-to-head win rates (%) of GMP vs. AIR under different convergence metrics. 
+
+Method Iter-AUC 10 −2 10 −3 10 −4
+
+vs AIR 38.6% 70.8% 79.2% 86.1% AIR GNP 25.6% 4.5% 5.7% 1.4% GMP 35.9% 24.7% 15.1% 12.5% 
+
+## A.3 GMP Failure Analysis 
+
+We note that the experiments are conducted on a shared GPU cluster, where dedicated use of a 40GB node is not guaranteed. When we re-ran all the cases that had failed due to OOM on a dedicated 40GB A100, the failure rate dropped significantly, as shown in Tab. 7. The two construction failures are one from the classical Ruge–Stüben coarsening selecting no coarse points, yielding an empty interpolation operator 𝑃 , and one from OOM. We point out that GMP achieves the same optimal linear asymptotic scaling with respect to the interpolation operator, 𝑂 (nnz (𝑃 )) , as classical AMG; the increased memory cost reflects the large constant factors from the network architecture. Specifically, GMP’s memory cost is dominated by the cross-attention mechanism, scaling as 𝑂 (nnz (𝑃 )× 
+
+𝐵 × 𝐻 × 𝑑 × 𝐿 ), alongside the ResGCN smoother cost of 𝑂 (𝑛 × 𝐵 ×
+
+𝑒 × 𝐿 GCN ) (where 𝐵 = 16 is the batch size, 𝐻 = 4 is the number of attention heads, 𝑑 = 32 is the attention dimension, 𝐿 = 3 is the number of attention layers, 𝑒 = 16 is the GCN embedding dimension, and 𝐿 GCN = 8 is the number of GCN layers). While the asymptotic 
+
+𝑂 (nnz (𝑃 )) complexity matches classical AMG’s scalar operations, GMP carries a much larger constant factor of 𝐵 × 𝐻 × 𝑑 × 𝐿 = 6,144 
+
+due to batched multi-head attention. We note that 𝐵 , 𝐻 , 𝑑 , and 𝐿 
+
+are treated as fixed hyperparameters and used uniformly across all 867 matrices without per-problem tuning. For a given problem, a smaller configuration may suffice. An illustrative example can be found in Appendix A.5. 
+
+Table 7: Failures of preconditioners (count and percentage).      
+
+> GMP GNP
+> Construction failure 2 (0.2%) 0 (0.00%) Solution failure 2 (0.23%) 1 (0.12%)
+
+## A.4 Cross-Matrix Generalization 
+
+The per-matrix training protocol used in our main experiments (Sec. 4.1.2) is motivated by the fact that the selected matrices from SuiteSparse constitute a collection of diverse sparse linear systems that cannot be assumed to share a common distribution. When such an assumption does hold—e.g., when matrices arise from the same PDE problem with varying parameters—cross-matrix training is not only feasible but beneficial. To demonstrate this, we generated 100 anisotropic diffusion matrices on a 32 × 32 grid (varying the anisotropy ratio and rotation angle), split 80 /20 for train/test, and trained a single GMP model on the 80 training matrices. At test time, we evaluate on 20 unseen matrices at each of three grid sizes— 32 × 32 , 48 × 48 , and 64 × 64 —by building the AMG hierarchy for each matrix and applying the shared learned weights without any further training. Results are reported in Tab. 8. 
+
+Table 8: Generalization on anisotropic diffusion matrices (median GMRES iterations, rtol = 10 −8). Per-matrix methods are trained from scratch at each grid size. Cross-matrix GMP is trained on 80 matrices ( 32 × 32 ) and applied to all sizes without retraining.                 
+
+> Method Training 32 ×32 48 ×48 64 ×64
+> GNP per-matrix 74 133 205 GMP per-matrix 40 66 97
+> GMP cross-matrix 24 44 60
+
+The cross-matrix GMP outperforms the per-matrix baselines at all grid sizes—even on 48 × 48 and 64 × 64 , where the baselines were trained at that size. This demonstrates two points: (1) cross-matrix training produces a more robust preconditioner; and (2) the learned operators generalize to unseen grid sizes, enabling a “train small, apply large” deployment. 
+
+## A.5 Memory–Accuracy–Runtime Trade-off 
+
+The default GMP configuration used throughout the main experi-ments is fixed and applied uniformly to all matrices, and is there-fore not tuned to any individual problem. To examine how far the configuration can be reduced on a single problem, we conduct a hyperparameter study on Bai/rdb1250l , a non-SPD matrix ran-domly selected from the dataset, where 𝑛 =1,250 and nnz =7,300 ,to explore the memory–accuracy–runtime trade-off. We vary the batch size 𝐵 , the number of attention heads 𝐻 , the attention di-mension 𝑑 , the number of attention layers 𝐿 , and the number of epochs for each configuration. Peak GPU memory is measured via 
+
+torch.cuda.max_memory_allocated() . The results are reported in Tab. 9. Key observations are as follows: (1) Reducing 𝐵 from 16 to 1 while keeping the model architecture (𝐻 =4, 𝑑 =32 , 𝐿 =3) yields an 8.4× memory reduction and the best convergence on this matrix (91 iterations to a relative residual of 10 −8), whereas the default configuration does not reach this tolerance within the iteration budget. (2) An aggressive reduction ( 𝐵 =1, 𝐻 =1, 𝑑 =16 , 𝐿 =1) achieves a 
+
+12 .2× memory reduction, converges in 166 iterations, and trains 1.5× faster than the default. (3) For this matrix, both reduced configurations produce bet-ter preconditioners than the default, suggesting that the default hyperparameters are larger than necessary here. We emphasize that this is a single-matrix study: it does not establish that such reductions are uniformly beneficial or free of accuracy cost, and the best configuration is problem-dependent. Nonetheless, peak memory is dominated by the cross-attention term, so reducing these hyperparameters low-ers memory usage; and since this term scales with nnz (𝑃 ),we expect the savings to grow on larger matrices. KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Zechen Zhang, Rui Peng Li, & Yousef Saad 
+
+Table 9: Memory–accuracy–runtime trade-off on Bai/rdb1250l (𝑛 =1,250 , nnz =7,300 ). “Iters” and “Res” are the GMRES iterations and final relative residual; “Peak Mem” is the peak GPU memory. 
+
+Config Epochs Iters Res Train Solve Peak Mem vs Default 
+
+Default ( 𝐵 =16 , 𝐻 =4, 𝑑 =32 , 𝐿 =3) 2,000 300 1.60e-2 87.7s 7.6s 304M —
+
+𝐵 =1, 𝐻 =4, 𝑑 =32 , 𝐿 =3 4,000 91 9.02e-9 161.3s 2.3s 36M 8.4 × less mem 
+
+𝐵 =1, 𝐻 =1, 𝑑 =16 , 𝐿 =1 2,000 166 9.53e-9 58.9s 3.0s 25M 12.2 × less mem, 1.5 × faster train 
+
+Figure 4: Convergence trajectories on representative nonsymmetric systems where the classical preconditioners outperform GMP. Log 10 relative residual versus FGMRES iteration, comparing no preconditioner, AMG, AIR, and the proposed GMP. 
+
+## A.6 Case Study Additional Results 
+
+In Sec. 4.4, we presented cases in which GMP outperforms the clas-sical preconditioners. For a balanced comparison, we additionally report cases in which the classical preconditioners AMG and AIR outperform GMP, shown in Fig. 4.
