@@ -6,35 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-01
-- 运行时间：2026-08-01 21:25:04 UTC
+- 最新运行日期：2026-08-02
+- 运行时间：2026-08-02 21:18:14 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：3
+- 本次总论文数：3
+- 精读区：1
 - 速读区：2
 
 ### 今日简报（AI）
-今日精读2篇高分论文，聚焦双调和方程混合残差法与AI算子自动生成；速读覆盖神经符号AI与工具检索。最值得关注方向：谱Barron空间数值方法与知识增强的算子编译优化。普通读者可优先了解AI自动化代码生成的应用潜力。
-- 详情：[/202608/01/README](/202608/01/README)
+今日精读1篇、速读2篇，聚焦PDE发现与科学计算前沿。最值得关注的是《On the post-hoc Evaluation of PDE Discovery》（8.0分），揭示偏微分方程发现的后验评估多维挑战；另可留意残差驱动的非线性流形降阶模型识别。下一步建议从PDE后验评估入手，理解模型可靠性边界，再拓展至降阶方法。
+- 详情：[/202608/02/README](/202608/02/README)
 
 ### 精读区论文标签
-1. [A mixed residual method for biharmonic equations in spectral Barron spaces](/202608/01/2607.23080v1-a-mixed-residual-method-for-biharmonic-equations-in-spectral-barron-spaces)  
+1. [On the post-hoc Evaluation of PDE Discovery: A Multifaceted Challenge of Scientific Advancement](/202608/02/2607.23753v1-on-the-post-hoc-evaluation-of-pde-discovery-a-multifaceted-challenge-of-scientific-advancement)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：谱Barron空间中双调和方程的混合残差法及神经网误差界
-2. [AgenticCANN: Automated Ascend C Operator Generation via Knowledge-Augmented Agentic Evolution](/202608/01/2607.26661v1-agenticcann-automated-ascend-c-operator-generation-via-knowledge-augmented-agentic-evolution)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：基于LLM的智能体进化框架自动生成数值算子，属于算法自动发现
-3. [Albilich: Steerable Proof-State Orchestration for LLM-Based Mathematical Research with CAS Integration](/202608/01/2607.27705v1-albilich-steerable-proof-state-orchestration-for-llm-based-mathematical-research-with-cas-integration)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：基于CAS的LLM数学研究智能体框架
+   evidence：针对PDE发现的后验评估挑战，属于AI for PDE的核心议题
 
 ### 速读区论文标签
-1. [From Hybrid Mechanistic--Data-Driven Modeling Toward Neuro-Symbolic AI: What, Why, and How](/202608/01/2607.22811v1-from-hybrid-mechanistic--data-driven-modeling-toward-neuro-symbolic-ai-what-why-and-how)  
+1. [Residual-Driven Lifting Identification for Nonlinear-Manifold Reduced-Order Models of Parametrized Linear PDEs](/202608/02/2607.27471v1-residual-driven-lifting-identification-for-nonlinear-manifold-reduced-order-models-of-parametrized-linear-pdes)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：面向参数化线性PDE的残差驱动非线性流形降阶模型，属于机器学习求解PDE的方法
+2. [SkillSmith: Learning to Compose Parametric Skills and Textual Knowledge](/202608/02/2607.27497v1-skillsmith-learning-to-compose-parametric-skills-and-textual-knowledge)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：混合机理/数据驱动建模，是物理知情机器学习的根基
-2. [Tools Are Not Islands: Set-Level Tool Retrieval for LLM Agents via Query-Conditioned Hyperedge Prediction](/202608/01/2607.25718v1-tools-are-not-islands-set-level-tool-retrieval-for-llm-agents-via-query-conditioned-hyperedge-prediction)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：基于超边预测的LLM智能体集合级工具检索
+   evidence：面向LLM智能体的参数化技能与文本知识组合，可迁移至科学计算技能
 
 
 <div class="dpr-home-promo-card">
