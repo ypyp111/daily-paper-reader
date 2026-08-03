@@ -6,29 +6,52 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-02
-- 运行时间：2026-08-02 21:18:14 UTC
+- 最新运行日期：2026-08-03
+- 运行时间：2026-08-03 21:51:57 UTC
 - 运行状态：成功
-- 本次总论文数：3
-- 精读区：1
-- 速读区：2
+- 本次总论文数：10
+- 精读区：3
+- 速读区：7
 
 ### 今日简报（AI）
-今日精读1篇、速读2篇，聚焦PDE发现与科学计算前沿。最值得关注的是《On the post-hoc Evaluation of PDE Discovery》（8.0分），揭示偏微分方程发现的后验评估多维挑战；另可留意残差驱动的非线性流形降阶模型识别。下一步建议从PDE后验评估入手，理解模型可靠性边界，再拓展至降阶方法。
-- 详情：[/202608/02/README](/202608/02/README)
+今日共读10篇论文，精读2篇、速读7篇，聚焦AI科学发现与物理信息神经网络。  
+最值得关注的是物理信息神经网络特征交互建模（9.0分）与开源科学工具智能体（8.0分）。  
+普通读者可优先阅读精读高分论文，并留意稀疏数据下方程识别等方向。
+- 详情：[/202608/03/README](/202608/03/README)
 
 ### 精读区论文标签
-1. [On the post-hoc Evaluation of PDE Discovery: A Multifaceted Challenge of Scientific Advancement](/202608/02/2607.23753v1-on-the-post-hoc-evaluation-of-pde-discovery-a-multifaceted-challenge-of-scientific-advancement)  
+1. [Feature Interaction Modeling for Physics-Informed Neural Networks and Neural Operators](/202608/03/2607.28762v1-feature-interaction-modeling-for-physics-informed-neural-networks-and-neural-operators)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：在PINN和神经算子中嵌入特征交互模块，提升参数化PDE解流形表达
+2. [SciToolAgent-Evo: An Ontology-Aware Self-Evolving Agent for Open-World Scientific Tool Acquisition](/202608/03/2607.28692v1-scitoolagent-evo-an-ontology-aware-self-evolving-agent-for-open-world-scientific-tool-acquisition)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：针对PDE发现的后验评估挑战，属于AI for PDE的核心议题
+   evidence：面向科学计算工具获取的LLM智能体与技能记忆
+3. [Freeze, Then Select: Structured Field Adapters and Stability-Validated Weak Selection for PDE Discovery from Sparse Observations](/202608/03/2607.29665v1-freeze-then-select-structured-field-adapters-and-stability-validated-weak-selection-for-pde-discovery-from-sparse-observations)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：从稀疏观测中通过结构化场适配器与弱选择进行神经PDE发现，属于AI for PDE主题的核心内容
 
 ### 速读区论文标签
-1. [Residual-Driven Lifting Identification for Nonlinear-Manifold Reduced-Order Models of Parametrized Linear PDEs](/202608/02/2607.27471v1-residual-driven-lifting-identification-for-nonlinear-manifold-reduced-order-models-of-parametrized-linear-pdes)  
+1. [Scaling Scientific Discovery Environments for Turn-Level Agentic RL](/202608/03/2607.28990v1-scaling-scientific-discovery-environments-for-turn-level-agentic-rl)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：面向参数化线性PDE的残差驱动非线性流形降阶模型，属于机器学习求解PDE的方法
-2. [SkillSmith: Learning to Compose Parametric Skills and Textual Knowledge](/202608/02/2607.27497v1-skillsmith-learning-to-compose-parametric-skills-and-textual-knowledge)  
+   evidence：面向科学发现智能体的可扩展训练环境与强化学习框架
+2. [Dynamics-aware identification of governing equations from sparse and noisy data](/202608/03/2607.29036v1-dynamics-aware-identification-of-governing-equations-from-sparse-and-noisy-data)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：使用Koopman升采样与稀疏回归从数据中发现控制方程
+3. [Simulation Code Generation for Fluid Systems using Large Language Models: Benchmarking Models and Prompting Strategies](/202608/03/2607.29389v1-simulation-code-generation-for-fluid-systems-using-large-language-models-benchmarking-models-and-prompting-strategies)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：将LLM用于流体系统的仿真代码生成，是数学物理领域中的LLM应用。
+4. [AgentHPOBench: A Benchmark For Evaluating LLM Agents as Sequential Hyperparameter Optimizers](/202608/03/2607.29626v1-agenthpobench-a-benchmark-for-evaluating-llm-agents-as-sequential-hyperparameter-optimizers)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：评估LLM智能体作为科学实验中序贯超参数优化器的基准
+5. [SKIMIX: Multi-Agent Harness-Time Scaling with Skill Mixture for Dynamic Harness Engineering](/202608/03/2607.27994v1-skimix-multi-agent-harness-time-scaling-with-skill-mixture-for-dynamic-harness-engineering)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：面向LLM智能体的参数化技能与文本知识组合，可迁移至科学计算技能
+   evidence：面向推理任务的多智能体技能混合与检索
+6. [EasyBCI Agent: Towards Universal Neural Data Preprocessing for Brain-Computer Interfaces](/202608/03/2607.29007v1-easybci-agent-towards-universal-neural-data-preprocessing-for-brain-computer-interfaces)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：LLM智能体规划并执行科学预处理流水线
+7. [SeekBrain: An Autonomous Multi-Agent System for Accelerating Neuroscience Discovery](/202608/03/2607.29347v1-seekbrain-an-autonomous-multi-agent-system-for-accelerating-neuroscience-discovery)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：面向神经科学发现的自主多智能体系统
 
 
 <div class="dpr-home-promo-card">
