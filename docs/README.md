@@ -6,58 +6,47 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-04
-- 运行时间：2026-08-04 21:44:46 UTC
+- 最新运行日期：2026-08-05
+- 运行时间：2026-08-05 20:50:32 UTC
 - 运行状态：成功
-- 本次总论文数：12
-- 精读区：6
+- 本次总论文数：9
+- 精读区：3
 - 速读区：6
 
 ### 今日简报（AI）
-今日聚焦物理信息神经网络（PINN）前沿，精读两篇高分工作，分别用于抛物线型最优控制与流体动力学；速读覆盖模型降阶、LLM智能体与科学数据探索。  
-最值得关注的是Tikhonov正则化PINN在分布式最优控制中的稳定性，以及自适应量子PINN对微分方程的求解潜力。  
-建议优先精读这两篇9.0分论文，并留意pyMOR工具在工程降阶中的实用价值。
-- 详情：[/202608/04/README](/202608/04/README)
+今日聚焦9篇论文，精读2篇高分研究，核心方向为稀疏观测下的PDE发现与大语言模型驱动的PDE工作流。最值得关注的是“冻结再选择”字段适配器方法，以及LLM在PDE全流程中的应用潜力。建议普通读者从LLM辅助建模的综述入手，快速了解AI与偏微分方程结合的现状。
+- 详情：[/202608/05/README](/202608/05/README)
 
 ### 精读区论文标签
-1. [Tikhonov-Regularized Physics-Informed Neural Networks for Terminal-State Distributed Optimal Control of Parabolic Partial Differential Equations](/202608/04/2607.24572v4-tikhonov-regularized-physics-informed-neural-networks-for-terminal-state-distributed-optimal-control-of-parabolic-partial-differential-equations)  
+1. [Freeze, Then Select: Structured Field Adapters and Stability-Validated Weak Selection for PDE Discovery from Sparse Observations](/202608/05/2607.29665v1-freeze-then-select-structured-field-adapters-and-stability-validated-weak-selection-for-pde-discovery-from-sparse-observations)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：物理信息神经网络求解PDE约束最优控制
-2. [Adaptive Quantum Physics-Informed Neural Networks for Differential Equations with Applications to Fluid Dynamics](/202608/04/2608.00850v1-adaptive-quantum-physics-informed-neural-networks-for-differential-equations-with-applications-to-fluid-dynamics)  
+   evidence：基于结构化场适配器的神经网络PDE发现方法，与PINN范式紧密相关
+2. [Large language models for partial differential equation workflows](/202608/05/2608.03600v1-large-language-models-for-partial-differential-equation-workflows)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：量子物理信息神经网络求解非线性PDE，自适应采样
-3. [Physics-informed neural networks for two-dimensional wall-reactive solute dispersion in canonical shear flows](/202608/04/2608.00856v1-physics-informed-neural-networks-for-two-dimensional-wall-reactive-solute-dispersion-in-canonical-shear-flows)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：PINN框架求解剪切流中对流-扩散PDE；PINN直接应用
-4. [Freeze, Then Select: Structured Field Adapters and Stability-Validated Weak Selection for PDE Discovery from Sparse Observations](/202608/04/2607.29665v1-freeze-then-select-structured-field-adapters-and-stability-validated-weak-selection-for-pde-discovery-from-sparse-observations)  
+   evidence：直接面向大语言模型辅助偏微分方程工作流的综述，涵盖发现、求解与反馈
+3. [Variational Inference Using a Differentiable Multigrid Linear Solver](/202608/05/2608.00760v1-variational-inference-using-a-differentiable-multigrid-linear-solver)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：利用结构化场适配器从稀疏观测中发现PDE；基于AI的PDE发现
-5. [Learning to Coordinate Symbolic Tools: LLM Agents for Verified Sum-of-Squares Certificates](/202608/04/2608.00326v1-learning-to-coordinate-symbolic-tools-llm-agents-for-verified-sum-of-squares-certificates)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：LLM智能体协调符号工具生成可验证平方和证书，属于自动数学算法发现
-6. [Modeling Unknown Nonlocal PDE Systems via Flow Map Learning](/202608/04/2608.00400v1-modeling-unknown-nonlocal-pde-systems-via-flow-map-learning)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：面向未知非局部PDE的数据驱动流图学习方法
+   evidence：面向椭圆型PDE的可微分多重网格求解器，支持自动微分，可用于变分推断与AI-for-PDE流程。
 
 ### 速读区论文标签
-1. [Data-Driven Model Order Reduction with pyMOR](/202608/04/2608.00082v1-data-driven-model-order-reduction-with-pymor)  
+1. [Towards a new paradigm of scientific discovery with socialized artificial intelligence](/202608/05/2608.02775v1-towards-a-new-paradigm-of-scientific-discovery-with-socialized-artificial-intelligence)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：参数化PDE的数据驱动模型降阶，软件库最新进展
-2. [SkillTrace: Traversing a Query-Skill Graph for Composable LLM Agents](/202608/04/2608.02356v1-skilltrace-traversing-a-query-skill-graph-for-composable-llm-agents)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：面向LLM智能体的可组合技能库和依赖传播，为科学计算中的技能编排提供通用方法
-3. [SciDataSailor: Deep Scientific Data Exploring](/202608/04/2607.28098v1-scidatasailor-deep-scientific-data-exploring)  
+   evidence：BLAZE范式利用社会化AI代理整合文献、推理与实验，推动科学发现。
+2. [NeSyFS: A Neuro-symbolic Fast-Slow Thinking Framework for LLM Agent under Partial Observability](/202608/05/2607.28942v2-nesyfs-a-neuro-symbolic-fast-slow-thinking-framework-for-llm-agent-under-partial-observability)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：面向科学数据深度探索的LLM智能体；与自主科学发现智能体相关
-4. [NeSyFS: A Neuro-symbolic Fast-Slow Thinking Framework for LLM Agent under Partial Observability](/202608/04/2607.28942v1-nesyfs-a-neuro-symbolic-fast-slow-thinking-framework-for-llm-agent-under-partial-observability)  
+   evidence：面向部分可观测环境的LLM智能体神经符号框架，可用于自主科学发现智能体
+3. [Beyond Solution-Centric Search: Adaptive Inquiry and Knowledge Revision for Autonomous ML Engineering](/202608/05/2608.02143v1-beyond-solution-centric-search-adaptive-inquiry-and-knowledge-revision-for-autonomous-ml-engineering)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：面向部分可观测环境中科学发现等任务的LLM智能体神经符号框架
-5. [Learning What to Remember and What to Internalize in LLM Self-Evolution via Adaptive Memory-Parameter Coordination](/202608/04/2608.01234v1-learning-what-to-remember-and-what-to-internalize-in-llm-self-evolution-via-adaptive-memory-parameter-coordination)  
+   evidence：面向长时程机器学习工程的自主探究-修正智能体，与自动化算法发现相关。
+4. [SkillTrace: Traversing a Query-Skill Graph for Composable LLM Agents](/202608/05/2608.02356v2-skilltrace-traversing-a-query-skill-graph-for-composable-llm-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：将外部记忆技能与内部参数协调，普适的智能体技能学习方法可迁移至科学计算
-6. [G-ReAct: Graph-Guided Deep Search via Structure-State Co-Evolution](/202608/04/2608.01324v1-g-react-graph-guided-deep-search-via-structure-state-co-evolution)  
+   evidence：面向LLM智能体的可组合技能图，可迁移至科学计算技能选择与编排
+5. [AgentPanel: Toward a New Paradigm for Human--AI Collaboration in Exploring Scientific Questions](/202608/05/2608.03283v1-agentpanel-toward-a-new-paradigm-for-human--ai-collaboration-in-exploring-scientific-questions)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：图引导深度搜索框架，可迁移到科学发现智能体的多跳分析
+   evidence：支持人机协作科学探索的多智能体论坛系统
+6. [ContinualSkillBench: Can LLM Agents Truly Evolve Their Capabilities?](/202608/05/2608.03874v1-continualskillbench-can-llm-agents-truly-evolve-their-capabilities)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：面向LLM智能体持续技能学习的基准，契合智能体技能主题
 
 
 <div class="dpr-home-promo-card">
