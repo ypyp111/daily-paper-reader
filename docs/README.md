@@ -6,47 +6,55 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-05
-- 运行时间：2026-08-05 20:50:32 UTC
+- 最新运行日期：2026-08-07
+- 运行时间：2026-08-07 20:01:37 UTC
 - 运行状态：成功
-- 本次总论文数：9
-- 精读区：3
-- 速读区：6
+- 本次总论文数：11
+- 精读区：6
+- 速读区：5
 
 ### 今日简报（AI）
-今日聚焦9篇论文，精读2篇高分研究，核心方向为稀疏观测下的PDE发现与大语言模型驱动的PDE工作流。最值得关注的是“冻结再选择”字段适配器方法，以及LLM在PDE全流程中的应用潜力。建议普通读者从LLM辅助建模的综述入手，快速了解AI与偏微分方程结合的现状。
-- 详情：[/202608/05/README](/202608/05/README)
+今日精读聚焦神经PDE求解器与PINNs训练优化，共扫描11篇论文，其中6篇精读、5篇速读。  
+最值得关注：10分《用领域专用语言自动设计神经PDE求解器》与9分《非凸自和谐正则化提升PINNs可扩展拟牛顿训练》。  
+建议下一步先了解这两种方法如何降低PINNs调参成本，再顺带看看8分的符号回归新范式。
+- 详情：[/202608/07/README](/202608/07/README)
 
 ### 精读区论文标签
-1. [Freeze, Then Select: Structured Field Adapters and Stability-Validated Weak Selection for PDE Discovery from Sparse Observations](/202608/05/2607.29665v1-freeze-then-select-structured-field-adapters-and-stability-validated-weak-selection-for-pde-discovery-from-sparse-observations)  
+1. [Improving Auto-Design of Neural PDE Solvers with a Domain-Specific Language](/202608/07/2608.04384v1-improving-auto-design-of-neural-pde-solvers-with-a-domain-specific-language)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：面向神经PDE求解器自动设计的领域专用语言
+2. [From Non-Convex Self-Concordant Regularization to Scalable Quasi-Newton Training of PINNs](/202608/07/2608.04206v1-from-non-convex-self-concordant-regularization-to-scalable-quasi-newton-training-of-pinns)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：基于结构化场适配器的神经网络PDE发现方法，与PINN范式紧密相关
-2. [Large language models for partial differential equation workflows](/202608/05/2608.03600v1-large-language-models-for-partial-differential-equation-workflows)  
+   evidence：面向PINN训练的自谐拟牛顿方法，提升PDE求解可靠性
+3. [Continual-Learning Physics-Informed Neural Networks for Parameterized Partial Differential Equations](/202608/07/2608.04778v1-continual-learning-physics-informed-neural-networks-for-parameterized-partial-differential-equations)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：直接面向大语言模型辅助偏微分方程工作流的综述，涵盖发现、求解与反馈
-3. [Variational Inference Using a Differentiable Multigrid Linear Solver](/202608/05/2608.00760v1-variational-inference-using-a-differentiable-multigrid-linear-solver)  
+   evidence：持续学习PINN处理参数化PDE，改善参数域泛化
+4. [A Label-Free Physics-to-Data Acceleration Framework for Parametric Time-Dependent PDEs with Latent-Space Differential-Operator Learning](/202608/07/2608.05554v1-a-label-free-physics-to-data-acceleration-framework-for-parametric-time-dependent-pdes-with-latent-space-differential-operator-learning)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：面向参数化时变PDE的深度学习加速框架，采用潜空间微分算子学习
+5. [Alternating Levenberg-Marquardt Training of Physics-Informed Neural Networks with Fourier-Enhanced Features](/202608/07/2608.05892v1-alternating-levenberg-marquardt-training-of-physics-informed-neural-networks-with-fourier-enhanced-features)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：直接针对PDE的物理信息神经网络训练，改进高频多尺度问题
+6. [Continuous Improvement and Parallel Autonomous Exploration: An LLM-Agent Framework for Searching Large Solution Spaces](/202608/07/2608.04341v1-continuous-improvement-and-parallel-autonomous-exploration-an-llm-agent-framework-for-searching-large-solution-spaces)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：面向椭圆型PDE的可微分多重网格求解器，支持自动微分，可用于变分推断与AI-for-PDE流程。
+   evidence：自主LLM智能体大规模解空间搜索以支持算法发现
 
 ### 速读区论文标签
-1. [Towards a new paradigm of scientific discovery with socialized artificial intelligence](/202608/05/2608.02775v1-towards-a-new-paradigm-of-scientific-discovery-with-socialized-artificial-intelligence)  
+1. [A-SR: Self-Evolving Agentic LLMs for Symbolic Regression via Hierarchical Coordination](/202608/07/2608.04872v2-a-sr-self-evolving-agentic-llms-for-symbolic-regression-via-hierarchical-coordination)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：自进化智能体LLM框架用于符号回归，与面向科学发现的自主体直接相关。
+2. [CoSynFlow: Conformal Symplectic Neural Flows for Cross-System Prediction of Dissipative Hamiltonian Dynamics](/202608/07/2608.00571v1-cosynflow-conformal-symplectic-neural-flows-for-cross-system-prediction-of-dissipative-hamiltonian-dynamics)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：BLAZE范式利用社会化AI代理整合文献、推理与实验，推动科学发现。
-2. [NeSyFS: A Neuro-symbolic Fast-Slow Thinking Framework for LLM Agent under Partial Observability](/202608/05/2607.28942v2-nesyfs-a-neuro-symbolic-fast-slow-thinking-framework-for-llm-agent-under-partial-observability)  
+   evidence：学习微分方程解算子并保持几何结构，与AI求解PDE相关。
+3. [SJEPA: Learning Elegant Latent Dynamics with Hybrid Symbolic-Neural Predictors](/202608/07/2608.04060v1-sjepa-learning-elegant-latent-dynamics-with-hybrid-symbolic-neural-predictors)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：面向部分可观测环境的LLM智能体神经符号框架，可用于自主科学发现智能体
-3. [Beyond Solution-Centric Search: Adaptive Inquiry and Knowledge Revision for Autonomous ML Engineering](/202608/05/2608.02143v1-beyond-solution-centric-search-adaptive-inquiry-and-knowledge-revision-for-autonomous-ml-engineering)  
+   evidence：混合符号-神经预测器发现潜在动力学的简洁符号描述，与AI驱动的方程发现相关。
+4. [A-SR: Self-Evolving Agentic LLMs for Symbolic Regression via Hierarchical Coordination](/202608/07/2608.04872v1-a-sr-self-evolving-agentic-llms-for-symbolic-regression-via-hierarchical-coordination)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：面向长时程机器学习工程的自主探究-修正智能体，与自动化算法发现相关。
-4. [SkillTrace: Traversing a Query-Skill Graph for Composable LLM Agents](/202608/05/2608.02356v2-skilltrace-traversing-a-query-skill-graph-for-composable-llm-agents)  
+   evidence：自进化智能体LLM用于符号回归，直接关联方程/PDE发现
+5. [Agentic self-driving microscopy benchmarks support qualification but do not necessarily generalize to unseen tasks](/202608/07/2608.05266v1-agentic-self-driving-microscopy-benchmarks-support-qualification-but-do-not-necessarily-generalize-to-unseen-tasks)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：面向LLM智能体的可组合技能图，可迁移至科学计算技能选择与编排
-5. [AgentPanel: Toward a New Paradigm for Human--AI Collaboration in Exploring Scientific Questions](/202608/05/2608.03283v1-agentpanel-toward-a-new-paradigm-for-human--ai-collaboration-in-exploring-scientific-questions)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：支持人机协作科学探索的多智能体论坛系统
-6. [ContinualSkillBench: Can LLM Agents Truly Evolve Their Capabilities?](/202608/05/2608.03874v1-continualskillbench-can-llm-agents-truly-evolve-their-capabilities)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：面向LLM智能体持续技能学习的基准，契合智能体技能主题
+   evidence：科学仪器智能体控制，可迁移至自主PDE求解智能体
 
 
 <div class="dpr-home-promo-card">
