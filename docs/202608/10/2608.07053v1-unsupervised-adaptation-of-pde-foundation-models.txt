@@ -1,0 +1,887 @@
+Title: Unsupervised Adaptation of PDE Foundation Models
+
+URL Source: https://arxiv.org/pdf/2608.07053v1
+
+Published Time: Mon, 10 Aug 2026 00:55:46 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# Unsupervised Adaptation of PDE Foundation Models 
+
+Ziye Song 
+
+Nanyang Technological University 
+
+Zhao Wei 
+
+CFAR, A*STAR 
+
+Xin Yu 
+
+Adelaide University 
+
+Ivor Tsang 
+
+CFAR, A*STAR 
+
+Yueming Lyu ∗
+
+CFAR, A*STAR 
+
+# Abstract 
+
+Pretrained partial differential equation (PDE) foundation models can generalize across different equations, but adapting them to unseen PDE systems typically requires dense solution data, which is often expensive or unavailable. To address this limitation, we propose an unsupervised PDE-based finetuning framework that eliminates the need for ground-truth solutions. We first pretrain a neighborhood attention Transformer on diverse time-dependent PDEs spanning varying spatial scales, yielding transferable representations across heterogeneous equations. In the adaptation stage, we construct a physics-based objective using the PDE residual and boundary conditions, and finetune the model on unseen equations via low-rank adaptation (LoRA). To address the uneven learning across physical quantities in standard LoRA, we introduce NSLoRA, a Newton-Schulz orthogonalized variant that rebalances adaptation. Our method achieves performance comparable to supervised LoRA finetuning without requiring any ground-truth solutions, while consistently outperforming competitive neural operator baselines and recent PDE foundation models across heterogeneous PDE benchmarks spanning multiple spatial dimensions. Code and models will be open-sourced. 
+
+# 1 Introduction 
+
+Partial differential equations (PDEs) serve as the mathematical backbone of the physical sciences, with accurate and efficient PDE solvers being indispensable to a broad range of scientific and engineering applications. Traditional numerical methods, such as finite difference, finite element, and spectral methods [13, 27], yield reliable accuracy at significant computational cost [23], with high-quality scientific simulation often requiring specialized software and months of supercomputer time [35]. To address these limitations, learning-based PDE solvers have emerged as a promising alternative. Neural operators [26, 28, 32, 29, 55, 54] learn mappings between function spaces from simulation data and achieve fast inference once trained. However, their performance critically depends on large-scale, high-fidelity datasets, where each training sample may itself require expensive numerical simulation [15, 17]. This data requirement makes them impractical in many real-world scenarios where simulations are costly or unavailable. Physics-informed neural networks (PINNs) [36] address this challenge by incorporating governing equations and initial/boundary conditions directly into the training objective, thereby reducing the need for labeled data. Despite this advantage, PINNs are typically optimized for individual PDE systems and can be difficult to train, often leading to suboptimal accuracy in practice [48, 47, 49, 4]. To improve generalization, several works have explored meta-learning and multi-task extensions of PINNs, aiming to capture shared structures across related PDEs and enable faster adaptation to new tasks [53]. While these approaches show improved efficiency within families of similar systems, their transferability remains limited when the underlying equations differ significantly. As a result, both 
+
+> ∗Corresponding author: Yueming Lyu and Wei Zhao Preprint. arXiv:2608.07053v1 [cs.AI] 7 Aug 2026
+
+neural operators and PINN-based methods still operate in a largely task-specific manner and struggle to generalize across heterogeneous PDEs. Inspired by the success of foundation models in natural language processing [5, 11] and computer vision [12], recent works on PDE foundation models [33, 17, 15, 8, 18, 34] aim to learn representations shared across heterogeneous physical systems. By pretraining on diverse PDEs, these models can be adapted to new equations with improved accuracy. However, their adaptation stage remains largely data-driven, typically requiring dense ground-truth solution fields for fine-tuning. This limits their applicability in settings where such data is unavailable or expensive to obtain. In many practical scenarios, while labeled solution data is scarce, the governing equations and boundary conditions are readily available, yet existing approaches do not leverage this information during adaptation. In this work, we propose an unsupervised PDE-based finetuning framework to address this down-stream data dependency. To the best of our knowledge, our method is the first attempt to adapt a pretrained PDE foundation model to unseen equations strictly by enforcing the governing PDEs and boundary conditions. As a result, we can completely eliminate the requirement for interior ground truth data. To be specific, our framework operates in two stages: (i) a pretraining stage, which establishes transferable representation across heterogeneous equations, and (ii) an adaptation stage, which finetunes the model on a target equation under the unsupervised PDE-based adaptation objective. Motivated by the demand to accommodate varying spatial resolutions without constructing resolution-specific positional encodings, we introduce neighborhood attention [16] into the PDE foundation model setting to align with the localized nature of PDE dynamics. We initialize our framework by pretraining a backbone network on PDEBench [43], yielding highly transferable representation. This pretraining stage is essential, establishing the transferable representation that subsequent adaptation relies upon. In the adaptation stage, we introduce the unsupervised PDE-based Adaptation Objective, which comprises a PDE residual term and a boundary condition term. The pretrained backbone remains frozen while low-rank adaptation (LoRA) modules [20] are optimized under this objective. We observe that standard LoRA exhibits imbalanced learning across physical quantities, effectively adapting to some while leaving others under-optimized. To overcome this optimization bottleneck, we introduce NSLoRA, a variant that orthogonalizes each low-rank matrix via Newton-Schulz iteration [21], 1.38 × faster end-to-end than SVD orthogonalization on these low-rank matrices. This formulation mitigates rank collapse and intrinsically improves the adaptation of the under-learned quantities. Collectively, these two stages enable our framework to generalize to heterogeneous unseen PDEs. Without using any interior labels, our method bounds the performance gap within a factor of 2.5 on seven of the eight 2D benchmarks compared to the supervised LoRA finetuning on the same backbone, and successfully outperforms at least one supervised neural operator baseline on 9 of 11 downstream datasets. Our contributions are summarized as follows: • We propose the first unsupervised PDE-based finetuning paradigm that adapts a pretrained PDE foundation model to unseen equations relying exclusively on the governing PDEs and boundary conditions, thereby eliminating the requirement for any interior ground-truth solution fields. • We propose NSLoRA, a Newton-Schulz orthogonalized low-rank adapter that mitigates the rank collapse, deployed within a neighborhood attention backbone that natively accommodates inputs of varying spatial resolutions. • Under the unsupervised PDE-based Adaptation Objective, our framework achieves performance within a factor of 2.5 relative to the supervised LoRA finetuning on seven of the eight heteroge-neous 2D PDE benchmarks and outperforms at least one supervised neural operator baseline on 9
+
+of 11 downstream datasets, despite no interior labels. 
+
+# 2 Related Work 
+
+Neural operators. Kovachki et al. [26] laid the theoretical groundwork for approximating operators across infinite dimensional Banach spaces. FNO [28] performs global convolution via truncated Fourier modes, while DeepONet [32] factorizes the operator into input encoding and output recon-struction branches [7]. Subsequent works extend these methodologies to irregular domains, factorized convolutions, and transformer-style attention over physical tokens [29, 45, 37, 55, 54]. Recent efforts address the task-specific constraint, with LeMON [42] training a single network across 19 distinct PDEs via meta-learning and Serrano et al. [40] approximating unseen combined dynamics by 2Figure 1: Our unsupervised PDE-based finetuning framework predicts unseen PDEs strictly through the governing PDEs and boundary conditions, without any interior ground-truth fields. We visualize representative channels on the four datasets in The Well [35]. operator splitting without retraining. All the preceding methods remain purely data-driven and rely on ground-truth solutions for training. 
+
+Physics-informed methods. PINNs [36, 52] formulate the training loss as a combination of PDE residuals and initial/boundary conditions, reducing the reliance on dense solution data. Subsequent works address training pathologies from complementary angles such as training-dynamics analy-sis, temporal causality, gradient alignment, and symmetry-based data augmentation [48, 47, 49, 4]. PINO [30] and PI-DeepONet [46] inject equation-level constraints into FNO and DeepONet respec-tively. Complementary to automatic differentiation, CAN-PINN [9] replaces AD with grid-based stencils including second-order upwind schemes that our residual discretization in Section 3.3 follows. Recent work begins to explore cross-PDE generalization within the physics-informed paradigm. HyPINO [3] employs a hypernetwork conditioned on PDE parameters, and Auroy and Protopapas [1] pretrain a multi-head PINN on a linear operator and transfer to nonlinear PDEs in closed form without retraining. These works remain trained from random initialization and have not been coupled with pretrained foundation models. 
+
+PDE foundation models and low-rank adaptation. Foundation models for PDEs are pretrained on heterogeneous PDE datasets [43, 35, 24] and generalize to downstream tasks with signifi-cantly fewer labeled samples than training a specialized model from scratch. Poseidon [17], built upon a multiscale Swin Transformer, leverages the semi-group property of time-dependent PDEs. OmniArch [8] accommodates variable physical quantities through a channel-wise state rep-resentation. PDE-Transformer [18] introduces a Diffusion Transformer backbone pretrained on APEBench [24]. MORPH [38] supports heterogeneous spatial modalities and finetunes downstream tasks via LoRA [20], making it the closest in methodology to our work, yet it strictly relies on dense ground truth fields for adaptation. MPP [33] and PhysiX [34] corroborate that joint pretraining over diverse physical systems facilitates transfer to unseen systems. Even where physics priors are incorporated, such as the PDE-Aligner module in OmniArch [8] and the physics-informed temporal alignment in PITA [58], these serve as auxiliary regularizers alongside the dominant supervised loss. PI-MFM [59] processes symbolic PDE representations and automatically assembles residual losses, enforcing physics constraints during both pretraining and adaptation across 1D time-dependent PDEs. Orthogonal in intent but complementary in level, recent LoRA variants [50, 6, 56, 51] impose orthog-onality at cross-task, initialization, projection, or Stiefel-manifold levels, and factor-wise Muon-style updates yield uniform spectral growth [21, 22]. NSLoRA differs by applying Newton-Schulz in the forward pass with scalar magnitude parameters, and we detail this comparison in Section 3.4. 
+
+# 3 Approach 
+
+3.1 Problem Formulation 
+
+PDE problems are defined over a domain Ω with the corresponding initial conditions and boundary conditions. Our goal is to adapt a pretrained PDE foundation model to unseen PDEs relying exclusively on these physical constraints, thereby eliminating the need for interior ground-truth solution fields required by conventional supervised finetuning. 3Figure 2: Overview of our framework. The shared backbone Gθ inherently accommodates inputs of varying spatial resolutions. The encoder partitions each input frame into patches and projects them into a token sequence, while the decoder inverts the patchification. A stack of neighborhood attention layers processes the tokens. Stage 1 pretrains the backbone via supervised next-step prediction. Stage 2 strictly freezes the pretrained weights and inserts NSLoRA adapters into every attention and feed-forward module, optimized under our unsupervised PDE-based adaptation objective. We consider a generalized spatiotemporal physical system, where a c-channel multivariate physical field u : Ω × [0 , T ] → Rc on a d-dimensional domain Ω ⊂ Rd (d ∈ { 1, 2, 3}) satisfies: 
+
+∂tu(x, t ) + N [u(x, t )] = 0 , x ∈ Ω, t ∈ (0 , T ],
+
+u(x, 0) = u0(x), x ∈ Ω,
+
+B[u(x, t )] = g(x, t ), x ∈ ∂Ω, t ∈ (0 , T ],
+
+(1) where N denotes a general (spatial) differential operator encapsulating potentially nonlinear spatial dynamics, u0 specifies the initial condition at t = 0 , and B is the prescribed boundary operator that enforces the boundary value g on ∂Ω. We further denote the residual operator as R(u) := ∂tu+N [u],so that any solution of the governing equation satisfies R(u) ≡ 0 on Ω and R(ˆ u) quantifies the pointwise violation of the equation by a candidate prediction ˆu.We formulate PDE solving as next-step operator learning. Given Tin temporally contiguous frames 
+
+Ut = [ ut−Tin +1 , . . . , ut], the model learns a surrogate mapping Gθ that predicts the immediate subsequent state ˆut+1 = Gθ (Ut). Gθ underlies both pretraining and downstream adaptation. This formulation addresses deployment settings in which a short history of the target system is already available, such as extending or accelerating an existing coarse simulation, or continuing a trajectory from recorded observations. It does not address the cold-start setting in which only an initial condition and a set of equation parameters are given, which would require the model to produce the first Tin 
+
+frames itself. 
+
+Unsupervised PDE-Based Adaptation Objective (UPAO). Given a pretrained operator Gθ0 , an unseen PDE specified by N , an initial history window Ut, and a boundary reference field u∗ defined on 
+
+∂Ω × [0 , T ], we seek to optimize parameters θ∗ such that Gθ∗ approximates the solution operator on 
+
+Ω for t > 0, without access to the ground truth solution at any interior point. Throughout the paper, 
+
+u∗ exclusively denotes this boundary reference field, which is instantiated as the peripheral band of width 1 grid points along the outermost spatial boundary, remaining intrinsically accessible across all temporal steps. We detail the corresponding training objective in Section 3.3. 
+
+3.2 Architecture 
+
+Figure 2 demonstrates the overall architecture of our proposed model. We employ a neighborhood attention (NA) Transformer [16] as the backbone for Gθ , whose window-restricted attention inherently aligns with the localized nature of PDE dynamics and scales linearly with the sequence length given a fixed window size. The NA Transformer leverages a patch-based encoder-decoder paradigm with a Transformer core applied uniformly across spatial domains, strictly preserving spatiotemporal dimensionality between input and output. Heterogeneous physical fields are unified into a shared 
+
+C-channel representation. Given the input Ut, the model generates a temporally shifted sequence 
+
+ˆUt+1 = [ˆ ut−Tin +2 , . . . , ˆut+1 ] of equivalent length, from which only the last frame ˆut+1 is retained 4as the next-step prediction. This shifted predictive design imposes dense supervision across every temporal subsequence from 1 to Tin within a single forward, enabling inference with arbitrary temporal length up to Tin frames without structural alterations. 
+
+Unified channel representation. Motivated by the necessity to process diverse physical fields from heterogeneous datasets, the unified architecture is engineered to accommodate flexible input channel compositions. Each physical field is projected into a unified C-dimensional state space, with specific indices deterministically assigned to velocity channels and scalar channels according to the distinct configuration of each dataset (detailed in Appendix A.3). Specifically, a binary mask selectively activates the required channels while strictly zero-padding the inactive channels. 
+
+Encoder-decoder. The encoder E and decoder D constitute a symmetric patch-based architecture. To accommodate the varying magnitude scales across distinct physical quantities, the input Ut is strictly subjected to a preliminary standardization ˜Ut = ( Ut − μ)/(σ + ϵ), where μ and σ represent the mean and standard deviation computed independently for each sample and physical quantity of Ut, ensuring that all subsequent internal representations operate in normalized space. Given 
+
+˜Ut ∈ RTin ×N1×···× Nd×C on a spatial grid of resolution N1 × · · · × Nd, the encoder partitions each frame into non-overlapping d-dimensional patches of side length p and yields a token sequence Z ∈
+
+RTin ×M ×H with embedding dimension H and M = Qdi=1 (Ni/p ) patches per frame. Each token 
+
+zt,m ∈ RH , representing the corresponding spatiotemporal volume of Ut, is computed through a stack of strided convolutions with residual blocks that downsamples the patch to an H-dimensional vector. The decoder D executes the inverse mapping of this encoding process. Transposed convolutions upsample each token to its d-dimensional patch, and the patches are rearranged into a full-resolution intermediate field. A convolution formulated as I + Conv 0 refines ˜ut+1 to mitigate the boundary reconstruction artifacts. Finally, the inverse transform ˆut+1 = σ · ˜ut+1 + μ restores the prediction to its original physical scale. 
+
+Shared NA Transformer. The Transformer core T processes the token sequence Z ∈ RTin ×M ×H
+
+through L pre-norm residual layers. Each layer contains a dimension-specific neighborhood attention 
+
+NA (d) and a shared SwiGLU [41] feed-forward block. The feed-forward block SwiGLU( z) ∈ RH
+
+and the preceding RMSNorm [57] are applied pointwise to each token. Therefore their learnable weights are universally shared across any dimension d. NA (d) constrains each token at position 
+
+(t, x 1, . . . , x d) to a local window of width k along each axis, totalling kd+1 tokens that span one temporal and d spatial axes. Consequently, the attention kernel strictly imposes distinct instantiations and unshared weights across different spatial dimensionalities. T evaluates to O(L · M · Tin · kd+1 ),exhibiting linear complexity scaling with the token count under a fixed k.Each NA variant enforces causality along the temporal axis while remaining unconstrained along the spatial axes, an asymmetry strictly mandated by the shifted predictive design introduced above. Specifically, since the input uτ +1 inherently encapsulates the exact supervision target (for τ < Tin − 1), the predicted output ˆuτ +1 would directly exploit the value of uτ +1 under an unmasked temporal attention, degenerating the learning objective into a trivial identity mapping uτ +1 7 → uτ +1 .Temporal causality strictly precludes such information leakage. Spatial attention remains bidirectional, since spatial dimensions do not necessitate such causality. 
+
+Supervised pretraining. We pretrain the operator Gθ on heterogeneous time-dependent PDEs through supervised next-step prediction. Given a history window Ut paired with its ground-truth shifted counterpart Ut+1 = [ ut−Tin +2 , . . . , ut+1 ], we minimise the mean-squared discrepancy across every output frame. The pretraining loss is formulated as: 
+
+Lpre = 1
+
+Tin |Ω| ˆUt+1 − Ut+1 
+
+> 2
+
+, (2) where the computation is restricted to the active channels. Through pretraining, the resulting backbone 
+
+Gθ0 encodes the transferable representation that the adaptation stage subsequently leverages. 
+
+3.3 Unsupervised PDE-Based Adaptation 
+
+The UPAO, or Unsupervised PDE-Based Adaptation Objective, is formulated through a dual-component training objective. Given an initial history window Ut, we partition the spatial domain into a boundary band Sb and an interior region Sp, with Sp ∪ S b = Ω and Sp ∩ S b = ∅. The boundary condition term LBC supervises Sb by aligning the prediction with the boundary reference 5field u∗, while the PDE residual term LPDE penalises the equation residual R(ˆ u) on Sp through finite-difference discretization. 
+
+Boundary condition term. The reference field u∗ in LBC constitutes the boundary observation specified by the UPAO, evaluated on a peripheral band of width 1 grid points along the spatial boundary. We supervise ˆu directly against u∗|∂Ω within this band. For each predicted frame, with 
+
+Sb denoted as the set of boundary grid points within the band, we compute the MSE between the prediction and the reference within this region. This boundary loss is formulated as: 
+
+LBC =
+
+s 1
+
+|S b|
+
+X
+
+> x∈S b
+
+∥ˆut+1 (x) − u∗
+
+> t+1
+
+(x)∥2 . (3) 
+
+PDE residual term. We evaluate the discrete residual R(ˆ u) on every grid point of Sp through finite difference schemes [27]. Diffusive and gradient operators use central differences, while convective nonlinearities such as those in Navier–Stokes or Burgers employ a conservative upwind discretization following [9]. Implementation specifics, including ghost-cell extrapolation and the upwind face-value formulas, are deferred to Appendix A.5. Let Rk denote the residual of the k-th sub-equation of the system. As the system decomposes into K
+
+sub-equations, the corresponding residual scales can span multiple orders of magnitude. To mitigate this disparity, we apply an equation-wise normalization for each predicted frame. The normalized PDE loss is formulated as: 
+
+LPDE =
+
+vuut 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+1
+
+s2 
+
+> k
+
+|S p|
+
+X
+
+> x∈S p
+
+∥Rk(ˆ u)( x)∥2 , (4) where s2 
+
+> k
+
+= 1  
+
+> Tin |S p|
+
+∥Rk(Ut)∥2 denotes the magnitude evaluated on Ut for the k-th sub-equation. This per-equation rescaling prevents any single sub-equation from dominating the gradient signal. 
+
+Total loss. The overall optimization objective is defined as: 
+
+L = λBC · L BC + LPDE . (5) The scale of LPDE exhibits significant variance across heterogeneous PDE benchmarks. To address this instability, we designate λBC as the sole hyperparameter regulating the relative weight between 
+
+LBC and LPDE during adaptation. 
+
+3.4 Adapting the Pretrained Backbone via NSLoRA 
+
+Under UPAO, we finetune the pretrained backbone Gθ0 on each unseen target PDE by injecting low-rank adaptation (LoRA) [20] into every NA layer and SwiGLU block, with the NA Transformer core strictly frozen at its pretrained values while the encoder and decoder remain jointly trainable. Standard LoRA freezes each pretrained weight matrix W0 ∈ Rdout ×din inherited from θ0 and incorporates a trainable rank-r increment modulated by the fixed scalar α/r , yielding the effective weight W = W0 + ∆ W with r ≪ min( din , d out ). This increment is defined as: 
+
+∆W = αr BA, A ∈ Rr×din , B ∈ Rdout ×r . (6) The bottleneck dimension r of standard LoRA strictly upper-bounds the effective rank of ∆W ,defined as the number of nontrivial singular values. During adaptation, this effective rank frequently collapses because no constraint prevents redundancy among the columns of B and rows of A. The resulting rank deficiency restricts the adaptation of less dominant physical quantities. Enforcing orthogonality on each low-rank matrix ensures that every rank component is a unit-norm direction, increasing the effective rank and balancing the adaptation across the physical quantities. We propose NSLoRA, which applies Newton-Schulz (NS) iteration [21] to each low-rank matrix independently and rescale them by the original Frobenius norms. This increment is formulated as: 
+
+∆W = ∥A∥F · ∥ B∥F · NS( B) NS( A) , (7) where NS( B) returns an approximately column-orthogonal matrix and NS( A) returns an approx-imately row-orthogonal matrix. Both matrices are approximated via n NS steps that iteratively apply 
+
+X ← a X + b (XX ⊤)X + c (XX ⊤)2X , (8) with predefined coefficients (a, b, c ) inherited from [21]. Since ∥A∥F and ∥B∥F are computed from the learnable matrices at every forward pass, the rescaling ∥A∥F · ∥ B∥F replaces the fixed α/r in Eq. 6 with an adaptive per-module amplitude. 6Table 1: Evaluation on eleven downstream datasets, measured by VRMSE ( ↓). sup : supervised training with dense ground-truth labels. unsup : training with only boundary observations and PDE residuals (UPAO). NO : Neural Operator. FM : Foundation Model. PDE-Trans. abbreviates PDE-Transformer.                                                                                                              
+
+> The Well [35] Exact-Solution Datasets
+> Method Rayleigh Bénard Shear Flow Gray Scott Active Matter Burgers 1D Adv 1D TG 2D Wave 2D AdvDiff 2D Burgers 2D Adv 3D sup NO FNO [28] 0.2139 0.3782 0.0073 0.1584 0.0063 0.0062 0.0029 0.0275 0.0296 0.1875 0.0645 TFNO [25] 0.1762 0.2234 0.0033 0.1390 0.0009 0.0017 0.0033 0.0074 0.0040 0.1615 0.0197 U-Net [39] 0.1423 0.2439 0.0182 0.2133 0.0455 0.0662 0.0197 0.0434 0.0357 0.2066 0.0570 CNextU-Net [31] 0.1022 0.0455 0.0054 0.1248 0.0065 0.0088 0.0178 0.0082 0.0062 0.0165 0.0166
+> FM PDE-Trans. [18] 0.5320 0.0922 0.0876 0.0928 ——0.0159 0.0333 0.0149 0.0224 —Poseidon [17] 0.4946 0.0308 0.1845 0.4540 ——0.0473 0.1935 0.0146 0.0504 —Ours 0.1660 0.0446 0.0754 0.0639 0.0112 0.0126 0.0014 0.0097 0.0023 0.0022 0.0979 unsup FM PDE-Trans. [18] 1.6302 1.4729 0.2009 1.3398 ——0.0137 0.1806 0.0418 0.2524 —Ours 0.1812 0.1112 0.1099 0.1215 0.0142 0.0191 0.0060 0.0218 0.0038 0.0021 0.0985
+
+# 4 Experiments 
+
+4.1 Setup Datasets. We pretrain the backbone on six PDEBench subsets [43] covering compressible Navier-Stokes in 1D, 2D, and 3D, shallow water, diffusion-reaction, and incompressible Navier-Stokes. We evaluate UPAO on eleven downstream datasets across two suites. The first suite contains four high-fidelity datasets from The Well [35], including Rayleigh–Bénard, Shear Flow, Gray–Scott reaction-diffusion, and Active Matter. The second suite contains seven datasets analytically derived from exact solutions, covering Burgers, Advection (Adv), Taylor–Green (TG), Wave, and Advection– Diffusion (AdvDiff) equations across 1D, 2D, and 3D. Further details on these learning tasks are deferred to Appendix B. The selection of datasets is strictly motivated by the formulation of our UPAO objective. Since UPAO relies on finite difference approximations to compute the PDE residual term, it is highly sensitive to the numerical precision of the data. Certain simulation benchmarks, such as PDEArena [14] and PDEGym [17], often introduce discretization errors that severely compromise the accuracy of computed PDE residuals. Therefore, we utilize datasets synthesized from exact analytical solutions, which guarantee absolute precision at discrete coordinates. Detailed visualizations of the computed PDE residuals are provided in Figure 3. Crucially, to assess cross-equation transferability, seven of these eleven tasks involve unseen PDEs during pretraining. 
+
+Models and baselines. We compare against four neural-operator baselines: FNO [28], TFNO [25], U-Net [39], and CNextU-Net [31], all trained from random initialization. Two PDE foundation models, PDE-Transformer [18] and Poseidon [17], are finetuned from publicly released checkpoints of a comparable scale to our backbone, ensuring a fair comparison. We additionally finetune PDE-Transformer under UPAO. Our backbone is evaluated under two finetuning objectives: a supervised LoRA which serves as an empirical upper bound, and UPAO with NSLoRA. Our backbone consumes a history window of Tin = 8 frames and predicts the next frame, with the same window length used in pretraining, adaptation, and evaluation. The two foundation-model baselines ingest temporal context differently, as detailed in Appendix C.1. Complete implementation details for all baselines can be found in Appendix C. 
+
+Evaluation metric. Following [35], we report the variance-normalized root mean squared error (VRMSE) averaged across the c active channels of each dataset: 
+
+VRMSE(ˆ u, u) = 1
+
+c
+
+> c
+
+X
+
+> i=1
+
+s P 
+
+> x,t
+
+(ˆ ui − ui)2
+
+P
+
+> x,t
+
+(ui − ¯ui)2 , (9) where ˆui and ui denote the i-th channels of ˆu and u, respectively, and ¯ui is the temporal mean of ui
+
+at each spatial location. A VRMSE above 1 indicates worse results than an accurate estimation of ¯ui.
+
+4.2 Main Results Per-dataset comparison. In Table 1, our framework reduces VRMSE by a geometric-mean factor of 9.9 compared to PDE-Transformer with standard LoRA under identical UPAO. Compared to the supervised LoRA upper bound on the same backbone, our unsupervised framework remains within 
+
+2.5× on seven of the eight 2D benchmarks. Against the four competitive neural operator baselines, 7Table 2: Evaluation of cross-dataset transfer under UPAO finetuning and zero-shot inference, mea-sured by target VRMSE ( ↓). Within each 7 × 7 panel, bold marks the lowest off-diagonal value per column , i.e. the source dataset that transfers best to that target. Gray diagonal entries denote the in-domain supervised performance and are excluded from the comparison. In the two “Ours” columns the row index denotes the target dataset and the source is always the PDEBench-pretrained backbone, so these columns have no diagonal. Bold there marks the better of zero-shot and UPAO for that target. “—” marks incompatible channel counts in the zero-shot setting. Dataset abbreviations: BG (Burgers 2D), WV (Wave 2D), TG (Taylor–Green 2D), AM (Active Matter), GS (Gray–Scott), RB (Rayleigh–Bénard), SF (Shear Flow).                                                                                                                 
+
+> CNextU-Net [31] (c) Ours (a) Zero-shot (b) UPAO Zero-shot UPAO
+> BG WV TG AM GS RB SF BG WV TG AM GS RB SF BG 0.0165 0.2440 ——0.2576 ——0.0165 0.3200 0.4098 1.5086 0.2424 0.5900 0.5383 0.0876 0.0021
+> WV 0.0845 0.0082 ——0.2900 ——0.0200 0.0082 0.3614 0.9588 0.3419 0.5854 0.6025 1.0176 0.0218
+> TG 0.3129 0.3522 0.0178 0.8263 0.2918 ——0.1960 0.3582 0.0178 0.6888 0.1456 0.5779 0.4282 0.1274 0.0060
+> AM 0.0555 0.0676 0.0485 0.1248 0.2894 ——0.0367 0.1769 0.0474 0.1248 0.2188 0.4404 0.4802 0.1935 0.1215
+> GS 0.4596 0.3965 ——0.0054 ——0.2828 0.1657 0.3729 0.9479 0.0054 0.6455 0.5094 0.1567 0.1099
+> RB 0.1197 0.1550 0.1561 0.3185 0.4879 0.1022 0.2017 0.0604 0.1314 0.0624 0.3673 0.2701 0.1022 0.2318 0.7068 0.1812
+> SF 0.0629 0.2403 0.0635 0.7857 0.2486 0.4492 0.0455 0.2094 0.3964 0.1703 0.8347 0.5213 0.6027 0.0455 0.7824 0.1112
+
+Table 3: Ablation study on the effect of pretraining under UPAO, measured by VRMSE ( ↓). We com-pare our pretrained NSLoRA adaptation against full-parameter training from random initialization. 
+
+Exact-Solution Datasets The Well 
+
+TG 2D Wave 2D AdvDiff 2D Burgers 2D Rayleigh Bénard Shear Flow Gray Scott Active Matter Scratch (full-param, no pretrain) 0.3920 0.7903 0.0673 0.0716 0.2215 0.5839 0.3366 0.4588 Ours (NSLoRA, pretrained) 0.0060 0.0218 0.0038 0.0021 0.1812 0.1112 0.1099 0.1215 
+
+our framework outperforms at least one on nine of the eleven datasets. These results validate that UPAO effectively bridges the performance gap between unsupervised adaptation and fully supervised paradigms. 
+
+Cross-target transfer and backbone dependence. Table 2 evaluates cross-target transferability. While the main results establish the broad adaptation capabilities of foundation models, Table 2 complements this evaluation by investigating the cross-dataset transferability of neural operators. Each row corresponds to a source dataset on which the model is trained, and each column corresponds to a target dataset on which the model is evaluated. The diagonal entries represent the fully supervised in-domain references trained and evaluated on identical datasets. Off-diagonal cells assess transferability by finetuning a trained source model on a distinct target domain via UPAO. Our zero-shot transfer from the PDEBench-pretrained backbone is stronger than every CNextU-Net source checkpoint on Active Matter and Gray–Scott and weaker on the remaining five targets, and the subsequent UPAO finetuning reduces the target VRMSE by 1.4x to 7.0x on the four benchmarks from The Well. Conversely, applying UPAO to CNextU-Net [31] yields marginal improvements or noticeable performance degradation. These finetuning errors consistently remain at least an order of magnitude worse than their corresponding in-domain references, indicating that CNextU-Net achieves noticeably smaller transfer gains under the same UPAO objective than our framework. The magnitude of the UPAO gain is nevertheless backbone-dependent rather than exclusive to our architecture. On CNextU-Net, UPAO improves over zero-shot transfer on 14 of the 26 comparable off-diagonal cells and degrades it on the remaining 12 . On TFNO, it improves all 26 cells, as reported in Appendix F.4. Taking the best UPAO result per target across source checkpoints, our pretrained backbone attains the lowest VRMSE on six of the seven targets, with Gray–Scott the exception, where the global Fourier modes of TFNO match the low-wavenumber pattern structure more efficiently than a 5 × 5
+
+neighborhood window. 
+
+4.3 Ablation Studies Effect of pretraining. We demonstrate the significance of pretraining in Table 3. Optimizing all parameters from random initialization under UPAO degrades VRMSE on all eight 2D benchmarks. The degradation reaches more than an order of magnitude on the four exact-solution datasets and remains a factor of 1.2 to 5.3 on the four datasets in The Well. The pretrained weights thus provide 8Table 4: Ablation study comparing NSLoRA against standard LoRA [20], measured by VRMSE ( ↓). Both methods employ an identical rank budget and share the exact same warmed-up initialization matrices, differing exclusively in how the forward pass processes low-rank matrices.                  
+
+> Exact-Solution Datasets The Well
+> TG 2D Wave 2D AdvDiff 2D Burgers 2D Gray Scott Active Matter Rayleigh Bénard Shear Flow Standard LoRA [20] 0.0062 0.0224 0.0042 0.0023 0.1101 0.1249 0.1870 0.1141 NSLoRA 0.0060 0.0218 0.0038 0.0021 0.1099 0.1215 0.1812 0.1112
+
+Table 5: Spectral analysis of ∆W across 108 adapter layers per checkpoint, with nominal rank budget 
+
+r = 16 . Higher values indicate broader use of the rank budget.                                                         
+
+> Stable Rank ( ↑)Participation Ratio ( ↑)Entropy Rank ( ↑)Dataset Std. LoRA NSLoRA Std. LoRA NSLoRA Std. LoRA NSLoRA TG 2D 1.470 1.591 0.334 0.377 7.142 7.731
+> Burgers 2D 1.522 1.557 0.315 0.346 6.785 7.267
+> AdvDiff 2D 1.373 1.448 0.303 0.339 6.726 7.275
+> Wave 2D 1.308 1.378 0.289 0.331 6.522 7.122
+> Gray–Scott 2.198 2.225 0.406 0.423 7.930 8.156
+> Active Matter 1.495 1.507 0.308 0.340 6.686 7.233
+> Rayleigh–Bénard 1.367 1.580 0.287 0.337 6.412 7.229
+> Shear Flow 1.352 1.393 0.287 0.314 6.380 6.864
+
+the transferable representations that UPAO leverages, whereas their absence fails to adapt the PDE solver from random weights to good performance. 
+
+Effect of NSLoRA. Table 4 compares NSLoRA against standard LoRA [20] on the same backbone, with both adapters initialized from a shared LoRA warm-up and only the forward path differing. NSLoRA reduces VRMSE on all eight 2D benchmarks by an average of approximately 4% . The complete per-channel results provided in Table 14 further reveals that these improvements are concentrated on less dominant physical quantities such as Burgers Vx, Shear Flow tracer, and TG pressure. This improvement directly supports the physical rebalancing motivation of NSLoRA. To diagnose the mechanism, Table 5 reports the effective rank of ∆W across 108 adapter layers per checkpoint. Despite a nominal rank budget of r = 16 , the stable rank of standard LoRA lies between 
+
+1.31 and 2.20 on the eight 2D datasets, confirming the rank deficiency that NSLoRA addresses. NSLoRA consistently lifts the stable rank, participation ratio, and entropy rank, raising the stable rank by 5.2% on average and by up to 15 .6% on Rayleigh–Bénard. This provides direct empirical evidence that the orthogonalized forward path mitigates rank collapse, while the absolute stable rank remains far below the nominal budget under both forward paths. 
+
+Effect of PDE term normalization. Table 6 compares three normalization strategies for the PDE residual term. The residual scales can span multiple orders of magnitude across sub-equations, and the per-sub-equation division by s2 
+
+> k
+
+used in NORM prevents any single sub-equation from dominating the gradient signal. RESCALED _NORM retains this division and additionally sets λBC = 10 4/ min k s2
+
+> k
+
+,so that the boundary term keeps a comparable relative weight once the residuals have been scaled down. RESCALED _NORM achieves superior performance on most of the eight datasets. Structural ablation regarding LoRA versus full-parameter finetuning (Table 13) is reported in Ap-pendix F. We further provide analytical experiments including a sensitivity analysis of the boundary weight λBC (Table 12), comprehensive cross-target transfer panels for CNextU-Net and TFNO (Table 15), and an execution speed comparison between Newton-Schulz and SVD orthogonalization (Table 16). 
+
+# 5 Conclusion 
+
+We propose an unsupervised PDE-based finetuning framework that adapts a pretrained PDE foun-dation model to unseen equations strictly through the governing PDEs and boundary conditions, eliminating the requirement for interior ground-truth fields. We design a NA Transformer that accommodates varying spatial resolutions. We introduce NSLoRA to rebalance learning across 9Table 6: Ablation study on the normalization strategy of the PDE residual term, measured by VRMSE (↓). The three configurations differ only in whether LPDE divides each sub-equation residual by its own s2
+
+> k
+
+, and in how λBC is set. NORM applies the per-sub-equation normalization of Eq. 4 exactly as written, with λBC = 10 4. RESCALED _NORM applies the same normalization and additionally sets 
+
+λBC = 10 4/ min k s2
+
+> k
+
+, restoring the relative weight of the boundary term after the residuals have been scaled down. NO _NORM omits the division by s2 
+
+> k
+
+in LPDE and keeps λBC = 10 4.                              
+
+> Exact-Solution Datasets The Well
+> Strategy TG 2D Wave 2D AdvDiff 2D Burgers 2D Gray Scott Active Matter Rayleigh Bénard Shear Flow
+> RESCALED _NORM 0.0070 0.0275 0.0049 0.0034 0.1117 0.0768 0.1884 0.1151
+> NORM 0.0294 0.1007 0.0133 0.0109 0.1110 0.0767 0.1883 0.5007
+> NO _NORM 0.0875 0.0478 0.0102 0.1303 0.1112 0.0769 0.1940 0.1341
+
+heterogeneous physical quantities. Across eleven downstream datasets, our framework reduces VRMSE by a geometric-mean factor of 9.9 relative to PDE-Transformer [18] under UPAO and remains within a factor of 2.5 of supervised LoRA finetuning on the same backbone on seven of the eight 2D benchmarks. We outperform at least one competitive neural operator baseline on nine of the eleven datasets, while requiring no interior labels. We demonstrate that the gain from UPAO is backbone-dependent, remaining consistent on TFNO, marginal or negative on CNextU-Net, and largest and most uniform on our pretrained backbone. 
+
+Limitations. The framework requires that the governing equations of the target PDE are known and that boundary observations are available throughout the trajectory, restricting applicability when such priors cannot be obtained. In addition, the PDE residual term provides weaker supervision when the simulation data carries discretization error. Evaluation is restricted to single-step prediction, leaving autoregressive stability untested. 
+
+# References 
+
+[1] Samuel Auroy and Pavlos Protopapas. One-shot transfer learning for nonlinear pdes with perturbative pinns. arXiv preprint arXiv:2511.11137 , 2025. [2] Edward R Benton and George W Platzman. A table of solutions of the one-dimensional burgers equation. Quarterly of Applied Mathematics , 30(2):195–212, 1972. [3] Rafael Bischof, Michal Piovarˇ ci, Michael A Kraus, Siddhartha Mishra, and Bernd Bickel. Hypino: Multi-physics neural operators via hyperpinns and the method of manufactured solu-tions. arXiv preprint arXiv:2509.05117 , 2025. [4] Johannes Brandstetter, Max Welling, and Daniel E. Worrall. Lie point symmetry data aug-mentation for neural PDE solvers. In Kamalika Chaudhuri, Stefanie Jegelka, Le Song, Csaba Szepesvári, Gang Niu, and Sivan Sabato, editors, International Conference on Machine Learn-ing, ICML 2022, 17-23 July 2022, Baltimore, Maryland, USA , Proceedings of Machine Learning Research, pages 2241–2256. PMLR, 2022. URL https://proceedings.mlr.press/v162/ brandstetter22a.html .[5] Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Language models are few-shot learners. Advances in neural information processing systems , 33:1877–1901, 2020. [6] Kerim Büyükakyüz. Olora: Orthonormal low-rank adaptation of large language models. arXiv preprint arXiv:2406.01775 , 2024. [7] Tianping Chen and Hong Chen. Universal approximation to nonlinear operators by neural networks with arbitrary activation functions and its application to dynamical systems. IEEE Trans. Neural Networks , 6(4):911–917, 1995. doi: 10.1109/72.392253. URL https://doi. org/10.1109/72.392253 .10 [8] Tianyu Chen, Haoyi Zhou, Ying Li, Hao Wang, Chonghan Gao, Rongye Shi, Shanghang Zhang, and Jianxin Li. Omniarch: Building foundation model for scientific computing. arXiv preprint arXiv:2402.16014 , 2024. [9] Pao-Hsiung Chiu, Jian Cheng Wong, Chinchun Ooi, My Ha Dao, and Yew-Soon Ong. Can-pinn: A fast physics-informed neural network based on coupled-automatic–numerical differentiation method. Computer Methods in Applied Mechanics and Engineering , 395:114909, 2022. [10] Julian D Cole. On a quasi-linear parabolic equation occurring in aerodynamics. Quarterly of applied mathematics , 9(3):225–236, 1951. [11] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. Bert: Pre-training of deep bidirectional transformers for language understanding. In Proceedings of the 2019 conference of the North American chapter of the association for computational linguistics: human language technologies, volume 1 (long and short papers) , pages 4171–4186, 2019. [12] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale. In 9th International Conference on Learning Representations, ICLR 2021, Virtual Event, Austria, May 3-7, 2021 . OpenReview.net, 2021. URL https: //openreview.net/forum?id=YicbFdNTTy .[13] Lawrence C. Evans. Partial differential equations , volume 19 of Grad. Stud. Math. Providence, RI: American Mathematical Society (AMS), 2nd ed. edition, 2010. ISBN 978-0-8218-4974-3; 978-1-4704-6942-9; 978-1-4704-1144-2. [14] Jayesh K Gupta and Johannes Brandstetter. Towards multi-spatiotemporal-scale generalized pde modeling. arXiv preprint arXiv:2209.15616 , 2022. [15] Zhongkai Hao, Chang Su, Songming Liu, Julius Berner, Chengyang Ying, Hang Su, Anima Anandkumar, Jian Song, and Jun Zhu. DPOT: auto-regressive denoising operator transformer for large-scale PDE pre-training. In Ruslan Salakhutdinov, Zico Kolter, Katherine A. Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and Felix Berkenkamp, editors, Forty-first International Conference on Machine Learning, ICML 2024, Vienna, Austria, July 21-27, 2024 , Proceedings of Machine Learning Research, pages 17616–17635. PMLR / OpenReview.net, 2024. URL 
+
+https://proceedings.mlr.press/v235/hao24d.html .[16] Ali Hassani, Steven Walton, Jiachen Li, Shen Li, and Humphrey Shi. Neighborhood attention transformer. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2023, Vancouver, BC, Canada, June 17-24, 2023 , pages 6185–6194. IEEE, 2023. doi: 10.1109/ CVPR52729.2023.00599. URL https://doi.org/10.1109/CVPR52729.2023.00599 .[17] Maximilian Herde, Bogdan Raonic, Tobias Rohner, Roger Käppeli, Roberto Moli-naro, Emmanuel de Bézenac, and Siddhartha Mishra. Poseidon: Efficient founda-tion models for pdes. In Amir Globersons, Lester Mackey, Danielle Belgrave, An-gela Fan, Ulrich Paquet, Jakub M. Tomczak, and Cheng Zhang, editors, Advances in Neural Information Processing Systems 38: Annual Conference on Neural Informa-tion Processing Systems 2024, NeurIPS 2024, Vancouver, BC, Canada, December 10 - 15, 2024 , 2024. URL http://papers.nips.cc/paper_files/paper/2024/hash/ 84e1b1ec17bb11c57234e96433022a9a-Abstract-Conference.html .[18] Benjamin J. Holzschuh, Qiang Liu, Georg Kohl, and Nils Thuerey. Pde-transformer: Efficient and versatile transformers for physics simulations. In Aarti Singh, Maryam Fazel, Daniel Hsu, Simon Lacoste-Julien, Felix Berkenkamp, Tegan Maharaj, Kiri Wagstaff, and Jerry Zhu, editors, Forty-second International Conference on Machine Learning, ICML 2025, Vancouver, BC, Canada, July 13-19, 2025 , Proceedings of Machine Learning Research. PMLR / OpenRe-view.net, 2025. URL https://proceedings.mlr.press/v267/holzschuh25a.html .[19] Eberhard Hopf. The partial differential equation ut + uu x = μu xx . Communications on Pure and Applied Mathematics , 3(3):201–230, 1950. doi: https://doi.org/10.1002/cpa.3160030302. URL https://onlinelibrary.wiley.com/doi/abs/10.1002/cpa.3160030302 .11 [20] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. Lora: Low-rank adaptation of large language models. In The Tenth International Conference on Learning Representations, ICLR 2022, Virtual Event, April 25-29, 2022 . OpenReview.net, 2022. URL https://openreview.net/forum?id=nZeVKeeFYf9 .[21] Keller Jordan, Yuchen Jin, Vlado Boza, Jiacheng You, Franz Cesista, Laker Newhouse, and Jeremy Bernstein. Muon: An optimizer for hidden layers in neural networks, 2024. URL 
+
+https://kellerjordan.github.io/posts/muon/ .[22] Changmin Kang, Jihun Yun, Baekrok Shin, Yeseul Cho, and Chulhee Yun. Uniform spec-tral growth and convergence of muon in lora-style matrix factorization. arXiv preprint arXiv:2602.06385 , 2026. [23] George Em Karniadakis, Ioannis G. Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , 3(6):422–440, 2021. [24] Felix Koehler, Simon Niedermayr, Rüdiger Westermann, and Nils Thuerey. Apebench: A benchmark for autoregressive neural emulators of pdes. In Amir Globersons, Lester Mackey, Danielle Belgrave, Angela Fan, Ulrich Paquet, Jakub M. Tomczak, and Cheng Zhang, editors, 
+
+Advances in Neural Information Processing Systems 38: Annual Conference on Neural Information Processing Systems 2024, NeurIPS 2024, Vancouver, BC, Canada, December 10 - 15, 2024 , 2024. URL http://papers.nips.cc/paper_files/paper/2024/hash/ d9875ebcf74bccdc5076acab0dbee62c-Abstract-Datasets_and_Benchmarks_Track. html .[25] Jean Kossaifi, Nikola Kovachki, Kamyar Azizzadenesheli, and Anima Anandkumar. Multi-grid tensorized fourier neural operator for high-resolution pdes. arXiv preprint arXiv:2310.00120 ,2023. [26] Nikola B. Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew M. Stuart, and Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to pdes. J. Mach. Learn. Res. , 24:89:1–89:97, 2023. URL https: //jmlr.org/papers/v24/21-1524.html .[27] Randall J. LeVeque. Finite Difference Methods for Ordinary and Partial Differential Equations: Steady-State and Time-Dependent Problems . SIAM, 2007. [28] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew M. Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. In 9th International Conference on Learning Representations, ICLR 2021, Virtual Event, Austria, May 3-7, 2021 . OpenReview.net, 2021. URL https://openreview. net/forum?id=c8P9NQVtmnO .[29] Zongyi Li, Daniel Zhengyu Huang, Burigede Liu, and Anima Anandkumar. Fourier neural operator with learned deformations for pdes on general geometries. Journal of Machine Learning Research , 24(388):1–26, 2023. [30] Zongyi Li, Hongkai Zheng, Nikola Kovachki, David Jin, Haoxuan Chen, Burigede Liu, Kamyar Azizzadenesheli, and Anima Anandkumar. Physics-informed neural operator for learning partial differential equations. ACM/IMS Journal of Data Science , 1(3):1–27, 2024. [31] Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, Christoph Feichtenhofer, Trevor Darrell, and Saining Xie. A convnet for the 2020s. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 11976–11986, 2022. [32] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. 
+
+Nat. Mach. Intell. , 3(3):218–229, 2021. doi: 10.1038/S42256-021-00302-5. URL https: //doi.org/10.1038/s42256-021-00302-5 .[33] Michael McCabe, Bruno Régaldo-Saint Blancard, Liam Holden Parker, Ruben Ohana, Miles D. Cranmer, Alberto Bietti, Michael Eickenberg, Siavash Golkar, Géraud Krawezik, François Lanusse, Mariel Pettee, Tiberiu Tesileanu, Kyunghyun Cho, and Shirley Ho. Multiple 12 physics pretraining for spatiotemporal surrogate models. In Amir Globersons, Lester Mackey, Danielle Belgrave, Angela Fan, Ulrich Paquet, Jakub M. Tomczak, and Cheng Zhang, edi-tors, Advances in Neural Information Processing Systems 38: Annual Conference on Neural Information Processing Systems 2024, NeurIPS 2024, Vancouver, BC, Canada, December 10 - 15, 2024 , 2024. URL http://papers.nips.cc/paper_files/paper/2024/hash/ d7cb9db5ade2db7814fbd01ee59f4c7b-Abstract-Conference.html .[34] Tung Nguyen, Arsh Koneru, Shufan Li, and Aditya Grover. Physix: A foundation model for physics simulations. CoRR , abs/2506.17774, 2025. doi: 10.48550/ARXIV.2506.17774. URL 
+
+https://doi.org/10.48550/arXiv.2506.17774 .[35] Ruben Ohana, Michael McCabe, Lucas Meyer, Rudy Morel, Fruzsina J Agocs, Miguel Beneitez, Marsha Berger, Blakesley Burkhart, Stuart B Dalziel, Drummond B Fielding, et al. The well: a large-scale collection of diverse physics simulations for machine learning. Advances in Neural Information Processing Systems , 37:44989–45037, 2024. [36] Maziar Raissi, Paris Perdikaris, and George E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. J. Comput. Phys. , 378:686–707, 2019. doi: 10.1016/J.JCP.2018.10.045. URL https://doi.org/10.1016/j.jcp.2018.10.045 .[37] Bogdan Raonic, Roberto Molinaro, Tim De Ryck, Tobias Rohner, Francesca Bartolucci, Rima Alaifari, Siddhartha Mishra, and Emmanuel De Bézenac. Convolutional neural operators for robust and accurate learning of PDEs. In Advances in Neural Information Processing Systems ,volume 36, pages 77187–77200, 2023. [38] Mahindra Singh Rautela, Alexander Most, Siddharth Mansingh, Bradley C Love, Alexander Scheinker, Diane Oyen, Nathan Debardeleben, Earl Lawrence, and Ayan Biswas. Morph: Pde foundation models with arbitrary data modality. arXiv preprint arXiv:2509.21670 , 2025. [39] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation. In International Conference on Medical image computing and computer-assisted intervention , pages 234–241. Springer, 2015. [40] Louis Serrano, Jiequn Han, Edouard Oyallon, Shirley Ho, and Rudy Morel. Test-time gen-eralization for physics through neural operator splitting. arXiv preprint arXiv:2602.00884 ,2026. [41] Noam Shazeer. GLU variants improve transformer. CoRR , abs/2002.05202, 2020. URL 
+
+https://arxiv.org/abs/2002.05202 .[42] Jingmin Sun, Zecheng Zhang, and Hayden Schaeffer. Lemon: Learning to learn multi-operator networks. arXiv preprint arXiv:2408.16168 , 2024. [43] Makoto Takamoto, Timothy Praditia, Raphael Leiteritz, Daniel MacKinlay, Francesco Alesiani, Dirk Pflüger, and Mathias Niepert. Pdebench: An extensive benchmark for scientific machine learning. In Sanmi Koyejo, S. Mohamed, A. Agarwal, Danielle Belgrave, K. Cho, and A. Oh, editors, Advances in Neural Information Processing Systems 35: Annual Conference on Neural Information Processing Systems 2022, NeurIPS 2022, New Orleans, LA, USA, November 28 - De-cember 9, 2022 , 2022. URL http://papers.nips.cc/paper_files/paper/2022/hash/ 0a9747136d411fb83f0cf81820d44afb-Abstract-Datasets_and_Benchmarks.html .[44] Geoffrey Ingram Taylor and Albert Edward Green. Mechanism of the production of small eddies from large ones. Proceedings of the Royal Society of London. Series A-Mathematical and Physical Sciences , 158(895):499–521, 1937. [45] Alasdair Tran, Alexander Mathews, Lexing Xie, and Cheng Soon Ong. Factorized fourier neural operators. In International Conference on Learning Representations (ICLR) , 2023. arXiv:2111.13802. [46] Sifan Wang, Hanwen Wang, and Paris Perdikaris. Learning the solution operator of parametric partial differential equations with physics-informed DeepONets. Science Advances , 2021. arXiv:2103.10974. 13 [47] Sifan Wang, Shyam Sankaran, and Paris Perdikaris. Respecting causality is all you need for training physics-informed neural networks. CoRR , abs/2203.07404, 2022. doi: 10.48550/ ARXIV.2203.07404. URL https://doi.org/10.48550/arXiv.2203.07404 .[48] Sifan Wang, Xinling Yu, and Paris Perdikaris. When and why pinns fail to train: A neural tangent kernel perspective. J. Comput. Phys. , 449:110768, 2022. doi: 10.1016/J.JCP.2021.110768. URL https://doi.org/10.1016/j.jcp.2021.110768 .[49] Sifan Wang, Ananyae Kumar Bhartari, Bowen Li, and Paris Perdikaris. Gradient alignment in physics-informed neural networks: A second-order optimization perspective. In Advances in Neural Information Processing Systems , volume 38, 2025. [50] Xiao Wang, Tianze Chen, Qiming Ge, Han Xia, Rong Bao, Rui Zheng, Qi Zhang, Tao Gui, and Xuan-Jing Huang. Orthogonal subspace learning for language model continual learning. In 
+
+Findings of the Association for Computational Linguistics: EMNLP 2023 , pages 10658–10671, 2023. [51] Zeqiang Wang, Xinyue Wu, Chenxi Li, Zixi Chen, Nishanth Sastry, Jon Johnson, and Suparna De. Orthogeolora: Geometric parameter-efficient fine-tuning for structured social science concept retrieval on theweb. arXiv preprint arXiv:2601.09185 , 2026. [52] Zhao Wei and Jiao Liu. Evolutionary neural architecture search for physics-informed neural networks with variable-length designs. IEEE Transactions on Evolutionary Computation , pages 1–1, 2026. [53] Zhao Wei, Chin Chun Ooi, Jian Cheng Wong, Abhishek Gupta, Pao-Hsiung Chiu, and Yew-Soon Ong. Out-of-distribution generalization for neural physics solvers. arXiv preprint arXiv:2601.19091 , 2026. [54] Shizheng Wen, Arsh Kumbhat, Levi Lingsch, Sepehr Mousavi, Yizhou Zhao, Praveen Chan-drashekar, and Siddhartha Mishra. Geometry aware operator transformer as an efficient and accurate neural surrogate for PDEs on arbitrary domains. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. URL https://openreview.net/forum? id=HXFvNkNt0n .[55] Haixu Wu, Huakun Luo, Haowen Wang, Jianmin Wang, and Mingsheng Long. Transolver: A fast transformer solver for pdes on general geometries. In Ruslan Salakhutdinov, Zico Kolter, Katherine A. Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and Felix Berkenkamp, editors, Forty-first International Conference on Machine Learning, ICML 2024, Vienna, Austria, July 21-27, 2024 , Proceedings of Machine Learning Research, pages 53681–53705. PMLR / OpenReview.net, 2024. URL https://proceedings.mlr.press/v235/wu24r.html .[56] Yifeng Xiong and Xiaohui Xie. Oplora: Orthogonal projection lora prevents catastrophic forgetting during parameter-efficient fine-tuning. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 34088–34096, 2026. [57] Biao Zhang and Rico Sennrich. Root mean square layer normalization. In Hanna M. Wallach, Hugo Larochelle, Alina Beygelzimer, Florence d’Alché-Buc, Emily B. Fox, and Roman Garnett, editors, Advances in Neural Information Processing Systems 32: Annual Conference on Neural Information Processing Systems 2019, NeurIPS 2019, December 8-14, 2019, Vancouver, BC, Canada , pages 12360–12371, 2019. URL https://proceedings.neurips.cc/paper/ 2019/hash/1e8a19426224ca89e83cef47f1e7f53b-Abstract.html .[58] Congcong Zhu, Xiaoyan Xu, Jiayue Han, and Jingrun Chen. Physics-informed temporal alignment for auto-regressive PDE foundation models. In Aarti Singh, Maryam Fazel, Daniel Hsu, Simon Lacoste-Julien, Felix Berkenkamp, Tegan Maharaj, Kiri Wagstaff, and Jerry Zhu, editors, Forty-second International Conference on Machine Learning, ICML 2025, Vancou-ver, BC, Canada, July 13-19, 2025 , Proceedings of Machine Learning Research. PMLR / OpenReview.net, 2025. URL https://proceedings.mlr.press/v267/zhu25w.html .[59] Min Zhu, Jingmin Sun, Zecheng Zhang, Hayden Schaeffer, and Lu Lu. Pi-mfm: Physics-informed multimodal foundation model for solving partial differential equations. arXiv preprint arXiv:2512.23056 , 2025. 14 A Architecture and Implementation Details 
+
+A.1 Architecture Hyperparameters 
+
+Table 7 lists the concrete hyperparameter values for the backbone in Section 3.2 and the LoRA adapter in Section 3.4. The first block lists the backbone configuration shared across pretraining and finetuning, and the second block lists the adapter configuration applied during the adaptation stage. Table 7: Hyperparameters of the NA Transformer backbone and the LoRA adapter. Hyperparameter Value History window Tin 8Channel count C 18 (3 velocity components, 15 scalar slots) Patch size 16 × 16 
+
+Post-patch feature map 4 × 4
+
+Encoder strided convs 2Embedding dimension H 768 Transformer layers L 12 Attention heads 12 NA window size k 5 × 5
+
+Post-smoothing three 7 × 7 convolutions Total parameters ∼182M LoRA rank r 16 LoRA scaling α 32 
+
+A.2 Aspect-Ratio NA Variants and Routing 
+
+The downstream datasets cover three regimes of spatial aspect ratio: square ( 1:1 , e.g. Active Matter 
+
+256 × 256 and Gray–Scott 128 × 128 ), moderately elongated ( 1:2 , e.g. Shear Flow 512 × 256 ), and strongly elongated ( 1:4 , e.g. Rayleigh–Bénard 512 × 128 ). A single neighborhood attention kernel of fixed shape would either truncate the long axis below the natural correlation length or oversample the short axis at quadratic cost. We therefore instantiate three 2D variants with geometrically congruent spatial kernels, summarised in Table 8. Each batch is routed by its post-patch token aspect ratio to the matching variant, and only that variant receives gradient updates from the batch. Variants share neither weights nor learning rate schedules with each other. Table 8: NA variants for 2D inputs. Aspect ratio is computed on the post-patch token grid (input resolution divided by the patch side p = 16 ). Each variant is instantiated as an independent module and exclusively updated by batches that fall in its aspect-ratio range. Variant Spatial kernel Aspect-ratio range Example dataset 
+
+NA (2) 1:1 5 × 5 [1 , 1.5) Active Matter, Gray–Scott 
+
+NA (2) 1:2 5 × 9 [1 .5, 3.0) Shear Flow 
+
+NA (2) 1:4 5 × 17 [3 .0, ∞) Rayleigh–Bénard The 1:1 variant uses the base kernel k = 5 in Table 7. The 1:2 and 1:4 variants stretch the kernel along the elongated axis to 9 and 17 tokens respectively, preserving a comparable geometric coverage of the underlying physical domain. Since virtually all current 3D datasets are cubic, we only train the 
+
+1:1:1 variant for 3D. 
+
+A.3 Channel Slot Mapping 
+
+The model operates on a unified C = 18 channel representation, partitioned into 3 vector slots 
+
+(Vx, V y , V z ) and 15 scalar slots fixed across all datasets. Each downstream dataset writes physical fields into the slots that match its semantics and leaves the remaining slots zero-filled in the input tensor. A binary channel mask of length 18 marks the active slots, and the boundary condition term 15 LBC , the PDE residual term LPDE , and the reported VRMSE are evaluated exclusively on the active channels. The fixed slot inventory is listed in Table 9. Table 9: Scalar channel slots in the unified 18 -channel representation. Each downstream dataset writes its physical fields into the slots whose semantics match, and the remaining slots are zero-filled in the input tensor. The three vector slots (Vx, V y , V z ) are listed separately and not enumerated in this table. Index Slot name Physical interpretation 0 buoyancy buoyancy or external forcing 1 concentration_rho single-species concentration 2 concentration_u reaction-diffusion activator 3 concentration_v reaction-diffusion inhibitor 4 density fluid or material density ρ
+
+5 electron_fraction electron fraction 6 energy internal energy 7 entropy entropy 8 geometry geometry mask such as airfoil shape 9 gravitational_potential gravitational potential 10 height water height for shallow water 11 passive_tracer passive tracer or particle field 12 pressure pressure p
+
+13 speed_of_sound material speed of sound 14 temperature temperature T
+
+A.4 NSLoRA Implementation Details 
+
+NSLoRA orthogonalises each low-rank matrix via Newton-Schulz iteration [21] before composing the rank-r update. Each iteration applies a quintic polynomial to the Gram product of the current iterate. With coefficients (a, b, c ) = (3 .4445 , −4.7750 , 2.0315) and five iterations, the iterate converges to a matrix whose nontrivial singular values lie within a narrow band around one [21]. We denote the operator by NS n(·).For an iterate X, one Newton-Schulz step is given by 
+
+X ← a X + b XX ⊤X + c (XX ⊤)2X. (10) The full orthogonalisation NS n(M ) initialises X ← M/ (∥M ∥F + ϵ), repeats Eq. 10 for n iterations, and returns the final iterate. The NSLoRA forward pass operates on a single LoRA layer with pretrained weight W0 ∈ Rdout ×din 
+
+and trainable factors A ∈ Rr×din , B ∈ Rdout ×r . We first compute the Frobenius norms νA = ∥A∥F
+
+and νB = ∥B∥F . We then orthogonalize both factors as ˆA = NS 5(A) and ˆB = NS 5(B), form the rank-r update ∆W = νAνB ˆB ˆA, and return the effective weight W0 + ∆ W . The two scalar magnitudes νA and νB remain trainable through the standard LoRA gradient path on A, B , while the orthogonalized matrices ˆA, ˆB supply the directional content of the update. The NSLoRA forward path is preceded by a standard LoRA warm-up that jointly optimizes A and 
+
+B under the unsupervised PDE-based objective with the conventional forward ∆W = ( α/r ) BA .This warm-up brings the product BA into a task-relevant subspace before any orthogonalization is applied. We switch from the warm-up to the NSLoRA forward path once the validation VRMSE fails to improve for five consecutive epochs, while retaining the warm-up matrices A, B and the AdamW optimizer state across the switch. Training then continues under the same objective and optimizer schedule, with the forward path being the only change. 
+
+Comparative Setup and Fairness. To evaluate the efficacy of the NSLoRA forward path, we conduct a controlled comparison against the standard LoRA baseline. For a fair comparison, both methods share an identical training infrastructure, including hyperparameter configurations, UPAO, and the AdamW optimizer state inherited from the warm-up phase. The only distinction resides in the forward pass calculation: while the baseline maintains the conventional ∆W = ( α/r )BA throughout, 16 NSLoRA transitions to the orthogonalized update via Eq. 10 after the warm-up. Both variants are trained until convergence, determined by either the early stopping criterion (five consecutive epochs without VRMSE improvement) or reaching the maximum limit of 30 epochs. All quantitative metrics are systematically reported in Table 14. 
+
+A.5 PDE residual Implementation Upwind Discretization for Convective Nonlinearities. For convective terms such as ∇ · (vu), the residual term uses a conservative upwind scheme [9] with second-order face-value interpolation. Let 
+
+fi denote the cell-centered flux at grid point i. The two candidate face values at i + 1 /2 are 
+
+ˆf + 
+
+> i+1 /2
+
+= 32 fi − 12 fi−1, ˆf − 
+
+> i+1 /2
+
+= 32 fi+1 − 12 fi+2 , (11) where + and − denote the left- and right-biased stencils. The final face value is selected from the two candidates based on the sign of the face velocity. The same construction applies symmetrically to the face at i − 1/2.
+
+Ghost-Cell Extrapolation for Non-Periodic Domains. For non-periodic boundaries, central-difference stencils at the outermost interior points require neighbours that lie outside ∂Ω. We populate a single virtual layer of grid points (ghost cells) immediately adjacent to ∂Ω by second-order one-sided polynomial extrapolation of the three nearest interior values, restoring a uniform stencil width across the entire grid. The boundary band Sb itself is excluded from the residual evaluation, so ghost cells exclusively support spatial derivatives of operators internal to N and never enter LBC .
+
+# B Datasets 
+
+We train the framework on a single pretraining corpus and evaluate it across eleven downstream datasets. The evaluation suite includes seven custom-synthesized datasets with closed-form analytical solutions (Section B.2) alongside four high-fidelity simulation datasets from The Well benchmark [35] (Section B.3). The pretraining corpus consists of a six-subset selection from PDEBench [43] (Section B.1). Table 10 provides a complete overview of these data configurations. Seven of the eleven downstream datasets correspond to physical equations completely unseen during the pretraining phase. Table 10: Overview of pretraining and downstream datasets. Resolution is reported per spatial axis. T
+
+denotes the number of stored time steps per trajectory. “Unseen” marks downstream datasets whose governing PDE is not present in the pretraining corpus. Dataset PDE Dim Resolution T # Trajectories Unseen                                                                                                       
+
+> Pretraining (PDEBench [43])
+> 1D CFD Compressible Navier-Stokes 1D 1024 21 10,000 —2D CFD Compressible Navier-Stokes 2D 128 ×128 21 4,000 —3D CFD Compressible Navier-Stokes 3D 64 ×64 ×64 21 100 —Shallow Water Shallow-water equations 2D 128 ×128 101 1,000 —Diffusion-Reaction Two-species reaction-diffusion 2D 128 ×128 101 1,000 —Incompressible NS Incompressible Navier-Stokes 2D 512 ×512 21 1,000 —
+> Exact-solution finetuning datasets (Section B.2)
+> 2D TG Incompressible Navier-Stokes 2D 256 ×256 101 100 no 2D Wave Linear wave equation 2D 256 ×256 101 100 yes 2D Advection–Diffusion Linear advection–diffusion 2D 256 ×256 101 150 yes 2D Burgers Viscous Burgers (Cole–Hopf) 2D 256 ×256 101 200 yes 1D Burgers Viscous Burgers (Cole–Hopf) 1D 1024 101 1,000 yes 1D Advection Linear advection 1D 1024 101 1,000 yes 3D Advection Linear advection 3D 64 321 50 yes
+> The Well downstream datasets (Section B.3)
+> Active Matter Smoluchowski + Stokes flow 2D 256 ×256 81 175 yes Rayleigh–Bénard Boussinesq + thermal 2D 512 ×128 200 100 partial Shear Flow Incompressible Navier-Stokes 2D 512 ×256 200 50 no Gray–Scott Two-species reaction-diffusion 2D 128 ×128 1,001 200 no
+
+17 B.1 Pretraining Dataset (PDEBench) 
+
+We pretrain on six subsets of PDEBench [43]. For each subset we write the governing equation explicitly. Parameter ranges, initial-condition samplers, and solver implementations follow the original benchmark release and we refer the reader to [43] for those details. 
+
+B.1.1 1D and 2D Compressible Navier-Stokes (1D CFD, 2D CFD) 
+
+The density ρ, velocity u, and pressure p satisfy 
+
+∂tρ + ∇ · (ρu) = 0 , (12) 
+
+ρ(∂tu + u · ∇ u) = −∇ p + η∆u + ( ζ + η/ 3) ∇(∇ · u), (13) 
+
+∂t
+
+  32 p + 12 ρ∥u∥2 = −∇ · (ε + p + 12 ρ∥u∥2)u − u · σ′, (14) where η and ζ are shear and bulk viscosities and σ′ is the viscous stress tensor. We use all three PDEBench 1D CFD configurations and the three random-periodic 2D CFD configurations. Data are downsampled from their native PDEBench resolutions to 1024 (1D) and 128 ×128 (2D). The first 21 time steps of each trajectory are retained. 
+
+Parameter distributions. Both the 1D and 2D subsets sweep shear viscosity η and bulk viscosity 
+
+ζ across the three configurations released by PDEBench, with random initial density, velocity, and pressure profiles drawn under periodic boundary conditions. Full parameter values and initial-condition distributions are listed in Appendix D of [43]. 
+
+B.1.2 3D Compressible Navier-Stokes (3D CFD) 
+
+The governing equations are the three-dimensional version of the system above. We include the PDEBench 3D CFD subset at resolution 64 ×64 ×64 with T = 21 time steps, which is the only 3D subset in our pretraining corpus. 
+
+Parameter distributions. Trajectories vary in random initial density, velocity, and pressure profiles sampled by the PDEBench release, with shear and bulk viscosities fixed at the values reported in Appendix D of [43]. 
+
+B.1.3 Shallow Water Equations 
+
+Writing h(x, t ) for water depth and u for depth-averaged velocity, the PDEBench radial dam-break scenario is governed by 
+
+∂th + ∇ · (hu) = 0 , (15) 
+
+∂t(hu) + ∇ ·  hu ⊗ u + 12 gr h2I = −gr h∇b, (16) with gravitational acceleration gr and bathymetry b(x). We use the 2D Shallow Water subset at 
+
+128 ×128 with T = 101 snapshots per trajectory. 
+
+Parameter distributions. Trajectories vary in the radial dam-break initial condition, with the inner-pool height, outer-pool height, and pool radius drawn per trajectory from the distributions defined in Appendix D of [43]. 
+
+B.1.4 Diffusion–Reaction (2D) 
+
+Two chemical species u, v evolve under FitzHugh–Nagumo-type kinetics, 
+
+∂tu = Du∆u + u − u3 − k − v, (17) 
+
+∂tv = Dv ∆v + u − v, (18) on the domain [−1, 1] 2 with Neumann boundary conditions, generated via a stochastic finite-volume scheme. We use the full PDEBench Diffusion-Reaction subset at 128 ×128 with T = 101 .
+
+Parameter distributions. Diffusion coefficients Du, D v and reaction parameter k are fixed at the values released by PDEBench. Trajectories vary in their stochastic initial conditions sampled per trajectory following Appendix D of [43]. 18 B.1.5 Incompressible Navier-Stokes (2D) 
+
+With velocity u and pressure p,
+
+∂tu + u · ∇ u = −∇ p + ν∆u + f , (19) 
+
+∇ · u = 0 . (20) We use the 2D incompressible subset at native 512 ×512 , downsampled to 512 ×512 (no change) and kept at T = 21 .
+
+Parameter distributions. Trajectories vary in random forcing f and random initial velocity sampled per trajectory by the PDEBench release. Viscosity ν follows the value reported in Appendix D of [43]. 
+
+B.2 Exact-Solution Finetuning Datasets 
+
+We generate seven datasets for which the solution admits a closed form in terms of the initial condition. All datasets are stored on periodic grids with boundary-exclusive discretization ( xi = i · L/N for 
+
+i = 0 , . . . , N − 1) so that periodic differentiation via the fast Fourier transform is exact. Analytical ground truth eliminates discretization error as a confounder for the residual loss evaluation. 
+
+B.2.1 2D Taylor–Green Governing equations. The 2D Taylor–Green is a classical test case for the incompressible Navier-Stokes equations and admits a closed-form decaying solution on the doubly periodic domain [0 , 2π]2:
+
+∂tu + ( u · ∇ )u = −∇ p + ν∆u, ∇ · u = 0 , (21) with the analytical solution 
+
+u(x, y, t ) = − cos( x) sin( y) e−2νt , (22) 
+
+v(x, y, t ) = sin( x) cos( y) e−2νt , (23) 
+
+p(x, y, t ) = − 14
+
+ cos(2 x) + cos(2 y)e−4νt . (24) Velocity magnitudes decay at rate 2ν and pressure at rate 4ν.
+
+Spatiotemporal domain. Fields are evaluated analytically at each grid point and time step on a 
+
+256 × 256 uniform grid with ∆x = 2 π/ 256 , over the time interval t ∈ [0 , 1] at ∆t = 0 .01 , yielding 
+
+T = 101 stored snapshots per trajectory. 
+
+Parameter distributions. ν ∼ Uniform(0 .01 , 0.1) sampled independently per trajectory. 
+
+Fields available in the data. velocity u = ( u, v ) (vector field), pressure p (scalar field). 
+
+References. Taylor and Green [44] for the original derivation. 
+
+B.2.2 2D Wave Equation Governing equations. The second-order linear wave equation on [0 , 2π)2 with wave speed c reads 
+
+∂tt u = c2∆u. (25) We express it as a first-order system by introducing w = ∂tu,
+
+∂tu = w, ∂tw = c2∆u. (26) For a multi-mode Fourier initial condition, the exact solution is a superposition of standing waves, 
+
+u(x, y, t ) = X
+
+> (m,n )
+
+Amn cos( mx + ny + ϕmn ) cos( ωmn t), (27) 
+
+w(x, y, t ) = − X
+
+> (m,n )
+
+Amn ωmn cos( mx + ny + ϕmn ) sin( ωmn t), (28) with ωmn = c√m2 + n2.19 Spatiotemporal domain. Fields are evaluated analytically on a 256 × 256 periodic grid over the time interval t ∈ [0 , 1] at ∆t = 0 .01 , yielding T = 101 stored snapshots per trajectory. Each trajectory uses a random subset of modes with |m|, |n| ≤ 3 and amplitudes, phases drawn from uniform distributions. 
+
+Parameter distributions. c ∼ Uniform(1 .0, 3.0) sampled independently per trajectory. Each tra-jectory uses every mode (m, n ) with |m|, |n| ≤ 3 and (m, n )̸ = (0 , 0) , with raw amplitudes Araw  
+
+> mn
+
+∼
+
+Uniform(0 .1, 1.0) scaled by 1/√m2 + n2 for spectral decay, and phases ϕmn ∼ Uniform(0 , 2π).
+
+Fields available in the data. displacement u (scalar field), time derivative w = ∂tu (scalar field). 
+
+References. The standing-wave Fourier-series solution follows from separation of variables on the periodic torus. The classical derivation of the wave equation and its eigenfunction expansion are detailed in Section 2.4 of the textbook by Evans [13]. 
+
+B.2.3 2D Advection–Diffusion Governing equations. A scalar concentration u is transported by a constant velocity (a, b ) and simultaneously diffuses, 
+
+∂tu + a ∂ xu + b ∂ y u = ν∆u. (29) On [0 , 2π]2 with periodic boundary conditions, each Fourier mode translates with the velocity while its amplitude decays, 
+
+u(x, y, t ) = X
+
+> (m,n )
+
+Amn e−ν(m2+n2)t cos  m(x − at ) + n(y − bt ) + ϕmn 
+
+. (30) 
+
+Spatiotemporal domain. Fields are evaluated analytically on a 256 × 256 periodic grid over the time interval t ∈ [0 , 1] at ∆t = 0 .01 , yielding T = 101 stored snapshots per trajectory. Modes satisfy 
+
+|m|, |n| ≤ 3, excluding (0 , 0) .
+
+Parameter distributions. ν ∼ Uniform(0 .01 , 0.1) sampled independently per trajectory, with fixed advection velocity (a, b ) = (1 .0, 0.5) . Per trajectory, Nmodes ∈ { 8, . . . , 15 } modes are drawn without replacement from {(m, n ) : |m|, |n| ≤ 3} \ { (0 , 0) }, with amplitudes Amn ∼ Uniform(0 .1, 1.0) 
+
+and phases ϕmn ∼ Uniform(0 , 2π).
+
+Fields available in the data. concentration u (scalar field). 
+
+References. The closed-form Fourier-mode solution follows from separation of variables and the diagonal action of constant-coefficient advection-diffusion on Fourier modes. See Evans [13], Section 2.5 for the heat-kernel construction that underlies this expansion. 
+
+B.2.4 2D Burgers Governing equations. The viscous Burgers system in two dimensions reads 
+
+∂tu + u ∂ xu + v ∂ y u = ν∆u, (31) 
+
+∂tv + u ∂ xv + v ∂ y v = ν∆v. (32) For irrotational flow ( ∂xv = ∂y u), the Cole–Hopf transform u = −2ν∇(ln θ) linearises the system into the heat equation ∂tθ = ν∆θ. Choosing θ as a separable product, 
+
+θ(x, y, t ) = f (x, t ) · g(y, t ), f = 1 + ϵxe−νk 2 
+
+> xt
+
+cos( kxx), g = 1 + ϵy e−νk 2  
+
+> yt
+
+cos( ky y),
+
+(33) yields the closed-form solution 
+
+u = −2ν ∂ x ln f, v = −2ν ∂ y ln g. (34) 
+
+Spatiotemporal domain. Fields are evaluated analytically on a 256 × 256 periodic grid over the time interval t ∈ [0 , 1] at ∆t = 0 .01 , yielding T = 101 stored snapshots per trajectory. 
+
+Parameter distributions. ν ∼ Uniform(0 .01 , 0.1) , ϵx, ϵ y ∼ Uniform(0 .1, 0.5) , kx, k y ∈ { 1, 2, 3}.The cross product of (kx, k y ) with six random samples per combination yields 200 trajectories. 20 Fields available in the data. velocity u = ( u, v ) (vector field). 
+
+References. Cole [10] and Hopf [19] introduced the linearising substitution u = −2ν∇(ln θ) that maps Burgers to the heat equation. The separable closed-form solution we use is among those tabulated in Benton and Platzman [2]. 
+
+B.2.5 1D Burgers Governing equations. The one-dimensional viscous Burgers equation is 
+
+∂tu + u ∂ xu = ν ∂ xx u. (35) The Cole–Hopf substitution u = −2ν ∂ x ln θ maps it to the one-dimensional heat equation ∂tθ =
+
+ν ∂ xx θ, whose periodic Fourier-series solution yields 
+
+θ(x, t ) = 1 + X
+
+> k
+
+ϵk e−νk 2t cos( kx + ϕk), (36) 
+
+u(x, t ) = 2ν P 
+
+> k
+
+ϵkk sin( kx + ϕk)e−νk 2t
+
+1 + P 
+
+> k
+
+ϵk cos( kx + ϕk)e−νk 2t . (37) The amplitudes ϵk are chosen small enough that θ remains strictly positive on the grid, ensuring the logarithm is well-defined throughout the trajectory. 
+
+Spatiotemporal domain. Fields are evaluated analytically on a 1D periodic grid of N = 1024 points on [0 , 2π] over the time interval t ∈ [0 , 1] at ∆t = 0 .01 , yielding T = 101 stored snapshots per trajectory. 
+
+Parameter distributions. ν ∼ Uniform(0 .005 , 0.1) sampled independently per trajectory. Each initial condition uses Nmodes ∈ { 3, . . . , 8} Fourier modes with wavenumbers k ∈ { 1, . . . , 5}, raw amplitudes ϵk ∼ Uniform(0 .1, 0.5) rescaled so that P 
+
+> k
+
+ϵk ∼ Uniform(0 .3, 0.9) to keep θ strictly positive on the grid, and phases ϕk ∼ Uniform(0 , 2π).
+
+Fields available in the data. velocity u (vector field, aligned with Vx channel). 
+
+References. Cole [10] and Hopf [19] introduced the substitution u = −2ν∂ x ln θ that maps the one-dimensional viscous Burgers equation to the heat equation, from which our periodic Fourier-series solution follows. Benton and Platzman [2] catalogue the analogous closed-form solutions of the one-dimensional Burgers equation. 
+
+B.2.6 1D Advection Governing equations. The linear advection equation on the periodic interval [0 , 2π] reads 
+
+∂tu + a ∂ xu = 0 , (38) with exact solution u(x, t ) = u0(x−at ) by the method of characteristics. For a multi-mode sinusoidal initial condition u0(x) = P 
+
+> j
+
+Aj sin( kj x + ϕj ), the translated form 
+
+u(x, t ) = X
+
+> j
+
+Aj sin  kj (x − at ) + ϕj
+
+ (39) preserves amplitude at every time step with zero numerical error. 
+
+Spatiotemporal domain. Fields are evaluated analytically on a 1D periodic grid of N = 1024 points over the time interval t ∈ [0 , 1] at ∆t = 0 .01 , yielding T = 101 stored snapshots per trajectory. 
+
+Parameter distributions. a ∼ Uniform(0 .5, 3.0) sampled independently per trajectory. Each initial condition uses Nmodes ∈ { 5, . . . , 12 } sinusoidal modes with wavenumbers kj ∈ { 1, . . . , 8},amplitudes Aj ∼ Uniform(0 .3, 1.5) , and phases ϕj ∼ Uniform(0 , 2π).
+
+Fields available in the data. scalar u.
+
+References. Evans [13], Section 2.1 derives the closed-form solution u(x, t ) = u0(x − at ) via the method of characteristics. The same scenario with periodic boundary conditions is provided as the 
+
+adv benchmark in APEBench [24], Section 2. 21 B.2.7 3D Advection Governing equations. The linear advection equation in three dimensions on [0 , 2π]3 is 
+
+∂tu + a ∂ xu + b ∂ y u + c ∂ z u = 0 , (40) with closed-form solution u(x, t ) = u0(x − c t) by componentwise extension of the method of characteristics. We generate trajectories from multi-mode Fourier initial conditions, 
+
+u(x, t ) = X
+
+> (l,m,n )
+
+Almn cos  l(x − at ) + m(y − bt ) + n(z − ct ) + ϕlmn 
+
+. (41) 
+
+Spatiotemporal domain. Fields are evaluated analytically on a 64 × 64 × 64 periodic grid over the time interval t ∈ [0 , 1] at ∆t = 0 .05 , yielding T = 21 stored snapshots per trajectory. 
+
+Parameter distributions. (a, b, c ) ∼ Uniform(0 .5, 2.0) 3 sampled independently per component. Per trajectory, Nmodes ∈ { 8, . . . , 15 } modes are drawn without replacement from {(l, m, n ) : 
+
+|l|, |m|, |n| ≤ 2} \ { (0 , 0, 0) }, with amplitudes Almn ∼ Uniform(0 .1, 1.0) and phases ϕlmn ∼
+
+Uniform(0 , 2π).
+
+Fields available in the data. scalar u.
+
+References. The closed-form solution u(x, t ) = u0(x − ct) follows by componentwise extension of the method of characteristics. The one-dimensional case is treated in Evans [13], Section 2.1. Appendix E.1 of APEBench [24] provides the same isotropic 3D advection scenario with periodic boundary conditions. 
+
+B.3 The Well Downstream Datasets 
+
+We additionally finetune on four simulation datasets from the Well benchmark [35]. Because the governing equations, initial-condition distributions, and numerical solvers are described in full in Appendix C of [35], we restrict the discussion here to the fields and trajectory subsets we use. 
+
+B.3.1 Active Matter 
+
+A continuum kinetic theory of rod-like active particles immersed in a Stokes fluid, governed by a coupled Smoluchowski–Stokes system with orientation-resolved distribution Ψ. We use the concentration scalar and the two-component velocity field from the original Well release at resolution 
+
+256 × 256 with T = 81 . Other fields such as the orientation tensor and the strain-rate tensor are dropped. 
+
+Parameter distributions. The active dipole strength is swept over α ∈ {− 1, −2, −3, −4, −5} with 
+
+β = 0 .8 fixed and the alignment strength swept over ζ ∈ { 1, 3, 5, 7, 9, 11 , 13 , 15 , 17 }, exactly as released in Appendix C.2 of the Well [35]. 
+
+Fields available in the data. concentration field denoted “conc” (scalar field), velocity u = ( Vx, V y )
+
+(vector field). 
+
+References. Governing equations, simulation details, and parameter sweep: Appendix C.2 of [35]. 
+
+B.3.2 Rayleigh–Bénard Convection 
+
+Boussinesq-approximation incompressible Navier-Stokes coupled with a temperature (buoyancy) field on a horizontally periodic rectangular domain with no-slip vertical walls. We use the buoyancy, pressure, and two-component velocity fields at 512 × 128 with T = 200 .
+
+Parameter distributions. The Rayleigh number is swept over Ra ∈ { 10 6, 10 7, 10 8, 10 9, 10 10 }, the Prandtl number over Pr ∈ { 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10 .0}, and the initial buoyancy perturbation over δb 0 ∈ { 0.2, 0.4, 0.6, 0.8, 1.0}, exactly as released in Appendix C.10 of the Well [35]. 
+
+Fields available in the data. buoyancy field denoted “buoy” (scalar field), pressure p (scalar field), velocity u = ( Vx, V y ) (vector field). 
+
+References. Governing equations, simulation details, and parameter sweep: Appendix C.10 of [35]. 22 B.3.3 Shear Flow 
+
+Periodic incompressible Navier-Stokes in a shear-flow configuration with two fluid layers sliding past each other at different Reynolds and Schmidt numbers. We use the passive tracer, pressure, and two-component velocity fields at 512 × 256 with T = 200 .
+
+Parameter distributions. The Reynolds number is swept over Re ∈ { 10 4, 5 × 10 4, 10 5, 5 ×
+
+10 5} and the Schmidt number over Sc ∈ { 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10 .0}. Initial conditions vary in nshear ∈ { 2, 4} shear layers, nblobs ∈ { 2, 3, 4, 5} tracer blobs, and shear-width factor w ∈{0.25 , 0.5, 1.0, 2.0, 4.0}, exactly as released in Appendix C.12 of the Well [35]. 
+
+Fields available in the data. passive tracer field denoted “tracer” (scalar field), pressure p (scalar field), velocity u = ( Vx, V y ) (vector field). 
+
+References. Governing equations, simulation details, and parameter sweep: Appendix C.12 of [35]. 
+
+B.3.4 Gray–Scott reaction-diffusion 
+
+Two-species reaction-diffusion with feed rate f and kill rate k controlling the pattern formation regime. We use the two concentration fields at 128 × 128 with T = 1 ,001 . The six (f, k ) pattern configurations released in the Well (gliders, bubbles, maze, worms, spirals, spots) are all included. 
+
+Parameter distributions. Diffusion constants are fixed at δu = 2 × 10 −5 and δv = 10 −5. The feed and kill rates are fixed within each of the six configurations: gliders (f, k ) = (0 .014 , 0.054) ,bubbles (0 .098 , 0.057) , maze (0 .029 , 0.057) , worms (0 .058 , 0.065) , spirals (0 .018 , 0.051) , and spots 
+
+(0 .030 , 0.062) . Trajectories within each configuration vary in their initial conditions sampled follow-ing Appendix C.5 of [35]. 
+
+Fields available in the data. concentrations of the two reaction-diffusion species A and B (scalar fields). 
+
+References. Governing equations, simulation details, and parameter sweep: Appendix C.5 of [35]. 
+
+B.4 PDE Residual Visualization 
+
+Figure 3 visualizes the discrete PDE residual computed for representative trajectories from each downstream dataset, using the same finite-difference schemes as in the UPAO. The seven exact-solution datasets yield residuals near machine precision, since their fields are evaluated analytically at every grid point. Datasets from other open-source benchmarks exhibit noticeably larger residuals than those from The Well, reflecting their numerical discretization error. 
+
+Figure 3: Visualization of the discrete PDE residual computed for each downstream dataset. Exact-solution datasets yield residuals near machine precision, since their fields are evaluated analytically at every grid point. Datasets from other open-source benchmarks exhibit noticeably larger residuals than those from The Well, reflecting their numerical discretization error. 23 B.5 Prediction Visualizations on The Well 
+
+Figures 4 through 13 visualize per-channel predictions on the four datasets in The Well. Each figure displays the ground-truth field on the top row and the prediction from our framework after unsupervised finetuning under UPAO on the bottom row, at two representative time steps. 
+
+Figure 4: Active Matter velocity components Vx and Vy . Top row: ground-truth fields at two representative time steps. Bottom row: predictions from our framework after unsupervised finetuning under UPAO. 
+
+Figure 5: Gray–Scott reaction-diffusion species A and B. Top row: ground-truth fields at two representative time steps. Bottom row: predictions from our framework after unsupervised finetuning under UPAO. 24 Figure 6: Rayleigh–Bénard horizontal velocity Vx. Top row: ground-truth field at two representative time steps. Bottom row: prediction from our framework after unsupervised finetuning under UPAO. 
+
+Figure 7: Rayleigh–Bénard vertical velocity Vy . Top row: ground-truth field at two representative time steps. Bottom row: prediction from our framework after unsupervised finetuning under UPAO. 25 Figure 8: Rayleigh–Bénard buoyancy field. Top row: ground-truth field at two representative time steps. Bottom row: prediction from our framework after unsupervised finetuning under UPAO. 
+
+Figure 9: Rayleigh–Bénard pressure p. Top row: ground-truth field at two representative time steps. Bottom row: prediction from our framework after unsupervised finetuning under UPAO. 26 Figure 10: Shear Flow horizontal velocity Vx. Top row: ground-truth field at two representative time steps. Bottom row: prediction from our framework after unsupervised finetuning under UPAO. 
+
+Figure 11: Shear Flow vertical velocity Vy . Top row: ground-truth field at two representative time steps. Bottom row: prediction from our framework after unsupervised finetuning under UPAO. 
+
+Figure 12: Shear Flow passive tracer. Top row: ground-truth field at two representative time steps. Bottom row: prediction from our framework after unsupervised finetuning under UPAO. 27 Figure 13: Shear Flow pressure p. Top row: ground-truth field at two representative time steps. Bottom row: prediction from our framework after unsupervised finetuning under UPAO. 
+
+# C Baseline Configurations 
+
+C.1 Foundation-Model Baselines 
+
+We compare against two pretrained PDE foundation models of comparable scale to our backbone, each applied as a drop-in alternative within an identical finetuning and evaluation pipeline. 
+
+Temporal context. The three models do not ingest temporal context in the same way, and we state the difference explicitly because it bounds how directly the corresponding rows of Table 1 can be compared. Our backbone consumes a history window of Tin = 8 frames. PDE-Transformer is applied with the history length of its released ingestion protocol. Poseidon is pretrained as a continuous-in-time operator G(u0, t ) and does not consume a history window at all. These differences are inherent to the released checkpoints rather than a choice on our part. 
+
+PDE-Transformer (sc-b). We adopt the publicly released sc-b checkpoint at https:// huggingface.co/thuerey-group/pde-transformer/tree/main/sc-b [18] and fully fine-tune the model for 30 epochs on each downstream dataset. Inputs and outputs follow the original PDE-Transformer ingestion protocol, and the patch size is aligned with our backbone. We evaluate two finetuning variants. The supervised variant employs ground-truth interior fields. The unsuper-vised variant adopts UPAO, with no interior labels. Both variants are evaluated on the four datasets in The Well and on the four 2D exact-solution datasets at the native resolution of each dataset. The 1D and 3D exact-solution datasets fall outside the 2D training domain of the released checkpoint. 
+
+Poseidon (B). We adopt the Poseidon checkpoint at https://huggingface.co/camlab-ethz/ Poseidon-B [17] and fully finetune for 30 epochs. Poseidon-B accepts only square inputs. Conse-quently, any non-square dataset is tiled into non-overlapping 128 × 128 patches before finetuning and evaluation. Rayleigh–Bénard ( 512 × 128 ) yields four tiles per frame, and Shear Flow ( 512 × 256 )yields eight tiles per frame, with each tile treated as an independent sample. Beyond the spatial constraint, Poseidon-B internally FFT-resamples any input to its fixed 128 × 128 training grid, lead-ing to severe precision degradation when evaluating finite-difference PDE residuals. In contrast, PDE-Transformer and our backbone accommodate the original resolution. We therefore restrict Poseidon-B to supervised finetuning, evaluating it on the four datasets in The Well and on the four 2D exact-solution datasets (Taylor–Green, Wave 2D, Advection–Diffusion 2D, Burgers 2D). The 1D and 3D exact-solution datasets fall outside the 2D-only input domain. 
+
+C.2 Neural Operator Baselines 
+
+We reproduce four competitive neural operator baselines from scratch including FNO [28], TFNO [25], U-Net [39], and CNextU-Net [31, 35]. For the four downstream datasets from The Well, we adopt the configurations released with the benchmark verbatim, that is, the model configuration files of the official codebase rather than the default settings reported in the original architecture papers. We then adapt these baselines for each exact-solution dataset by adjusting channel counts and spatial resolutions to match the target domains. All baseline models are trained for 30 epochs from random initialization utilizing the exact same optimization and data processing pipelines as our finetuning 28 stage. Table 11 lists these hyperparameters together with the meaning each field carries in the released implementation. Table 11: Hyperparameters of the four competitive neural operator base-lines used across the eleven downstream datasets. All values are taken verbatim from the released configurations of the Well [35], namely 
+
+the_well/benchmark/configs/model/{fno,tfno,unet_classic,unet_convnext}.yaml ,rather than from the default settings of the original architecture papers. “Width” denotes 
+
+hidden_channels for FNO and TFNO and init_features for the two U-Nets. “Depth” denotes the number of Fourier blocks for FNO and TFNO, which is fixed inside the released model class and not exposed as a configuration field, and the number of encoder/decoder stages for the two U-Nets. For CNextU-Net, 4 × 2 denotes stages = 4 with blocks_per_stage = 2 . All baselines share the AdamW optimizer and a per-GPU batch size in the listed range. Parameter counts are reported for a representative 2D downstream dataset. They vary by less than 0.1% across the datasets we evaluate, since the number of active channels only affects the input and output projections. Model Width Depth Modes # Params Optimizer (lr, wd) Batch FNO 128 4 16 × 16 9.64M AdamW ( 1 × 10 −3, 1 × 10 −4) 1–16 TFNO 128 4 16 × 16 1.18M AdamW ( 1 × 10 −3, 1 × 10 −4) 1–16 U-Net 48 4 – 17.46M AdamW ( 1 × 10 −2, 1 × 10 −4) 1–16 CNextU-Net 42 4 × 2 – 18.57M AdamW ( 1 × 10 −2, 1 × 10 −4) 1–16 
+
+# D Training Protocol 
+
+The pretraining stage employs supervised next-step prediction with a mean-squared error objective across active channels and excludes any physics-informed term, yielding a transferable representation as the backbone. 
+
+Pretraining. We pretrain on the six PDEBench subsets in Section B.1 using AdamW with β =(0 .9, 0.95) , learning rate 10 −4 decaying to 10 −6 under a cosine schedule with 200 warmup steps, weight decay 0.01 , and gradient clipping at norm 1.0. Training runs in full fp32 precision for 50 
+
+epochs, with a per-GPU batch size of 24 across 8× NVIDIA A40 (46GB) under fully sharded data parallelism. Each PDEBench subset contributes 2,000 clips per epoch. 
+
+Finetuning. Each downstream dataset is finetuned from the pretrained backbone using AdamW with 
+
+β = (0 .9, 0.999) , learning rate 10 −4 decaying to 10 −6, 120 warmup steps, weight decay 0.01 , and gradient clipping at norm 1.0. Training runs in full fp32 precision for 30 epochs, with a per-GPU batch size of 4 on 8× A40 under distributed data parallelism. The boundary weight λBC defaults to 
+
+10 4, with dataset-specific values listed alongside the released code. The ablation in Appendix F.1 validates this default on the four 2D exact-solution datasets. 
+
+# E Evaluation Protocol 
+
+VRMSE. We adopt the variance-normalized root mean squared error defined in Eq. 9. A small constant ϵ = 10 −8 is added to the denominator for numerical stability, and inactive channels are excluded through the binary channel mask described in Appendix A.3. 
+
+Splits. We split each downstream dataset into 90% training and 10% validation by random partition of trajectories with fixed seed 42 . The validation partition serves as the evaluation set, since we do not maintain a separate held-out test partition. 
+
+Inference. We do not roll out predictions autoregressively. Each prediction consumes a fixed history window of Tin frames and produces the next-frame field through a single forward pass. The reported VRMSE is the per-frame error averaged across the validation trajectories. 29 F Additional Ablations and Analyses 
+
+This section provides the structural ablations and analytical experiments referenced in Section 4. All evaluations presented here utilize the identical pretrained backbone and apply the same UPAO framework during adaptation to ensure strict comparability. 
+
+F.1 Boundary Weight Sensitivity 
+
+We adjust λBC across four orders of magnitude in Table 12. λBC = 10 4 is a strong default. Wave 2D benefits from a stronger anchor ( 10 5), and overly large values slightly hurt TG and Burgers. Table 12: Ablation study on the boundary weight λBC , measured by VRMSE ( ↓). Bold marks the lowest value per dataset. The default λBC = 10 4 is the per-column best on TG and Burgers and remains within 14% of the best on AdvDiff and Wave, motivating its adoption as the default. “—” marks a configuration not run. 
+
+λBC TG 2D Wave 2D AdvDiff 2D Burgers 2D 
+
+10 2 0.0232 0.0676 0.0123 0.0092 
+
+10 3 0.0170 0.0489 0.0046 0.0041 
+
+10 4 (default) 0.0070 0.0275 0.0049 0.0034 
+
+10 5 0.0098 0.0243 — 0.0043 
+
+F.2 LoRA versus Full finetuning 
+
+Table 13 compares LoRA (rank r = 16 ), which updates approximately 6.7% of the total parameters, against full finetuning of the same pretrained backbone under UPAO. The two perform comparably across datasets, and LoRA matches or exceeds full finetuning on half of them, supporting the parameter-efficient design choice. Table 13: Ablation study comparing LoRA against full-parameter finetuning of the same pretrained backbone, measured by VRMSE ( ↓). Both variants are trained under UPAO. TG 2D Wave 2D AdvDiff 2D Burgers 2D NSLoRA 0.0060 0.0218 0.0038 0.0021 
+
+Full finetuning 0.0057 0.0252 0.0053 0.0024 
+
+F.3 Per-Channel Results 
+
+Table 14 reports per-channel VRMSE for Standard LoRA [20] versus NSLoRA. Both methods share the same low-rank matrices A, B from the standard-LoRA warm-up and differ only in the forward path. Detailed implementations can be found in Appendix A.4. The orthogonalized update helps most on the weakest channels, improving pressure on TG and both velocity components on Burgers. 
+
+F.4 Full Cross-Target Transfer on Competitive Baselines 
+
+Table 15 reports the complete cross-target panels for CNextU-Net and TFNO, the two strongest competitive neural operator baselines on average across the eleven downstream datasets of Table 1. The main text Table 2 shows only the CNextU-Net panels and the corresponding zero-shot and UPAO comparison on our backbone. The TFNO panels exhibit the same pattern, with both zero-shot transfer and UPAO finetuning remaining at least a factor of 10 worse than the in-domain reference on the majority of off-diagonal cells. 
+
+Construction of the cross-target panels. Tables 2 and 15 are constructed as 7 × 7 panels over the 
+
+2D downstream datasets. Each row indicates the source dataset that provides the trained checkpoint, and each column indicates the target dataset on which the model is evaluated. The diagonal reports the in-domain reference, namely the supervised checkpoint trained and evaluated on the same dataset. 30 Table 14: Complete per-channel breakdown for the controlled comparison of Table 4 across all eight 2D benchmarks, measured by VRMSE ( ↓). Standard LoRA and NSLoRA share the same warmed-up initialization matrices A, B , differing exclusively in the forward path. Bold marks the lower value per channel. ∆ reports the relative change of NSLoRA against Standard LoRA, computed as (NSLoRA − Standard LoRA) /Standard LoRA × 100% , with negative values indicating that NSLoRA improves upon Standard LoRA. Dataset Channel Standard LoRA NSLoRA ∆ (%) TG 2D 
+
+Vx 0.00098 0.00102 +4 .1
+
+Vy 0.00098 0.00103 +5 .1
+
+p 0.01675 0.01582 −5.6
+
+Wave 2D u 0.01200 0.01132 −5.7
+
+w 0.03284 0.03232 −1.6
+
+AdvDiff 2D u 0.00422 0.00377 −10 .7
+
+Burgers 2D Vx 0.00259 0.00232 −10 .4
+
+Vy 0.00200 0.00193 −3.5
+
+Gray–Scott A 0.09717 0.09697 −0.2
+
+B 0.12311 0.12274 −0.3
+
+Active Matter Vx 0.12215 0.12025 −1.5
+
+Vy 0.12769 0.12266 −3.9
+
+Rayleigh–Bénard 
+
+Vx 0.19638 0.18939 −3.6
+
+Vy 0.22663 0.22041 −2.7
+
+buoy 0.22026 0.21610 −1.9
+
+p 0.10485 0.09881 −5.8
+
+Shear Flow 
+
+Vx 0.01424 0.01506 +5 .8
+
+Vy 0.25114 0.24663 −1.8
+
+tracer 0.01852 0.01591 −14 .1
+
+p 0.17240 0.16700 −3.1
+
+Zero-shot panel. Off-diagonal cells in the zero-shot panel evaluate the source checkpoint on the target validation split without any further training. To address heterogeneous channel counts, we adapt the input and output projections of the source checkpoint by reshaping along the channel axis. When the source carries at least as many active channels as the target ( Csrc ≥ Ctgt ), we enumerate all  Csrc 
+
+> Ctgt
+
+ channel subsets, evaluate each on the target validation split, and report the minimum VRMSE. When Csrc < C tgt , no channel subset of the source can cover the target, so the cell is marked “—”. 
+
+UPAO panel. Off-diagonal cells in the UPAO panel apply the same channel adaptation and then finetune the source checkpoint on the target dataset for 5 epochs under the unsupervised PDE-based objective with λBC = 10 4. When Csrc < C tgt , the missing source channels are zero-padded so that finetuning proceeds on a uniform channel layout. The remaining hyperparameters follow Appendix D. 
+
+F.5 Newton-Schulz vs SVD Speed Comparison 
+
+We compare the speed of two orthogonalization paths for the LoRA matrices A and B: the 5-step Newton-Schulz iteration of NSLoRA, and an explicit SVD computation that returns the exact polar factor U V ⊤ via torch.linalg.svd . The two paths are not exactly equivalent. With the coefficients of [21], which are tuned for throughput rather than for convergence, NS 5 returns a matrix whose nontrivial singular values lie in a bounded band around one rather than exactly at one, as stated in Appendix A.4. NSLoRA does not require exact orthogonality, since the mechanism it relies on is the suppression of near-zero singular values, which the bounded band already provides. Both paths use the same real LoRA matrices loaded from a Shear Flow init checkpoint ( 108 ( A, B ) pairs across the five module types {qkv , proj , gate _proj , up _proj , down _proj }) and run on a single NVIDIA A100-SXM4-40GB under identical warm-up and synchronization. Reported values are the mean 31 Table 15: Full cross-target VRMSE ( ↓) for CNextU-Net [31] and TFNO [25] under UPAO finetuning and zero-shot inference. Each cell reports validation VRMSE on the target dataset (column) when starting from a checkpoint trained on the source dataset (row). Diagonal entries (italics) report source-only training as the in-domain reference. Bold marks the best off-diagonal value per row within each panel. “—” marks incompatible channel counts in the zero-shot setting. Each off-diagonal zero-shot cell reports the best VRMSE over channel-subset selections of the source. Values are reported to four decimal places. Setup matches Table 2 in the main text. Dataset abbreviations: BG (Burgers 2D), WV (Wave 2D), TG (Taylor–Green 2D), AM (Active Matter), GS (Gray–Scott), RB (Rayleigh–Bénard), SF (Shear Flow).                                                                                                                                                                                                 
+
+> CNextU-Net [31] Zero-shot UPAO
+> BG WV TG AM GS RB SF BG WV TG AM GS RB SF BG 0.0165 0.2440 ——0.2576 ——0.0165 0.3200 0.4098 1.5086 0.2424 0.5900 0.5383 WV 0.0845 0.0082 ——0.2900 ——0.0200 0.0082 0.3614 0.9588 0.3419 0.5854 0.6025 TG 0.3129 0.3522 0.0178 0.8263 0.2918 ——0.1960 0.3582 0.0178 0.6888 0.1456 0.5779 0.4282 AM 0.0555 0.0676 0.0485 0.1248 0.2894 ——0.0367 0.1769 0.0474 0.1248 0.2188 0.4404 0.4802 GS 0.4596 0.3965 ——0.0054 ——0.2828 0.1657 0.3729 0.9479 0.0054 0.6455 0.5094 RB 0.1197 0.1550 0.1561 0.3185 0.4879 0.1022 0.2017 0.0604 0.1314 0.0624 0.3673 0.2701 0.1022 0.2318 SF 0.0629 0.2403 0.0635 0.7857 0.2486 0.4492 0.0455 0.2094 0.3964 0.1703 0.8347 0.5213 0.6027 0.0455
+> TFNO [25] Zero-shot UPAO
+> BG WV TG AM GS RB SF BG WV TG AM GS RB SF BG 0.1615 0.9080 ——0.9947 ——0.1615 0.3593 0.2463 1.6661 0.0243 0.4449 0.5201 WV 0.1246 0.0074 ——0.2721 ——0.0241 0.0074 0.2553 0.8399 0.0062 0.3253 0.4204 TG 0.9364 0.9511 0.0033 0.9632 0.9840 ——0.1745 0.3956 0.0033 0.5088 0.0227 0.5002 0.5663 AM 0.1187 0.2663 0.0861 0.1390 0.5361 ——0.0410 0.0939 0.0192 0.1390 0.0059 0.3289 0.3987 GS 0.3999 0.3663 ——0.0033 ——0.0764 0.0448 0.3790 0.7755 0.0033 0.3204 0.4958 RB 0.3327 0.2266 0.2148 0.4710 0.4083 0.1762 0.4499 0.0829 0.0958 0.0781 0.2475 0.0068 0.1762 0.2752 SF 0.5410 0.5808 0.7065 0.7893 0.5601 0.7742 0.2234 0.1149 0.1709 0.2132 0.4788 0.0082 0.3268 0.2234
+
+per-call time across T = 5 independent trials, with the standard deviation across trials reported as ±
+
+(1σ). The full LoRA-layer forward timings in Table 16 average K = 200 iterations per trial. Summing the execution times across a 12 -block transformer with 5 LoRA modules per block demonstrates an end-to-end forward pass of 158 .19 ms for Newton-Schulz versus 217 .75 ms for SVD, yielding a 1.38 × overall speedup. Newton-Schulz circumvents the kernel invocation overhead of cuSOLVER eigendecomposition routines by relying on highly optimized matrix multiplications. Table 16: Per-layer forward speed within the SplitNS-style LoRA layer at batch size 8 and sequence length 1024 , in milliseconds per call (mean ±1σ across 5 trials, K = 200 iterations per trial). Bold marks the largest NS speedup. Module in → out NS forward (ms) SVD forward (ms) NS speedup qkv 768 → 2304 2.5023 ± 0.0003 3.2566 ± 0.0003 1.30 ×
+
+proj 768 → 768 1.4137 ± 0.0001 2.1249 ± 0.0005 1.50 ×
+
+gate_proj 768 → 3072 3.1113 ± 0.0003 4.2344 ± 0.0004 1.36 ×
+
+up_proj 768 → 3072 3.1084 ± 0.0001 4.2955 ± 0.0005 1.38 ×
+
+down_proj 3072 → 768 3.0471 ± 0.0001 4.2347 ± 0.0002 1.39 ×
+
+32
