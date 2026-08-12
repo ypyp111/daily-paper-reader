@@ -1,0 +1,429 @@
+Title: Janus: An Algorithm-Evaluator Co-Evolution Framework for LLM-Driven Discovery under Expensive Evaluation Budgets
+
+URL Source: https://arxiv.org/pdf/2608.08189v1
+
+Published Time: Tue, 11 Aug 2026 00:46:24 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# Janus: An Algorithm–Evaluator Co-Evolution Framework for LLM-Driven Discovery under Expensive Evaluation Budgets 
+
+Ximeng Liu ∗†‡ , Qianlong Wang ‡, Yingming Mao §, Annan Li ‡, Yatao Li ¶,Shizhen Zhao ∗, Jianmin Wu ‡, Dawei Yin ‡, Dou Shen ‡∗Shanghai Jiao Tong University, Shanghai, China 
+
+†Zhongguancun Academy, Beijing, China 
+
+‡Baidu Inc., Beijing, China 
+
+§Xi’an Jiaotong University, Xi’an, China 
+
+¶Zhongguancun Institute of Artificial Intelligence, Beijing, China 
+
+Abstract —LLM-driven program discovery relies on rapid evaluator feedback, but many scientific and engineering tasks require high-fidelity simulations, hardware execution, or physical experiments, making each evaluation expensive. Cheap surrogate evaluators can reduce this cost, yet fixed surrogates are vulnerable to search-induced distribution shift and are difficult to fit reliably from sparse, search-biased labels. We introduce Janus, a framework that uses LLMs to co-evolve target programs and executable proxy evaluators. To address label scarcity, Janus leverages domain knowledge encoded in LLMs to generate task-specific evaluator programs and calibrates them using real outcomes. To mitigate distribution shift, Janus evolves evaluators alongside target programs, selects them using a promotion-aligned objective, and maintains region-conditioned portfolios with online credit updates. Because proxy predictions remain fallible, Janus uses them only to prioritize candidates and requires real validation before candidates can enter the target-program population or update the incumbent. Across five scientific and engineering design tasks, Janus achieves a larger area under the best-so-far improvement curve over the real-evaluation budget and higher final performance than a matched baseline that evolves only target programs. On average, Janus reaches 99% of the baseline’s final improvement with 59 .1% fewer real evaluations. Evolved proxy evaluators also rank promising candidates more accurately than their seed versions. Together, these results extend evaluator-guided LLM discovery from tasks with cheap, scalable feedback to scientific domains where trustworthy evaluation is scarce and expensive. 
+
+I. I NTRODUCTION 
+
+Large language models (LLMs) are increasingly being used to discover high-performing executable programs [1]–[4]. For example, systems such as FunSearch and AlphaEvolve embed an LLM within an iterative discovery loop, in which the model proposes programs, an evaluator measures their quality, and the resulting feedback guides subsequent generations [5]–[7]. These systems have achieved remarkable results. Their success relies on the availability of an evaluator that can assess generated programs and provide timely feedback to guide the LLM’s subsequent proposals. However, many scientific and engineering tasks lack such timely feedback. In these settings, assessing a single candidate may require high-fidelity simulation, hardware execution, or physical experiments that take hours or even days. Evaluating every LLM-generated proposal is therefore impractical, making real evaluation, rather than candidate generation, the primary bottleneck. This mismatch between abundant candidate gener-ation and scarce real-world feedback limits the applicability of existing LLM-driven search frameworks to scientific and engineering discovery. A natural solution is to train a cheap surrogate using a small set of real evaluations and use it to screen candidates, as commonly done in Bayesian optimization, surrogate-assisted search, and model-based optimization [8]–[11]. However, this approach faces two major challenges. First, distribution shift :because search is guided by surrogate predictions, the candidate distribution may move beyond the surrogate’s training support, causing prediction errors to accumulate and ultimately misdirect the search [12]. Second, label scarcity : real evaluations are limited and selected by the search process, making the available data both sparse and biased. In scientific problems governed by physical processes, different regions of the search space may exhibit qualitatively different behaviors as different physical mechanisms become active. With only sparse labels, a surrogate from a predefined model family may fail to identify these regime changes and generalize reliably beyond the observed data. To address these challenges, we introduce Janus , a frame-work that co-evolves target programs and executable proxy evaluators under a shared real-evaluation budget. To overcome label scarcity , Janus leverages domain knowledge encoded in LLMs to generate task-specific executable evaluator programs with plausible features, equations, and conditional structures, and calibrates them using limited real outcomes. To mitigate search-induced distribution shift , Janus evolves evaluators alongside target programs, selects them using a promotion-aligned objective, and maintains region-conditioned portfolios whose credits are updated online based on real evaluation results. Finally, to guard against residual proxy errors , Janus uses proxy predictions only to screen candidates and allocate arXiv:2608.08189v1 [cs.AI] 8 Aug 2026 Prompt        
+
+> "Improve mm.py — multiply two 4 ×4 complex matrices using fewer scalar multiplications. Parent: v7 (49 mults) Inspirations: v1 (58), v3 (54)"
+> def mm4x4(A, B): m₁= (a ₁₁ +a ₂₂ )(b ₁₁ +b ₂₂ )m₂= (a ₂₁ +a ₂₂ )·b ₁₁ ⋯# 48 products (parent: 49) return recombine(m ₁, …, m ₄₈ )
+> Candidate program · v12
+> v1 58
+> v9 50
+> v5 51
+> program v7
+> (49 mults)
+> v3 54
+> Program database
+> Evaluator
+> Correctness checks
+> mm4x4(A, B) == AxB Score = #scalar_multi
+> Correctness checks Scoring
+> Sample parents + inspirations for the next prompt
+> Scores are stored in the database and fed back to the LLM through the prompt.
+
+Fig. 1. AlphaEvolve-style evaluator-guided discovery loop. The LLM proposes executable candidates; automated evaluators score them; the resulting successes and failures update the program database and condition later proposals. enqueue packet arrival mark congestion drop 
+
+> The score only emerges after a full packet-level network simulation — not a one-line count.
+> Task: Send packets; congestion causes slowdown or loss. Goal: Deliver them as fast as possible. Strategy: Control sending to avoid congestion.
+
+Fig. 2. Evaluating a congestion-control design requires a suite of packet-level discrete-event simulations. 
+
+the real-evaluation budget. Candidates remain provisional until they pass real validation, and the budget is allocated by balancing predicted quality, uncertainty, and novelty. We evaluate Janus on five program-design benchmarks: PyBaMM, AQM, FDTD Demux, Reactor, and Perishable IRP [13]–[17]. Across all five domains, Janus achieves a larger area under the best-so-far improvement curve over the real-evaluation budget and higher final performance than a matched baseline that evolves only target programs. On average, Janus reaches 99% of the final improvement achieved by this baseline using 59 .1% fewer real evaluations. The evolved proxy evaluators also rank promising candidates more accurately than the initial versions. Together, these results extend evaluator-guided LLM discovery from tasks with cheap, scalable feedback to scientific domains where trustworthy evaluation is scarce and expensive. II. M OTIVATING OBSERVATIONS 
+
+A. Ground Truth Can Be Expensive 
+
+Evaluator-guided discovery is effective when candidate quality is cheap to verify. Figure 1 sketches this loop for AlphaEvolve. In fast matrix multiplication, algebraic identities certify correctness and multiplication count provides the score. This inexpensive feedback enabled AlphaEvolve to find a 
+
+48 -multiplication procedure for two 4 × 4 complex matrices, improving on the 49 multiplications required by two levels of Strassen’s algorithm [6], [22]. Many scientific tasks lack such cheap certificates and instead require high-fidelity simulation, hardware execution, or physical experiments. Figure 2 illustrates this problem in congestion control: evaluating one configuration requires packet-level ns-3 simulations across network settings, workloads, and random seeds, and can take hours [20], [23]. Table I shows the broader contrast: the AlphaEvolve examples take less than a second to verify, whereas representative scientific evaluations require hours or days. Evaluating every proposal is therefore impractical in these settings. 0 40 80 
+
+Generation 
+
+2.8 4.2 5.6  
+
+> Score
+> Proxy Real
+
+(a) Score misalignment. 0 40 80 
+
+Generation 
+
+0.8 1.5 2.2  
+
+> Distance to train centroid
+
+(b) Feature-space drift. Fig. 3. Fixed-surrogate exploitation in GFP design. 
+
+B. Fixed Proxies Are Not Enough 
+
+A natural response is to train a cheap surrogate evaluator once and use it in place of the expensive ground truth. This idea is well established in Bayesian optimization, surrogate-assisted search, and offline model-based optimization: a learned model approximates an expensive objective, and the optimizer queries this model much more frequently than it queries the real evaluator [8], [11], [24]. However, a proxy may become inaccurate when evolution moves beyond its training distribution. It may then mistake a poor candidate for a good one and misguide the subsequent search. We illustrate this failure in protein engineering on the measured green fluorescent protein (GFP) fitness landscape [25]. A proxy trained near the wild-type sequence guides search over the broader sequence space. As selected candidates drift away from the training centroid, proxy scores rise to about 5.6 while measured fluorescence falls to about 2.9 (Figure 3), demonstrating search-induced exploitation of a frozen proxy. 
+
+C. Harnessing LLMs for Adaptive Proxies 
+
+§ II-B shows that a proxy must track the distribution induced by search. Yet refitting an arbitrary proxy online is insufficient: scarce high-fidelity labels leave each refresh with a small, search-biased archive. Scientific objectives can change qualitatively across different regions of the input space as different physical mechanisms become active. For example, Problem Objective / artifact Validation procedure Validation time A. AlphaEvolve: final-result verification 
+
+Fast matrix multiplication Rank-48 ⟨4, 4, 4⟩ tensor decomposition Reconstruct the target tensor exactly and score the decomposition rank [6] 
+
+≈ 0.7 ms 11-D kissing number 593-point integer configuration Check nonzero vectors and every pairwise separation constraint; score cardinality [6] 
+
+≈ 0.62 s
+
+B. Deployment-scale validation in three Janus benchmark domains 
+
+Battery fast charging (physical cells) Maximize cycle life under a 10-min charge Cycle a physical cell for 100 cycles (early label) or to failure [18], [19] 
+
+≈ 4 dNetwork congestion control (ns-3 ECN) Minimize tail flow-completion time Simulate 5 s in ns-3 on a 384-rack, 6,144-host topology [20] 11–27 h Photonic cavity design (3D FDTD) Confine light in a compact cavity with minimal leakage Run one converged 3D MEEP FDTD solve (16 CPU cores, 32 GB) [21] 
+
+≈ 10 h 
+
+> TABLE I EVALUATION -TIME COMPARISON BETWEEN TWO ALPHA EVOLVE PROBLEMS AND REPRESENTATIVE SCIENTIFIC PROBLEMS .
+
+a network can move abruptly from a low-loss regime to congestion once the offered load exceeds its service and buffering capacity. A conventional surrogate starts from a predefined model class, such as a GP, random forest, or MLP, and estimates its parameters only from labeled samples. It must discover such transitions from data alone, which is difficult with a small, search-biased archive. LLMs offer a way to introduce domain structure before fitting. We prompt an LLM with a description of the scientific problem and ask it to generate executable proxy functions. Drawing on its domain knowledge, the LLM can propose features, equations, and conditional branches that encode plausible physical mechanisms. Real labels are then used to select among the generated functions and calibrate their parameters. This narrows the search to physically plausible structures, making better use of scarce labels. To illustrate this advantage, we consider TCP NewReno incast in ns-3. Given a network setting, the task is to predict how the packet-drop rate changes with the number of concurrent senders and identify the congestion knee, defined as the first tested sender count at which the drop rate reaches 0.5% . Every proxy is trained on the same 12 labeled simulations, with four sender counts measured under each of three training network settings, and is tested on eight unseen settings. We compare GP, random-forest, MLP, quadratic-ridge, and RBF-SVR proxies with an LLM-generated arithmetic proxy [24], [26]. Figure 4(a) shows that the LLM proxy most closely follows the measured drop-rate curve and captures the transition at N = 16 in one training setting. Figure 4(b) shows that it also has the lowest mean knee-location error across the eight unseen settings: 
+
+0.500 tested sender-count positions, compared with 2.125 for the strongest conventional baseline. The LLM can draw on networking knowledge to encode the capacity-driven transition and post-congestion behavior before sparse labels are used for calibration. 2 16 32 48 64                                                     
+
+> Senders, N
+> 015 30
+> Drop rate (%)
+> Truth Ridge GP RBF-SVR RF LLM MLP A labels
+> (a) Diagnostic context A. T1 T2 T3 T4 T5 T6 T7 T8
+> Held-out test context
+> GP RF MLP Ridge SVR
+> LLM
+> 82334325755131006340310010 10 97653395523115
+> 01110100(b) Knee error (grid steps). Fig. 4. Few-shot TCP-incast knee recovery.
+
+Together, the insights from § II-B and § II-C motivate Janus. To extend evaluator-guided discovery to scientific domains where real evaluation is expensive, Janus uses an LLM to generate and update proxy evaluators online from the task description and accumulated real labels. Janus therefore co-evolves not only target programs but also the proxy evaluators that guide the search. III. J ANUS DESIGN 
+
+A. Overview 
+
+Problem statement. We study program discovery for scientific tasks, where candidate programs must be evaluated by an expensive real evaluator. Let X denote the program space, and let freal (x) return a utility y(x) ∈ R and a validity label 
+
+v(x) ∈ { 0, 1} for each candidate x ∈ X . Given a budget of 
+
+B real-evaluation attempts, the objective is to find the valid program with the highest observed real utility: 
+
+x⋆B ∈ arg max    
+
+> (x,y,v )∈H B:v=1
+
+y, (1) where HB denotes the real-evaluation outcomes. 
+
+Framework components. Janus builds on AlphaEvolve’s island-based LLM program-search framework [6]. Each island 
+
+i maintains a real-validated algorithm population P i
+
+> alg
+
+, while the LLM generates offspring from selected parents. Janus Algorithm 1 Janus Pipeline                                                                                                              
+
+> Require: LLM; freal ; budget B; promotion period τp; evaluator-evolution period τe; refresh batch size b
+> 1: Initialize all state and attempt count a
+> 2: while a < B do
+> 3: Choose island iwith local step ti
+> 4: if timod τp= 0 then
+> 5: Real evaluation: choose xfrom Cior generate it directly
+> 6: Evaluate xwith freal ; update H,A, and a
+> 7: If v(x) = 1 , update Pi
+> alg
+> 8: else if timod τe= 0 and |A| is sufficient then
+> 9: Evaluator evolution: generate eby LLM mutation from
+> Peval
+> 10: Fit and meta-evaluate eon A; update Peval and Π
+> 11: else if Π̸=∅then
+> 12: Target proposal: generate xby LLM mutation from Pi
+> alg
+> 13: Score xwith the region-conditioned subset Πi(x)⊆Π
+> 14: Enqueue xprovisionally in Ci
+> 15: else
+> 16: Cold start: generate xfrom Pi
+> alg and evaluate it with freal
+> 17: Update H,A,a, and, if valid, Pi
+> alg
+> 18: end if
+> 19: if bnew real outcomes have entered Asince the last refresh
+> then
+> 20: Archive refresh: refit evaluators, update Π, and re-score candidates
+> 21: end if
+> 22: end while
+> 23: return arg max (x,y,v )∈H :v=1 y
+
+additionally maintains an evaluator population Peval , a real-outcome archive A for fitting and selecting evaluators, and an island-local pool Ci of proxy-scored candidates awaiting real evaluation. An active portfolio Π, selected from Peval , screens and prioritizes candidates. 
+
+Framework pipeline. As shown in Algorithm 1, Janus interleaves target proposal, real evaluation, evaluator evolution, and archive refresh. LLM-generated target programs are provisionally scored by the active evaluator portfolio; selected candidates are then real-evaluated to update H, A, and the valid target population. In parallel, LLM-generated evaluators are fitted and selected on A, while each archive refresh updates 
+
+Π and re-scores provisional candidates. To make this pipeline work, Janus represents proxy evalua-tors as LLM-generated programs (§ III-B), selects evaluator portfolios for target-program clusters using a promotion-aligned meta-objective and updates their credit from online real out-comes (§ III-C), and prevents proxy errors from contaminating the target population through exploration-aware, real-validated promotion (§ III-D). 
+
+B. Evaluator-as-Program 
+
+Evaluator representation. Rather than fixing a surrogate family in advance, Janus represents each proxy evaluator as an executable program: 
+
+e =  gϕ, θ ϕ(A), (2) where gϕ is the program structure generated by an LLM, and θϕ(A) contains the values of any adjustable parameters in that program after they have been fitted using the real-outcome archive A. For example, these parameters may include coefficients in a generated equation, thresholds in conditional branches, or parameters used to calibrate the program’s outputs. The dependence on A indicates that these values are updated as new real outcomes enter the archive. Separating the generated structure from its fitted parameters allows Janus to adapt an existing evaluator to new observations without asking the LLM to regenerate its code. If a generated program has no adjustable parameters, θϕ(A) is empty. The framework requires only a common interface for producing a candidate-selection score; within it, the LLM may construct features, equations, conditional branches, low-fidelity computations, or learned corrections. 
+
+LLM-based evaluator generation. At each evaluator-evolution event, Janus selects a parent and structurally diverse inspirations from the clustered evaluator population Peval . The LLM receives the scientific task and real-evaluation specifications, the selected evaluator programs, and archive-derived diagnostics and judge feedback. It then outputs an executable Python evaluator implementing the required interface. The framework checks the generated artifact, executes it under a timeout, fits 
+
+θϕ(A), and evaluates it on A using the promotion-aligned objective introduced in § III-C. Evaluators that pass these checks can enter Peval , and their observed ranking errors and judge feedback are included in subsequent LLM prompts. Thus, the LLM proposes the proxy structure, while real outcomes calibrate its parameters and determine whether it is retained. 
+
+C. Evaluator Selection and Adaptation 
+
+Janus first maintains the real-outcome data used to fit proxy evaluators, then fits and selects evaluators according to their ability to identify promising candidates, and finally adjusts their use based on online performance. 
+
+Real-outcome archive. The archive A is bounded, dedupli-cated, and balanced rather than maintained as a first-in, first-out history. It retains high-utility valid programs to preserve the real frontier, recent programs to reflect the current search distribution, valid–invalid boundary cases to expose feasibility errors, and structurally diverse programs to avoid duplicate-heavy evaluator assessment. After a batch of new real labels arrives, Janus advances the archive revision, refits and re-evaluates the leading evaluators, reselects Π, and re-scores stale provisional candidates. 
+
+Evaluator fitting and selection. Ultimately, the proxy evaluator serves to help search discover better programs. Accurately identifying the highest-utility candidates therefore matters more than minimizing average prediction error across the archive. Janus accordingly scores each fitted evaluator by how well its top ranking recovers the best programs in A:
+
+Fmeta (e) = λR
+
+ 1 − Rk(e) + λN Nk(e) + λρρ(e), (3) where Rk(e) is the normalized regret, indicating whether the evaluator’s predicted top-k contains a near-optimal program, 
+
+Nk(e) is the normalized discounted cumulative gain (NDCG), indicating how closely the predicted top-k matches the true top-k ranking, and ρ(e) measures global ranking consistency across the archive. The first two terms receive most of the weight because they directly measure the quality of candidates sent to real evaluation, while the correlation term provides a weaker global signal. 
+
+Portfolio and online credit. Different evaluators may be reliable in different regions of the evolving program distribution. For each island, Janus treats the clusters in the current target-program population as regions and represents each region by the centroid of its programs’ code embeddings. A new candidate x
+
+is assigned to the nearest region according to cosine distance: 
+
+r(x) = arg min  
+
+> r
+
+dcos 
+
+ z(x), μ r
+
+, (4) where r ranges over the target-program regions on island i, z(x)
+
+is the candidate’s code embedding, μr is the centroid of region 
+
+r, and dcos denotes cosine distance. After determining r(x),Janus selects the K evaluators in the active pool Π with the highest current credit in that region, forming the region-specific portfolio Πi(x) that jointly scores x.The meta-evaluation scores used to initialize these credits are refreshed only after a new batch of real labels is incorporated into A. Between batch refreshes, whenever a promoted candi-date receives a real outcome, Janus immediately updates the credit of every evaluator in Πi(x) that supported its promotion: 
+
+Fe,r = (1 − αe,r )Fmeta (e) + αe,r ge,r , (5) Here, e ∈ Π indexes an active evaluator, r indexes an island-local target-program region, and Fe,r is the current credit of evaluator e in region r. Fmeta (e) is its batch-level score from Eq. (3), ne,r is the number of candidates it helped promote in r that have received real evaluations, and κ > 0
+
+controls how quickly this evidence overrides the batch-level score. Thus, αe,r = ne,r /(ne,r + κ) weights the regional evidence, while ge,r combines the fraction of these candidates that are valid and improve the incumbent with their normalized mean improvement. Valid improvements therefore increase an evaluator’s regional credit, whereas invalid or non-improving recommendations reduce its weight for subsequent candidates in the same region. 
+
+Portfolio prediction. For a candidate x, Janus obtains three quantities from each evaluator e ∈ Πi(x): a normalized score 
+
+ˆse(x) ∈ [0 , 1] , a predicted validity probability pv,e (x), and an uncertainty estimate σe. The evaluator produces the first two, while Janus estimates σe as the standard deviation of its normalized score errors on the real-valid archive entries. Janus normalizes the region-specific credits Fe,r (x) into weights and uses the weighted averages of ˆse(x) and pv,e (x) as the portfolio score ¯s(x) and validity probability ¯pv (x). The portfolio uncertainty ¯σ(x) combines the weighted evaluator uncertainties with the weighted standard deviation of their scores on x, thereby capturing both historical prediction error and disagreement within the portfolio. 
+
+D. Real-Anchored Promotion 
+
+Provisional screening. Even after selection and online adapta-tion, proxy evaluators remain fallible under distribution shift, calibration error, or incorrect output scales. Janus therefore uses their predictions only to allocate the real-evaluation budget. Between real-evaluation events, the LLM generates offspring from real-validated parents, and the portfolio defined in § III-C produces (¯ s(x), ¯pv (x), ¯σ(x)) for each offspring. Candidates with usable predictions are stored in a bounded and deduplicated pool Ci and are rescored when the archive or evaluator portfolio changes. 
+
+Budget allocation and validation. At each promotion event, Janus ranks candidates that pass basic predicted-validity and quality gates using 
+
+α(x) = wq ¯pv (x)¯ s(x) + wu ¯pv (x)¯ σ(x) + wnη(x), (6) where α(x) is the acquisition score; ¯s(x), ¯pv (x), and ¯σ(x)
+
+are the portfolio’s predicted quality, validity probability, and uncertainty; and wq , w u, w n ≥ 0 are their respective weights. Here, η(x) measures embedding-region novelty based on the cosine distance from the code embedding of x to its nearest target-region centroid; candidates farther from existing regions are considered more novel. The first term drives exploitation by favoring candidates expected to be both valid and high-quality. The second explores uncertain but plausibly valid candidates; multiplying both terms by ¯pv (x) avoids spending budget on candidates predicted to be invalid. The final term explores underrepresented regions independently of the current validity prediction. After promotion, Janus discards the proxy predictions and calls freal ; only a real-valid outcome may enter P i 
+
+> alg
+
+or update the incumbent. Every outcome updates A
+
+and the online credit of its recommending evaluators. Because acquisition alone could suppress candidates misjudged by the entire portfolio, Janus also periodically sends unranked LLM offspring directly to freal .IV. E XPERIMENTS 
+
+A. Experimental Setup Benchmarks.: We evaluate five program-design bench-marks (Table II): PyBaMM (battery fast charging) [13], AQM (ns-3 active queue management) [14], FDTD Demux (two-dimensional FDTD wavelength demultiplexing) [15], Reactor (constrained exothermic reactor control) [16], and Perishable IRP (stochastic perishable inventory routing) [17]. Appendix A provides objectives, simulation settings, and invalidity checks. 
+
+Comparison baselines. We compare Janus with (1) Alg.-Only , a matched algorithm-search baseline that uses the same task-program seed and real-evaluation budget but does not evolve evaluator programs, following the AlphaEvolve-style mechanism of evolving target programs against a fixed evaluator [6]; (2) Direct-LLM , which scores each candidate by prompting the LLM with the labeled history, following the regression-only LAEA setting [27]; (3) Embed-GP , which fits a Gaussian-process surrogate on fixed code embeddings of the real-evaluated candidates and uses its predictions to select candidates for real evaluation [24]; and (4) Human Baselines : CLO, D-RED, CMT, OCP, and an order-up-to heuristic for PyBaMM, AQM, FDTD Demux, Reactor, and Perishable IRP, respectively [15]–[17], [19], [28], [29]. Domain Evaluator Design goal Battery PyBaMM Fast charge; cycle life                                   
+
+> Network ns-3 AQM Throughput; delay/loss
+> FDTD Demux
+> 2D FDTD Low-crosstalk routing
+> Reactor Stiff ODE Yield; thermal safety
+> Perishable IRP
+> Routing sim. Low shortage/waste
+> TABLE II CASES AND REAL EVALUATORS .020 40 60 80
+> Real Evaluation Budget
+> 0100 200 300
+> Improvement over seed (%)
+> (a) PyBaMM 050 100 150 200 250
+> Real Evaluation Budget
+> 0246
+> Improvement over seed (%) (b) AQM 010 20 30 40 50 60 70
+> Real Evaluation Budget
+> 0200 400 600
+> Improvement over seed (%)
+> (c) FDTD Demux 0510 15 20
+> Real Evaluation Budget
+> 020 40 60 80
+> Improvement over seed (%) (d) Reactor 0510 15 20 25 30
+> Real Evaluation Budget
+> 0510 15 20
+> Improvement over seed (%) (e) Perishable IRP
+
+Janus Alg.-Only Direct-LLM Embed-GP Human Baseline  
+
+> Fig. 5. Results across five program-design domains under matched real-evaluation budgets.
+
+Metrics. We report (1) AUBC ∆, the average best-so-far improvement over the real-evaluation budget; (2) Best ∆@B,the terminal improvement; and (3) Calls@99%, the real-evaluator calls needed to reach 99% of the Alg.-Only terminal improvement. For evaluator adaptation, NDCG@3 measures top-three ranking quality, while normalized best regret@3 measures whether the predicted top three recover a near-optimal candidate. 
+
+B. Main Results 
+
+For each method-domain pair, we run three random seeds. Each curve shows mean best-so-far improvement, with shading spanning the minimum and maximum across runs. 
+
+Consistent budget efficiency. Janus achieves both a larger AUBC ∆ and a higher terminal mean than Alg.-Only in all five domains. The AUBC ∆ gap in budget-averaged improvement ranges from 1.6 percentage points on AQM to 45 .1 points on Reactor, indicating that Janus performs better throughout the search, not only at the endpoint. Janus also finishes above the strongest human-designed reference shown in every panel, whereas Alg.-Only remains below the CMT reference on FDTD Demux and the OCP reference on Reactor. 
+
+Calls to the Alg.-Only endpoint. To compare sample effi-ciency, we set the target in each domain to 99% of the final improvement achieved by Alg.-Only and count how many real-evaluator calls each method needs to reach it. Janus needs 32 
+
+versus 82 real-evaluator calls on PyBaMM, 100 versus 222 on AQM, 40 versus 48 on FDTD Demux, 3 versus 15 on Reactor, and 5 versus 29 on Perishable IRP. Thus, Janus reaches the target earlier in all five domains, reducing the required real-evaluator calls by 16 .7% –82 .8% across cases, with a mean reduction of 59 .1% .
+
+Alternative proxy baselines. (1) Embed-GP. Embed-GP assumes that distances between fixed code embeddings reflect real utility, although semantic similarity may not preserve the task-specific numerical or physical behaviors governing performance. It underperforms Alg.-Only in both AUBC ∆ and final improvement in four of the five domains: PyBaMM, AQM, FDTD Demux, and Perishable IRP. (2) Direct-LLM. Direct-LLM scores each candidate using a growing, heterogeneous history of up to 50 evaluated programs. Such long prompts may dilute relevant evidence, and the method does not explicitly model uncertainty or distribution shift. It therefore achieves lower AUBC ∆ than Janus in all five domains, particularly on AQM and FDTD Demux, while consuming on average 8.1× as many LLM tokens per completed real-evaluator call as Janus (see Appendix E). 
+
+C. Evolving Better Evaluators 
+
+Ranking Gains from Evaluator Evolution. We test whether evaluator evolution improves the ranking decisions used to select candidates for real evaluation. For each run, we refit the seed evaluator and the highest-weight evolved evaluator on the same checkpoint archive, then compare their NDCG@3 on the same 40 later candidates excluded from fitting. Figure 6 shows that NDCG@3 increases from 0.688 to 0.970 on PyBaMM, from 0.000 to 0.694 on AQM, and from 0.612 
+
+to 0.923 on FDTD Demux, giving gains of 0.282 , 0.694 , and 
+
+0.311 , respectively. Appendix F examines the resulting program changes. For example, the evolved PyBaMM evaluator adds peak temperature, SEI growth, voltage headroom, and high-AQM ( B = 200 ) FDTD Demux ( B = 70 )ID Change     
+
+> AUBC ∆
+> (%) ↑
+> Best ∆@B
+> (%) ↑
+> AUBC ∆
+> (%) ↑
+> Best ∆@B
+> (%) ↑
+
+F Full Janus 5.5 ± 0.4 6.0 ± 0.1 316 .3 ± 6.9 655 .7 ± 119 .5
+
+S No evaluator evolution 4.1±1.0 ( ↓ 25 .5%) 5.2±0.7 ( ↓ 13 .3%) 300 .4±45 .0 ( ↓ 5.0%) 429 .9±77 .4 ( ↓ 34 .4%) 
+
+A1 One evaluator only 4.3±1.6 ( ↓ 21 .8%) 5.1±1.2 ( ↓ 15 .0%) 243 .9±15 .5 ( ↓ 22 .9%) 340 .7±61 .7 ( ↓ 48 .0%) 
+
+M0 Global Spearman objective 4.8±0.9 ( ↓ 12 .7%) 5.8±0.1 ( ↓ 3.3%) 252 .0±31 .0 ( ↓ 20 .3%) 404 .7±6.7 ( ↓ 38 .3%) 
+
+O0 No online credit updates 4.4±0.2 ( ↓ 20 .0%) 4.9±0.1 ( ↓ 18 .3%) 245 .1±21 .6 ( ↓ 22 .5%) 382 .5±101 .5 ( ↓ 41 .7%)    
+
+> TABLE III COMPONENT ABLATIONS ON AQM AND FDTD D EMUX .
+
+SOC duration, better reflecting the constraints enforced by the real evaluator. 
+
+Zero-shot reuse under objective changes. When the objective changes modestly, an existing evaluator can be reused with a simple adjustment, without new labels or refitting. For example, on the reweighted FDTD Demux objective, the previously evolved evaluator continues to rank candidates accurately, achieving an NDCG@3 of 0.959 (see Appendix C). PyBaMM AQM FDTD Demux         
+
+> 0.0 0.5 1.0
+> Prediction Accuracy
+> 0.69 0.97 0.00 0.69 0.61 0.92
+> Δ+0.28 Δ+0.69 Δ+0.31
+> Seed Evolved
+> Fig. 6. Ranking-accuracy gains from evaluator evolution.
+
+D. Ablation Study 
+
+We ablate evaluator evolution (S), replace the evaluator portfolio with one evaluator (A1), replace the promotion-aligned meta-objective with global rank correlation (M0), and disable online credit updates (O0) on AQM and FDTD Demux. Table III reports AUBC ∆ and terminal improvement over the shared seed under matched real-evaluation budgets, with full Janus (F) as the reference. All four ablations reduce both metrics in both domains, showing that the four components address complementary errors. On AQM, burst traffic distinguishes controllers with similar average utilization; evolved evaluators capture these differences through probe-response and burst-specific signals, while limited headroom makes false-positive promotions es-pecially costly. This explains AQM’s sensitivity to evaluator evolution and online credit updates. In FDTD Demux, coarse-to-fine simulation error varies across layout morphologies, favoring a region-weighted portfolio over a single evaluator. Additional experiments in Appendix D examine the effect of the LLM backbone. Across the tested backbones, Janus consistently achieves a higher terminal improvement. V. R ELATED WORK 
+
+LLM-driven algorithm discovery. FunSearch and AlphaE-volve place LLM generation inside evaluator-guided population search, while Evolution of Heuristics and MCTS-AHD improve heuristic generation and search organization [5], [6], [30], [31]. These methods evolve target programs while assuming that the task evaluator is externally specified. Janus instead makes the executable proxy evaluator part of the search. 
+
+Surrogate-assisted optimization. Bayesian optimization and surrogate-assisted evolutionary algorithms reduce expensive objective calls by fitting cheap response models and selecting which candidates receive real evaluations [8]–[10], [24]. Multi-fidelity methods additionally exploit approximations at different costs or resolutions [32]. Even adaptive approaches generally fit, evolve, or select models within predefined families or component libraries [26], [33]–[35]. Janus instead uses an LLM to generate task-aware executable proxy structures from domain descriptions and real outcomes. 
+
+LLM-assisted proxies and co-evolution. LAEA uses an LLM directly to predict the quality of numerical candidates, while CoE-SAEA and LLM-SAEA select predefined surro-gate models and candidate-selection rules [27], [36], [37]. LAEA’s numerical reproduction pipeline cannot be transferred unchanged to free-form programs; our Direct-LLM (LAEA-style) diagnostic retains its core mechanism of predicting a new candidate directly from historical real outcomes. These methods do not generate task-specific executable proxies that evolve with the search distribution. Related methods adapt rewards, opponents, instances, or evaluators rather than approximate a fixed, expensive scientific objective [38]–[42]. Janus instead co-evolves executable proxies while real outcomes remain the source of target fitness. VI. C ONCLUSION 
+
+We introduced Janus, which uses LLMs to co-evolve target programs and executable proxy evaluators under limited real-evaluation budgets. Janus calibrates proxy evaluators with real labels, adapts region-conditioned portfolios as search evolves, and allocates evaluations by balancing exploitation and exploration. Across five domains, Janus achieves higher AUBC ∆ and terminal performance than a matched baseline that evolves only target programs, while reaching the baseline’s final improvement with 59 .1% fewer real evaluations. REFERENCES [1] C. Yang, X. Wang, Y. Lu, H. Liu, Q. V. Le, D. Zhou, and X. Chen, “Large language models as optimizers,” in The Twelfth International Conference on Learning Representations , 2024. [Online]. Available: https://openreview.net/forum?id=Bb4VGOWELI [2] H. Ye, J. Wang, Z. Cao, F. Berto, C. Hua, H. Kim, J. Park, and G. Song, “ReEvo: Large language models as hyper-heuristics with reflective evolution,” in Advances in Neural Information Processing Systems , vol. 37, 2024. [Online]. Available: https://proceedings.neurips.cc/paper_files/paper/2024/hash/ 4ced59d480e07d290b6f29fc8798f195-Abstract-Conference.html [3] A. Grayeli, A. Sehgal, O. Costilla-Reyes, M. Cranmer, and S. Chaudhuri, “Symbolic regression with a learned concept library,” in Advances in Neural Information Processing Systems , vol. 37, 2024. [Online]. Available: https://proceedings.neurips.cc/paper_files/paper/2024/hash/ 4ec3ddc465c6d650c9c419fb91f1c00a-Abstract-Conference.html [4] M. Liu, C.-H. Yu, W.-H. Lee, C.-W. Hung, Y.-C. Chen, and S.-H. Sun, “Synthesizing programmatic reinforcement learning policies with large language model guided search,” in The Thirteenth International Conference on Learning Representations , 2025. [Online]. Available: https://proceedings.iclr.cc/paper_files/paper/2025/ hash/dcf887f2bfe2776584e3bce80ed206ef-Abstract-Conference.html [5] B. Romera-Paredes, M. Barekatain, A. Novikov, M. Balog, M. P. Kumar, E. Dupont, F. J. R. Ruiz, J. S. Ellenberg, P. Wang, O. Fawzi, P. Kohli, and A. Fawzi, “Mathematical discoveries from program search with large language models,” Nature , vol. 625, pp. 468–475, 2024. [6] A. Novikov, N. V˜ u, M. Eisenberger, E. Dupont, P.-S. Huang, A. Z. Wagner, S. Shirobokov, B. Kozlovskii, F. J. R. Ruiz, A. Mehrabian, M. P. Kumar, A. See, S. Chaudhuri, G. Holland, A. Davies, S. Nowozin, P. Kohli, and M. Balog, “AlphaEvolve: A coding agent for scientific and algorithmic discovery,” 2025. [Online]. Available: https://arxiv.org/abs/2506.13131 [7] J. Cheng, P. Clark, and K. Richardson, “Language modeling by language models,” in Advances in Neural Information Processing Systems , vol. 38, 2025. [Online]. Available: https://proceedings.neurips.cc/paper_files/paper/2025/hash/ fa40454addc83f1f63ddebe65aa8fb39-Abstract-Conference.html [8] M. Balandat, B. Karrer, D. R. Jiang, S. Daulton, B. Letham, A. G. Wilson, and E. Bakshy, “BoTorch: A framework for efficient monte-carlo bayesian optimization,” in Advances in Neural Information Processing Systems , vol. 33, 2020, pp. 21 524–21 538. [Online]. Available: https://proceedings.neurips.cc/paper/2020/hash/ f5b1b89d98b7286673128a5fb112cb9a-Abstract.html [9] D. Eriksson, M. Pearce, J. Gardner, R. D. Turner, and M. Poloczek, “Scalable global optimization via local Bayesian optimization,” in 
+
+Advances in Neural Information Processing Systems , vol. 32, 2019. [Online]. Available: https://proceedings.neurips.cc/paper_files/paper/ 2019/hash/6c990b7aca7bc7058f5e98ea909e924b-Abstract.html [10] D. Brookes, H. Park, and J. Listgarten, “Conditioning by adaptive sampling for robust design,” in Proceedings of the 36th International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 97. PMLR, 2019, pp. 773–782. [Online]. Available: https://proceedings.mlr.press/v97/brookes19a.html [11] B. Trabucco, A. Kumar, X. Geng, and S. Levine, “Conservative objective models for effective offline model-based optimization,” in Proceedings of the 38th International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 139. PMLR, 2021, pp. 10 358–10 368. [Online]. Available: https: //proceedings.mlr.press/v139/trabucco21a.html [12] M. S. Yao, Y. Zeng, H. Bastani, J. Gardner, J. C. Gee, and O. Bastani, “Generative adversarial model-based optimization via source critic regularization,” in Advances in Neural Information Processing Systems , vol. 37, 2024. [Online]. Available: https://proceedings.neurips.cc/paper_files/paper/2024/hash/ 4dd0a016d7d253d02473e4778414ab0b-Abstract-Conference.html [13] R. Rodriguez, Y. Wang, and D. Soudbakhsh, “Fast charging of Li-ion batteries via learning and optimization,” in 2024 European Control Conference (ECC) , 2024, pp. 3715–3720. [14] L. C. de Almeida, W. R. Dias da Silva, T. C. Tavares, R. Pasquini, C. Papagianni, and F. L. Verdi, “DESiRED: Dynamic, enhanced, and smart iRED: A P4-AQM with deep reinforcement learning and in-band network telemetry,” Computer Networks , vol. 244, p. 110326, 2024. [15] R. Wu, F. Ding, F. Li, and Y. Liu, “Inverse-designed low-crosstalk CWDM (de)multiplexer assisted by photonic crystals,” Journal of Lightwave Technology , vol. 42, no. 14, pp. 4899–4905, 2024. [16] A. Braniff and Y. Tian, “A hierarchical multi-parametric programming approach for dynamic risk-based model predictive quality control,” 
+
+Control Engineering Practice , vol. 152, p. 106062, 2024. [17] A. Violi, A. De Maio, and G. Fattoruso, “Inventory management and delivery of perishable products with stochastic demands and risks consideration,” Procedia Computer Science , vol. 232, pp. 2941–2949, 2024. [18] K. A. Severson, P. M. Attia, N. Jin, N. Perkins, B. Jiang, Z. Yang, M. H. Chen, M. Aykol, P. K. Herring, D. Fraggedakis, M. Z. Bazant, S. J. Harris, W. C. Chueh, and R. D. Braatz, “Data-driven prediction of battery cycle life before capacity degradation,” Nature Energy , vol. 4, no. 5, pp. 383–391, 2019. [19] P. M. Attia, A. Grover, N. Jin, K. A. Severson, T. M. Markov, Y.-H. Liao, M. H. Chen, B. Cheong, N. Perkins, Z. Yang, P. K. Herring, M. Aykol, S. J. Harris, R. D. Braatz, S. Ermon, and W. C. Chueh, “Closed-loop optimization of fast-charging protocols for batteries with machine learning,” Nature , vol. 578, no. 7795, pp. 397–402, 2020. [20] K. Zhao, P. Goyal, M. Alizadeh, and T. E. Anderson, “Scalable tail latency estimation for data center networks,” in 20th USENIX Symposium on Networked Systems Design and Implementation (NSDI 23) . USENIX Association, 2023, pp. 685–702. [Online]. Available: https://www.usenix.org/conference/nsdi23/presentation/zhao-kevin [21] M. Minkov and V. Savona, “Automated optimization of photonic crystal slab cavities,” Scientific Reports , vol. 4, no. 1, p. 5124, 2014. [22] V. Strassen, “Gaussian elimination is not optimal,” Numerische Mathe-matik , vol. 13, pp. 354–356, 1969. [23] T. R. Henderson, M. Lacage, G. F. Riley, C. Dowell, and J. Kopena, “Network simulations with the ns-3 simulator,” in Proceedings of the ACM SIGCOMM 2008 Conference on Data Communication , 2008, pp. 527–528. [24] J. Snoek, H. Larochelle, and R. P. Adams, “Practical bayesian optimization of machine learning algorithms,” in Advances in Neural Information Processing Systems , vol. 25, 2012, pp. 2951–2959. [Online]. Available: https://proceedings.neurips.cc/paper_files/paper/ 2012/hash/05311655a15b75fab86956663e1819cd-Abstract.html [25] K. S. Sarkisyan, D. A. Bolotin, M. V. Meer, D. R. Usmanova, A. S. Mishin, G. V. Sharonov, D. N. Ivankov, N. G. Bozhanova, M. S. Baranov, O. Soylemez, N. S. Bogatyreva, P. K. Vlasov, E. S. Egorov, M. D. Logacheva, A. S. Kondrashov, D. M. Chudakov, E. V. Putintseva, I. Z. Mamedov, D. S. Tawfik, K. A. Lukyanov, and F. A. Kondrashov, “Local fitness landscape of the green fluorescent protein,” Nature , vol. 533, no. 7603, pp. 397–401, 2016. [26] D. Gorissen, T. Dhaene, and F. De Turck, “Evolutionary model type selection for global surrogate modeling,” Journal of Machine Learning Research , vol. 10, pp. 2039–2078, 2009. [Online]. Available: https://www.jmlr.org/papers/v10/gorissen09a.html [27] H. Hao, X. Zhang, and A. Zhou, “Large language models as surrogate models in evolutionary algorithms: A preliminary study,” Swarm and Evolutionary Computation , vol. 91, p. 101741, 2024. [28] S. Floyd and V. Jacobson, “Random early detection gateways for congestion avoidance,” IEEE/ACM Transactions on Networking , vol. 1, no. 4, pp. 397–413, 1993. [29] B. S. Onggo, J. Panadero, C. G. Corlu, and A. A. Juan, “Agri-food supply chains with stochastic demands: A multi-period inventory routing problem with perishable products,” Simulation Modelling Practice and Theory , vol. 97, p. 101970, 2019. [30] F. Liu, T. Xialiang, M. Yuan, X. Lin, F. Luo, Z. Wang, Z. Lu, and Q. Zhang, “Evolution of heuristics: Towards efficient automatic algorithm design using large language model,” in Proceedings of the 41st International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 235, 2024, pp. 32 201–32 223. [Online]. Available: https://proceedings.mlr.press/v235/liu24bs.html [31] Z. Zheng, Z. Xie, Z. Wang, and B. Hooi, “Monte carlo tree search for comprehensive exploration in LLM-based automatic heuristic design,” in Proceedings of the 42nd International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 267, 2025, pp. 78 338–78 373. [Online]. Available: https://proceedings.mlr.press/v267/zheng25o.html [32] K. Kandasamy, G. Dasarathy, J. Schneider, and B. Póczos, “Multi-fidelity Bayesian optimisation with continuous approximations,” in Proceedings of the 34th International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 70, 2017, pp. 1799–1808. [Online]. Available: https://proceedings.mlr.press/v70/kandasamy17a.html [33] Z. Ren, B. Pang, M. Wang, Z. Feng, Y. Liang, A. Chen, and Y. Zhang, “Surrogate model assisted cooperative coevolution for large scale opti-mization,” Applied Intelligence , vol. 49, no. 2, pp. 513–531, 2019. [34] Y. Akhauri, J. P. Muñoz, N. Jain, and R. Iyer, “EZNAS: Evolving zero-cost proxies for neural architecture scoring,” in Advances in Neural Information Processing Systems , vol. 35, 2022. [Online]. Available: https://proceedings.neurips.cc/paper_files/paper/2022/hash/ c474dc287c6de27fec2981f812c361e1-Abstract-Conference.html [35] H. Kang, L. Lin, and H. Wang, “Revolutionizing training-free NAS: Towards efficient automatic proxy discovery via large language models,” in Advances in Neural Information Processing Systems , vol. 38, 2025. [Online]. Available: https://openreview.net/forum?id=3naHyE5klE [36] L. Xie, Y. Zhang, Z. Tang, E. Chung, G. Li, and Z. Wang, “Co-evolution of large language models and configuration strategies to enhance surrogate-assisted evolutionary algorithm,” in Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining ,2025, pp. 3321–3332. [37] L. Xie, G. Li, Z. Wang, E. Chung, and M. Gong, “Large language model-driven surrogate-assisted evolutionary algorithm for expensive optimization,” 2025. [Online]. Available: https://arxiv.org/abs/2507.02892 [38] Y. J. Ma, W. Liang, G. Wang, D.-A. Huang, O. Bastani, D. Jayaraman, Y. Zhu, L. Fan, and A. Anandkumar, “Eureka: Human-level reward design via coding large language models,” in The Twelfth International Conference on Learning Representations , 2024. [Online]. Available: https://openreview.net/forum?id=WbFBZ3bQUs [39] P. Li, H. Tang, J. Qiao, Y. Zheng, and J. Hao, “LaRes: Evolutionary reinforcement learning with LLM-based adaptive reward search,” in 
+
+Advances in Neural Information Processing Systems , vol. 38, 2025. [Online]. Available: https://openreview.net/forum?id=jRjvcqtdtA [40] H. Li, Z. Ge, Z. Zhang, X. Yuan, Y. Lo, Q. Liu, B. An, D. Rong, J. Liu, A. Li, J. Wu, D. Yin, and D. Shen, “Beyond static evaluation: Co-evolutionary mechanisms for LLM-driven strategy evolution in adversarial games,” 2026. [Online]. Available: https://arxiv.org/abs/2606.10389 [41] X. Ke, K. Li, J. Xing, Y. Zhang, and J. Cheng, “Game-theoretic co-evolution for LLM-based heuristic discovery,” 2026. [Online]. Available: https://arxiv.org/abs/2601.22896 [42] H. Zhu, C. Cai, Y. Song, X. Chen, S. Han, and Y. Guo, “Self-evolving deep research via joint generation and evaluation,” 2026. [Online]. Available: https://arxiv.org/abs/2606.04507 [43] V. Sulzer, S. G. Marquis, R. Timms, M. Robinson, and S. J. Chapman, “Python Battery Mathematical Modelling (PyBaMM),” Journal of Open Research Software , vol. 9, no. 1, p. 14, 2021. [44] M. P. Toopchinezhad and M. Ahmadi, “Machine learning approaches for active queue management: A survey, taxonomy, and future directions,” 
+
+Computer Networks , vol. 262, p. 111174, 2025. 
+
+APPENDIX ABENCHMARK DETAILS Each benchmark asks the search procedure to produce an executable program for a domain-specific design or control problem. The following paragraphs define the problem, the program output, and the real-evaluation procedure used to score that output. 
+
+PyBaMM battery fast charging.: The problem is to design a multistage constant-current protocol that reaches the target state of charge quickly while limiting degradation and satisfying electrochemical and thermal constraints [13], [19]. The target program implements solve(problem) and returns charge stages, each specifying a current and an upper state-of-charge breakpoint. The evaluator runs a PyBaMM single-particle model with lumped thermal dynamics, SEI growth, and irreversible lithium plating [43]. It simulates 30 cycles at each of three ambient temperatures ( 15 , 25 , and 35 ◦C), including a reference discharge for capacity measurement. A candidate is invalid if it fails to reach 60% state of charge within 600 seconds, exceeds 65 ◦C, crosses the plating-overpotential limit, violates the protocol bounds, or fails numerically. For a valid protocol, an early-life capacity-fade predictor [18] estimates the end-of-life cycle count; the score is the three-temperature mean divided by 2,000. 
+
+ns-3 active queue management.: The problem is to design an active queue management controller that maintains high bottleneck utilization while limiting queueing delay, loss, and flow imbalance [14], [44]. The target program implements control(obs) : it observes queue length, average delay, recent drops and ECN marks, recent utilization, and the number of active flows, then returns RED/ECN thresholds, marking probability, queue limit, and an ECN switch. A lightweight queue model calls the controller every 0.25 
+
+seconds to generate an action schedule, which is replayed in an ns-3 dumbbell simulation [23]. The evaluator averages six 8-second packet-level runs: long-flow, burst-dominated, and mixed traffic, each under two fixed seeds, over a 20-Mb/s bottleneck. For each run, it computes g − d95 − 2ℓ − 0.5(1 − f ),where g is normalized goodput, d95 is the 95th-percentile queueing delay in seconds, ℓ is loss rate, and f is Jain fairness; malformed actions or simulator failures invalidate the candidate. 
+
+FDTD Demux.: The problem is to design a dielectric layout that routes two wavelengths from a shared input waveguide to different output ports [15]. The target program implements design(nx, ny, spec) and returns a resolution-parametric relative-permittivity pattern for the rectangular region between one input and two output waveguides. The evaluator uses a fine-grid, two-dimensional TM-mode FDTD simulation at both wavelengths. If TiX 
+
+denotes normalized power from wavelength i reaching output X, the score is 
+
+0.5( T1A + T2B ) − 0.25( T1B + T2A): it rewards routing the first wavelength to port A and the second to port B while penalizing crosstalk. The default real grid is 480 × 320 cells with 10,000 time steps per wavelength. An incorrect array shape, non-finite pattern or field, or failed simulation invalidates the candidate. 
+
+Exothermic semi-batch reactor.: The problem is to control a semi-batch reactor to maximize desired product formation while avoiding thermal runaway and undesired side products [16]. Reactant B is fed into an initial charge of A; the desired exothermic reaction A + B → C competes with the temperature-accelerated side reaction C → D. The target program implements design(problem) and returns ten piecewise-constant feed rates and ten jacket temperatures for a one-hour batch. The evaluator integrates the full stiff six-state material and energy balance under tight numerical tolerances and averages (nC − nD )/85 over three operating scenarios with different cooling capacities and runaway margins. Exceeding the scenario-specific temperature limit or the 85-mol feed budget, producing a malformed schedule or nonphysical state, or failing the solver invalidates the candidate. 
+
+Perishable IRP.: The problem is to choose daily replenishment quantities for perishable inventory under uncertain demand while accounting for purchase, routing, stockout, holding, and spoilage costs [17]. The target program implements policy(state) and returns next-day shipment quantities for eight retailers from age-bucket inventory, three-day forecasts, recent demand, service levels, capacities, locations, and costs. The evaluator enforces vehicle and store capacities, ages four-day-life inventory in FIFO order, realizes candidate-independent demand, and constructs a canonical nearest-neighbor delivery route. It runs 36 fixed independent 180-day episodes. Each episode receives 1 − C/ (12 D), where C is total purchase, holding, waste, lost-sales, vehicle, and distance cost and D is total demand; the final score is the episode mean minus 0.15 times its standard deviation. Invalid shipment vectors or capacity violations invalidate the policy. 
+
+APPENDIX BDIRECT -LLM B ASELINE PROTOCOL 
+
+Program-space adaptation of LAEA-Reg.: LAEA uses an LLM as a surrogate for numerical decision vectors and provides a regression-only variant, LAEA-Reg, in addition to its full regression and classification pipeline [27]. Our Direct-LLM (LAEA-style) baseline retains the core regression mechanism but replaces a fixed-dimensional vector with the source of a target program. We use this name rather than LAEA because we do not transfer LAEA’s numerical reproduction operator, classification model, or unevaluated population to the free-form program space. 
+
+Historical examples and prediction.: At each promotion event, the baseline sorts completed real outcomes by official utility and retains the best τ = min(50 , |H| ), matching the default history limit in the released LAEA implementation. Real-valid utilities in this set are min–max normalized to [0 , 1] , while invalid outcomes receive the common worst label of zero. For each unevaluated candidate x, the LLM receives the scientific task and objective, the retained program sources and normalized real outcomes, and the source of x. One inference is made per candidate at temperature zero. The response must contain only a scalar ˆyLLM (x) ∈ [0 , 1] under the JSON key predicted_quality, either as a bare object or inside one JSON code fence, with no additional fields or prose. Values outside this interval are malformed. A malformed response is retried twice; if all three attempts fail, the candidate receives the worst prediction of zero. 
+
+Selection and real validation.: Once the history contains at least two distinct real outcome labels, the baseline promotes 
+
+xpromote = arg max  
+
+> x∈C
+
+ˆyLLM (x). (7) Thus, one valid and one invalid real outcome are sufficient to start regression, whereas repeated invalid outcomes are not. Before this condition holds, candidate generation follows the shared cold-start path and sends the generated candidate directly to the real evaluator. The baseline does not use a separate validity predictor, uncertainty, novelty, adaptive gates, evaluator portfolios, regional credit, or periodic unranked evaluation. Only a real-valid program may enter the algorithm population, and every completed real outcome is added to the subsequent prediction history. 
+
+APPENDIX CZERO -S HOT REUSE UNDER OBJECTIVE REWEIGHTING We test whether a component evaluator can be reused when objective weights change, without collecting target labels. The FDTD Demux objective contains four transmission terms: T1A and T2B measure the desired routing of wavelength 1 to port A and wavelength 2 to port B, while T1B and T2A
+
+measure crosstalk into the incorrect ports. The original objective weights the two desired terms equally at (0 .5, 0.5) ; we change these weights to (0 .8, 0.2) 
+
+while keeping both crosstalk penalties at −0.25 . We reuse the frozen, source-calibrated component evaluator and apply the new weights directly to its predictions of these four terms, without target labels or refitting. On 36 unseen candidates, the reweighted evaluator achieves an NDCG@3 of 0.959 and a normalized best regret@3 of 0.000 . Thus, its component representation transfers immediately to the reweighted objective. 
+
+APPENDIX DLLM B ACKBONE SENSITIVITY Table IV evaluates backbone sensitivity on PyBaMM at B = 70 . Gemini 3.1 Pro Preview yields higher AUBC ∆ and terminal improvements for both search methods. With Gemini 2.5 Flash, Janus has lower AUBC ∆ than Alg.-Only but achieves a higher terminal improvement. This pattern suggests that the weaker backbone produces less useful evaluator mutations and target-program proposals early in the search, delaying improvements in proxy-guided budget allocation. As the real-outcome archive grows, the LLM receives richer task feedback and more labels become available for evaluator fitting and selection, allowing Janus to recover by the end of the search.                      
+
+> LLM Backbone Janus Alg.-Only Advantage AUBC ∆
+> (%) ↑
+> Best ∆@B
+> (%) ↑
+> AUBC ∆
+> (%) ↑
+> Best ∆@B
+> (%) ↑
+> AUBC ∆
+> (pp) ↑
+> Best ∆@B
+> (pp) ↑
+> Gemini 3.1 Pro Preview 312.9 362.6 274.2 288.3 +38 .7+74 .2
+> Gemini 2.5 Flash 106.7 205.5 119.6 188.4 −12 .9+17 .1
+
+TABLE IV LLM-BACKBONE SENSITIVITY ON PYBAMM AT B = 70 .
+
+APPENDIX ETOKEN -C OST ACCOUNTING We record the prompt and completion tokens used by each method and report the average token count per completed real-evaluator call in Table V.                              
+
+> Case Janus Alg.-Only Direct-LLM Embed-GP Direct-LLM / Janus PyBaMM 20 .17.3119 .217 .65.9×
+> AQM 17 .15.1190 .117 .711 .1×
+> FDTD Demux 25 .75.7265 .621 .610 .3×
+> Reactor 4.92.732 .114 .46.6×
+> Perishable IRP 7.92.753 .57.76.8×
+
+TABLE V AVERAGE LLM TOKENS PER COMPLETED REAL -EVALUATOR CALL (10 3
+
+> TOKENS
+
+; PROMPT PLUS COMPLETION ; LOWER IS BETTER ). Janus uses 4.9–25 .7 thousand tokens per real-evaluator call across the five cases. Direct-LLM consistently uses the most tokens, requiring 5.9–11 .1×
+
+as many tokens as Janus, with a mean ratio of 8.1×. Janus and Embed-GP have similar token counts in four cases: Janus is never more than 1.2× higher, while on Reactor it uses 2.9× fewer tokens. Alg.-Only has the lowest token count in every case; Janus uses 1.8–4.5× as many tokens as Alg.-Only. 
+
+APPENDIX FEVALUATOR EVOLUTION CASE STUDIES The accuracy comparison in the main paper shows that evolved evaluators rank held-out candidates more accurately than their seed versions. The three cases below summarize the domain-relevant information introduced through evolution. 
+
+PyBaMM: degradation and safety features.: The evolved evaluator augments aggregate charging outcomes with separate indicators of peak temperature, lithium plating, SEI growth, voltage headroom, and time spent at high state of charge. These signals help distinguish protocols that appear similar in overall charging performance but differ in degradation risk or proximity to safety constraints. 
+
+AQM: response and burst features.: The evolved evaluator combines controller-structure information with controlled response probes and burst-specific measurements. It captures how marking probability and thresholds react to queue and utilization changes, while retaining goodput, tail delay, and loss as separate signals under bursty traffic. This gives the evaluator a more direct view of transient controller behavior than a single aggregate rollout score. 
+
+FDTD: morphology features.: The evolved evaluator supplements simulation scores with spatial descriptions of the dielectric layout, including material density, variation, mirror asymmetry, and top–bottom material imbalance. These morphology features help differentiate layouts whose coarse simulations are similar but whose spatial structure supports different routing behavior at the two output ports. Across the three domains, evaluator evolution therefore enriches the proxy with features tied to the real evaluator’s decision criteria: physical safety and degradation for charging, transient response for queue management, and spatial morphology for photonic routing.

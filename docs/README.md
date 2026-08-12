@@ -6,65 +6,64 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-10
-- 运行时间：2026-08-10 19:59:12 UTC
+- 最新运行日期：2026-08-12
+- 运行时间：2026-08-12 20:05:41 UTC
 - 运行状态：成功
-- 本次总论文数：15
-- 精读区：6
-- 速读区：9
+- 本次总论文数：14
+- 精读区：8
+- 速读区：6
 
 ### 今日简报（AI）
-今日重点聚焦AI for Science，精读两篇物理信息网络与PDE学习新方法，速读覆盖流体模拟与智能体优化。最值得关注的是CT-PIKAN（坐标变换+自研度量解决曲线域PDE）与Edge-Conditioned Spectral Operators（点云边条件谱算子），两者均获9.0高分。建议普通读者优先精读这两篇，后续可留意流体DiT扩散模型与自进化Agent的实战应用。
-- 详情：[/202608/10/README](/202608/10/README)
+今日完成14篇论文筛选，其中精读8篇、速读6篇。  
+最值得关注的是两篇满分精读：物理信息神经网络在穿孔域流场中的硬约束方法，以及PINN导数计算的自动微分与有限差分对比。  
+若初入该领域，建议先理解导数计算部分的数值精度差异，再进入复杂域硬约束应用。
+- 详情：[/202608/12/README](/202608/12/README)
 
 ### 精读区论文标签
-1. [CT-PIKAN: Coordinate-Transformed Physics-Informed Kolmogorov-Arnold Network with Autograd-Based Metric Evaluation for Solving PDEs in Curvilinear Domains](/202608/10/2608.06660v1-ct-pikan-coordinate-transformed-physics-informed-kolmogorov-arnold-network-with-autograd-based-metric-evaluation-for-solving-pdes-in-curvilinear-domains)  
+1. [Finite basis physics-informed neural networks with hard constraints for viscous fluid flow in highly perforated domains](/202608/12/2608.08114v1-finite-basis-physics-informed-neural-networks-with-hard-constraints-for-viscous-fluid-flow-in-highly-perforated-domains)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：基于硬约束的物理信息神经网络求解多孔域Stokes流动
+2. [Derivative Computation in PINNs: Automatic Differentiation, Finite Differences and Beyond](/202608/12/2608.11020v1-derivative-computation-in-pinns-automatic-differentiation-finite-differences-and-beyond)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：直接研究PINN中的导数计算，是PINN求解PDE的关键技术
+3. [Rational neural networks for tracking complex singularities of nonlinear PDEs](/202608/12/2608.08134v1-rational-neural-networks-for-tracking-complex-singularities-of-nonlinear-pdes)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：面向曲线域的物理信息Kolmogorov-Arnold网络求解PDE
-2. [From Points to Edges: Edge-Conditioned Spectral Operators for Physics-Sensitive PDE Learning](/202608/10/2608.06894v1-from-points-to-edges-edge-conditioned-spectral-operators-for-physics-sensitive-pde-learning)  
+   evidence：用于非线性PDE奇异性追踪的神经网络方法
+4. [Janus: An Algorithm-Evaluator Co-Evolution Framework for LLM-Driven Discovery under Expensive Evaluation Budgets](/202608/12/2608.08189v1-janus-an-algorithm-evaluator-co-evolution-framework-for-llm-driven-discovery-under-expensive-evaluation-budgets)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：面向PDE学习的神经算子，边条件谱算子捕捉物理敏感局部结构
-3. [A Domain-Specific Harness for End-to-End Automation of Optimization Research](/202608/10/2608.07407v1-a-domain-specific-harness-for-end-to-end-automation-of-optimization-research)  
+   evidence：LLM驱动的算法-评估器协同演化用于科学算法发现
+5. [Hierarchical rank-evolving representation for physics-informed neural networks](/202608/12/2608.09483v1-hierarchical-rank-evolving-representation-for-physics-informed-neural-networks)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：利用大语言模型与形式验证端到端自动化数值优化算法发现
-4. [Relay, Don't Route: Adaptive Population Handoff for Cost-Efficient LLM-Driven Evolution](/202608/10/2608.05651v1-relay-dont-route-adaptive-population-handoff-for-cost-efficient-llm-driven-evolution)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：通过LLM驱动的进化与自适应模型交接实现算法发现
-5. [Fixed and Adaptive Topological DeepONets: Functional Measurements on Hausdorff Locally Convex Spaces](/202608/10/2608.06428v1-fixed-and-adaptive-topological-deeponets-functional-measurements-on-hausdorff-locally-convex-spaces)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：推进了DeepONet这一常用于PDE代理建模的神经算子架构，通过拓扑泛函测量。
-6. [Unsupervised Adaptation of PDE Foundation Models](/202608/10/2608.07053v1-unsupervised-adaptation-of-pde-foundation-models)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：基于物理目标的无监督PDE基础模型适配
+   evidence：直接针对物理信息神经网络（PINNs），提出分层秩演化表示
+6. [MoNo: Multiscale Optimal Transport Neural Operator for Solving PDEs on General Geometries](/202608/12/2608.09764v1-mono-multiscale-optimal-transport-neural-operator-for-solving-pdes-on-general-geometries)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：面向一般几何PDE求解的神经算子
+7. [The Kuramoto Neural Operator: Learning to Solve PDEs via Coupled Oscillator Dynamics](/202608/12/2608.10234v1-the-kuramoto-neural-operator-learning-to-solve-pdes-via-coupled-oscillator-dynamics)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：基于耦合振荡器动力学的神经算子求解偏微分方程
+8. [Efficient Weak-Entropy PINN for Solving Hyperbolic Conservation Laws](/202608/12/2608.10389v1-efficient-weak-entropy-pinn-for-solving-hyperbolic-conservation-laws)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：用于双曲守恒律的新型弱熵物理信息神经网络
 
 ### 速读区论文标签
-1. [Fluid-DiT: Graph-Free Diffusion Transformers for Fluid Flow Simulations Learning](/202608/10/2608.07161v1-fluid-dit-graph-free-diffusion-transformers-for-fluid-flow-simulations-learning)  
+1. [Kernel Localization and Whole-Trajectory Generalization for Linear Multistep Methods in Deep Learning-Based Discovery of Dynamical Systems](/202608/12/2608.08435v1-kernel-localization-and-whole-trajectory-generalization-for-linear-multistep-methods-in-deep-learning-based-discovery-of-dynamical-systems)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：用于流体流动模拟的扩散Transformer，直接面向PDE数值模拟
-2. [The Optimizer Is the Agent: Reasoning-Driven Search across Prompts, Programs, and ML Workflows](/202608/10/2608.06714v1-the-optimizer-is-the-agent-reasoning-driven-search-across-prompts-programs-and-ml-workflows)  
+   evidence：基于线性多步法的动力学系统深度学习发现，与科学PDE发现相关
+2. [Discovering PDEs equivariant under rigid motions](/202608/12/2608.08913v1-discovering-pdes-equivariant-under-rigid-motions)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：利用等变稀疏回归进行PDE自动发现
+3. [From Relevance to Execution Utility: Reward-Aware Dynamic Execution Gating for Skill-Based LLM Agents](/202608/12/2608.09168v1-from-relevance-to-execution-utility-reward-aware-dynamic-execution-gating-for-skill-based-llm-agents)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：将LLM智能体作为优化器，用于算法与工作流的自动化发现
-3. [SkillProx: Self-Evolving Agent Skills via Proximal Textual Gradient Descent](/202608/10/2608.07449v1-skillprox-self-evolving-agent-skills-via-proximal-textual-gradient-descent)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：基于近端文本梯度下降的LLM智能体技能自进化方法
-4. [PATH-Bench: Path-Dependent Evaluation of Lifelong Agents](/202608/10/2608.01149v1-path-bench-path-dependent-evaluation-of-lifelong-agents)  
+   evidence：直接面向智能体技能执行效用
+4. [Comparative Approaches to Agent Retrieval over Large Skill Libraries](/202608/12/2608.06196v1-comparative-approaches-to-agent-retrieval-over-large-skill-libraries)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：面向终身智能体的路径依赖基准，涉及可复用技能与记忆
-5. [SJEPA: Learning Elegant Latent Dynamics with Hybrid Symbolic-Neural Predictors](/202608/10/2608.04060v1-sjepa-learning-elegant-latent-dynamics-with-hybrid-symbolic-neural-predictors)  
+   evidence：比较大型智能体技能库的检索方法；直接研究agent skills，可迁移到科学计算智能体
+5. [Walk-on-Spheres Monte Carlo and deep neural network approximations of elliptic PDEs with drift and killing](/202608/12/2608.09494v1-walk-on-spheres-monte-carlo-and-deep-neural-network-approximations-of-elliptic-pdes-with-drift-and-killing)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：用混合符号-神经预测器学习紧凑的符号动力学
-6. [Search2Skill: Skill Distillation Beyond Knowledge Boundaries Via Rubric-Based Reinforcement Learning](/202608/10/2608.05245v1-search2skill-skill-distillation-beyond-knowledge-boundaries-via-rubric-based-reinforcement-learning)  
+   evidence：基于蒙特卡洛估计器的椭圆型PDE深度神经网络逼近
+6. [Recovering Wasted Compute in Autoresearch Agents](/202608/12/2608.10424v1-recovering-wasted-compute-in-autoresearch-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：通过外部搜索和基于规则强化学习为LLM智能体自动蒸馏技能，可迁移至科学计算智能体技能。
-7. [Constraint-First Reasoning: A Training-Free Protocol for Exploiting Answer-Space Constraints in Mathematical Problem Solving](/202608/10/2608.05254v1-constraint-first-reasoning-a-training-free-protocol-for-exploiting-answer-space-constraints-in-mathematical-problem-solving)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：无训练的大模型提示协议用于在数学解题中强制执行约束
-8. [Curriculum Multiple Shooting for Robust Training of Neural and Universal Differential Equations](/202608/10/2608.05777v2-curriculum-multiple-shooting-for-robust-training-of-neural-and-universal-differential-equations)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：神经微分方程训练方法，可迁移至物理信息神经网络
-9. [Certifying Collective Reasoning in Multi-Agent Systems via Koopman Spectral Analysis](/202608/10/2608.05956v1-certifying-collective-reasoning-in-multi-agent-systems-via-koopman-spectral-analysis)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：用Koopman算子理论对多智能体LLM系统进行认证
+   evidence：面向端到端科学发现的自动研究智能体；失败模式与算力恢复
 
 
 <div class="dpr-home-promo-card">

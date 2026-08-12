@@ -1,0 +1,1201 @@
+Title: Efficient Weak-Entropy PINN for Solving Hyperbolic Conservation Laws
+
+URL Source: https://arxiv.org/pdf/2608.10389v1
+
+Published Time: Wed, 12 Aug 2026 00:28:20 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# Efficient Weak-Entropy PINN for Solving Hyperbolic Conservation Laws 
+
+Qi Gao 1 Kuang Huang 2 Xuan Di 1,3∗
+
+> 1
+
+Department of Civil Engineering and Engineering Mechanics, Columbia University 
+
+> 2
+
+Department of Mathematics, The Chinese University of Hong Kong 
+
+> 3
+
+Center for Smart Cities, Data Science Institute, Columbia University 
+
+Abstract 
+
+In recent years, neural networks have significantly advanced numerical solutions of partial differential equations (PDEs). However, solving PDEs with discontinuous solutions, such as hyperbolic conservation laws, remains challenging for neural network-based methods such as physics-informed neural networks (PINNs). Existing methods often rely on strong prior as-sumptions such as knowledge of discontinuity locations, or they introduce artificial smoothing terms that degrade accuracy. However, accurately solving these conservation laws and predicting the formation and propagation of discontinuities in solutions is crucial in many practical appli-cations, including gas dynamics and traffic flow modeling. In this paper, we introduce a novel Weak-Entropy PINN (WEPINN) framework for hyperbolic conservation laws with discontinuous solutions. The method enforces the governing equations in their weak (integral) formulation and incorporates the entropy condition to select the physically admissible solution, while employing the discrete fast Fourier transform (DFFT) for efficient numerical integration. Our method is tested through extensive numerical experiments on a variety of scalar conservation laws and systems of conservation laws in one and two dimensional spaces. These experiments demon-strate that our method can accurately resolve sharp discontinuities while effectively capturing interactions between multiple shock and rarefaction waves. 
+
+Keywords: Hyperbolic conservation laws, shock waves, physics-informed neural networks, weak formulation, entropy condition. 
+
+# 1 Introduction 
+
+Recent years have seen an exponential growth in the use of neural networks for solving partial differential equations (PDEs), e.g., physics-informed neural networks (PINNs) (Raissi et al., 2019). Despite their success in a variety of applications, PINNs require that solutions to the PDEs possess some level of smoothness and face significant challenges with discontinuous solutions, which often appear in hyperbolic conservation laws: 
+
+∂tU(t, x) + ∇x · F(U(t, x)) = 0 , (1) where U : (0 , ∞) × Rd → Rm denotes the vector of conserved quantities, t > 0 is time, x =(x1, . . . , x d)⊤ ∈ Rd is the spatial coordinate in d dimensions, and F : Rm → Rm×d is the flux 
+
+> ∗
+
+Corresponding author. Tel.: +1 212 853 0435; Email: sharon.di@columbia.edu 
+
+1arXiv:2608.10389v1 [math.NA] 11 Aug 2026 function with columns F1(U), . . . , F d(U), where each column Fj : Rm → Rm corresponds to the 
+
+j-th flux component. The divergence operator acts as ∇x · F(U) = Pdj=1 ∂xj Fj (U). These conservation laws are widely used in various scientific and engineering disciplines, such as (inviscid) Burgers’ equation and Euler equations for gas dynamics (Dafermos, 1983), or Lighthill-Whitham-Richards (LWR) model for traffic flow (Lighthill and Whitham, 1955; Richards, 1956). Solutions to these equations often develop discontinuities even from smooth initial conditions, giving rise to critical phenomena such as shock waves in gas propagation or traffic congestion. Traffic congestion can be understood as a discontinuity in vehicle density when vehicles upstream brake abruptly, while entering a jammed region downstream. The standard PINN framework (Raissi et al., 2019) embeds governing equations in their strong form directly into the loss function by minimizing pointwise PDE residuals, e.g., 
+
+LPDE = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+∂t ˆU(ti, xi) + ∇x · F( ˆU(ti, xi)) 2
+
+, (2) computed via automatic differentiation, where ˆU is the neural network approximation and {(ti, xi)}Ni=1 
+
+is a set of collocation points. Because the residual is evaluated pointwise through differentiation, we refer to this method as Diff-PINN . This approach inherently relies on solution smoothness and therefore struggles with discontinuous solutions that arise in hyperbolic conservation laws, typically producing overly smooth profiles or spurious oscillations near discontinuities (Huang and Agarwal, 2023). When solving hyperbolic conservation laws with discontinuous solutions, one workaround to enable the use of pointwise residuals in the Diff-PINN is to incorporate artificial viscosity for regularization, i.e., to consider 
+
+∂tU(t, x) + ∇x · F(U(t, x)) = ε∆xU(t, x),
+
+for a suitable regularization parameter ε > 0, where ∆ x = Pdj=1 ∂2 
+
+> xj
+
+is the Laplacian operator. Although this makes solutions smooth, it also permanently smooths out the discontinuities, pro-ducing smeared shock profiles whose width is controlled by ε, rather than reproducing the sharp discontinuities present in the true solution. In contrast, classical numerical methods such as the Lax-Friedrichs and Godunov schemes also introduce numerical viscosity, but this viscosity van-ishes as the mesh is refined, and convergence to the physically correct solution is guaranteed by the mathematical framework of weak formulations and entropy conditions (LeVeque, 2002). This well-established framework has inspired several weak-form PINN approaches. Weak PINN ( WPINN ) (De Ryck et al., 2024) incorporates residuals computed from the weak formulation and the entropy condition into the loss function. The key feature of WPINN is that it adopts an adversarial framework in which two neural networks are trained simultaneously: one to approximate the solution and the other to generate test functions. These networks are trained with opposite objectives: the solution network minimizes the residual loss, while the test function network maximizes it. This adversarial setup is designed to identify the most informative test func-tions without exhaustively searching the test function space, thereby improving efficiency. Chaumet and Giesselmann (2022) proposed several modifications to the WPINN framework, including dual norm computation for training efficiency, as well as extensions to general boundary conditions and systems of conservation laws. Zhou and Shi (2025) further extended WPINN to complex geome-tries. However, as noted in De Ryck et al. (2024); Chaumet and Giesselmann (2022), the adversarial training of WPINN faces stability challenges in practice. The the test function network may require frequent re-initialization during training, and the predictions can be sensitive to hyperparameter choices. 2Variational PINN ( VPINN ) (Kharazmi et al., 2019, 2021) is another variant of PINNs that leverages integration by parts to transfer derivatives from the predicted solution to test functions. The VPINN formulates its loss function as the sum of residuals from the resulting integral equations. Subsequent work analyzed the role of quadrature rules and test function selection in VPINNs (Berrone et al., 2021), and proposed a robust variant based on discrete dual norm minimization (Rojas et al., 2023). Although it is not specifically developed for hyperbolic conservation laws, one of its residual terms naturally corresponds to a weak formulation. However, VPINN does not enforce the entropy condition, which is essential for selecting physically admissible solutions among multiple weak solutions. Beyond weak-form approaches, a variety of other strategies have been proposed to address dis-continuities when using PINNs. For instance, Jagtap and Karniadakis (2020); Jagtap et al. (2020); Lorin and Novruzi (2024) adopt domain decomposition by dividing the solution domain into sub-regions separated at the shock locations. However, this approach requires prior knowledge of shock locations, limiting its applicability. More complex training pipelines (Wang et al., 2025) have also been explored, in which a PINN is iteratively trained to identify shock locations, followed by do-main decomposition into subdomains that contain no discontinuities. Independent PINNs are then trained within each subdomain, but this approach becomes increasingly impractical when multiple discontinuities interact or merge over time, as the subdomain configuration must be continuously updated. Gradient-weighting strategies (Liu et al., 2024; Liang et al., 2024; Ghoreishi and Naderan, 2026) suppress large residual gradients near shocks to mitigate training instability. While effective for problems with stationary or isolated discontinuities, their performance degrades when shocks are moving or multiple discontinuities interact. Network architecture improvements (Lei et al., 2025a,b) provide another approach by incorporating Kolmogorov-Arnold network (KAN) layers with explicit high-frequency feature embeddings to better capture shock waves. However, these methods still require additional regularization such as adaptive artificial viscosity. Alternative reformulations include a lift-and-embed method (Sun et al., 2024) that lifts the problem to a higher dimension where solutions become smooth, though it relies on known initial locations of discontinuities. In Zhang et al. (2022), an implicit form is used to design the loss function, thereby avoiding differentiation of the predicted solution. Subsequent work (Zeng et al., 2025) extends this framework with solution bounds and Rankine-Hugoniot jump conditions to im-prove shock detection and the accuracy of predicted shock speeds. However, the implicit form does not enforce the entropy condition that is necessary for selecting physically admissible solutions. In Su et al. (2025), a Stable Physics-Informed Kernel Evolution (SPIKE) method is proposed. This method employs reproducing kernel representations of solutions, which are equivalent to two-layer neural networks, together with Tikhonov regularization. However, its applicability to multidimen-sional problems remains to be explored. Cai et al. (2022, 2023) proposed a least-squares ReLU neural network (LSNN) that leverages finite-volume discretization of conservation laws, though its extension to systems of conservation laws has not been demonstrated. The aforementioned methods either require prior knowledge of discontinuity locations, lack essential constraints such as the entropy condition, introduce artificial smoothing that degrades accuracy near discontinuities, or suffer from training instability and inefficiency. These challenges become particularly severe in regimes involving complex nonlinear wave dynamics, including shock formation from initially smooth profiles, shock merging, and shock-rarefaction interactions. To overcome these challenges, we propose a novel PINN framework for hyperbolic conservation laws that rigorously integrates weak formulations and entropy conditions while ensuring stable and efficient training. This mathematically grounded foundation mirrors the classical theory and numerical methods for hyperbolic conservation laws, making our approach applicable to general systems of conservation laws in multiple space dimensions. We refer to this method as the Weak-3Entropy PINN ( WEPINN ), which addresses the challenges of discontinuous solutions through three key components: 
+
+• the weak formulation of the conservation laws as integral equations, which transfers all spatial and temporal derivatives onto smooth test functions (e.g., trigonometric polynomials) and inherently accommodates discontinuities without artificial smoothing or prior knowledge of their locations; 
+
+• enforcement of the entropy condition as integral inequalities to select the physically admissible solution, enabling the method to correctly determine whether an initial discontinuity evolves into a shock or a rarefaction wave; 
+
+• use of the discrete fast Fourier transform (DFFT) for efficient and accurate evaluation of the integrals appearing in both the weak formulation and the entropy condition, significantly reducing computational cost compared to standard numerical integration. A key feature of the proposed WEPINN is that it pre-selects a set of test functions and minimizes the residuals over all of them simultaneously via least-squares optimization, avoiding the adver-sarial training employed in WPINN and leading to stable and efficient training. We demonstrate the effectiveness of WEPINN through extensive numerical experiments covering one-dimensional scalar conservation laws (the linear advection equation, Burgers’ equation, and the LWR traffic model), one-dimensional system of conservation laws (the compressible Euler equations), and two-dimensional scalar conservation laws (the 2D Burgers’ equation), under a variety of initial and boundary conditions. Our experiments systematically evaluate a wide range of nonlinear wave phenomena, including shock formation from smooth initial conditions, propagation of shock and rarefaction waves, shock merging, and shock-rarefaction interactions. Furthermore, we introduce two shock-aware evaluation metrics, the shock detection rate and shock position accuracy, which complement traditional L p error measures by directly assessing the presence and location of dis-continuities predicted by a model. The remainder of this paper is organized as follows. Section 2 introduces the mathemati-cal framework of weak entropy solutions and presents the detailed design of the proposed Weak-Entropy PINN (WEPINN). Section 3 provides extensive numerical experiments and performance evaluations. Section 4 presents ablation studies that examine the role of the entropy condition and the choice of test functions in WEPINN. Section 5 concludes the paper and discusses potential future directions. 
+
+# 2 Methods 
+
+In this section, we present the Weak-Entropy PINN (WEPINN) framework. We begin by reviewing the theory of weak entropy solutions to hyperbolic conservation laws, which provides the mathe-matical foundation of our method, and then describe the design of the WEPINN. 
+
+2.1 Weak entropy solutions to hyperbolic conservation laws 
+
+We consider the hyperbolic conservation law (1) on a hypercube Ω = [ a, b ]d ⊂ Rd for some a < b ,equipped with the initial condition 
+
+U(0 , x) = U0(x) for x ∈ Ω, (3) 4and periodic boundary conditions. In this work, we address non-periodic boundary conditions only for one-dimensional conservation laws (cf. Section 2.4). For discontinuous solutions to (1), the derivatives ∂tU and ∇x · F(U) in (1) do not exist at the discontinuities, so that the equation fails to describe the propagation of the discontinuities. This necessitates considering weak solutions defined by the following integral equation: [Weak] 
+
+Z ∞
+
+> 0
+
+Z
+
+> Ω
+
+U(t, x)∂tφ(t, x) + F(U(t, x)) · ∇ xφ(t, x) dxdt +
+
+Z
+
+> Ω
+
+U0(x)φ(0 , x) dx = 0 , (4) where φ : [0 , ∞) × Ω → R is any spatially periodic, temporally compactly supported, and continu-ously differentiable test function. The integral equation (4), known as the weak formulation of equation (1), is obtained by multiplying (1) by the test function φ and integrating by parts. The weak formulation (4) imposes no smoothness condition on U and yields the Rankine-Hugoniot jump condition (Dafermos, 1983) that capture the propagation of discontinuities. However, weak solutions defined by (4) are generally non-unique; in particular, multiple weak solutions can correspond to the same initial data, differing in how discontinuities form. To select physically admissible solutions, one crucial criterion is the entropy condition: [Entropy] 
+
+Z ∞
+
+> 0
+
+Z
+
+> Ω
+
+η(U(t, x)) ∂tφ(t, x) + q(U(t, x)) · ∇ xφ(t, x) dxdt +
+
+Z
+
+> Ω
+
+η(U0(x)) φ(0 , x) dx ≥ 0,
+
+(5) where η : Rm → R and q : Rm → Rd form an entropy-entropy flux pair satisfying 
+
+∂q j
+
+∂u k
+
+=
+
+> m
+
+X
+
+> l=1
+
+∂η ∂u l
+
+∂F j,l 
+
+∂u k
+
+for j = 1 , · · · , d, k = 1 , · · · , m, (6) where uk denotes the k-th component of U, qj the j-th component of q, and Fj,l the l-th component of the j-th flux Fj of F. When the solution U is smooth, the chain rule and (6) yield a conservation law for the entropy: 
+
+∂tη(U) + ∇x · q(U) = 0 .
+
+When discontinuities form, however, this equation no longer holds. The entropy condition (5) replaces it with integral inequalities over all nonnegative test functions φ, characterizing the dissi-pation of the entropy η(U) and the irreversibility of the time evolution of U.The weak formulation (4) and the entropy condition (5) together give the following definition of weak entropy solutions .
+
+Definition 1. Suppose that E is a family of entropy-entropy flux pairs (η, q) that satisfy condition 
+
+(6) , and let T denote the space of functions φ ∈ C1([0 , ∞) × Ω) that are spatially periodic on Ω
+
+and compactly supported in time. A function U ∈ L∞((0 , ∞) × Ω) ∩ C((0 , ∞); L 1(Ω)) is called a weak entropy solution to the hyperbolic conservation law (1) with the initial condition (3) if it satisfies the weak formulation (4) for all test functions φ ∈ T and the entropy condition (5) for all nonnegative test functions φ ∈ T and every (η, q) ∈ E .
+
+For scalar conservation laws ( m = 1), any C 1 convex function η : R → R serves as an entropy, with the corresponding entropy flux q : R → Rd defined component-wise by q′ 
+
+> j
+
+(ξ) = η′(ξ)F ′ 
+
+> j
+
+(ξ)for j = 1 , . . . , d . The existence and uniqueness of weak entropy solutions in this case are well established for any spatial dimension d, following the classical theory of Kruˇ zkov (Kruˇ zkov, 1970). 5Theorem 2. Suppose that m = 1 . For any initial data U0 ∈ L∞(Ω) , there exists a unique weak entropy solution U ∈ L∞((0 , ∞) × Ω) ∩ C((0 , ∞); L 1(Ω)) to the scalar conservation law (1) in the sense of Definition 1, where the family E consists of all entropy-entropy flux pairs (η, q) with C1
+
+convex η.
+
+For systems of conservation laws ( m > 1), no generic construction of entropy-entropy flux pairs is available. However, certain systems arising from gas and fluid dynamics admit natural entropy structures. For example, the compressible Euler equations possess entropy pairs derived from thermodynamic entropy, as detailed in Section 3.3. The existence and uniqueness of weak entropy solutions for general systems remain open problems (Dafermos, 1983, 2023) and are beyond the scope of this work. 
+
+Figure 1: Pipeline of the proposed WEPINN 
+
+2.2 Neural network approximation to solutions 
+
+We approximate solutions to the hyperbolic conservation law (1) using a neural network (t, x) ∈ Rd+1 7 −→ ˆU(t, x; θ) ∈ Rm, (7) where θ denotes the collection of all trainable parameters (weights and biases) of the network. The solutions may be discontinuous but remain of bounded variation, a regularity class that neural networks can approximate to arbitrary accuracy (Ryck and Mishra, 2024). In the Diff-PINN framework, the neural network is trained by minimizing a loss function that enforces the governing equation (1) in its strong form and the initial and boundary conditions. The loss function is defined as 
+
+LStrong = LPDE + LIC + LBC ,
+
+where LPDE denotes the pointwise PDE residual as in (2), and LIC and LBC penalize deviations from the prescribed initial and boundary conditions at collocation points sampled on the initial time slice and along the domain boundary, respectively. For hyperbolic conservation laws, the true solution U may develop discontinuities, making 
+
+LStrong an inappropriate training objective. In our WEPINN framework, we replace LStrong with a weak-entropy loss based on (4)–(5), as described in the following subsection. 
+
+2.3 Weak-Entropy PINN 
+
+The proposed WEPINN is built on the notion of weak entropy solutions defined in Definition 1. As illustrated in Figure 1, we employ a standard PINN architecture to represent the approximate 6solution as a neural network: ( t, x) 7 → ˆU(t, x; θ), and design a weak-entropy loss by discretizing (4)–(5) to train the neural network. We discretize (4)–(5) on a finite time horizon [0 , T ] where T > 0 is the terminal time of interest, using a spatial mesh {xj }j∈Ωd on Ω and a temporal mesh {tk}Nt 
+
+> k=0
+
+on [0 , T ], with {βj }j∈Ωd and 
+
+{αk}Nt 
+
+> k=0
+
+the corresponding quadrature weights. That is, for any function h : [0 , T ] × Ω → R, the integral R T
+
+> 0
+
+R 
+
+> Ω
+
+h(t, x) dxdt is discretized as 
+
+X
+
+> j∈Ωd
+> Nt
+
+X
+
+> k=0
+
+αkβj h(tk, x j ).
+
+In our implementation, both {αk}Nt 
+
+> k=0
+
+and {βj }j∈Ωd are taken as trapezoidal-rule quadrature weights on the uniform grid. For any test function φ, we discretize the weak formulation (4) as 
+
+Iφt, x + Iφ 
+
+> 0,x
+
+= 0 ,
+
+through numerical quadratures: 
+
+Iφt, x = X
+
+> j∈Ωd
+> Nt
+
+X
+
+> k=0
+
+αkβj
+
+  ˆU(tk, xj ; θ)∂tφ(tk, xj ) + F( ˆU(tk, xj ; θ)) · ∇ xφ(tk, xj ), (8) 
+
+Iφ 
+
+> 0,x
+
+= X
+
+> j∈Ωd
+
+βj U0(xj ) φ(0 , xj ), (9) Then, for any nonnegative test function φ, we discretize the entropy condition (5) as 
+
+J φt,x + J φ 
+
+> 0,x
+
+≥ 0,
+
+through numerical quadratures: 
+
+J φt,x = X
+
+> j∈Ωd
+> Nt
+
+X
+
+> k=0
+
+αkβj
+
+ η( ˆU(tk, xj ; θ)) ∂tφ(tk, xj ) + q( ˆU(tk, xj ; θ)) · ∇ xφ(tk, xj ), (10) 
+
+J φ 
+
+> 0,x
+
+= X
+
+> j∈Ωd
+
+βj η(U0(xj )) φ(0 , xj ). (11) With the numerical discretization of the weak formulation and the entropy condition above, our weak-entropy loss is defined as 
+
+LWeak −Entropy = LWeak + LEntropy + LIC ,
+
+where 
+
+LWeak = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+Iφn 
+
+> t, x
+
++ Iφn 
+
+> 0,x
+
+,
+
+LEntropy = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+ReLU 
+
+
+
+−J φn 
+
+> t, x
+
+− J φn 
+
+> 0,x
+
+, 0
+
+
+
+,
+
+LIC = 1
+
+N0
+
+> N0
+
+X
+
+> i=1
+
+ˆU(0 , x0 
+
+> i
+
+; θ) − U0(x0 
+
+> i
+
+) 2
+
+,
+
+with Iφn 
+
+> t, x
+
+, Iφn
+
+> 0,x
+
+, J φn 
+
+> t, x
+
+, J φn 
+
+> 0,x
+
+as defined in equations (8)–(11), {φn}Nn=1 is a set of pre-selected test functions, and {x0 
+
+> i
+
+}N0 
+
+> i=1
+
+a set of collocation points sampled on the initial time slice t = 0. 7Test functions. 
+
+The weak formulation in principle requires evaluating the residuals in (4) against all test functions 
+
+φ ∈ T as in Definition 1. Since this is computationally infeasible, we approximate T by a finite-dimensional subspace spanned by a representative set of test functions and evaluate the residuals only on this subset. We adopt a trigonometric basis on a uniform grid, with a tensor-product structure in space and time. The tensor-product structure allows the high-dimensional summations in the weak-entropy loss to factorize along each coordinate direction, and combined with a uniform grid and trigonometric basis functions, enables an efficient implementation through the discrete fast Fourier transform (DFFT), as described below. The choice of the trigonometric basis over alternatives such as orthogonal polynomials is supported by an ablation study in Section 4.2, with additional discussion in D. Concretely, each test function in our finite set {φn}Nn=1 is indexed by a multi-index 
+
+ν(n) = ( ν0(n), ν 1(n), . . . , ν d(n)) ,
+
+where ν0(n) ∈ { 0, . . . , N q} selects the temporal basis and νr(n) ∈ { 0, . . . , N p} selects the spatial basis in the r-th spatial dimension. The total number of test functions is N = ( Nq + 1)( Np + 1) d,and each test function factorizes as 
+
+φn(t, x) = qν0(n)(t)
+
+> d
+
+Y
+
+> r=1
+
+pr,ν r (n)(xr). (12) We use two sets of basis functions: one for the weak formulation, where test functions only need to be smooth, and one for the entropy condition, where test functions must additionally satisfy φ ≥ 0. Suppose that the spatial domain Ω = [0 , 1] d and the time horizon is [0 , T ]. For the weak formulation, we adopt standard trigonometric bases. The spatial basis per dimension consists of sine-cosine pairs with frequencies m = 1 , . . . , N p/2, where Np is assumed even. For each spatial dimension r = 1 , . . . , d :
+
+pr, 0(xr) = 1 , pr, 2m−1(xr) = sin(2 πmx r), pr, 2m(xr) = cos(2 πmx r), m = 1 , . . . , N p/2. (13) For the temporal basis, we introduce a window function w(t) = T − t to ensure φ(T, x) = 0. The temporal basis uses sine-cosine pairs with frequencies m/ 2 for m = 1 , . . . , N q/2, where Nq is assumed even: 
+
+q0(t) = w(t), q2m−1(t) = w(t) sin( πmt ), q2m(t) = w(t) cos( πmt ), m = 1 , . . . , N q/2. (14) For the entropy condition, we modify the above bases to guarantee non-negativity. The spatial basis uses four nonnegative combinations per frequency m = 1 , . . . , N p/4, where Np is assumed divisible by 4: 
+
+pr, 0(xr) = 1 , pr, 4m−3(xr) = 1 + sin(2 πmx r), pr, 4m−2(xr) = 1 + cos(2 πmx r), (15) 
+
+pr, 4m−1(xr) = 1 − sin(2 πmx r), pr, 4m(xr) = 1 − cos(2 πmx r), m = 1 , . . . , N p/4, (16) and the temporal basis uses four nonnegative combinations per frequency m/ 2 for m = 1 , . . . , N q/4, where Nq is assumed divisible by 4, with the window function w(t): 
+
+q0(t) = w(t), q4m−3(t) = w(t) 1 + sin( πmt ), q4m−2(t) = w(t) 1 + cos( πmt ), (17) 
+
+q4m−1(t) = w(t) 1 − sin( πmt ), q4m(t) = w(t) 1 − cos( πmt ), m = 1 , . . . , N q/4. (18) 8DFFT implementation. 
+
+The dominant computational cost of evaluating the weak-entropy loss lies in the residuals Iφn 
+
+> t, x
+
+and 
+
+J φn 
+
+> t, x
+
+, which involve summations over the full space-time grid. For high-frequency test functions, direct evaluation of these summations becomes both time- and memory-intensive. Our choice of trigonometric test functions on a uniform grid allows these summations to be evaluated via the DFFT. The resulting computational complexity is reduced from O(N 2 
+
+> t
+
+N 2dx ) for direct numerical quadrature to O(NtN dx log Nt log d Nx), where Nt is the number of temporal grid points and Nx is the number of grid points per spatial dimension. Implementation details and empirical validation of the speedup are provided in E. 
+
+2.4 Boundary conditions 
+
+The weak-entropy loss defined in Section 2.3 assumes periodic boundary conditions. With the chosen periodic test functions, the boundary terms in the weak formulation (4) and the entropy condition (5) vanish identically, and no additional boundary loss is required in WEPINN. For one-dimensional problems, the boundary of the domain Ω = [ a, b ] consists of two points 
+
+x = a and x = b. In this case, we also consider the Dirichlet boundary condition: 
+
+U(t, a ) = U0(a) and U(t, b ) = U0(b) for t ∈ [0 , T ].
+
+This boundary condition is interpreted as extending the problem to the real line R by the following constant extension of solutions: ˜U0(x) = 
+
+
+
+U0(a), x ≤ a;
+
+U0(x), a < x < b ;
+
+U0(b), x ≥ b;˜U(t, x ) = 
+
+
+
+U0(a), x ≤ a;
+
+U(t, x ), a < x < b ;
+
+U0(b), x ≥ b;Then, we can study the initial value problem (1) for ˜U with the initial condition ˜U(0 , x ) = ˜U0(x)for x ∈ R. Provided that all waves propagate within the domain [ a, b ] over the time horizon [0 , T ], the extended solution coincides with the original one on [ a, b ], i.e., U(t, x ) = ˜U(t, x ) for all t ∈ [0 , T ]and x ∈ [a, b ]. This allows us to consider Riemann problems in one dimension. For the Dirichlet boundary condition, the weak formulation and the entropy condition become [Weak] 
+
+Z T
+
+> 0
+
+Z ba
+
+U(t, x )∂tφ(t, x ) + F(U(t, x )) ∂xφ(t, x ) dxdt +
+
+Z ba
+
+U0(x)φ(0 , x ) dx 
+
++
+
+Z T
+
+> 0
+
+F(U0(a)) φ(t, a ) dt −
+
+Z T
+
+> 0
+
+F(U0(b)) φ(t, b ) dt = 0 ,
+
+[Entropy] 
+
+Z T
+
+> 0
+
+Z ba
+
+η(U(t, x )) ∂tφ(t, x ) + q(U(t, x )) ∂xφ(t, x ) dxdt +
+
+Z ba
+
+η(U0(x)) φ(0 , x ) dx 
+
++
+
+Z T
+
+> 0
+
+F(U0(a)) φ(t, a ) dt −
+
+Z T
+
+> 0
+
+F(U0(b)) φ(t, b ) dt ≥ 0,
+
+respectively. Correspondingly, the weak and entropy losses are updated as follows: 
+
+LWeak = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+Iφn 
+
+> t,x
+
++ Iφn 
+
+> 0,x
+
++ Iφn 
+
+> BC
+
+,
+
+LEntropy = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+ReLU 
+
+
+
+−J φn 
+
+> t,x
+
+− J φn 
+
+> 0,x
+
+− J φn 
+
+> BC
+
+, 0
+
+
+
+,
+
+9where Iφn 
+
+> t,x
+
+, Iφn
+
+> 0,x
+
+, J φn 
+
+> t,x
+
+, J φn 
+
+> 0,x
+
+are as in Section 2.3, and the boundary terms Iφn 
+
+> BC
+
+and J φn 
+
+> BC
+
+are defined as: 
+
+Iφn 
+
+> BC
+
+=
+
+> Nt
+
+X
+
+> k=0
+
+αkF(U0(a)) φn(tk, a ) −
+
+> Nt
+
+X
+
+> k=0
+
+αkF(U0(b)) φn(tk, b ),
+
+J φn 
+
+> BC
+
+=
+
+> Nt
+
+X
+
+> k=0
+
+αkq(U0(a)) φn(tk, a ) −
+
+> Nt
+
+X
+
+> k=0
+
+αkq(U0(b)) φn(tk, b ).
+
+# 3 Numerical Experiments and Results 
+
+In this section, we evaluate the performance of the proposed method through comprehensive nu-merical experiments. Specifically, we consider scalar conservation laws and systems of conservation laws in one and two spatial dimensions, as summarized in Table 1. 
+
+Problem class One-dimension Two-dimension 
+
+Scalar conservation laws Linear advection equation Burgers’ equation LWR traffic model 
+
+(Section 3.2) 
+
+Burgers’ equation 
+
+(Section 3.4) 
+
+Systems of conservation laws Compressible Euler equations 
+
+(Section 3.3) -Table 1: Benchmark problems and corresponding subsections, covering both scalar conservation laws and systems of conservation laws in one and two spatial dimensions. 
+
+3.1 Experimental setup 
+
+We compare the proposed WEPINN against three representative baselines that require only the gov-erning PDEs, without prior knowledge of discontinuity locations: Diff-PINN, VPINN, and WPINN. Auxiliary techniques such as adaptive collocation sampling and domain decomposition are orthog-onal to this comparison and could be combined with any of the formulations considered; therefore, we do not include them as separate baselines. For Diff-PINN and VPINN, we adopt the same network architecture as in WEPINN, except that ReLU activations are replaced with Tanh for better performance, and we use the same number of uniformly sampled collocation points as in WEPINN. VPINN as originally proposed (Kharazmi et al., 2019, 2021) is not specifically designed for hyperbolic conservation laws. We adapt it by combining our weak-formulation loss with the pointwise PDE residual loss used in Diff-PINN, which corresponds to the core idea of VPINN applied to the present setting. All three methods use Adam for optimization. Full network architecture and training details are provided in Appendix C. For WPINN, we adopt the implementation of Chaumet and Giesselmann (2022) rather than the original version of De Ryck et al. (2024), as it provides a TensorFlow implementation more compatible with our training environment. We import the initial and boundary conditions from our experimental setup into their code and evaluate the resulting solutions on a uniform mesh for downstream metric computation. The released code supports only Dirichlet boundary conditions and does not include an implementation for the compressible Euler equations. Accordingly, we 10 report WPINN results only for the Dirichlet-boundary scalar cases, and for the Euler case we use the numbers reported in Chaumet and Giesselmann (2022). To assess model performance, we evaluate both global solution accuracy and shock (disconti-nuity) resolution. Global accuracy is measured by the relative L 2 error against a high-resolution reference solution computed with the Lax-Friedrichs scheme. To assess shock resolution, we first extract the shock locations from the predicted solution at each time step using a gradient-based peak detector, and then compare them against the ground-truth shock locations. This comparison yields two shock-aware metrics: 
+
+• the shock detection rate (S-Rate), defined as the fraction of ground-truth shocks correctly identified by the model; 
+
+• the shock position accuracy (S-Acc), defined as the mean positional error between the matched predicted and ground-truth shocks. Together, the two metrics quantify whether a model captures the presence of shocks and how accurately it predicts their positions over a time horizon. The detailed procedure for computing these metrics is given in Algorithm 1 (Appendix A). 
+
+3.2 One-dimensional scalar conservation laws 
+
+In this subsection, we consider the one-dimensional scalar conservation law 
+
+∂tu(t, x ) + ∂xf (u(t, x )) = 0 , (t, x ) ∈ [0 , 1] × [0 , 1] , (19) subject to the initial condition u(0 , x ) = u0(x) for x ∈ [0 , 1] and either the Dirichlet boundary condition described in Section 2.4 or periodic boundary conditions. We consider three representative examples with different flux functions f :
+
+• Linear advection equation , with f (u) = cu for a constant advection speed c.
+
+• (inviscid) Burgers’ equation , with f (u) = 12 u2, a classical benchmark in gas dynamics. 
+
+• LWR traffic model , with f (u) = u(1 − u), where u denotes traffic density. For each combination of governing equation and boundary condition, we randomly generate 30 initial conditions drawn from several initial condition classes designed to cover a range of solution behaviors. Under the Dirichlet boundary condition, the classes are Sigmoid (smooth transitions between two states) and Riemann (piecewise-constant two- or three-state profiles). Under the periodic boundary condition, the classes are Fourier (smooth trigonometric series), Trig (high-frequency sinusoidal wave), Bell (smooth single-peaked profiles), and PWC (piecewise-constant profiles). Full generation procedures are given in B. Each model is trained independently on each initial condition, and the reported metrics are averaged across all trials. Tables 2 and 3 summarize the results under Dirichlet and periodic boundary conditions, respec-tively. For the linear advection equation, no shocks form from the Sigmoid initial conditions, so we omit the shock-resolution metrics. In addition, since the entropy condition plays no role in solution selection for linear problems (Dafermos, 1983), we report only WEPINN without the entropy loss (WEPINN w/o Entropy) for the linear advection equation. Under the Dirichlet boundary condition, WEPINN achieves substantially lower relative L 2 errors than the baselines on Burgers’ equation and the LWR model, together with near-perfect S-Rate and the smallest S-Acc. These gains are consistent across both Sigmoid and Riemann initial conditions. 11 Problem Method Riemann Sigmoid                                                                                          
+
+> L2↓S-Rate ↑S-Acc ↓L2↓S-Rate ↑S-Acc ↓
+> Linear  Diff-PINN 0.87 100 0.02 0.45 --VPINN 0.91 100 0.03 0.63 --WPINN 1.13 75.34 0.28 0.92 --
+> WEPINN w/o Entropy 0.93 100 0.03 0.87 --
+> Burgers  Diff-PINN 8.62 40.75 0.79 6.23 40.00 0.01
+> VPINN 5.34 56.13 0.43 5.89 48.90 0.05 WPINN 9.74 92.20 0.62 7.36 60.41 0.19
+> WEPINN w/o Entropy 3.68 82.42 0.06 3.12 99.36 0.07 WEPINN 1.84 98.58 0.05 1.53 99.41 0.04
+> LWR  Diff-PINN 6.12 41.60 1.49 3.37 32.07 0.81 VPINN 6.53 47.32 0.95 3.15 31.76 0.15 WPINN 9.72 41.45 1.48 6.36 46.23 0.78
+> WEPINN w/o Entropy 2.54 77.22 0.19 2.50 96.45 0.28 WEPINN 1.89 93.90 0.15 2.05 96.71 0.23
+
+Table 2: Performance comparison under the Dirichlet boundary condition across problems and initial conditions. Reported metrics are the relative L 2 error, the shock detection rate (S-Rate), and the shock position accuracy (S-Acc). Arrows indicate whether lower ( ↓) or higher ( ↑) is better. All numbers are reported in e-2. Both Diff-PINN and VPINN degrade sharply on Burgers’ equation and the LWR model, where shocks form. VPINN improves slightly on Diff-PINN in shock localization owing to the use of the weak formulation, but its S-Rate remains too low for S-Acc to be meaningful. WPINN, despite using the weak formulation with the entropy condition, also underperforms on these problems. By contrast, on the linear advection equation all methods achieve comparable accuracy. In particular, Diff-PINN achieves the lowest relative L 2 error on the smooth Sigmoid initial conditions. This suggests that the failure of Diff-PINN on nonlinear problems stems from the ill-posed pointwise residual near discontinuities rather than from any limitation of the neural network’s approximation capacity. These findings show that the proposed WEPINN is the most accurate, particularly in shock resolution, among all methods for nonlinear problems involving shocks. Under the periodic boundary condition, WEPINN continues to outperform the baselines on all problems. In Table 3, the best result in every cell, across the relative L 2 error, S-Rate, and S-Acc metrics and across all problems and initial conditions, is obtained by either WEPINN or WEPINN w/o Entropy. The two variants alternate in achieving the best S-Rate and S-Acc, depending on the initial condition class. This suggests that the weak formulation already captures most of the shock structure accurately, while the entropy loss mainly serves to select the physically admissible solution. Among the baselines, Diff-PINN and VPINN again degrade sharply once shocks form, with S-Rate values below 20 across most initial conditions on Burgers’ equation and the LWR model. These findings indicate that the proposed WEPINN is also the most accurate method under the periodic boundary condition. To further illustrate the qualitative differences among the methods, we present a representative Burgers’ equation example in Figure 2. The example is chosen so that, within a single solution, one observes the formation and propagation of shocks and rarefactions, shock–shock merging, and shock–rarefaction interaction. The columns show the solution at different time snapshots from t = 0 to t = 1, while the rows correspond to different methods. The ground-truth solution is shown as a dashed line for comparison, and the ground-truth shock locations are indicated by solid vertical lines. 12 Figure 2: Qualitative comparison on a Burgers’ equation example whose solution contains rich phenomena including formation of shocks and rarefactions as well as their interactions. Columns show the solution at t = 0 , 0.25 , 0.5, 0.75 , 1.0. Rows correspond to Diff-PINN, VPINN, WPINN, WEPINN without the entropy loss, and the full WEPINN, together with the ground truth solution in dashed line. Solid vertical lines mark the ground-truth shock locations. 13 Problem Method Trig Fourier Bell PWC                                                                                                                                                 
+
+> L2↓S-Rate ↑S-Acc ↓L2↓S-Rate ↑S-Acc ↓L2↓S-Rate ↑S-Acc ↓L2↓S-Rate ↑S-Acc ↓
+> Linear  Diff-PINN 2.05 --1.33 --1.55 --2.99 86.09 0.30 VPINN 2.14 --1.30 --1.36 --1.58 85.99 0.31
+> WEPINN w/o Entropy 1.89 --0.53 --0.95 --0.96 99.19 0.20 Burgers  Diff-PINN 8.22 1.04 0.12 5.51 1.66 0.18 6.06 9.69 0.45 6.36 12.87 0.55 VPINN 8.47 0.45 0.05 5.26 2.57 0.10 7.31 5.86 0.08 6.15 15.78 0.52
+> WEPINN w/o Entropy 2.15 46.57 0.08 0.89 95.88 0.25 0.91 99.85 0.23 1.64 97.94 0.27 WEPINN 1.80 57.83 0.10 0.72 94.25 0.11 0.82 99.40 0.15 1.28 95.16 0.22 LWR  Diff-PINN 9.39 0.60 0.00 6.12 0.00 0.00 9.27 3.58 0.22 11.15 16.19 0.62 VPINN 7.50 2.32 0.14 4.57 2.94 0.40 12.00 0.95 0.23 10.96 30.59 0.75
+> WEPINN w/o Entropy 3.36 76.39 0.40 1.63 83.07 0.61 2.58 91.94 0.32 4.35 98.30 0.32 WEPINN 2.98 71.58 0.13 0.80 88.71 0.15 0.95 99.21 0.18 1.85 97.78 0.21
+
+Table 3: Performance comparison under the periodic boundary condition across problems and initial conditions. Reported metrics are the relative L 2 error, the shock detection rate (S-Rate), and the shock position accuracy (S-Acc). Arrows indicate whether lower ( ↓) or higher ( ↑) is better. All numbers are reported in e-2. We observe from Figure 2 that Diff-PINN smooths out the solution throughout the temporal evolution. A rarefaction from the left-hand initial discontinuity is captured with noticeable error in magnitude, but the shock formation and propagation, shock-shock merging, and shock-rarefaction interaction are all mispredicted. VPINN offers only a marginal improvement and additionally in-troduces small spurious oscillations near the boundary. The WPINN prediction shows only a single traveling wave from t = 0 .25 onward, missing most of the wave formation and interaction phe-nomena. Using our weak-formulation loss alone (WEPINN w/o Entropy), the model accurately captures shock formation and propagation as well as shock–shock merging, but fails to capture the rarefaction. Only the full WEPINN simultaneously captures all the key phenomena in the non-linear dynamics, including the formation and propagation of shocks and rarefactions, shock–shock merging, and shock–rarefaction interaction, in close agreement with the ground truth. These ob-servations are consistent with the quantitative results in Tables 2 and 3, and underscore the role of the entropy condition: without it, the model cannot distinguish a physical rarefaction from a spurious shock satisfying the weak formulation. This point is further examined in the ablation study (Section 4.1), where a simpler example isolates the effect of the entropy loss. 
+
+3.3 One-dimensional system of conservation laws 
+
+In this subsection, we consider the one-dimensional compressible Euler equations, 
+
+∂tU + ∂xF(U) = 0 , (20) where U = ( ρ, ρu, E )⊤ denotes the vector of conserved quantities, corresponding to mass, momen-tum, and energy conservation, respectively. The physical unknowns are the mass density ρ, the velocity u, and the pressure p; the energy density E is determined by the ideal-gas equation of state: 
+
+E = pγ − 1 + 12 ρu 2
+
+with an adiabatic index γ > 1. The flux function is 
+
+F(U) = 
+
+
+
+ρu ρu 2 + pu(E + p)
+
+ .
+
+14 The Euler system is a hyperbolic system of conservation laws and admits rich wave phenomena, including shocks, contact discontinuities, and rarefactions. As with the scalar case, an entropy condition is required to select the physically admissible solution. For the Euler system, the natural entropy-entropy flux pair is derived from the thermodynamic entropy. Following the classical construction (Dafermos, 1983), we take 
+
+η(U) = −ρs, q(U) = −ρus where s = ln 
+
+ pργ
+
+
+
+.
+
+The pair ( η, q ) satisfies the compatibility condition (6), and η is convex on the physically admissible region p, ρ > 0. We evaluate the proposed method on the Sod shock tube problem, a standard benchmark for the compressible Euler equations. From a piecewise-constant initial condition separating two constant states, the solution develops three characteristic wave structures: a rarefaction, a contact discontinuity, and a shock, each propagating at a different speed. Dirichlet boundary conditions are imposed on the domain Ω = [0 , 1]. Method density ρ speed u pressure p
+
+L2↓ S-Rate ↑ S-Acc ↓ L2↓ S-Rate ↑ S-Acc ↓ L2↓ S-Rate ↑ S-Acc ↓
+
+Diff-PINN 6.93 37 2.45 32.2 0 N. A. 3.46 25 0.35 VPINN 6.53 43 1.88 33.7 5 1.95 3.15 29 0.32 WPINN 1.38 - - 3.77 - - 1.47 - - 
+
+> WEPINN w/o Entropy
+
+0.90 79 0.52 2.87 99 0.51 1.13 100 0.36 WEPINN 0.60 99 0.30 2.34 100 0.37 0.61 100 0.29 
+
+Table 4: Performance comparison on the Sod shock tube problem for the compressible Euler equa-tions. Reported metrics are the relative L 2 error, the shock detection rate (S-Rate), and the shock position accuracy (S-Acc). Arrows indicate whether lower ( ↓) or higher ( ↑) is better. All numbers are reported in e-2. Table 4 reports the relative L 2 error, S-Rate, and S-Acc of each method on the density ρ,velocity u, and pressure p predicted by the models, and Figure 3 visualizes the predicted solutions at time t = 0 .2. For WPINN, we quote the numbers reported in Chaumet and Giesselmann (2022); as discussed in Section 3.1, no implementation is available to us for the Euler equations, so S-Rate, S-Acc, and the solution visualization are absent. We observe from Table 4 that WEPINN achieves the lowest L 2 error on all three variables, together with the highest S-Rate and lowest S-Acc. Figure 3 shows that WEPINN accurately reproduces all three waves: the rarefaction on the left, the contact discontinuity in the middle, and the shock on the right. Removing the entropy loss (WEPINN w/o Entropy) preserves the shock and the contact discontinuity but yields a less accurate rarefaction, consistent with the behavior observed on the scalar problems in Section 3.2. Diff-PINN and VPINN perform comparably, with VPINN offering only a marginal improvement, and both methods yield smeared profiles across the spatial domain. These results confirm the effectiveness of WEPINN on this benchmark problem of compressible Euler equations, and that entropy enforcement remains essential in the presence of more complex wave structures. 15 Figure 3: Comparison of predicted solutions (density ρ, speed u, and pressure p in different colors) at t = 0 .2 for the Sod shock tube problem for the compressible Euler equations. Solid lines indicate predictions and dashed lines indicate the ground truth. Each panel shows a different method. 
+
+3.4 Two-dimensional scalar conservation laws 
+
+In this subsection, we consider a scalar Burgers’ equation in two space dimensions, obtained by taking f (u) = 12 u2 as the flux in each spatial direction: 
+
+∂tu + ∇x · F(u) = 0 with F(u) = 
+
+ u2
+
+2 , u2
+
+2
+
+
+
+, (21) or equivalently 
+
+∂tu + ∂x
+
+ u2
+
+2
+
+
+
++ ∂y
+
+ u2
+
+2
+
+
+
+= 0 . (22) This is a special case of the two-dimensional scalar conservation laws studied in Zhang and Zheng (1989), and a natural two-dimensional extension of the one-dimensional Burgers’ equation in Sec-tion 3.2. We consider the following two initial conditions: 
+
+• a disk profile 
+
+u0(x, y ) = 
+
+(
+
+0.5, (x − 0.5) 2 + ( y − 0.5) 2 < 0.04; 0, otherwise which is piecewise constant with a circular discontinuity of radius 0 .2 centered at (0 .5, 0.5); 
+
+• a smooth trigonometric profile 
+
+u0(x, y ) = 14 sin(2 πx ) sin(2 πy ).
+
+The two initial conditions test complementary regimes: the disk one contains a circular initial dis-continuity whose propagation needs to be tracked, while the trigonometric one is smooth and tests 16 the model’s ability to capture shock formation from smooth data. We impose periodic boundary conditions in both spatial directions on the domain Ω = [0 , 1] 2. WPINN is not included in the comparison because no implementation for two-dimensional problems is available, as discussed in Section 3.1. Method Disk Trigonometric Diff-PINN 0.28 0.17 VPINN 0.27 0.21  
+
+> WEPINN w/o Entropy
+
+0.96 0.57 WEPINN 0.12 0.14 
+
+Table 5: Relative L 2 errors on the two-dimensional scalar Burgers’ equation under periodic bound-ary conditions. 
+
+Figure 4: Predicted solutions of the two-dimensional scalar Burgers’ equation under periodic bound-ary conditions. (Left) Disk initial condition; (Right) Trigonometric initial condition. Within each panel, rows correspond to the ground truth and different methods. Columns show the solution at 
+
+t = 0, t = 0 .5, and t = 1. Table 5 reports the relative L 2 error of each method on the two initial conditions, and Figure 4 visualizes the predicted solutions at t = 0, t = 0 .5, and t = 1. Because shocks in two dimensions are curves rather than isolated points, the S-Rate and S-Acc metrics from Section 3.1 do not directly extend to this setting; we therefore report only the L 2 errors. Across both initial conditions, WEPINN achieves the lowest L 2 error. Moreover, Figure 4 shows that WEPINN accurately tracks the propagation of the circular discontinuity in the disk case and captures shock formation from the smooth trigonometric profile. By contrast, Diff-PINN 17 and VPINN smooth out the solution on both initial conditions, particularly at the intermediate time steps, and in some cases distort the initial condition itself. The behavior of WEPINN without the entropy loss (WEPINN w/o Entropy) reveals a no-table difference from the experiments on the one-dimensional scalar problems (Section 3.2), where WEPINN w/o Entropy is already competitive with the full WEPINN. In the two-dimensional set-ting, however, it produces the largest L 2 error among all methods and fails to reproduce shock formation and propagation. This contrast suggests that the entropy loss becomes increasingly important in higher-dimensional problems. 
+
+# 4 Ablation Studies 
+
+4.1 Role of the entropy loss 
+
+The entropy condition (5) is essential for eliminating unphysical weak solutions to the hyperbolic conservation law (1) that satisfy the weak formulation (4) but violate physical admissibility. Aclassical illustrative example is the Riemann problem for the one-dimensional Burgers’ equation 
+
+∂tu + ∂x
+
+ u2
+
+2
+
+
+
+= 0 , u(0 , x ) = 
+
+(
+
+uL, x < x 0
+
+uR, x > x 0
+
+(23) with uL < u R. For this problem, both a shock and a rarefaction satisfy the weak formulation, but only the rarefaction is admissible under the entropy condition. In WEPINN, the entropy loss enforces the entropy condition during training, so that the model converges to the weak entropy solution. Figure 5 illustrates this on the above Riemann problem with x0 = 0 .5, uL = −0.2, and 
+
+uR = 0, under the Dirichlet boundary condition. Without the entropy loss, WEPINN converges to a propagating shock, while adding the entropy loss recovers the correct rarefaction. This sheds light on why the full WEPINN outperforms WEPINN without the entropy loss in most cases across the numerical experiments in Section 3, particularly on initial conditions where rarefactions develop. 
+
+Figure 5: Role of the entropy loss in WEPINN, illustrated on the Riemann problem for Burgers’ equation (23) with x0 = 0 .5, uL = −0.2, and uR = 0, under the Dirichlet boundary condition. (Left) WEPINN without the entropy loss; (Right) Full WEPINN. In each panel, the horizontal axis is the spatial coordinate x and the vertical axis is time t.18 4.2 Test function selection 
+
+The choice of test functions used in the weak-entropy loss is critical to the performance of WEPINN. This includes both the function family (e.g., trigonometric functions or orthogonal polynomials such as Chebyshev polynomials) and the maximum degree of the functions, which controls their expressive power. To determine the optimal maximum degree (i.e., maximum frequency) of the trigonometric test functions chosen in Section 2.3, we conduct an ablation study by varying the degree from 4 to 32. The results are presented in Table 6. We observe that degrees 16 and 32 yield the best performance. Moreover, degree 16 performs better on high-frequency data, while degree 32, which is used in the WEPINN implementation for the numerical experiments in Section 3, yields better results in scenarios with sharp discontinuities.                                                                                                                  
+
+> Problem Degree Trig Fourier Bell PWC
+> L2↓S-Rate ↑S-Acc ↓L2↓S-Rate ↑S-Acc ↓L2↓S-Rate ↑S-Acc ↓L2↓S-Rate ↑S-Acc ↓
+> Burgers  49.27 16.35 0.23 4.52 24.11 0.97 3.32 73.88 1.03 3.80 82.98 0.85 82.91 40.22 0.16 1.85 52.76 0.33 2.43 96.43 0.42 2.06 87.51 0.24 16 1.43 54.69 0.16 0.96 65.84 0.14 1.27 98.94 0.18 1.21 95.06 0.23 32 1.80 57.83 0.10 0.72 94.25 0.11 0.82 99.40 0.15 1.28 95.16 0.22 LWR  410.14 22.26 0.20 3.15 47.77 0.60 4.90 59.72 0.63 5.09 90.04 0.39 84.38 56.08 0.68 1.53 76.42 0.39 2.27 79.71 0.41 3.05 91.70 0.32 16 3.06 63.93 0.31 0.97 83.69 0.24 1.94 91.43 0.19 2.24 96.73 0.24 32 2.98 71.58 0.13 0.80 88.71 0.15 0.95 99.21 0.18 1.85 97.78 0.21
+
+Table 6: Performance comparison between different maximum degrees of trigonometric test func-tions in WEPINN across different problems and initial conditions under the periodic boundary condition. Reported metrics are the relative L 2 error, the shock detection rate (S-Rate), and the shock position accuracy (S-Acc). Arrows indicate whether lower ( ↓) or higher ( ↑) is better. All numbers are reported in e-2.                                                
+
+> Problem Test function Riemann Sigmoid
+> L2↓S-Rate ↑S-Acc ↓L2↓S-Rate ↑S-Acc ↓
+> Linear Cheby 4.58 88.48 1.11 5.29 --Trig 0.93 100 0.03 0.87 --
+> Burgers Cheby 44.11 77.47 1.35 46.29 73.86 1.43 Trig 1.84 98.58 0.05 1.53 99.41 0.04 LWR Cheby 43.21 83.48 1.07 43.80 79.19 1.43 Trig 1.89 93.90 0.15 2.05 96.71 0.23
+
+Table 7: Performance comparison between trigonometric functions and Chebeshev polynomials as test functions in WEPINN across different problems and initial conditions under the periodic boundary condition. Reported metrics are the relative L 2 error, the shock detection rate (S-Rate), and the shock position accuracy (S-Acc). Arrows indicate whether lower ( ↓) or higher ( ↑) is better. All numbers are reported in e-2. To assess the effectiveness of trigonometric test functions, we implemented WEPINN using Chebyshev polynomials of the first kind to construct test functions. For a fair comparison, the maximum degree of the Chebyshev polynomials is set to 32, matching the trigonometric case. Due to the non-periodic nature of Chebyshev polynomials, this comparison is performed under the Dirichlet boundary condition. The results are presented in Table 7. We observe from Table 7 that using Chebyshev polynomials for test functions results in worse 19 performance than trigonometric functions across all metrics. In particular, the S-Acc degrades more significantly than S-Rate, suggesting that the model with Chebyshev polynomials struggles to track shocks accurately. This may due to the increasing challenge to evaluate integrals in the weak formulation and the entropy condition with Chebeshev polynomials that exhibit rapid oscillations near the domain boundary. 
+
+# 5 Conclusion 
+
+In this work, we introduce a novel physics-informed learning framework that leverages weak entropy conditions to effectively solve hyperbolic conservation laws, where solutions may develop discon-tinuities. By rigorously adhering to weak formulation and entropy conditions, and employing the discrete fast Fourier transform (DFFT) for efficient numerical quadrature, our method avoids com-mon pitfalls such as unphysical dissipation and oscillations observed in existing approaches. Our extensive numerical experiments demonstrate that the proposed method consistently outperforms existing approaches across a variety of scalar conservation laws and systems of conservation laws in one and two dimensions. It notably excels in accurately resolving complex nonlinear wave phenom-ena, including formation and propagation of shocks, shock-shock merging, and shock-rarefaction interaction, under diverse initial and boundary conditions. The enforcement of entropy conditions significantly enhances the reliability of our method, particularly by ensuring physical admissibility of the solution. Future work will explore extending this methodology to design neural operators for solving hyperbolic conservation laws and related PDEs involving discontinuities and moving interfaces. 
+
+# Acknowledgments 
+
+This work was supported by the National Science Foundation (NSF) under Grant No. CPS-2038984. 
+
+# A Evaluation Metrics 
+
+To quantitatively evaluate the performance of different models in solving hyperbolic conservation laws, we adopt several metrics that assess both global solution accuracy and shock-capturing capa-bility. A reference solution is generated using the Lax–Friedrichs numerical scheme on an ultra-fine grid to serves as the ground truth for all subsequent comparisons. We compute the relative L2 error between the predicted solution ˆ u and the ground truth 
+
+u over the entire spatiotemporal domain: Relative L 2 = ∥ˆu − u∥2/∥u∥2.This metric captures the overall discrepancy between the predicted and true solutions. To evaluate the model’s ability to identify shocks, we define the shock detection rate (S-Rate) as the proportion of ground truth shock locations that are successfully identified by the model within a specified tolerance band. A shock is considered detected, if a high-gradient region in the predicted solution is located within a small neighborhood (10% of spatial domain) of the ground truth shock position. We also compute the shock position accuracy (S-Acc) , defined as the average distance between detected shock locations and their corresponding ground truth positions. This metric captures the spatial precision of shock prediction and penalizes shifts or smearing of the shock front. The detailed procedure for calculate both newly proposed metric are as shown in Algorithm 1. 20 Algorithm 1 Computing Shock Detection Rate and Shock Accuracy  
+
+> 1:
+
+function ShockError (u, ˆ u, dx , tmax , h) 
+
+> 2:
+
+Compute gradient: gu ← | ∂xu|, gˆu ← | ∂x ˆu| 
+
+> 3:
+
+Compute total variation T V (t) over time  
+
+> 4:
+
+Compute average total variation: T V mean ← 1
+
+> tmax
+
+P 
+
+> t
+
+T V (t) 
+
+> 5:
+
+Initialize counters: D ← 0, M ← 0, N ← 0 
+
+> 6:
+
+for t = 0 to tmax − 1 do  
+
+> 7:
+
+Detect shocks: Su ← peaks( gu[t], height = h · T V mean ) 
+
+> 8:
+
+Detect shocks: Sˆu ← peaks( gˆu[t], height = h · T V mean ) 
+
+> 9:
+
+Compute distance matrix dij = min( |Su[i] − Sˆu[j]|, 128 − | Su[i] − Sˆu[j]|) 
+
+> 10:
+
+for each i in Su do  
+
+> 11:
+
+j∗ ← arg min j dij  
+
+> 12:
+
+if dij ∗ < d max then  
+
+> 13:
+
+D ← D + dij ∗ ▷ Accumulate distance  
+
+> 14:
+
+M ← M + 1 ▷ Count matched shocks  
+
+> 15:
+
+end if  
+
+> 16:
+
+N ← N + 1 ▷ Count total true shocks  
+
+> 17:
+
+end for  
+
+> 18:
+
+end for  
+
+> 19:
+
+Detection rate: S-Rate ← M/N  
+
+> 20:
+
+Accuracy (distance): S-Acc ← (D/M ) · dx  
+
+> 21:
+
+return S-Rate , S-Acc  
+
+> 22:
+
+end function 
+
+# B Initial and Boundary conditions 
+
+B.1 Initial Conditions 
+
+To ensure robustness to diverse solution behaviors, we consider multiple classes of initial conditions reflecting varying smoothness and discontinuity. For Dirichlet boundary conditions, two types of initial conditions are considered: 
+
+• Sigmoid-type profiles: Smooth transitions between prescribed left and right boundary states, with adjustable steepness and transition location. These profiles test the model’s ability to resolve sharp but continuous gradients while respecting fixed boundary values. 
+
+• Riemann-type profiles: Piecewise-constant initial states composed of two or three con-stant regions. This setting enables systematic evaluation of shock, rarefaction, and their in-teractions under Dirichlet boundary conditions, including shock–shock and shock–rarefaction configurations. For periodic boundary conditions, we consider four types of initial conditions are used: 
+
+• Fourier series: Smooth functions constructed from sine and cosine modes with randomly sampled coefficients up to mode 4. 
+
+• Trigonometric functions: High-frequency sinusoidal waves (up to frequency 4) with ran-dom phase shifts, testing sensitivity to oscillatory dynamics. 21 • Bell-shaped functions: Smooth, single-peaked profiles with random centers and widths, designed to assess shock formation from localized features. 
+
+• Piecewise constant functions: Discontinuous profiles with randomly sampled segment values and breakpoints, modeling shock-like initial states. Periodic boundary conditions enforce continuity across the domain boundaries, 
+
+u(t, 0) = u(t, 1) ,
+
+modeling a spatially repeating (closed-loop) system. This setting eliminates artificial boundary ef-fects and enables clean analysis of wave propagation and interaction, making it particularly suitable for Fourier-based representations and operator learning methods. 
+
+# C Implementation Detail 
+
+C.1 Neural Network Architecture 
+
+To better capture complex shock interactions, we employ a neural network architecture with resid-ual (skip) connections and ReLU activation. The network uses a hidden dimension of 128 and consists of 9 residual layers. The detailed architecture is presented in Algorithms 2 and 3. For baseline comparisons, we replace the ReLU activation with Tanh, as ReLU can negatively affect the automatic differentiation required for computing the differential form loss in PINN. 
+
+Algorithm 2 Residual Block (ResBlock)  
+
+> 1:
+
+function ResBlock (x) 
+
+> 2:
+
+residual ← x 
+
+> 3:
+
+x ← fc 1(x) 
+
+> 4:
+
+x ← activation( x) 
+
+> 5:
+
+x ← fc 2(x) 
+
+> 6:
+
+return x + residual  
+
+> 7:
+
+end function Algorithm 3 PINN with Residual Connections (PINNRes)  
+
+> 1:
+
+function PINNRes (x, t) 
+
+> 2:
+
+input ← concat( x, t ) 
+
+> 3:
+
+x ← fc in (input ) 
+
+> 4:
+
+x ← activation( x) 
+
+> 5:
+
+for i = 1 to L do  
+
+> 6:
+
+x ← ResBlock( x) 
+
+> 7:
+
+end for  
+
+> 8:
+
+output ← fc out (x) 
+
+> 9:
+
+return output  
+
+> 10:
+
+end function 
+
+C.2 Training 
+
+The model is trained using the Adam optimizer with an initial learning rate of 1 × 10 −3. Ascheduled learning rate decay is applied, reducing the learning rate by a factor of 0.3 at steps 22 Figure 6: Comparison of evaluations of a Legendre polynomial of degree 32, a Chebyshev polynomial of degree 32, and a trigonometric function of frequency 32 on uniform grid and random collocation points. 10,000 and 20,000. The total number of training steps is 30,000. All reported numbers in the table are average across 30 samples. 
+
+# D Compatibility of different families of test functions with uni-form grids 
+
+In prior PINN research that incorporates test functions—such as VPINN or WPINN—Legendre or Chebyshev polynomials are commonly used due to their orthogonality properties. While any com-plete basis that spans the desired test function space is theoretically sufficient, we opt for trigono-metric functions instead of polynomials. The key motivation lies in their uniform wavelength and better behavior under discretizations. At higher frequencies, polynomial bases become increasingly difficult to resolve accurately on finite grids, leading to numerical artifacts or instability. In con-trast, trigonometric functions maintain consistent oscillatory behavior across frequencies, making them more suitable for capturing fine-scale solution structures. This difference is as illustrated in Figures 6 left. To validate this design choice, we additionally implemented our proposed weak and entropy losses using Chebyshev polynomial test functions for comparison in the section 4.2. Similarly, we opt for a uniform grid rather than a random grid that is commonly used in prior PINN works, as a uniform grid has a better capacity to capture high frequency test functions, whereas a random grid could miss peaks in the waves of test functions, as shown in Figure 6 right. 
+
+# E Efficiency 
+
+The main computational bottleneck of the proposed method lies in evaluating Iφn 
+
+> t, x
+
+and J φn 
+
+> t, x
+
+, which involve summations over the full space-time grid. Here we take one dimensional scalar case as an example: 
+
+Iφt,x =
+
+> nx
+
+X
+
+> j=0
+> nt
+
+X
+
+> k=0
+
+αkβj
+
+ u ∂ tφ + f (u) ∂xφ(tk, x j ), (24) 
+
+Jφt,x =
+
+> nx
+
+X
+
+> j=0
+> nt
+
+X
+
+> k=0
+
+αkβj
+
+ η(u) ∂tφ + q(u) ∂xφ(tk, x j ). (25) 23 Direct evaluation of these summations incurs a computational cost of O(N 2d), which becomes prohibitive for fine grids. 
+
+DFFT acceleration. 
+
+Given choosing trigonometric test functions on a uniform grid, the above summations can be inter-preted as discrete Fourier transforms of the weighted solution. This enables efficient computation using the discrete fast Fourier transform (DFFT). To illustrate, consider the first term in (24) with a test function 
+
+φ(t, x ) = sin(2 πnt ) sin(2 πmx ), n, m ∈ Z.
+
+Then, 
+
+> nx
+
+X
+
+> j=0
+> nt
+
+X
+
+> k=0
+
+αkβj u(tk, x j )∂tφ(tk, x j ) = 
+
+> nx
+
+X
+
+> j=0
+> nt
+
+X
+
+> k=0
+
+αkβj u(tk, x j ) (2 πn cos(2 πnt k) sin(2 πmx j )) .
+
+Using Euler’s identity, the product of trigonometric functions can be expressed as a linear combination of complex exponentials: cos(2 πnt k) sin(2 πmx j ) = 12 ℑ
+
+
+
+e2πi (nt k +mx j ) + e2πi (−nt k +mx j )
+
+.
+
+Substituting this into the summation yields 
+
+> nx
+
+X
+
+> j=0
+> nt
+
+X
+
+> k=0
+
+αkβj u(tk, x j )∂tφ(tk, x j ) = πn 
+
+> nx
+
+X
+
+> j=0
+> nt
+
+X
+
+> k=0
+
+αkβj u(tk, x j )ℑ
+
+
+
+e2πi (nt k +mx j ) + e2πi (−nt k +mx j )
+
+.
+
+Each term corresponds to a Fourier coefficient of the weighted field αkβj u(tk, x j ). Therefore, all such terms can be computed simultaneously using DFFT. 
+
+Computational complexity. 
+
+Using DFFT, the computational cost is reduced to 
+
+O(ntnx log( ntnx)) ,
+
+compared to the quadratic cost O(n2 
+
+> t
+
+n2
+
+> x
+
+) of direct evaluation. In d spatial dimensions, this gener-alizes to 
+
+O(NtN dx log Nt log d Nx),
+
+which is significantly more efficient than the O(N 2 
+
+> t
+
+N 2dx ) complexity of standard numerical integra-tion. 
+
+Practical efficiency. 
+
+This acceleration is particularly important when using high-frequency test functions, which are necessary to capture fine-scale structures in the solution. Without DFFT, evaluating the weak and entropy residuals becomes both time- and memory-intensive. We validate the efficiency of the proposed implementation through an ablation study on runtime and memory consumption across different grid resolutions, as shown in Figure 7. Due to GPU memory limitations, direct numerical integration could not be evaluated at larger grid sizes. 24 Figure 7: Time and memory efficiency of the proposed method compared against the Diff-PINN and our proposed method with and without DFFT. Left: Runtime (in seconds) for 500 training epochs across varying grid sizes on single Nvidia RTX4090. Right: Total memory consumption by the model during training. The DFFT-based implementation demonstrates superior scalability and resource efficiency. 
+
+# References 
+
+Stefano Berrone, Claudio Canuto, and Moreno Pintore. Variational physics informed neural net-works: the role of quadratures and test functions. Journal of Scientific Computing , 92, 2021. URL https://api.semanticscholar.org/CorpusID:237420756 .Zhiqiang Cai, Jingshuang Chen, and Min Liu. Least-squares relu neural network (lsnn) method for scalar nonlinear hyperbolic conservation law. Applied Numerical Mathematics , 174:163–176, 2022. Zhiqiang Cai, Jingshuang Chen, and Min Liu. Least-squares neural network (lsnn) method for scalar nonlinear hyperbolic conservation laws: Discrete divergence operator. Journal of Computational and Applied Mathematics , 433:115298, 2023. Aidan Chaumet and Jan Giesselmann. Improving weak pinns for hyperbolic conservation laws: Dual norm computation, boundary conditions and systems. arXiv preprint arXiv:2211.12393 ,2022. Constantine M Dafermos. Hyperbolic systems of conservation laws. In Systems of nonlinear partial differential equations , pages 25–70. Springer, 1983. Constantine M. Dafermos. Hyperbolic Conservation Laws: Past, Present, Future , pages 479– 486. Springer International Publishing, Cham, 2023. ISBN 978-3-031-12244-6. doi: 10.1007/ 978-3-031-12244-6 33. URL https://doi.org/10.1007/978-3-031-12244-6_33 .Tim De Ryck, Siddhartha Mishra, and Roberto Molinaro. wpinns: Weak physics informed neural networks for approximating entropy solutions of hyperbolic conservation laws. SIAM Journal on Numerical Analysis , 62(2):811–841, 2024. 25 Mahshid Sadat Ghoreishi and Hamid Naderan. Physics-informed neural network with weighted loss and hard constraints for hyperbolic conservation laws. Scientific Reports , 2026. Archie J. Huang and Shaurya Agarwal. On the limitations of physics-informed deep learning: Illustrations using first-order hyperbolic conservation law-based traffic flow models. IEEE Open Journal of Intelligent Transportation Systems , 4:279–293, 2023. URL https://api. semanticscholar.org/CorpusID:257205943 .Ameya D Jagtap and George Em Karniadakis. Extended physics-informed neural networks (xpinns): A generalized space-time domain decomposition based deep learning framework for nonlinear partial differential equations. Communications in Computational Physics , 28(5), 2020. Ameya D Jagtap, Ehsan Kharazmi, and George Em Karniadakis. Conservative physics-informed neural networks on discrete domains for conservation laws: Applications to forward and inverse problems. Computer Methods in Applied Mechanics and Engineering , 365:113028, 2020. Ehsan Kharazmi, Zhongqiang Zhang, and George Em Karniadakis. Variational physics-informed neural networks for solving partial differential equations. arXiv preprint arXiv:1912.00873 , 2019. Ehsan Kharazmi, Zhongqiang Zhang, and George Em Karniadakis. hp-vpinns: Variational physics-informed neural networks with domain decomposition. Computer Methods in Applied Mechanics and Engineering , 374:113547, 2021. Stanislav N Kruˇ zkov. First order quasilinear equations in several independent variables. Mathe-matics of the USSR-Sbornik , 10(2):217–243, 1970. Guoqiang Lei, D Exposito, and Xuerui Mao. Discontinuity-aware kan-based physics-informed neural networks. arXiv preprint arXiv:2507.08338 , 2025a. Guoqiang Lei, Zhihua Wang, Lijing Zhou, D Exposito, and Xuerui Mao. Discontinuity-aware physics-informed neural networks for phase-field method in three-phase flows. arXiv preprint arXiv:2511.23102 , 2025b. Randall J LeVeque. Finite volume methods for hyperbolic problems , volume 31. Cambridge univer-sity press, 2002. Hong Liang, Zilong Song, Chong Zhao, and Xin Bian. Continuous and discontinuous compressible flows in a converging–diverging channel solved by physics-informed neural networks without exogenous data. Scientific Reports , 14(1):3822, 2024. Michael James Lighthill and Gerald Beresford Whitham. On kinematic waves ii. a theory of traffic flow on long crowded roads. Proceedings of the royal society of london. series a. mathematical and physical sciences , 229(1178):317–345, 1955. Li Liu, Shengping Liu, Hui Xie, Fansheng Xiong, Tengchao Yu, Mengjuan Xiao, Lufeng Liu, and Heng Yong. Discontinuity computing using physics-informed neural networks. Journal of Scientific Computing , 98(1):22, 2024. Emmanuel Lorin and Arian Novruzi. Non-diffusive neural network method for hyperbolic conser-vation laws. Journal of Computational Physics , 513:113161, 2024. Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics , 378:686–707, 2019. 26 Paul I. Richards. Shock waves on the highway. Operations Res. , 4:42–51, 1956. ISSN 0030-364X. doi: 10.1287/opre.4.1.42. URL https://doi.org/10.1287/opre.4.1.42 .Sergio Rojas, Pawel Maczuga, Judit Mu˜ noz-Matute, David Pardo, and Maciej Paszy´ nski. Robust variational physics-informed neural networks. ArXiv , abs/2308.16910, 2023. URL https://api. semanticscholar.org/CorpusID:261394719 .Tim De Ryck and Siddhartha Mishra. Numerical analysis of physics-informed neural networks and related models in physics-informed machine learning. Acta Numerica , 33:633 – 713, 2024. URL 
+
+https://api.semanticscholar.org/CorpusID:267750765 .Hua Su, Lei Zhang, and Jin Zhao. Spike: Stable physics-informed kernel evolution method for solving hyperbolic conservation laws. arXiv preprint arXiv:2510.18266 , 2025. Qi Sun, Zhenjiang Liu, Lili Ju, and Xuejun Xu. Lift-and-embed learning methods for solving scalar hyperbolic equations with discontinuous solutions. arXiv preprint arXiv:2411.05382 , 2024. Chuanxing Wang, Hui Luo, Kai Wang, Guohuai Zhu, and Mingxing Luo. Solving euler equations with multiple discontinuities via separation-transfer physics-informed neural networks. arXiv preprint arXiv:2505.20361 , 2025. Weiheng Zeng, Kun Wang, Ruoxi Lu, and Tiegang Liu. Clinn: Conservation law informed neural network for approximating discontinuous solutions. arXiv preprint arXiv:2509.02091 , 2025. Tong Zhang and Yu Xi Zheng. Two-dimensional riemann problem for a single conservation law. 
+
+Transactions of the American Mathematical Society , 312(2):589–619, 1989. Xiaoping Zhang, Tao Cheng, and Lili Ju. Implicit form neural network for learning scalar hyperbolic conservation laws. In Mathematical and Scientific Machine Learning , pages 1082–1098. PMLR, 2022. Hanfei Zhou and Lei Shi. Weak physics informed neural networks for geometry compatible hyper-bolic conservation laws on manifolds. arXiv preprint arXiv:2505.19036 , 2025. 27
