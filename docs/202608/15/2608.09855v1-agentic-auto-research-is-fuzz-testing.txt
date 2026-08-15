@@ -1,0 +1,1087 @@
+Agentic Auto-Research is Fuzz Testing
+Yifeng He1,3
+Jicheng Wang1
+Yinzhe Zhao2†
+Jiachen Liu3
+Hao Chen4
+1University of California, Davis
+2Zhejiang University,
+3ARA Lab
+4The University of Hong Kong
+†Work completed while interning at UC Davis.
+Autonomous research agents can generate experiments faster than researchers can validate them. Researchers
+have responded by scaling the proposer and ranking more samples with a learned judge or human reviewers. We
+argue that this generate-and-rank paradigm misses the problem of sparse feedback. Within a declared research
+problem, an agent follows the control loop of a greybox fuzzer: it proposes a candidate, executes it, observes
+feedback, and chooses what to try next. A fuzzer rarely finds a bug, but coverage makes partial progress
+observable on every execution. Fuzzers then use that signal to mutate inputs and allocate effort, rather than only
+to rank completed runs. Auto-research needs the same two capabilities. First, each experiment should expose a
+cheap, dense signal of epistemic progress before final scientific validation is available. Second, that signal should
+determine the next intervention so that the agent searches rather than repeatedly samples. Because the optimized
+progress signal is guidance rather than a verdict, final validation must still decide what counts as a discovery
+using evidence protected from adaptive reuse. We propose controlled tests of whether candidate signals predict
+validated progress, whether feedback-directed search yields more validated discoveries per unit cost than repeated
+sampling, and whether protected validation reduces false discoveries. Feedback architecture, not only generation,
+is a central bottleneck in auto-research.
+Correspondence: yfhe.cs@gmail.com; amber@ara-commons.com;
+chenho@hku.hk
+1. Introduction
+Automated research agents now propose hypotheses, write
+and run code, interpret results, and revise their work. Se-
+lected outputs have survived physical assays or workshop
+review [20, 29, 52]. Automation has created an imbalance:
+agents can generate candidates faster than researchers can
+validate them, and most candidates do not merit validation.
+Human readers, for example, rate machine-proposed ideas
+as more novel than human ideas but markedly less feasible
+[43]. We preview our position in Figure 1: auto-research
+should use intermediate signals to retain promising states
+and schedule new experiments, while reserving scientific
+claims for protected validation.
+Researchers have responded with what we call the generate-
+and-rank paradigm: ask a stronger proposer for more can-
+didates, score them with a learned judge, and retain the
+winner. Test-time compute then shifts from tokens to exper-
+iments: “more inference can mean more experiments” [2,
+45]. Repeated sampling improves pass-at-k, but the fraction
+of problems solved grows approximately log-linearly with
+sample count across the tasks studied by Brown et al. [8].
+Without automatic verification, majority voting and reward-
+model selection plateau after a few hundred samples [8].
+These benchmark results do not establish a universal law of
+discovery, but they reveal diminishing returns from gener-
+ating independent candidates and judging them afterward.
+Scientific evaluations can also require long computations,
+expert labor, replication, or physical experiments. Auto-
+research therefore needs to extract more information from
+each evaluation, not only generate more candidates.
+Fuzzing reveals the missing design choice. An autonomous
+research agent generates a candidate experiment, executes it,
+observes feedback, and chooses what to try next. Coverage-
+guided greybox fuzzing runs the same control loop [31, 57]:
+it mutates a seed, executes the program under lightweight in-
+strumentation, observes the behavior that the input reached,
+and uses that history to choose future inputs. Bugs re-
+main rare, but branch or edge coverage makes intermediate
+progress observable on each execution. Modern fuzzers
+use this feedback through adaptive scheduling, structured
+mutators, and targeted analyses [15]. Research does not
+literally crash like software. The transferable principle is
+that an expensive search needs observable progress and
+a policy that acts on it. We use instrumented in this role
+sense throughout: fuzzing instruments a program by insert-
+ing probes at branches; science instruments an experiment
+with apparatus built to observe it. In both, instrumentation
+arranges in advance to observe more than the final outcome.
+Lesson one: make research progress observable.
+Final
+validation usually gives sparse feedback: most experiments
+1
+arXiv:2608.09855v1  [cs.AI]  10 Aug 2026
+
+
+Agentic Auto-Research is Fuzz Testing
+Figure 1. Auto-research as feedback-directed search. Initial directions enter a state pool. A scheduler selects a state, the proposer generates
+candidates, and experiments expose intermediate signals. Comparison retains promising results as new states and closes the loop. A
+protected validator separately certifies discoveries without steering the search.
+do not establish a finding. Auto-research therefore needs
+an intermediate signal that reports partial progress on each
+candidate before final validation is available. The research
+analogue of coverage should track epistemic progress, such
+as whether an experiment rules out an explanation, locates
+a boundary, sharpens a prediction, or changes which exper-
+iment should run next. This signal is not an early verdict
+that the current candidate is correct. It exposes how the
+campaign’s state changed and whether that change may help
+future search.
+Lesson two: use feedback to search.
+Once useful guid-
+ance exists, the next experiment should depend on what
+previous experiments revealed. Fuzzers use execution feed-
+back to mutate promising seeds, target unsolved constraints,
+and allocate energy across regions. A research agent should
+likewise use feedback to choose its next intervention, rather
+than only rank completed samples. This distinction becomes
+more important when each evaluation is expensive, noisy,
+or slow.
+Final validation: guidance is not a verdict.
+A progress
+signal helps the agent decide where to search, but it does
+not determine whether the search succeeded. In fuzzing,
+coverage identifies inputs that reach new program behavior,
+while a crash or sanitizer oracle determines whether an in-
+put exposes a failure [3, 15, 31]. Auto-research needs the
+same division of roles: the progress signal guides experi-
+ment selection, and final validation determines whether the
+selected candidate counts as a discovery. Because the search
+adaptively optimizes the progress signal, that verdict must
+rely on evidence protected from repeated use during search.
+Our position.
+Auto-research should operate as instru-
+mented, feedback-directed search. Within a declared re-
+search problem, each experiment should expose a cheap,
+dense measure of epistemic progress; the search policy
+should use that measure to choose its next intervention;
+and final validation, protected from adaptive reuse of the
+progress signal, should determine what counts as a discov-
+ery. This position makes three separable predictions. First,
+candidate progress signals should predict protected scientific
+outcomes and improve how a fixed validation budget is allo-
+cated. Second, with the proposer, task, validator, and budget
+fixed, feedback-directed search should yield more validated
+discoveries per unit cost than repeated sampling. Third, with
+the search trace fixed, protected validation should reduce
+false discoveries relative to reporting the optimized proxy.
+These predictions specify how feedback should work, rather
+than merely observing that discovery involves search.
+2. The research loop is the fuzzing loop
+Science and engineering share one iterative cycle: propose
+an experiment, implement and run it, evaluate the outcome,
+and let that outcome shape the next proposal. Auto-research
+systems race to automate this cycle end to end, and automa-
+tion does drive down iteration time. Most systems, however,
+draw evaluation as a single box whose one score both steers
+the search and certifies the result (Figure 2). Fuzzing ma-
+tured by splitting that box: cheap coverage steers, and a
+protected oracle certifies. The rest of this section maps the
+2
+
+
+Agentic Auto-Research is Fuzz Testing
+Propose
+Implement
+and run
+Evaluate
+one score steers
+and certifies
+(a)
+Propose
+Implement
+and run
+Progress
+signal
+Protected
+validation
+steers the
+next proposal
+certifies;
+never steers
+(b)
+Figure 2. Splitting the evaluate box. (a) The common research
+cycle scores each experiment with a single evaluation that both
+steers the search and certifies the result. (b) Fuzzing separates
+the two roles: a cheap progress signal steers the next proposal,
+while protected validation certifies discoveries and never feeds the
+search.
+two loops component by component.
+The correspondence concerns control structure, not literal
+equivalence. Each fuzzing component exposes a design de-
+cision that automated research systems also make (Table 1,
+drawn as a loop in Figure 1). Prior work and data supply
+seeds; the LLM proposes mutations; experiments provide
+instrumented executions; and a scheduling policy allocates
+compute and validation budget across directions [4, 5]. The
+central mapping first asks what an execution can reveal be-
+fore a rare success occurs, then asks how that observation
+changes the next candidate. A protected validator remains
+outside this guidance path and determines which candidates
+count as discoveries.
+Research differs from a fixed program because it can re-
+vise its hypotheses and representations while it runs. Our
+analogy therefore covers search within a declared research
+problem, even when the search space is too large to enu-
+merate. It does not cover the abductive act of changing
+what counts as the problem, a candidate, or a discovery. We
+return to this boundary in section 7.
+3. Lesson one: make research progress
+observable
+Final outcomes provide too little feedback to direct an ex-
+pensive search. Most fuzzing executions do not expose a
+bug, yet branch and edge coverage reveal which program be-
+havior each input reached. This intermediate signal lets the
+campaign observe progress before it finds a failure. Auto-
+research needs an analogous signal because most exper-
+iments do not establish a scientific finding, and stronger
+validation may arrive only after replication, expert review,
+or a physical assay. The signal should measure how an
+experiment changes the state of the search, not estimate
+whether the current candidate is already a discovery. We de-
+pict this distinction in Figure 3: instruments reveal structure
+Table 1. The analogy, component by component. The boldfaced
+rows identify the two central design choices: make intermediate
+progress observable and use it to direct search.
+Fuzzing
+Automated
+research
+Transferable lesson
+Seed corpus
+Prior results and
+literature
+Seed quality bounds what
+search can reach
+Mutation op-
+erator
+LLM
+proposer
+of experiments
+Strict operators keep validity;
+many broaden reach
+Coverage
+(guidance)
+Intermediate
+progress signal
+(open)
+Expose useful progress on
+each experiment
+Crash / sani-
+tizer (oracle)
+A validated dis-
+covery
+Check each relevant opera-
+tion; positive verdicts are rare
+Blind vs. tar-
+geted muta-
+tion
+Repeated vs. di-
+rected search
+Let observations choose trans-
+formations and allocations
+Power sched-
+ule
+Compute across
+directions
+Prioritize
+under-explored,
+high-yield regions
+Figure 3. Intermediate signals make partial research progress ob-
+servable before final validation. Each instrument reveals a different
+kind of structure in the search landscape, even though the distant
+objective remains unresolved.
+in the search landscape while the distant finding remains
+uncertified.
+Coverage gives fuzzers one answer to the resulting de-
+sign question: what intermediate metric can expose useful
+progress before the final outcome is known? Research needs
+its own answer. A program and its instrumentation define a
+fixed but usually unenumerated set of observable features,
+and a campaign records which features it has reached. A
+research problem is less stable because its hypotheses and
+representations can change. The analogy therefore supplies
+three requirements for a useful progress signal, rather than
+a ready-made metric:
+C1. Cheap and informative on each candidate. A fuzzer
+evaluates coverage and sanitizer checks during the
+same execution, but the oracle usually returns only “no
+detected failure.” That result provides little direction
+for the next input. Guidance must instead report partial
+progress on every candidate. In research, replication,
+3
+
+
+Agentic Auto-Research is Fuzz Testing
+an assay, or expert review may be purchased separately,
+so this reading should also cost substantially less than
+the final validation that it helps allocate.
+C2. Correlated with genuine progress. Following the
+signal should lead toward real discoveries rather than
+toward larger values of the signal alone.
+C3. Robust under optimization. A search can game any
+signal that it maximizes [17, 44].
+These requirements respond to known failures. Curiosity
+driven by prediction error can fixate on a “noisy televi-
+sion” and violate C3 [9, 36]. Coverage can also overcount
+progress: many coverage-unique crashes may collapse to a
+small number of distinct bugs [24].
+For research, the analogue of coverage should represent epis-
+temic progress: whether an experiment reduces uncertainty
+about which hypothesis holds. Such an experiment may rule
+out a competing explanation, locate a boundary, sharpen a
+held-out prediction, or change which experiment the agent
+runs next. C2 asks a proxy to track this progress. A nar-
+row experiment that separates two hypotheses should score
+highly, while a surprising result that resolves nothing should
+score poorly. The signal should also remain cheaper and
+less model intensive than full Bayesian information gain,
+which requires an explicit likelihood, prior, design domain,
+and utility. Candidate proxies include surprise against a
+model, novelty against prior work, verifier confidence and
+cross-replicate disagreement, and distance to a stated target.
+Each balances C1 through C3 differently.
+Researchers must test whether any proxy tracks real discov-
+ery. Fuzzing provides a suitable evaluation pattern. Across
+many programs, coverage correlated with bug finding, but
+the fuzzer with the most coverage did not necessarily find
+the most bugs [6]. A research evaluation can instrument a
+fixed loop with competing proxies, run repeated trials, and
+measure how well each proxy predicts protected outcomes
+and allocates a fixed validation budget. It can then compare
+the number of validated discoveries per unit cost. A useful
+proxy must survive both tests.
+This capability claim makes a falsifiable prediction. Signal
+prediction: with the proposer, task, and candidate pool
+fixed, a useful intermediate metric should predict protected
+outcomes and select more validator-confirmed discoveries
+under a fixed validation budget than an uninformative or
+terminal-only signal. Whether a selected candidate counts
+as a discovery is a distinct final-validation question ad-
+dressed in section 5. If no candidate signal predicts pro-
+tected progress, this claim is wrong.
+Figure 4. A scheduler concentrates a fixed budget on the directions
+whose progress readings improve, and prunes the rest early. Be-
+cause the supply does not grow, pruning D3 and D5 frees flow for
+D2. Directed greybox fuzzers schedule energy the same way, by
+distance to a target [4, 5].
+4. Lesson two: use feedback to search
+An intermediate signal creates value only when the search
+policy acts on it. A common generate-and-rank baseline
+prompts a proposer for k candidates, scores each terminal
+output, and keeps the best. A tree or tournament may or-
+ganize the candidates. Yet the procedure remains close to
+repeated sampling when experimental feedback determines
+only which complete sample survives, rather than which
+intervention the agent attempts next. Observations should
+instead control how the search policy routes a fixed resource
+budget among research directions (Figure 4).
+Fuzzers use feedback more directly. AFL and AFL++ retain
+random mutation but allocate future mutations according
+to execution history [15, 57]. Angora adds targeted con-
+straint solving: taint analysis identifies relevant input bytes,
+a branch predicate becomes a black-box function f(x), and
+a numerical approximation to ∇f guides the input until
+the branch flips [11]. In the relevant ablation, gradient de-
+scent solved more branch constraints than random mutation
+on every tested program when the input corpus was fixed.
+On xmlwf, for example, gradient descent solved 97.0%
+of branch constraints, compared with 77.4% for random
+mutation. Directed greybox fuzzing applies the same idea
+to scheduling by concentrating energy according to distance
+from a target [4].
+The lesson is to let observations determine the next transfor-
+mation or allocation, not to use gradients for every scientific
+hypothesis. A research agent could use sensitivity analysis
+to identify the premise that drives an outcome, schedule
+compute toward under-explored directions, or generate an
+experiment that distinguishes the surviving explanations.
+AlphaEvolve and ALE-Agent already exploit executable
+scores in iterative search [23, 33]. Language models also act
+as coverage-guided mutators inside software fuzzing loops
+[30, 58]. We need to determine which operators improve
+4
+
+
+Agentic Auto-Research is Fuzz Testing
+protected, cost-normalized scientific outcomes rather than
+only the steering proxy.
+Research agents will not inherit Angora’s gains automati-
+cally. Search prediction: with the proposer, task, protected
+validator, and total budget fixed, a policy that uses interme-
+diate experimental feedback to choose its next intervention
+should yield more validator-confirmed discoveries per unit
+cost than repeated sampling. This comparison defines prin-
+cipled search operationally: the next action depends on the
+observed campaign history, and success is measured under
+a common cost and validation rule.
+5. Final validation: decide what counts as a
+discovery
+The progress signal tells the agent where to search next. Fi-
+nal validation decides whether the selected candidate counts
+as a discovery. Because the search adaptively optimizes
+the progress signal, that final verdict must rely on evidence
+protected from repeated use during search. The two roles
+differ in what they answer, not in when they run or what
+they cost.
+Standard fuzzing terminology already separates access lev-
+els: black-box fuzzers observe external behavior, white-box
+fuzzers use detailed program analysis, and greybox fuzzers
+collect lightweight execution feedback [31]. We extend
+this access-based spectrum rather than redefine it. Cov-
+erage counters and sanitizer checks may run during the
+same instrumented execution, but their outputs answer dif-
+ferent questions: guidance asks “where should the campaign
+search next?”, while the research analogue of an oracle asks
+“does this candidate count as a discovery?”
+The AI co-scientist makes this distinction concrete [20]. Its
+store of literature and hypotheses supplies seeds. Debate and
+evolution generate variants. An LLM tournament assigns
+Elo ratings that determine which hypotheses receive further
+development. Selected biomedical hypotheses eventually
+undergo experimental validation. In the fuzzing analogy,
+Elo provides the dense guidance proxy, while the physical
+experiment provides the final verdict. Elo can organize the
+search only when it predicts later correctness and experimen-
+tal value. An Elo gain does not establish that the hypothesis
+is true.
+This example shows why guidance is not a verdict. Ranking
+hypotheses by Elo guides search. Treating Elo as proof
+of scientific validity would certify a result. Search can
+use Elo despite its exposure to adaptive optimization, but
+certification requires evidence protected from that optimiza-
+tion, such as a hidden test, replication, physical assay, or
+independent review. The two signals need not run at dif-
+ferent frequencies or have inherently different costs. The
+requirement is that gains in the steering proxy remain claims
+awaiting final validation.
+Where final validation enters.
+Other systems place the
+boundary elsewhere. FunSearch rejects invalid programs
+and scores valid ones with a deterministic evaluator [40];
+AlphaEvolve combines machine-executable validity checks
+with machine-executable objectives [33]. Both operate in do-
+mains where systems can compute correctness and progress
+comparatively easily. The AI Scientist-v2 uses learned eval-
+uators to select experimental nodes. Humans choose its
+initial ideas and completed manuscripts for submission, and
+workshop reviewers provide the eventual acceptance judg-
+ment [52]. These systems fall at different points on a spec-
+trum. The relevant distinction is how much adaptive search
+occurs before evidence independent of the search proxy
+enters the loop.
+The MLE-bench analysis provides a quantitative warning.
+Agents search with cross-validation scores and return the
+validation-best solution. Counterfactually choosing the test-
+best node would raise the medal rate by 9 to 13 percent-
+age points [48]. Researchers cannot turn the hidden test
+into another repeatedly queried steering score, but the gap
+shows that adaptive progress on the proxy does not guaran-
+tee progress under protected evaluation.
+The three roles also make failures diagnosable. A failed
+campaign can reflect uninformative guidance, a search pol-
+icy that missed the relevant region, or a final validator that
+miscertified the result. A conflated score obscures these
+explanations and leaves retraining the judge as the only ap-
+parent remedy. Fuzzing’s reliability studies illustrate the
+alternative [6, 24]: each component has its own instrumen-
+tation and track record, so practitioners can identify which
+one failed.
+What final validation buys.
+Final validation limits adap-
+tive self-deception. A search that optimizes and reports one
+learned score can exploit misspecification in that score [17,
+34, 44]. A final validator cannot repair a poor proxy, and
+the campaign may still waste its budget. It can, however,
+prevent proxy gains from automatically becoming claims of
+discovery. We therefore predict an epistemic benefit: fewer
+false discoveries among reported results. Operationally,
+with the candidates and search trace fixed, evidence pro-
+tected from adaptive reuse should reduce the false-discovery
+rate relative to reporting the optimized guidance score. This
+is a reliability claim about the final verdict, not another
+search capability.
+6. Related work
+Many systems now automate parts of research, and recent
+surveys identify evaluation as a weak point [14, 38]. Re-
+searchers debate whether static benchmarks, deployment
+5
+
+
+Agentic Auto-Research is Fuzz Testing
+evidence, or verification inside the loop should measure
+progress [2]. Jerry Tworek argues that “the era of evals is
+done”: as agents improve at generating research outputs, the
+bottleneck moves from generation to verification, and sus-
+tained improvement in deployed workflows replaces static
+benchmarks as the meaningful test [1]. This shift names the
+same gap we formalize: a learned judge cannot substitute
+for independent validation. We add three questions to that
+debate: what intermediate signal makes progress observable,
+how does the search policy act on it, and what independent
+evidence validates the output? Existing systems occupy
+intermediate positions along these dimensions.
+Ninety years of work on mechanized verification and self-
+improving systems rehearse the same failure points. Hilbert
+asked for a mechanical procedure that decides whether
+a first-order formula is valid; Gödel [18] showed that
+strong formal systems cannot prove all truths about them-
+selves, Church [12] and Turing [49] answered the Entschei-
+dungsproblem in the negative, and Rice [39] extended the
+verdict to every nontrivial property of program behavior.
+Because verification resists full mechanization, software
+practice retreated to empirical search that pairs cheap guid-
+ance with partial oracles. Self-improving programs kept
+rediscovering this boundary. Good [19] speculated that
+an ultraintelligent machine could redesign itself; Friedberg
+[16] mutated machine code at random and found that un-
+guided sampling learned no faster than exhaustive random
+search. The Gödel machine of Schmidhuber [42] accepted
+only provably beneficial self-modifications, and the cost of
+proof kept it from taking a single step: a protected verdict
+without a cheap signal. Neural architecture search steered
+and certified with one static benchmark [60], and the search
+overfit the benchmark it optimized [53]. Learned research
+judges now repeat that conflation at the scale of papers. Each
+wave stalled where the fuzzing loop predicts: guidance was
+missing, the oracle was unaffordable, or one score played
+both roles. Science likewise has no procedure that decides
+whether a hypothesis is true, so auto-research should inherit
+the working answer rather than await a perfect verifier.
+The AI Scientist family and AI co-scientist use the learned
+evaluation mechanisms analyzed in section 5, but external
+review or experiments ultimately judge selected outputs
+[20, 29, 52]. Agent Laboratory likewise ranks code with
+a generated reward and grades manuscripts with an emu-
+lated reviewer [41]. These signals can organize search, but
+their scores do not provide independent scientific validation.
+MLR-Bench illustrates the risk under its coding-agent condi-
+tions: roughly 80% of cases contain fabricated or invalidated
+experimental results [10].
+Systems with executable objectives face an easier valida-
+tion problem. FunSearch and AlphaEvolve reject invalid
+programs and score valid ones with machine-executable
+evaluators [33, 40]. ALE-Agent iteratively optimizes an
+executable contest score and placed 21st among more than
+1000 participants in a live AtCoder contest [23]. In the wet
+lab, Coscientist can execute selected chemistry procedures
+[7], and the Virtual Lab sent its final nanobody designs to
+physical assays [47]. These examples are consistent with the
+value of grounded evaluation, but they span incomparable
+tasks and cannot isolate the effect of observability, search,
+or validation design.
+Two lines of work support this framing. AIGS adds a ded-
+icated falsification agent that separates verification from
+generation [28]; Dolphin filters ideas with cheap LLM sig-
+nals but advances only those that improve an executed task
+metric [55]. Separately, LLM judges favor their own gen-
+erations, change rankings under reordering, and respond to
+injected content in scholarly review [35, 50, 54, 59]. Results
+on reward overoptimization and adaptive validity explain
+how repeated optimization can amplify these weaknesses
+[13, 17, 34, 44]. Evaluation harnesses such as RE-Bench
+and MLAgentBench already separate a running signal from
+a final executable score [22, 51]. We frame these choices
+as observability, search, and validation design, then use
+fuzzing to derive controlled comparisons among them. Con-
+tent fuzzing already demonstrates that the architecture trans-
+fers beyond software testing, though in a narrow domain
+[21]; open-ended science still needs progress signals that
+satisfy the criteria in section 3.
+Agent-native research artifacts supply the surface this fram-
+ing requires. Liu et al. [27] propose that research outputs
+ship as machine-executable artifacts rather than prose pa-
+pers, so agents can parse, run, and extend them directly.
+Such artifacts open research to analysis the way instru-
+mented binaries open programs: dynamic analysis, such
+as the fuzzing loop we describe, executes them and observes
+feedback, while static analysis, such as verification and in-
+terpretation, inspects their claims without execution. Our
+proposals for dense progress signals and protected valida-
+tion presuppose this surface; artifact-native outputs make it
+available.
+7. Alternative views
+Six objections define the limits of our position.
+“LLMs cannot make the abductive jump that discovery
+requires.”
+Zahavy [56] argues that current LLMs cannot
+move from sensory experience to genuinely new axioms
+through induction or deduction alone. Our claim begins
+after a research problem and candidate representation exist.
+It asks how an agent should observe progress, search, and
+validate within them. Interactive world models may expand
+what an agent can propose; fuzzing-style feedback can then
+make the downstream search more efficient and its discover-
+6
+
+
+Agentic Auto-Research is Fuzz Testing
+ies more trustworthy. Our analogy does not explain how an
+agent changes what counts as the problem, a candidate, or a
+discovery.
+“This is Bayesian optimal experimental design renamed.”
+BOED occupies the model-rich end of our proposed re-
+search spectrum [26, 37]. It requires an explicit probabilistic
+model, design domain, and utility. The design domain may
+be continuous, and modern estimators can reduce the cost of
+expected information gain. Our proposal addresses settings
+in which researchers cannot yet specify these ingredients re-
+liably. In such settings, a cheaper empirical proxy can guide
+exploration while replication, held-out prediction, or expert
+review provides stronger validation. BOED offers a princi-
+pled solution when its model is credible; fuzzing is a general
+feedback-guided, mutation-based paradigm that generalizes
+beyond software to other objects of analysis [21].
+“This is novelty search or quality-diversity with extra
+steps.”
+The approaches are related [25, 32], but they dif-
+fer from fuzzing in what the guidance signal measures. A
+quality-diversity behavior descriptor is hand-designed to
+describe progress toward the goal; coverage is read auto-
+matically off the candidate’s own execution and describes
+what it did, not how close it came. The signal is a property
+of the process, not an estimate of the outcome, so it needs
+no model of what counts as a discovery. That property is
+what open research requires, because the outcome is exactly
+what cannot yet be modeled. Novelty search and Bayesian
+acquisition, by contrast, both score a candidate through a
+model or descriptor of the goal. Quality-diversity also folds
+steering and acceptance into one descriptor, whereas we
+keep a protected verdict separate.
+“The bitter lesson says scale the generator, not engineer
+the feedback.”
+The bitter lesson argues for search meth-
+ods that can exploit computation, rather than for any par-
+ticular generator [46]. Fuzzing follows that principle when
+it uses general execution feedback instead of hand-coded
+domain rules. Repeated sampling also uses computation
+and can work well, so the available evidence does not justify
+rejecting it universally. Across the benchmarks studied by
+Brown et al. [8], however, the fraction of problems solved
+grew approximately log-linearly over the measured range
+and produced diminishing marginal returns. We claim that
+adaptive feedback can improve this exchange rate without
+replacing scalable computation with hand-tuned heuristics.
+“Open-ended research has no stable search space, so
+coverage is undefined.”
+Coverage does not require an
+enumeration of every reachable behavior, but a fixed tar-
+get and its instrumentation still define what the fuzzer can
+observe. Research is harder because its hypotheses and
+representations may change during a campaign. Our pro-
+posal therefore assumes a declared problem and an explicit
+progress representation that can grow as observations accu-
+mulate. It does not cover an agent that redefines what counts
+as a candidate or discovery. Within this boundary, guidance
+can compare each new experiment with the accumulated
+record rather than with an enumerated whole.
+“Research has no oracle, so the analogy breaks.”
+Fuzzing has its own oracle problem [3], and real campaigns
+use imperfect, deferred, differential, or human-assisted
+checks. A typical campaign does not separate oracle and
+guidance by invocation schedule or assume that sanitizer
+checks inherently cost more. The same instrumented ex-
+ecution updates coverage and checks relevant operations
+for violations. The signals differ in role: the oracle judges
+the current input, while guidance identifies behavior absent
+from the campaign history. Guidance cannot certify a bug,
+and the oracle cannot efficiently explore the input space.
+Scientific validation may also be expensive or partial, so
+this semantic separation helps allocate validation to selected
+candidates.
+8. Conclusion
+Auto-research should operate as instrumented, feedback-
+directed search: expose a cheap measure of epistemic
+progress; let the search policy use that measure to choose the
+next intervention; and let protected validation decide what
+counts as a discovery, since an optimized progress signal
+can no more certify a finding than coverage can certify a bug.
+The position stands or falls on the three controlled compar-
+isons stated above: candidate signals must predict protected
+outcomes, feedback-directed search must beat repeated sam-
+pling per validated discovery, and protected validation must
+reduce false discoveries relative to the optimized proxy. This
+division also locates the durable human role: researchers
+declare the problem at the front and ground the verdict at
+the back, while the agent runs the loop between them. Be-
+neath these three lessons, observable progress, principled
+search, and protected validation, sits one belief: a scientific
+experiment, like a program, can offer intermediate guidance
+that exposes progress before its outcome is known. Whether
+it can is the open question we hand the field.
+References
+[1]
+AGI House. Jerry Tworek & Core Automation:
+Auto-research is Moving from Benchmarks to Real-
+World Loops. AGI House community newslet-
+ter, July 23, 2026. 2026.
+URL: https : / /
+agihousecommunity . beehiiv . com / p /
+jerry - tworek - core - automation -
+auto - research - is - moving - from -
+7
+
+
+Agentic Auto-Research is Fuzz Testing
+benchmarks-to-real-world-loops (vis-
+ited on 08/06/2026).
+[2]
+AGI House. More Inference, More Experiments:
+What We Learned Hosting the Auto-Research
+Summit. X article, July 31, 2026. 2026.
+URL:
+https : / / x . com / agihouse _ org /
+status / 2083323121713733661 (visited on
+08/02/2026).
+[3]
+E. T. Barr, M. Harman, P. McMinn, M. Shahbaz, and
+S. Yoo. “The Oracle Problem in Software Testing: A
+Survey”. In: IEEE Transactions on Software Engi-
+neering 41.5 (2015), pp. 507–525. DOI: 10.1109/
+TSE.2014.2372785.
+[4]
+M. Böhme, V.-T. Pham, M.-D. Nguyen, and A. Roy-
+choudhury. “Directed Greybox Fuzzing”. In: Pro-
+ceedings of the 2017 ACM SIGSAC Conference
+on Computer and Communications Security (CCS).
+2017, pp. 2329–2344. DOI: 10.1145/3133956.
+3134020.
+[5]
+M. Böhme, V.-T. Pham, and A. Roychoudhury.
+“Coverage-based Greybox Fuzzing as Markov Chain”.
+In: Proceedings of the 2016 ACM SIGSAC Confer-
+ence on Computer and Communications Security
+(CCS). 2016, pp. 1032–1043. DOI: 10 . 1145 /
+2976749.2978428.
+[6]
+M. Böhme, L. Szekeres, and J. Metzman. “On the Re-
+liability of Coverage-Based Fuzzer Benchmarking”.
+In: Proceedings of the 44th International Conference
+on Software Engineering (ICSE). 2022, pp. 1621–
+1633. DOI: 10.1145/3510003.3510230.
+[7]
+D. A. Boiko, R. MacKnight, B. Kline, and G. Gomes.
+“Autonomous chemical research with large language
+models”. In: Nature 624.7992 (2023), pp. 570–578.
+DOI: 10.1038/s41586-023-06792-0.
+[8]
+B. Brown, J. Juravsky, R. Ehrlich, R. Clark, Q. V.
+Le, C. Ré, and A. Mirhoseini. “Large Language Mon-
+keys: Scaling Inference Compute with Repeated Sam-
+pling”. In: arXiv preprint arXiv:2407.21787 (2024).
+URL: https : / / arxiv . org / abs / 2407 .
+21787.
+[9]
+Y. Burda, H. Edwards, A. Storkey, and O. Klimov.
+“Exploration by Random Network Distillation”. In: In-
+ternational Conference on Learning Representations
+(ICLR). 2019. URL: https : / / openreview .
+net/forum?id=H1lJJnR5Ym.
+[10]
+H. Chen et al. “MLR-Bench: Evaluating AI Agents
+on Open-Ended Machine Learning Research”. In: Ad-
+vances in Neural Information Processing Systems
+38: Datasets and Benchmarks Track. 2025. URL:
+https://openreview.net/forum?id=
+JX9DE6colf.
+[11]
+P. Chen and H. Chen. “Angora: Efficient Fuzzing by
+Principled Search”. In: 2018 IEEE Symposium on
+Security and Privacy (SP). IEEE, 2018, pp. 711–725.
+DOI: 10.1109/SP.2018.00046.
+[12]
+A. Church. “An Unsolvable Problem of Elementary
+Number Theory”. In: American Journal of Mathe-
+matics 58.2 (1936), pp. 345–363.
+[13]
+C. Dwork, V. Feldman, M. Hardt, T. Pitassi, O. Rein-
+gold, and A. Roth. “The reusable holdout: Preserv-
+ing validity in adaptive data analysis”. In: Science
+349.6248 (2015), pp. 636–638. DOI: 10.1126/
+science.aaa9375.
+[14]
+S. Eger et al. “Transforming Science with Large
+Language Models: A Survey on AI-Assisted Scien-
+tific Discovery, Experimentation, Content Generation,
+and Evaluation”. In: arXiv preprint arXiv:2502.05151
+(2025). URL: https : / / arxiv . org / abs /
+2502.05151.
+[15]
+A. Fioraldi, D. Maier, H. Eißfeldt, and M. Heuse.
+“AFL++: Combining Incremental Steps of Fuzzing
+Research”. In: 14th USENIX Workshop on Offen-
+sive Technologies (WOOT 20). USENIX Association,
+2020.
+[16]
+R. M. Friedberg. “A Learning Machine: Part I”.
+In: IBM Journal of Research and Development 2.1
+(1958), pp. 2–13.
+[17]
+L. Gao, J. Schulman, and J. Hilton. “Scaling Laws for
+Reward Model Overoptimization”. In: Proceedings
+of the 40th International Conference on Machine
+Learning (ICML). Vol. 202. Proceedings of Machine
+Learning Research. PMLR, 2023, pp. 10835–10866.
+URL: https://proceedings.mlr.press/
+v202/gao23h.html.
+[18]
+K. Gödel. “Über formal unentscheidbare Sätze der
+Principia Mathematica und verwandter Systeme I”.
+In: Monatshefte für Mathematik und Physik 38
+(1931), pp. 173–198.
+[19]
+I. J. Good. “Speculations Concerning the First Ul-
+traintelligent Machine”. In: Advances in Computers.
+Vol. 6. Academic Press, 1966, pp. 31–88.
+[20]
+J. Gottweis et al. “Accelerating Scientific Discov-
+ery with Co-Scientist”. In: Nature 655.8122 (2026),
+pp. 487–496. DOI: 10 . 1038 / s41586 - 026 -
+10644-y.
+[21]
+Y. He, Z. Tang, and H. Chen. “Content Fuzzing for
+Escaping Information Cocoons on Digital Social Me-
+dia”. In: Findings of the Association for Computa-
+tional Linguistics: ACL 2026. San Diego, Califor-
+nia, USA: Association for Computational Linguis-
+tics, 2026, pp. 11253–11271. DOI: 10 . 18653 /
+v1/2026.findings-acl.547. URL: https:
+//aclanthology.org/2026.findings-
+acl.547/.
+8
+
+
+Agentic Auto-Research is Fuzz Testing
+[22]
+Q. Huang, J. Vora, P. Liang, and J. Leskovec. “MLA-
+gentBench: Evaluating Language Agents on Ma-
+chine Learning Experimentation”. In: Proceedings
+of the 41st International Conference on Machine
+Learning (ICML). Vol. 235. Proceedings of Machine
+Learning Research. PMLR, 2024, pp. 20271–20309.
+URL: https://proceedings.mlr.press/
+v235/huang24y.html.
+[23]
+Y. Imajuku, K. Horie, Y. Iwata, K. Aoki, N. Taka-
+hashi, and T. Akiba. “ALE-Bench: A Benchmark for
+Long-Horizon Objective-Driven Algorithm Engineer-
+ing”. In: Advances in Neural Information Processing
+Systems 38: Datasets and Benchmarks Track. 2025.
+URL: https://openreview.net/forum?
+id=JCjGvbsOmQ.
+[24]
+G. Klees, A. Ruef, B. Cooper, S. Wei, and M. Hicks.
+“Evaluating Fuzz Testing”. In: Proceedings of the
+2018 ACM SIGSAC Conference on Computer and
+Communications Security (CCS). 2018, pp. 2123–
+2138. DOI: 10.1145/3243734.3243804.
+[25]
+J. Lehman and K. O. Stanley. “Abandoning Ob-
+jectives: Evolution through the Search for Novelty
+Alone”. In: Evolutionary Computation 19.2 (2011),
+pp. 189–223. DOI: 10.1162/EVCO_a_00025.
+[26]
+D. V. Lindley. “On a Measure of the Information
+Provided by an Experiment”. In: The Annals of Math-
+ematical Statistics 27.4 (1956), pp. 986–1005. DOI:
+10.1214/aoms/1177728069.
+[27]
+J. Liu et al. The Last Human-Written Paper: Agent-
+Native Research Artifacts. 2026. arXiv: 2604 .
+24658 [cs.LG]. URL: https://arxiv.org/
+abs/2604.24658.
+[28]
+Z. Liu, K. Liu, Y. Zhu, X. Lei, Z. Yang, Z. Zhang, P.
+Li, and Y. Liu. “AIGS: Generating Science from AI-
+Powered Automated Falsification”. In: arXiv preprint
+arXiv:2411.11910 (2024). URL: https://arxiv.
+org/abs/2411.11910.
+[29]
+C. Lu, C. Lu, R. T. Lange, J. Foerster, J. Clune, and
+D. Ha. “The AI Scientist: Towards Fully Automated
+Open-Ended Scientific Discovery”. In: arXiv preprint
+arXiv:2408.06292 (2024). URL: https://arxiv.
+org/abs/2408.06292.
+[30]
+Y. Lyu, Y. Xie, P. Chen, and H. Chen. “Prompt
+Fuzzing for Fuzz Driver Generation”. In: Proceed-
+ings of the 2024 ACM SIGSAC Conference on Com-
+puter and Communications Security (CCS). Salt Lake
+City, UT, USA: ACM, 2024, pp. 3793–3807. DOI:
+10.1145/3658644.3670396.
+[31]
+V. J. M. Manès, H. Han, C. Han, S. K. Cha, M. Egele,
+E. J. Schwartz, and M. Woo. “The Art, Science,
+and Engineering of Fuzzing: A Survey”. In: IEEE
+Transactions on Software Engineering 47.11 (2021),
+pp. 2312–2331. DOI: 10 . 1109 / TSE . 2019 .
+2946563.
+[32]
+J.-B. Mouret and J. Clune. “Illuminating Search
+Spaces by Mapping Elites”. In: arXiv preprint
+arXiv:1504.04909 (2015). URL: https://arxiv.
+org/abs/1504.04909.
+[33]
+A. Novikov et al. “AlphaEvolve: A Coding Agent
+for Scientific and Algorithmic Discovery”. In: arXiv
+preprint arXiv:2506.13131 (2025). URL: https :
+//arxiv.org/abs/2506.13131.
+[34]
+A. Pan, K. Bhatia, and J. Steinhardt. “The Effects of
+Reward Misspecification: Mapping and Mitigating
+Misaligned Models”. In: International Conference
+on Learning Representations (ICLR). 2022. URL:
+https://openreview.net/forum?id=
+JYtwGwIL7ye.
+[35]
+A. Panickssery, S. R. Bowman, and S. Feng.
+“LLM Evaluators Recognize and Favor Their
+Own Generations”. In: Advances in Neural Infor-
+mation Processing Systems 37 (NeurIPS). 2024.
+URL: https : / / proceedings . neurips .
+cc / paper _ files / paper / 2024 / hash /
+7f1f0218e45f5414c79c0679633e47bc
+-
+Abstract-Conference.html.
+[36]
+D. Pathak, P. Agrawal, A. A. Efros, and T. Darrell.
+“Curiosity-driven Exploration by Self-supervised Pre-
+diction”. In: Proceedings of the 34th International
+Conference on Machine Learning (ICML). PMLR,
+2017, pp. 2778–2787. URL: https : / / arxiv .
+org/abs/1705.05363.
+[37]
+T. Rainforth, A. Foster, D. R. Ivanova, and F. Bick-
+ford Smith. “Modern Bayesian Experimental De-
+sign”. In: Statistical Science 39.1 (2024), pp. 100–
+114. DOI: 10.1214/23-STS915.
+[38]
+C. K. Reddy and P. Shojaee. “Towards Scientific Dis-
+covery with Generative AI: Progress, Opportunities,
+and Challenges”. In: Proceedings of the AAAI Con-
+ference on Artificial Intelligence (AAAI). Vol. 39. 27.
+2025, pp. 28601–28609. DOI: 10.1609/aaai.
+v39i27.35084.
+[39]
+H. G. Rice. “Classes of Recursively Enumerable
+Sets and Their Decision Problems”. In: Transactions
+of the American Mathematical Society 74.2 (1953),
+pp. 358–366.
+[40]
+B. Romera-Paredes et al. “Mathematical Discoveries
+from Program Search with Large Language Models”.
+In: Nature 625.7995 (2024), pp. 468–475. DOI: 10.
+1038/s41586-023-06924-6.
+[41]
+S. Schmidgall et al. “Agent Laboratory: Using LLM
+Agents as Research Assistants”. In: Findings of the
+Association for Computational Linguistics: EMNLP
+2025. Suzhou, China: Association for Computa-
+tional Linguistics, 2025, pp. 5977–6043. DOI: 10.
+9
+
+
+Agentic Auto-Research is Fuzz Testing
+18653 / v1 / 2025 . findings - emnlp . 320.
+URL: https://aclanthology.org/2025.
+findings-emnlp.320/.
+[42]
+J. Schmidhuber. “Ultimate Cognition à la Gödel”. In:
+Cognitive Computation 1.2 (2009), pp. 177–193.
+[43]
+C. Si, D. Yang, and T. Hashimoto. “Can LLMs
+Generate Novel Research Ideas? A Large-Scale Hu-
+man Study with 100+ NLP Researchers”. In: Inter-
+national Conference on Learning Representations
+(ICLR). 2025. URL: https : / / openreview .
+net/forum?id=M23dTGWCZy.
+[44]
+J. Skalse, N. H. R. Howe, D. Krasheninnikov,
+and D. Krueger. “Defining and Characterizing
+Reward Gaming”. In: Advances in Neural Infor-
+mation Processing Systems 35 (NeurIPS). 2022.
+URL: https : / / proceedings . neurips .
+cc / paper _ files / paper / 2022 / hash /
+3d719fee332caa23d5038b8a90e81796
+-
+Abstract-Conference.html.
+[45]
+C. Snell, J. Lee, K. Xu, and A. Kumar. “Scaling LLM
+Test-Time Compute Optimally Can Be More Effec-
+tive than Scaling Parameters for Reasoning”. In: In-
+ternational Conference on Learning Representations
+(ICLR). 2025. URL: https : / / openreview .
+net/forum?id=4FWAwZtd2n.
+[46]
+R. S. Sutton. The Bitter Lesson. Blog post,
+incompleteideas.net. 2019.
+URL: http : / /
+www . incompleteideas . net / IncIdeas /
+BitterLesson.html (visited on 07/19/2026).
+[47]
+K. Swanson, W. Wu, N. L. Bulaong, J. E. Pak,
+and J. Zou. “The Virtual Lab of AI agents designs
+new SARS-CoV-2 nanobodies”. In: Nature 646.8085
+(2025), pp. 716–723. DOI: 10.1038/s41586-
+025-09442-9.
+[48]
+E. Toledo et al. “AI Research Agents for Ma-
+chine Learning: Search, Exploration, and General-
+ization in MLE-bench”. In: Advances in Neural In-
+formation Processing Systems (NeurIPS). 2025. URL:
+https://openreview.net/forum?id=
+RwfrdKSgCE.
+[49]
+A. M. Turing. “On Computable Numbers, with an
+Application to the Entscheidungsproblem”. In: Pro-
+ceedings of the London Mathematical Society s2-42.1
+(1936), pp. 230–265.
+[50]
+P. Wang et al. “Large Language Models are not Fair
+Evaluators”. In: Proceedings of the 62nd Annual
+Meeting of the Association for Computational Lin-
+guistics (Volume 1: Long Papers). 2024, pp. 9440–
+9450. URL: https://aclanthology.org/
+2024.acl-long.511/.
+[51]
+H. Wijk et al. “RE-Bench: Evaluating Frontier
+AI R&D Capabilities of Language Model Agents
+against Human Experts”. In: Proceedings of the
+42nd International Conference on Machine Learning.
+Vol. 267. Proceedings of Machine Learning Research.
+PMLR, 2025, pp. 66772–66832. URL: https://
+proceedings.mlr.press/v267/wijk25a.
+html.
+[52]
+Y. Yamada, R. T. Lange, C. Lu, S. Hu, C. Lu, J.
+Foerster, J. Clune, and D. Ha. “The AI Scientist-
+v2: Workshop-Level Automated Scientific Discov-
+ery via Agentic Tree Search”. In: arXiv preprint
+arXiv:2504.08066 (2025). URL: https://arxiv.
+org/abs/2504.08066.
+[53]
+A. Yang, P. M. Esperança, and F. M. Carlucci. “NAS
+Evaluation Is Frustratingly Hard”. In: International
+Conference on Learning Representations (ICLR).
+2020. URL: https://arxiv.org/abs/1912.
+12522.
+[54]
+R. Ye et al. “Are We There Yet? Revealing the Risks
+of Utilizing Large Language Models in Scholarly
+Peer Review”. In: arXiv preprint arXiv:2412.01708
+(2024). URL: https : / / arxiv . org / abs /
+2412.01708.
+[55]
+J. Yuan et al. “Dolphin: Moving Towards Closed-
+loop Auto-research through Thinking, Practice, and
+Feedback”. In: Proceedings of the 63rd Annual Meet-
+ing of the Association for Computational Linguistics
+(Volume 1: Long Papers). Vienna, Austria: Associa-
+tion for Computational Linguistics, 2025, pp. 21768–
+21789. DOI: 10.18653/v1/2025.acl-long.
+1056. URL: https://aclanthology.org/
+2025.acl-long.1056/.
+[56]
+T. Zahavy. “Position: LLMs Can’t Jump”. In: Pro-
+ceedings of the 43rd International Conference on
+Machine Learning (ICML). 2026. URL: https://
+openreview.net/forum?id=klU4737opt.
+[57]
+M. Zalewski. American Fuzzy Lop (AFL). 2013. URL:
+https : / / lcamtuf . coredump . cx / afl/
+(visited on 07/19/2026).
+[58]
+H. Zhang, Y. Rong, Y. He, and H. Chen. “LLAMA-
+FUZZ: Large Language Model Enhanced Greybox
+Fuzzing”. In: Proceedings of the 7th ACM/IEEE Inter-
+national Conference on Automation of Software Test
+(AST). Rio de Janeiro, Brazil: ACM, 2026, pp. 34–45.
+DOI: 10.1145/3793654.3793756.
+[59]
+L. Zheng et al. “Judging LLM-as-a-Judge with
+MT-Bench and Chatbot Arena”. In: Advances
+in Neural Information Processing Systems 36
+(NeurIPS), Datasets and Benchmarks Track. 2023.
+URL: https : / / proceedings . neurips .
+cc / paper _ files / paper / 2023 / hash /
+91f18a1287b398d378ef22505bf41832
+-
+Abstract - Datasets _ and _ Benchmarks .
+html.
+10
+
+
+Agentic Auto-Research is Fuzz Testing
+[60]
+B. Zoph and Q. V. Le. “Neural Architecture Search
+with Reinforcement Learning”. In: International Con-
+ference on Learning Representations (ICLR). 2017.
+URL: https : / / arxiv . org / abs / 1611 .
+01578.
+11

@@ -1,0 +1,1538 @@
+DIFFERENTIATE THE SOLVER, NOT THE EQUATION:
+REVERSE-SWEEP ADJOINTS FOR BLOCK IMPLICIT SIMULATION
+Lei Shu1
+Ying Jiang2
+Kui Wu3
+Yin Yang4
+Leonidas Guibas1
+Chenfanfu Jiang2,∗
+1Stanford University
+2University of California, Los Angeles
+3LightSpeed Studios, Tencent America
+4The University of Utah
+leishu@stanford.edu, anajymua@gmail.com, walker.kui.wu@gmail.com
+yin.yang@utah.edu, guibas@cs.stanford.edu, chenfanfu.jiang@gmail.com
+∗Corresponding author
+ABSTRACT
+Differentiable simulation is a key component in learning, control, and inverse
+problems, where gradients through nonlinear implicit solvers are required. Existing
+approaches either rely on unrolled automatic differentiation, whose memory grows
+with solver depth, or on equation-level implicit differentiation, which assembles
+global Jacobians and solves large sparse adjoint systems, discarding the locality of
+the forward solver – and differentiating the converged equation rather than the finite
+computation that actually ran. To overcome these limitations, we propose solver-
+level differentiation, which differentiates the executed solver itself. Our key insight
+is that when a solver is composed of block implicit updates, its discrete adjoint is
+obtained by applying the corresponding adjoint updates in reverse order, yielding a
+reverse-sweep formulation whose backward pass mirrors the forward solver. From
+an operator perspective, the forward pass realizes an approximate inverse through
+ordered local solves, and the backward applies its transpose through reverse local
+adjoint solves, constructing no global system. We instantiate this idea on Vertex
+Block Descent (Chen et al., 2024a), yielding a differentiable solver whose reverse
+colored Gauss–Seidel sweeps are composed entirely of local 3×3 adjoint solves.
+The backward matches automatic differentiation through the identical executed
+forward to machine precision at every solver depth, where the equation-level ad-
+joint is off by 37% after one sweep; in a controlled same-codebase, same-GPU
+comparison it is 33× faster and uses 71× less memory than unrolled automatic
+differentiation; and the same construction is exact on projective dynamics and
+extended position-based dynamics. We scale differentiable elastodynamics to 106
+contact-coupled soft bodies (8M vertices) on one GPU. Overall, this work high-
+lights solver structure as a practical organizing principle for efficient differentiable
+simulation.
+1
+INTRODUCTION
+Implicit integrators are the workhorse of stiff physical simulation (Baraff & Witkin, 1998). Each step
+solves a nonlinear stationary problem
+∇G(x) = 0,
+G(x) =
+1
+2h2 (x −y)⊤M(x −y) + E(x),
+(1)
+where G is the incremental potential of the step, x ∈R3|V | stacks the positions of |V | mesh vertices,
+M is the mass matrix, h the time step, y the inertial prediction from the previous step, and E the
+elastic potential. Differentiating through such a step is what makes simulation usable as a layer: for
+system identification, control and trajectory optimization, and training with a simulator in the loop
+(Hu et al., 2020; 2019; Degrave et al., 2019).
+The obstacle is memory. Unrolled automatic differentiation (AD) (Griewank & Walther, 2008)
+traces every elementary operation of the executed program, so the tape grows with solver depth ×
+rollout length × mesh size; backpropagation through time (Werbos, 1990) over long rollouts then
+needs checkpointing. It is exact – we use it as ground truth – but the first to run out of memory.
+1
+arXiv:2608.08559v1  [cs.GR]  9 Aug 2026
+
+
+Equation-level implicit differentiation (Giles & Pierce, 2000; Blondel et al., 2022) instead discards
+the executed solver, asserts ∇G(x⋆) = 0, and applies the implicit function theorem, requiring
+assembly and solution of a global adjoint system. Memory becomes O(1) in solver depth, but a
+global linear-algebra object reappears – and, less often noted, the gradient it returns is the derivative
+of a converged solve, not of the computation that ran when the solver executes a small fixed number
+of sweeps, as it does in practice for speed. The question is which function the backward should
+differentiate: the equation the solver approximates, or the finite solver that ran?
+We take the executed solver seriously as the object to differentiate. Many modern simulators are
+block-coordinate implicit solvers: they minimize Eq. (1) by sweeping over small blocks of variables,
+solving a tiny implicit problem per block and applying each update immediately. Vertex Block
+Descent (Chen et al., 2024a) is the instance we build on: one 3×3 Newton solve per vertex, with
+vertices graph-colored so that a color class updates in parallel. For any such solver the Jacobian of
+the sweep is an ordered product of block-update Jacobians, so its transpose is that product in reverse.
+The adjoint is therefore the same sweep, backwards, with each block update replaced by its local
+transpose: same coloring, same constant block size, same memory layout, and no global system at
+any point. We read this as a structural duality – forward block sweep ⇔reverse adjoint sweep – with
+a thesis attached: equation-level differentiation destroys the solver locality that block-coordinate
+methods are built around; solver-level differentiation preserves it. The backward pass is a solver of
+the same shape as the forward, and everything that made the forward fast makes the backward fast.
+What we are and are not claiming.
+We do not claim custom gradients are novel: a custom
+vector–Jacobian product can always be handed to an AD framework. But that product still has
+to compute something, and an implicit step admits two computations: (a) assemble and solve a
+global adjoint system, as every prior differentiable elastodynamics method does, or (b) run a reverse
+sweep of constant-size local solves and never form such an object. Route (b) removes the memory
+wall; we contribute its construction, exactness conditions, proof, and GPU implementation, plus the
+measurement that (a) and (b) do not merely differ in cost: at finite solver depth they return different
+gradients, and only (b) differentiates what was executed.
+Exactness at finite depth is the subtle part. Three terms are required, and dropping any one yields
+gradients that look correct at convergence and are badly wrong before it: the local adjoint solve,
+the Hessian-tangent term, and, easily overlooked, the Jacobians of non-smooth safeguards (update
+saturation, regularization floors, validity gates). We found all three in our own implementation
+against an autograd reference, and report their error laws because they are invisible to the usual
+finite-difference-at-converged-K protocol.
+Contributions.
+• The exact discrete adjoint of an executed block-coordinate implicit sweep (§3): a reverse sweep
+of constant-size local adjoint solves that forms no global linear-algebra object, with the structural
+conditions under which it is exact (Theorem 1).
+• An analysis of what exactness at finite solver depth requires (§3.5), including non-smooth safe-
+guard terms that prior hand-derived adjoints omit, with the measured error law of each omission
+(§6.2).
+• A controlled comparison (one codebase, one GPU, identical meshes, and forward trajectories
+verified identical to 10−16) against unrolled AD and against both assembled and matrix-free
+equation-level adjoints (§6.3); plus inverse-problem tasks, machine-precision transfer to projective
+and extended position-based dynamics (App. B), and differentiable elastodynamics at 106 contact-
+coupled bodies (8M vertices).
+Scope.
+We implement and evaluate a single solver family, with Vertex Block Descent as the concrete
+instantiation. Theorem 1 states the structural assumptions under which the construction transfers;
+minimal instantiations on extended position-based dynamics (Macklin et al., 2016) and projective
+dynamics (Bouaziz et al., 2014) confirm the transfer, exact to machine precision at every tested depth
+(App. B).
+2
+
+
+Figure 1: Vertex Block Descent on a tetrahedral mesh. Left:
+distance-1 graph coloring; vertices that share an element never
+share a color, so each color class updates in parallel. Right: one
+local 3×3 Newton solve, touching only the elements incident to the
+updated vertex.
+2
+BACKGROUND AND NOTATION
+Notation.
+Bold italic denotes vectors (x, v, y, gi, pi, ∆xi); roman capitals denote matrices (M,
+Hi, I); plain italic denotes scalars (h, K, µ, λ, ϵ, and indices i, j, t); italic capitals denote operators
+on state (Si, Ui, Fi). An overbar denotes an adjoint: for a downstream scalar loss L, ¯x := ∂L/∂x.
+We write |V | for the vertex count, so a mesh has 3|V | degrees of freedom (DoF), and |T| for the
+tetrahedron count. Solver depth K is the number of inner sweeps executed per time step, where one
+sweep visits every vertex once in color order; K is a fixed user-chosen budget, not a convergence
+tolerance, and small K is the common regime because it is fast.
+Vertex Block Descent.
+Chen et al. (2024a) solve Eq. (1) by block coordinate descent on the
+variational form of implicit Euler, taking one vertex position as a block and sweeping the blocks
+in Gauss–Seidel order. Each local update decreases the same global objective, so the scheme is
+unconditionally stable and, unlike a truncated global Newton solve, remains stable when the iteration
+count is capped: the sweep count is a compute budget rather than a tolerance – so finite K is the
+normal operating point, and exactly the regime where an equation-level adjoint stops describing what
+ran. Concretely, for vertex i with lumped mass mi and incident elements E(i),
+gi(x) = mi
+h2 (xi −yi) +
+X
+e∈E(i)
+∇xiEe(x),
+Hi(x) = mi
+h2 I3 +
+X
+e∈E(i)
+∇2
+xixiEe(x),
+(2)
+and the local Newton step is applied immediately (Gauss–Seidel):
+Hi(x) ∆xi = −gi(x),
+xi ←xi + ∆xi.
+(3)
+Vertices are distance-1 graph-colored, so vertices sharing an element never share a color and each
+color class updates in parallel (Fig. 1). Vertex Block Descent is thus a block implicit solver whose
+fundamental operation is a constant-size 3×3 solve. Elastic energy is stable Neo-Hookean (Smith
+et al., 2018) throughout.
+3
+THE ADJOINT OF THE EXECUTED SWEEP
+3.1
+BLOCK UPDATES AND THE SOLVER-INDUCED INVERSE
+Write the executed solver as a composition of block updates S = Sn ◦Sn−1 ◦· · · ◦S1, where Si
+modifies only block i:
+x+
+i = Ui(x) = xi + ∆xi(x),
+Fi(∆xi, x) = 0,
+(4)
+with ∆xi defined implicitly by Fi; for Vertex Block Descent, Fi(∆xi, x) = Hi(x)∆xi + gi(x).
+Iterating this composition realizes an approximate inverse of the global stationary system: S maps
+the predictor y to a state of lower G-energy, and finitely many sweeps reduce the residual. We call S
+the solver-induced inverse; it is block-structured by construction.
+3.2
+TRANSPOSE ACTION, AND CONTRAST WITH EQUATION-LEVEL DIFFERENTIATION
+The Jacobian of the sweep is the ordered product of block-update Jacobians, so
+(∂S)⊤= (∂S1)⊤(∂S2)⊤· · · (∂Sn)⊤.
+(5)
+Two consequences. Reverse ordering is the computational form of the transpose of a composition, not
+a design choice. And because each ∂Si touches only one block, so does each (∂Si)⊤: the backward
+3
+
+
+is the transpose of the forward sweep block by block, with the same color partition in reverse and the
+same constant block size.
+This differentiates a different object from equation-level implicit differentiation, which replaces the
+executed solver by the converged equation and inverts ∇2G(x⋆):
+(∂S)⊤
+| {z }
+adjoint of the finite executed
+solver; block-local
+vs.
+ ∇2G(x⋆)
+−⊤
+|
+{z
+}
+adjoint of the converged
+system; global solve
+(6)
+The two coincide only in the convergence limit. §6.1 measures the gap and shows it is large in the
+regime practitioners actually use.
+3.3
+LOCAL ADJOINT OF ONE BLOCK UPDATE
+Differentiating Fi = 0 with respect to an arbitrary variable z gives
+∂Fi
+∂∆xi
+d∆xi
+dz
++ ∂Fi
+∂z = 0, and since
+∂Fi/∂∆xi = Hi,
+d∆xi
+dz
+= −H−1
+i
+∂gi
+∂z + ∂Hi
+∂z ∆xi
+
+.
+(7)
+We differentiate the local optimality condition, not the implementation of the local linear solver: the
+backward is organized by the implicit relation itself rather than by an expanded reverse-mode graph.
+Let ¯x+
+i be the incoming adjoint at block i, the one accumulated by every reverse update that has already
+executed, and ¯x−
+i the outgoing adjoint passed further back (Fig. 2). Because x+
+i = x−
+i + ∆xi(x),
+the chain rule splits into a direct identity branch and an implicit branch:
+¯x−
+i
+= ¯x+
+i
++
+
+d∆xi
+dxi
+⊤
+¯x+
+i .
+(8)
+Introducing the local adjoint variable pi defined by
+H⊤
+i pi = ¯x+
+i ,
+(9)
+and combining with Eq. (7), the implicit branch for any upstream variable z becomes
+
+d∆xi
+dz
+⊤
+¯x+
+i = −
+
+∂gi
+∂z
+⊤
+pi −
+
+∂Hi
+∂z
+
+:
+ pi ∆x⊤
+i
+
+.
+(10)
+Here A:B = P
+a,b AabBab, so the second term is the contraction of the third-order tensor ∂Hi/∂z
+against the rank-one matrix pi∆x⊤
+i ,
+
+∂Hi
+∂z
+
+:
+ pi∆x⊤
+i
+
+=
+3
+X
+a,b=1
+∂[Hi]ab
+∂z
+[∆xi]b [pi]a.
+(11)
+No third-order tensor is ever formed: Eq. (11) is evaluated as a directional derivative of Hi along
+∆xi, tested against pi, at the cost of a few 3×3 products.
+Setting z = xi recovers the implicit summand of Eq. (8); z = xj accumulates the off-diagonal
+contribution into ¯x−
+j . For a material parameter θ ∈{µ, λ}, or any other upstream quantity the block
+depends on (nodal forces, rest shape), the same expression accumulates
+¯θ += −
+
+∂gi
+∂θ
+⊤
+pi −
+
+∂Hi
+∂θ
+
+:
+ pi ∆x⊤
+i
+
+,
+(12)
+summed over every block update in which θ participated. State and parameter adjoints therefore
+share one local solve H⊤
+i pi = ¯x+
+i ; parameters cost only the extra contractions, which is why adding
+material gradients to a rollout does not change the asymptotic cost of the backward. Together
+Eqs. (8)–(10) are the complete local vector–Jacobian product of one block update. We call the second
+term of Eq. (10) the Hessian tangent (“stage 2”), since it exists only because Hi itself depends on
+state; the first is the gradient tangent (“stage 1”). Every quantity is 3×3; nothing global is formed.
+3.4
+REVERSE-SWEEP ADJOINT PRINCIPLE
+Theorem 1 (Exact discrete adjoint of a block implicit solver). Let S = Sn ◦· · · ◦S1 be a finite
+composition of block implicit updates of the form (4). Assume each Fi is C1 in a neighborhood
+4
+
+
+forward:
+x−
+i
++ ∆xi(x)
+−−−−−−−−→
+x+
+i
+(block update Si)
+reverse:
+¯x−
+i
+←−−−−−−−
+Eq.(8)–(10)
+¯x+
+i
+(local vector–Jacobian product)
+Figure 2: Data flow around one block update. The forward advances the block state; the reverse consumes the
+incoming adjoint ¯x+
+i (accumulated by reverse updates already executed) and produces the outgoing adjoint ¯x−
+i .
+Superscripts denote position in the sweep, not before/after in time.
+of its executed linearization state and that ∂Fi/∂∆xi is invertible there; for the affine instance
+Fi = Hi∆xi + gi it suffices that Hi and gi are differentiable at that state with Hi invertible. Then
+(∂S)⊤= (∂S1)⊤· · · (∂Sn)⊤, with each (∂Si)⊤realized by the local vector–Jacobian product of
+Eqs. (8)–(10): a direct identity contribution, a local adjoint solve H⊤
+i pi = ¯x+
+i , and a local scatter.
+Provided the backward replays the same local linearization states as the forward, the adjoint of one
+sweep is a reverse block sweep of constant-size local solves.
+The proof is in Appendix A. The qualifier that matters: this is exact for the finite executed S, not
+merely in the convergence limit. It does not assert that the block factorization is unique or that it
+converges to the global linearized inverse for any particular K.
+3.5
+WHAT EXACTNESS AT FINITE DEPTH ACTUALLY REQUIRES
+Theorem 1 assumes each Fi is differentiated in full. Production block solvers contain safeguards that
+are easy to treat as invisible, and each omission produces gradients that are wrong at small K and
+self-correcting at large K, so they hide from convergence-regime testing. We isolate three, all of
+which we found in our own implementation.
+(i) Update saturation. Implementations commonly damp the raw step, ∆x ←∆x c/(∥∆x∥+c+ε)
+with damping constant c (App. H gives the values), to stabilize early sweeps. Its Jacobian is a
+rank-one correction that must be applied to the incoming adjoint before the local solve:
+J = s I −
+1
+c r ∆x ∆x⊤,
+r = ∥∆xraw∥,
+s = ∥∆x∥/r.
+(13)
+Omitting it gives relative error ∝∥∆x∥/(∥∆x∥+ c), measured up to 26% at K=1 in Table 2,
+vanishing as ∥∆x∥→0.
+(ii) The Hessian tangent. The second term of Eq. (10) is often dropped from the state adjoint and
+retained, if at all, only for parameter gradients. For the block Hessian of Eq. (2) the state dependence
+enters only through qi = cof(F)∇Ni, so the term reduces to two cross products per (element, vertex)
+pair. Omitting it leaves error ∝∥∆x∥.
+(iii) Validity gates. Tangent terms are sometimes disabled on compressed elements (e.g. applied only
+when det F > τ) while the forward applies no such cutoff. This is the most damaging of the three:
+its effect is non-local and grows with mesh refinement: one gated element out of 245 moves the whole
+gradient by 8.2 × 10−3, and the gated terms contain no division by det F, so the gate buys no safety.
+None of the three is visible from finite-difference checks at converged K, which is the standard
+validation protocol; all three are visible immediately against an autograd reference at K=1 (§6.2).
+4
+DIFFERENTIABLE VERTEX BLOCK DESCENT
+We instantiate the principle on Vertex Block Descent. Each forward update records its local displace-
+ment ∆xi and Hessian block; the backward traverses iterations and colors in reverse, undoing the
+recorded displacement to reconstruct the linearization point, applying Eq. (13), passing the direct
+adjoint contribution, solving H⊤
+i pi = ¯x+
+i , and scattering the stage-1 and stage-2 contributions to
+neighboring vertices and material parameters via Eq. (10). The same backward yields gradients
+with respect to initial state (x0, v0), Lam´e parameters (µ, λ), time-varying external forces ft, and
+rest-shape positions, in one reverse sweep with no global assembly and no graph rebuild between
+parameter sets (closed forms: App. C). Forward and backward share the color partition, neighborhood
+structure, memory layout, and thread schedule, so the backward inherits the forward’s parallelism
+directly (Algorithm 1). Relative to unrolled AD the difference is what is not stored: the tape collapses
+to a per-sweep replay buffer of nine doubles per active vertex – the applied update and the six entries
+of the symmetric block, 72 bytes.
+5
+
+
+Algorithm 1 Forward Vertex Block Descent and its reverse adjoint
+1: for k = 0, . . . , K −1 do
+▷forward
+2:
+for color c = 1, . . . , C do
+3:
+for all vertices i in color c in parallel do
+4:
+assemble gi, Hi; solve Hi∆xi = −gi; saturate
+5:
+record ∆xi, Hi; xi ←xi + ∆xi
+6:
+end for
+7:
+end for
+8: end for
+9: for k = K −1, . . . , 0 do
+▷reverse
+10:
+for color c = C, . . . , 1 do
+11:
+for all vertices i in color c in parallel do
+12:
+undo ∆xi; apply saturation Jacobian (13) to ¯x+
+i
+13:
+solve H⊤
+i pi = ¯x+
+i
+14:
+scatter stage-1 and stage-2 terms (10) to neighbors / parameters
+15:
+end for
+16:
+end for
+17: end for
+5
+IMPLEMENTATION
+We provide two GPU backends, NVIDIA Warp (Macklin, 2022) kernels and a fused CUDA C++ path
+compiled on demand, differing by 7–22× in runtime through kernel fusion but agreeing to 10−16
+on forward state and gradients. Memory grows with replay information, not with an AD graph, and
+CUDA graph capture removes launch overhead in outer loops. The per-vertex block defaults to
+the positive-definite approximation Hi = µ∥∇Ni∥2I + λqq⊤(per element, with ∇Ni the constant
+shape-function gradient) of Chen et al. (2024a); an exact 9×9-tangent variant covers the indefinite
+stable Neo-Hookean Hessian.
+Contact.
+Two primitives coexist, and both are differentiated the same way as the elastic term,
+by the reverse sweep rather than by a separate mechanism. The first is the incremental potential
+contact (IPC) log barrier (Li et al., 2020) against the floor and against the vertex’s own neighborhood,
+b(d) = −κ (d −ˆd)2 log(d/ ˆd) for gap d < ˆd, with lagged dissipation applied only to downward
+motion. Because the barrier contributes to the same per-vertex gi and Hi of Eq. (2), its derivative
+enters the backward through the existing local solve, and no contact-specific adjoint is added; the
+barrier’s second derivative sits in Hi, and its third derivative is carried by the Hessian-tangent term
+of Eq. (10). Adjoints therefore flow through every barrier evaluation of a rollout, not through a
+converged contact state. The second primitive is a differentiable center-of-mass penalty between
+separate bodies, with a uniform-grid broad phase (sorted cell keys, one binary search per neighbor
+cell) that stays O(N) at 106 bodies, used when the object count makes vertex-level self-collision
+impractical. Pair indices carry no gradient, so the search algorithm never touches differentiability.
+This is the substantive difference from DiffIPC (Huang et al., 2024), which differentiates a converged
+incremental potential and therefore inherits a global step Hessian on the backward; ours differentiates
+the executed barrier evaluations and stays block-local, which is why the memory figures quoted
+in §6.4 differ by orders of magnitude. Symmetrically, where the contact set is still changing, our
+gradient reflects the executed sweep, not a converged contact configuration. Both backends expose
+a tensor-native interface, so backpropagation through time runs GPU-resident. Appendix H gives
+details.
+6
+EXPERIMENTS
+Optimization tasks use Adam (Kingma & Ba, 2015). §6.1–§6.5 run on a single RTX 4090 Laptop
+GPU (16 GB, CUDA 12.1, PyTorch 2.3), §6.4’s K × |V | grid on an RTX A6000, and §6.6 on one
+H100 (80 GB). Every backward route in §6.1–§6.3 is measured on the same GPU within a single
+process, so no comparison below crosses hardware.
+6
+
+
+Table 1: Gradient error vs. the autograd reference (relative, max over ¯x0, ¯v0) as solver depth K varies. Our
+reverse sweep is exact at every depth. The equation-level adjoint differentiates a converged solve, so it is accurate
+only once the executed state satisfies ∇G = 0; the residual column quantifies how badly that assumption fails at
+small K. Mesh |V |=115 (345 DoF), backpropagation through four rollout steps.
+K
+∥∇G(x⋆)∥
+Ours
+Global adj. (assembled)
+Global adj. (matrix-free)
+1
+1.6 × 10−1
+3.6 × 10−15
+3.7 × 10−1
+3.7 × 10−1
+5
+4.7 × 10−9
+3.3 × 10−15
+2.3 × 10−5
+2.3 × 10−5
+20
+1.0 × 10−14
+2.1 × 10−15
+9.7 × 10−10
+1.6 × 10−10
+Table 2: Ablation of §3.5: relative gradient error vs. the reference at K=1, across mesh refinement.
+Variant
+|V |=26
+|V |=115
+|V |=631
+Full adjoint (ours)
+4.2 × 10−16
+5.1 × 10−16
+9.1 × 10−16
+w/o saturation Jacobian (i)
+7.7 × 10−2
+1.6 × 10−1
+2.6 × 10−1
+w/o Hessian tangent (ii)
+2.9 × 10−4
+8.2 × 10−3
+1.1 × 10−1
+with validity gate det F > 0.5 (iii)
+4.2 × 10−16
+8.2 × 10−3
+1.2 × 10−1
+Baselines and the reference gradient.
+We compare four backward routes over an identical forward:
+(1) ours; (2) unrolled AD, PyTorch autograd through the executed colored sweep; (3) global
+adjoint (assembled), building the sparse 3|V | × 3|V | Hessian and solving the adjoint system by
+preconditioned conjugate gradients (PCG), the route of DiffPD, DiffCloth, DiffQN and DiffIPC;
+(4) global adjoint (matrix-free), never forming the Hessian, applying it via double-backward
+Hessian-vector products inside PCG. We include (4) deliberately: it is the leanest possible opponent
+on memory, and is exactly the design point of supplying a custom vector–Jacobian product for the
+linear solve inside an AD framework. Routes (3) and (4) agree to 2 × 10−16, certifying they solve
+the same system.
+Unrolled AD serves twice. As a competitor it shows the cost of a generic tape. As a reference it is
+exact by construction, since autograd through the executed program is, to floating point, the derivative
+of what ran, so all gradient errors below are relative errors against it. We verify that all backends
+produce the same forward trajectory to 10−16 before comparing any gradient; without that check a
+gradient comparison measures nothing.
+6.1
+EXACTNESS AT FINITE SOLVER DEPTH
+Table 1 is the central measurement. At K=1 the executed state violates the stationary equation
+by 1.6 × 10−1 and the equation-level gradient is wrong by 37%; ours is exact. By K=20 the
+solver has converged and the routes agree, as Theorem 1 predicts. This is the operational content
+of differentiating the solver rather than the equation: the two are not two implementations of
+one gradient but gradients of two different functions, and only one of them is the function the
+forward pass evaluated. Exactness holds across every axis swept (meshes |V | ∈{26, 115, 631},
+K ∈{1, 5, 20}, one- and four-step rollouts, three decades of stiffness, two step sizes, four decades
+of update magnitude): worst case 3.6 × 10−15, on both GPU backends (finite-difference validation:
+App. F).
+6.2
+ABLATION: THE THREE EXACTNESS TERMS
+Each omission in Table 2 is invisible at convergence, severe before it, and grows under mesh
+refinement – the opposite of what large-scale use requires. The ablated variants are earlier revisions
+of our own implementation, so each row is a defect that actually shipped. The gated variant (iii) is
+exact on the coarse mesh only because no element there approaches inversion: the gate never fires
+until refinement activates it, which is precisely what makes this omission the easiest to miss.
+6.3
+COST: A CONTROLLED COMPARISON
+Table 3 gives 33× less time and 71× less memory than unrolled AD. Notably, the regimes separate
+cleanly. When the step is well conditioned (h=10−2, soft material) PCG converges in ∼5 iterations
+7
+
+
+Table 3: Backward cost: same codebase, GPU, and mesh, with forward trajectories verified identical to
+10−16, so no part of the gap is attributable to a faster forward, a different mesh, or different hardware. |V |=115,
+K=20, backpropagation through four rollout steps. “PCG” is the conjugate-gradient iteration count. Peak
+memory is the caching-allocator peak (torch.cuda.max memory allocated).
+Backward route
+Time (ms)
+Peak memory (MB)
+PCG iters
+Gradient error
+Ours
+28.5
+0.9
+n/a
+2.1 × 10−15
+Unrolled AD (reference)
+939.9
+64.3
+n/a
+n/a
+Global adjoint (assembled)
+257.6
+19.8
+36
+9.7 × 10−10
+Global adjoint (matrix-free)
+89.4
+17.7
+40
+1.6 × 10−10
+Table 4: Inverse-problem results, all using the DiffVBD adjoint with Adam. #vars is the number of scalar
+optimization variables. Final loss is the converged objective in task units: relative parameter-recovery loss
+(dimensionless) for material ID; per-vertex squared position error (m2) for dress and silhouette; squared
+trajectory error (m2) for wind; squared center-of-mass-to-target distance (m2) for the bounces. Outcome is
+task-interpretable: relative material error; for wind, ∥∆w∥is the L2 deviation of the recovered piecewise-
+constant wind from the reference, marked under-determined for the reason given in §6.5; for the bounces, the
+final center-of-mass-to-target distance, against trajectory envelopes of ≈1.8 m (cube) and ≈0.8 m (bunny), so
+0.013 m and 0.034 m are small relative to the motion.
+Task
+#vars
+Iters
+Final loss
+Outcome
+Beam µ ID
+1
+76
+<10−4
+µ: 0.1% error
+Beam µ, λ ID
+2
+100
+2.1 × 10−4
+µ, λ: <0.25%
+Dress µ, λ ID
+2
+250+5
+4.8 × 10−9 m2
+µ: 0.01%, λ: 0.03%
+Dress silhouette
+2
+350+5
+<10−12 m2
+µ: <0.01%, λ: <0.01%
+Flag wind control
+24
+199
+5.1 × 10−3 m2
+∥∆w∥=15.3 (under-det.)
+Cube bounce
+6
+151
+1.6 × 10−2 m2
+center-of-mass–target 0.30 →0.013 m
+Bunny bounce
+3
+100
+3.1 × 10−2 m2
+center-of-mass–target 0.035 →0.034 m
+Cover the Spot
+18
+600
+n/a
+uncovered area 0.0%
+and the equation-level route is at its closest – there, our advantage is memory and the absence of
+assembly. As conditioning degrades the routes diverge: at µ=λ=5 × 105 PCG needs 233 iterations
+and the equation-level backward rises to 247–389 ms while ours does not move with stiffness: a
+reverse sweep never solves a global system whose difficulty tracks the material. The corresponding
+growth in problem size is Table 9 (App. K), where our backward stays within 0.96–1.14× the forward
+up to |V |=201k, a regime in which the unrolled tape does not fit in device memory at all.
+6.4
+RUNTIME AND SCALING
+On a bunny mesh (339 vertices, 897 tetrahedra, 40 steps) the Warp backend runs 34.7/146.4 ms per
+forward/backward step; the fused CUDA C++ path gives ∼3/5 ms. The backward-to-forward ratio is
+not a single number: at small |V | it is dominated by fixed per-color kernel-launch overhead, and as
+|V | grows per-vertex work overtakes that overhead and the ratio approaches 1, measuring 0.96–1.14
+across the full K × |V | grid up to |V |=201k (Appendix K). Memory is linear in K|V | at ≈4 KB
+per vertex per sweep, holding to ±13% across the measured K × |V | grid; 360× more vertices
+give 370× memory at fixed K. For reference, DiffIPC (Huang et al., 2024) reports ∼100 GB at
+|V |=9,939 against our 1,074 MB at |V |=27,169, two orders of magnitude less at a larger problem,
+though we stress this is a cross-paper comparison of published numbers, unlike Table 3.
+Solver depth also affects what an optimizer achieves, not only gradient accuracy, though on our small
+initial-state task the effect does not separate from run-to-run spread; we report that null result in
+App. G.
+6.5
+INVERSE PROBLEMS
+We verify the gradients are useful, not merely correct. In each task we state what is given, what is
+optimized, and the success criterion (narratives: App. I; protocols: App. J; more tasks: App. E);
+Table 4 reports the number of scalar optimization variables (DoF), iterations, final loss with units,
+and a task-interpretable outcome.
+8
+
+
+6.6
+SCALE
+We jointly optimize per-body v0 and µ for 106 tetrahedralized cubes (edge 3 mm, ∼8M vertices,
+∼6M tetrahedra packed as one mega-mesh) so that at t⋆=0.6 s each body’s center of mass reaches a
+target voxel; bodies continue ballistically past t⋆, so the optimizer must place each on a trajectory
+whose apex crosses its target at exactly that step. Rollouts are 240 implicit steps (h=5 ms, K=5) with
+backpropagation through time, gradient-checkpointed (Chen et al., 2016) every 5 steps under a Huber
+(Huber, 1964) objective. Bodies interact through the differentiable center-of-mass contact penalty
+of §5 (its uniform-grid broad phase, over 106 centers per step), and the backward differentiates
+through every contact impulse. A contact-free stage first brings bodies near their targets (14.8 h,
+∼71 GB, mean error 0.291 m); 200 Adam iterations under the contact-enabled dynamics then land at
+0.311 m (16.7 h, ∼74 GB on one H100), the 0.02 m gap being the price of forbidding overlap at the
+formation; overall the loss falls 1.03 × 106 →1.31 × 105 (87%). The experiment is a stress test of
+differentiability under simultaneous solver-depth, object-count, contact, and memory pressure, not a
+visual benchmark.
+7
+RELATED WORK
+Differentiable simulators.
+Differentiable physics is established for soft bodies (Hu et al., 2020;
+2019; Jatavallabhula et al., 2021; Qiao et al., 2020), cloth and frictional contact (Liang et al., 2019;
+Geilinger et al., 2020; Li et al., 2022), articulated bodies (Werling et al., 2021), and Eulerian PDEs
+(Holl et al., 2020). The dominant implementation unrolls a fixed-iteration stepper through reverse-
+mode AD, dissolving the block structure of the forward by the time the gradient is produced.
+Discrete adjoints of iterative solvers.
+Differentiating the stationary equation via the implicit
+function theorem (Giles & Pierce, 2000; Hinze et al., 2009; Blondel et al., 2022) underlies Neural
+ODEs (Chen et al., 2018), deep equilibrium models (Bai et al., 2019), optimization layers (Amos &
+Kolter, 2017), and adjoint multigrid for steady-state PDEs (Giles, 2000). That literature classically
+distinguishes differentiating a converged equation from a finite iterative process; we carry the second
+option down to the granularity of a block-coordinate sweep, where it becomes matrix-free. In
+elastodynamics, DiffPD and DiffCloth (Du et al., 2022; Li et al., 2022), DiffQN (Cai et al., 2025), and
+DiffIPC (Huang et al., 2024) all place a global linear-algebra object on the backward path (Table 5).
+DiffXPBD (Stuyck & Chen, 2023) supplies analytic gradients of extended position-based-dynamics
+constraint projections, but its forward is position-based rather than energy-minimizing. The nearest
+block-implicit neighbor outside graphics likewise takes a global conjugate-gradient backward around
+a Gauss–Seidel forward (Chen et al., 2026). Operator-level analytic adjoints are long-standing in
+differentiable fluid control (McNamara et al., 2004; Tang et al., 2021; Chen et al., 2024b), which
+supply hand-derived gradients for global operations such as pressure projection in place of a generic
+AD trace; we share that principle and push its granularity from a per-step global operator to the
+per-vertex 3×3 block, so the backward inherits the forward’s parallel schedule.
+Block-coordinate solvers.
+Structured local updates run from mass–spring solvers (Liu et al., 2013)
+through projective dynamics (Bouaziz et al., 2014), position-based dynamics (M¨uller et al., 2007;
+Macklin et al., 2016), to Vertex Block Descent (Chen et al., 2024a). Their forwards are organized for
+cache locality and color-parallel execution; our contribution is a backward that keeps that organization.
+8
+DISCUSSION AND LIMITATIONS
+Equation-level differentiation discards the locality that block implicit solvers were designed to exploit;
+the solver-level alternative recovers it without sacrificing correctness, closing an implementation
+gap that has held differentiable elastodynamics near ∼30k DoF: a forward that scales to millions of
+vertices becomes differentiable for one forward-equivalent reverse pass and a per-sweep replay buffer,
+with no global linear-algebra object.
+Limitations. (i) The full evaluation covers one solver family; projective and extended position-based
+dynamics are verified on minimal spring systems (App. B). (ii) Applications wanting the derivative
+of a fully converged solve are better served equation-level. (iii) Backward replay uses atomic-add
+scatter. (iv) Coulomb friction with active-set changes is future work.
+9
+
+
+REPRODUCIBILITY STATEMENT
+All claims in §6.1–§6.3 are produced by the released harness, which constructs every scene procedu-
+rally (no data dependencies), verifies forward-trajectory agreement across backends before comparing
+gradients, and writes machine-readable results. The exactness comparison, the ablation of §3.5, and
+the cost table are each a single command. Exact commands, hardware, and library versions are in
+Appendix L; Theorem 1 is proved in Appendix A.
+ETHICS STATEMENT
+This work concerns numerical methods for physical simulation and raises no human-subjects, privacy,
+or fairness concerns known to us. Differentiable simulation carries the dual-use potential common to
+physical modeling generally; we identify no application-specific risk introduced here.
+REFERENCES
+Brandon Amos and J. Zico Kolter. OptNet: Differentiable optimization as a layer in neural networks.
+In International Conference on Machine Learning (ICML), 2017.
+Shaojie Bai, J. Zico Kolter, and Vladlen Koltun. Deep equilibrium models. In Advances in Neural
+Information Processing Systems (NeurIPS), 2019.
+David Baraff and Andrew Witkin. Large steps in cloth simulation. In Proceedings of SIGGRAPH,
+1998.
+Mathieu Blondel, Quentin Berthet, Marco Cuturi, Roy Frostig, Stephan Hoyer, Felipe Llinares-L´opez,
+Fabian Pedregosa, and Jean-Philippe Vert. Efficient and modular implicit differentiation. In
+Advances in Neural Information Processing Systems (NeurIPS), 2022.
+Sofien Bouaziz, Sebastian Martin, Tiantian Liu, Ladislav Kavan, and Mark Pauly.
+Projective
+dynamics: Fusing constraint projections for fast simulation. ACM Transactions on Graphics, 33
+(4):154:1–154:11, 2014.
+Youshuai Cai, Chen Li, Haichuan Song, Youchen Xie, and ChangBo Wang. DiffQN: Differentiable
+quasi-newton method for elastodynamics. In Pacific Graphics Conference Papers, Posters, and De-
+mos. The Eurographics Association, 2025. ISBN 978-3-03868-295-0. doi: 10.2312/pg.20251265.
+Anka He Chen, Ziheng Liu, Yin Yang, and Cem Yuksel. Vertex block descent. ACM Transactions on
+Graphics, 43(4):116:1–116:16, 2024a. doi: 10.1145/3658179.
+Ricky T. Q. Chen, Yulia Rubanova, Jesse Bettencourt, and David Duvenaud. Neural ordinary
+differential equations. In Advances in Neural Information Processing Systems (NeurIPS), 2018.
+Siyuan Chen, Minghao Guo, Caoliwen Wang, Anka He Chen, Yikun Zhang, Jingjing Chai, Yin Yang,
+Wojciech Matusik, and Peter Yichen Chen. Physically valid biomolecular interaction modeling
+with Gauss–Seidel projection. In International Conference on Learning Representations (ICLR),
+2026.
+Tianqi Chen, Bing Xu, Chiyuan Zhang, and Carlos Guestrin. Training deep nets with sublinear
+memory cost. arXiv preprint arXiv:1604.06174, 2016.
+Yixin Chen, David I. W. Levin, and Timothy R. Langlois. Fluid control with Laplacian eigenfunctions.
+In ACM SIGGRAPH 2024 Conference Papers, 2024b.
+Jonas Degrave, Michiel Hermans, Joni Dambre, and Francis Wyffels. A differentiable physics engine
+for deep learning in robotics. Frontiers in Neurorobotics, 13:6, 2019.
+Tao Du, Kui Wu, Pingchuan Ma, Sebastien Wah, Andrew Spielberg, Daniela Rus, and Wojciech
+Matusik. DiffPD: Differentiable projective dynamics. ACM Transactions on Graphics, 41(2):
+13:1–13:21, 2022. doi: 10.1145/3490168.
+Moritz Geilinger, David Hahn, Jonas Zehnder, Moritz B¨acher, Bernhard Thomaszewski, and Stelian
+Coros. ADD: Analytically differentiable dynamics for multi-body systems with frictional contact.
+ACM Transactions on Graphics, 39(6):190:1–190:15, 2020. doi: 10.1145/3414685.3417766.
+10
+
+
+Michael B. Giles. On the use of Runge-Kutta time-marching and multigrid for the solution of steady
+adjoint equations. Technical Report NA-00/10, Oxford University Computing Laboratory, 2000.
+Michael B. Giles and Niles A. Pierce. An introduction to the adjoint approach to design. Flow,
+Turbulence and Combustion, 65(3–4):393–415, 2000.
+Andreas Griewank and Andrea Walther. Evaluating Derivatives: Principles and Techniques of
+Algorithmic Differentiation. SIAM, 2 edition, 2008.
+Michael Hinze, Ren´e Pinnau, Michael Ulbrich, and Stefan Ulbrich. Optimization with PDE Con-
+straints, volume 23 of Mathematical Modelling: Theory and Applications. Springer, 2009. ISBN
+978-1-4020-8838-4.
+Philipp Holl, Vladlen Koltun, and Nils Thuerey. Learning to control PDEs with differentiable physics.
+In International Conference on Learning Representations (ICLR), 2020.
+Yuanming Hu, Jiancheng Liu, Andrew Spielberg, Joshua B. Tenenbaum, William T. Freeman,
+Jiajun Wu, Daniela Rus, and Wojciech Matusik. ChainQueen: A real-time differentiable physical
+simulator for soft robotics. In IEEE International Conference on Robotics and Automation (ICRA),
+2019.
+Yuanming Hu, Luke Anderson, Tzu-Mao Li, Qi Sun, Nathan Carr, Jonathan Ragan-Kelley, and
+Fr´edo Durand. DiffTaichi: Differentiable programming for physical simulation. In International
+Conference on Learning Representations (ICLR), 2020.
+Zizhou Huang, Davi Colli Tozoni, Arvi Gjoka, Zachary Ferguson, Teseo Schneider, Daniele Panozzo,
+and Denis Zorin. Differentiable solver for time-dependent deformation problems with contact.
+ACM Transactions on Graphics, 43(3):31:1–31:30, 2024. doi: 10.1145/3657648.
+Peter J. Huber. Robust estimation of a location parameter. The Annals of Mathematical Statistics, 35
+(1):73–101, 1964. doi: 10.1214/aoms/1177703732.
+Krishna Murthy Jatavallabhula, Miles Macklin, Florian Golemo, Vikram Voleti, Linda Petrini, Martin
+Weiss, Breandan Considine, J´erˆome Parent-L´evesque, Kevin Xie, Kenny Erleben, Liam Paull,
+Florian Shkurti, Derek Nowrouzezahrai, and Sanja Fidler. gradSim: Differentiable simulation
+for system identification and visuomotor control.
+In International Conference on Learning
+Representations (ICLR), 2021.
+Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In International
+Conference on Learning Representations (ICLR), 2015.
+Minchen Li, Zachary Ferguson, Teseo Schneider, Timothy Langlois, Denis Zorin, Daniele Panozzo,
+Chenfanfu Jiang, and Danny M. Kaufman. Incremental potential contact: Intersection- and
+inversion-free, large-deformation dynamics. ACM Transactions on Graphics, 39(4):49:1–49:20,
+2020. doi: 10.1145/3386569.3392425.
+Yifei Li, Tao Du, Kui Wu, Jie Xu, and Wojciech Matusik. DiffCloth: Differentiable cloth simulation
+with dry frictional contact. ACM Transactions on Graphics, 42(1):2:1–2:20, 2022. doi: 10.1145/
+3527660.
+Junbang Liang, Ming C. Lin, and Vladlen Koltun. Differentiable cloth simulation for inverse problems.
+In Advances in Neural Information Processing Systems (NeurIPS), 2019.
+Tiantian Liu, Adam W. Bargteil, James F. O’Brien, and Ladislav Kavan. Fast simulation of mass-
+spring systems. ACM Transactions on Graphics, 32(6):209:1–209:7, 2013.
+Miles Macklin. Warp: A high-performance Python framework for GPU simulation and graphics.
+NVIDIA GPU Technology Conference (GTC); software framework, https://github.com/
+NVIDIA/warp, 2022.
+Miles Macklin, Matthias M¨uller, and Nuttapong Chentanez. XPBD: Position-based simulation of
+compliant constrained dynamics. In Proceedings of the 9th International Conference on Motion in
+Games (MIG), 2016.
+11
+
+
+Antoine McNamara, Adrien Treuille, Zoran Popovi´c, and Jos Stam. Fluid control using the adjoint
+method. ACM Transactions on Graphics, 23(3):449–456, 2004.
+Luke Metz, C. Daniel Freeman, Samuel S. Schoenholz, and Tal Kachman. Gradients are not all you
+need. arXiv preprint arXiv:2111.05803, 2021.
+Matthias M¨uller, Bruno Heidelberger, Marcus Hennix, and John Ratcliff. Position based dynamics.
+Journal of Visual Communication and Image Representation, 18(2):109–118, 2007. doi: 10.1016/j.
+jvcir.2007.01.005.
+Georgios Pavlakos, Vasileios Choutas, Nima Ghorbani, Timo Bolkart, Ahmed A. A. Osman, Dimitrios
+Tzionas, and Michael J. Black. Expressive body capture: 3D hands, face, and body from a single
+image. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2019.
+Yi-Ling Qiao, Junbang Liang, Vladlen Koltun, and Ming C. Lin. Scalable differentiable physics for
+learning and control. In International Conference on Machine Learning (ICML), 2020.
+Breannan Smith, Fernando De Goes, and Theodore Kim. Stable neo-hookean flesh simulation. ACM
+Transactions on Graphics, 37(2):12:1–12:15, 2018. doi: 10.1145/3180491.
+Tuur Stuyck and Hsiao-yu Chen. DiffXPBD: Differentiable position-based simulation of compliant
+constraint dynamics. Proceedings of the ACM on Computer Graphics and Interactive Techniques,
+6(3):51:1–51:14, 2023. doi: 10.1145/3606923.
+Hyung Ju Terry Suh, Max Simchowitz, Kaiqing Zhang, and Russ Tedrake.
+Do differentiable
+simulators give better policy gradients? In International Conference on Machine Learning (ICML),
+pp. 20668–20696, 2022.
+Jingwei Tang, Vinicius C. Azevedo, Guillaume Cordonnier, and Barbara Solenthaler. Honey, I shrunk
+the domain: Frequency-aware force field reduction for efficient fluids optimization. Computer
+Graphics Forum, 40(2), 2021.
+Paul J. Werbos. Backpropagation through time: What it does and how to do it. Proceedings of the
+IEEE, 78(10):1550–1560, 1990. doi: 10.1109/5.58337.
+Keenon Werling, Dalton Omens, Jeongseok Lee, Ioannis Exarchos, and C. Karen Liu. Fast and
+feature-complete differentiable physics for articulated rigid bodies with contact. In Robotics:
+Science and Systems (RSS), 2021.
+A
+PROOF OF THEOREM 1
+Equation (5) is the chain rule applied to S = Sn ◦· · ·◦S1, so the adjoint visits blocks in reverse order.
+For a single block, the C1 hypothesis on Fi together with invertibility of ∂Fi/∂∆xi at the executed
+linearization state gives Eq. (7) by the implicit function theorem. Since x+
+i = xi +∆xi(x), the local
+vector–Jacobian product splits into the direct contribution of Eq. (8) and the implicit contribution;
+introducing pi through Eq. (9) rewrites the latter as Eq. (10). Finally, the implementation updates all
+vertices of one color in parallel; distance-1 coloring makes same-color updates touch disjoint blocks
+through disjoint stencils, so the parallel update equals their composition in any order and the same
+holds for the adjoints. Composing in reverse yields the claim. □
+B
+THE CONSTRUCTION ON OTHER BLOCK SOLVERS
+Theorem 1 asks only for a finite composition of differentiable block updates with invertible local
+systems, so it should apply beyond Vertex Block Descent. We verify this on minimal instantiations of
+two further solvers; both implementations ship with the released code.
+Extended position-based dynamics: the block is one distance-constraint projection (a closed-form
+update of one Lagrange multiplier and two particles), swept sequentially, K sweeps per step; the
+reverse sweep replays the projections in reverse with a hand-derived local vector–Jacobian product.
+Projective dynamics: one iteration is a per-spring local projection followed by a global solve with a
+12
+
+
+constant prefactored symmetric positive-definite matrix; the backward reuses the same factorization
+(transpose solve) and hand-derived projection vector–Jacobian products, so the backward mirrors the
+forward’s local–global structure exactly.
+Both are validated the same way as the main experiments: against torch.autograd through the
+identical executed forward, on spring and constraint networks built over the §6.1 test meshes (|V |=26
+and 115), at K ∈{1, 5, 20} (XPBD: extended position-based dynamics; PD: projective dynamics):
+Solver
+|V |
+K=1
+K=5
+K=20
+XPBD
+26
+3.9 × 10−16
+4.8 × 10−16
+7.0 × 10−16
+XPBD
+115
+6.2 × 10−16
+6.0 × 10−16
+5.0 × 10−16
+PD
+26
+9.3 × 10−16
+9.7 × 10−16
+9.7 × 10−16
+PD
+115
+2.5 × 10−15
+5.9 × 10−15
+1.1 × 10−14
+Worst case 1.1 × 10−14 (the projective-dynamics global solve adds a factorization round-trip per
+iteration), i.e. the same finite-depth exactness as the Vertex Block Descent instantiation. These
+are exactness demonstrations, not performance claims: the implementations are deliberately plain
+NumPy.
+C
+CLOSED FORMS FOR THE LOCAL ADJOINT
+Eq. (12) gives the parameter contribution abstractly. For the block Hessian actually used, Helas
+i
+=
+P
+e∋i we
+ µ∥∇Ni,e∥2I + λ qi,eq⊤
+i,e
+
+, with we = voleh2 the element weight in the h2-scaled system
+and ∇Ni,e the constant shape-function gradient, the Hessian-tangent contraction of Eq. (11) collapses
+to scalars, with no tensor assembled and no derivative of q required:
+
+∂Helas
+i
+∂µ
+
+:
+ pi∆x⊤
+i
+
+=
+X
+e∋i
+we∥∇Ni,e∥2  ∆xi·pi
+
+,
+(14)
+
+∂Helas
+i
+∂λ
+
+:
+ pi∆x⊤
+i
+
+=
+X
+e∋i
+we
+ q⊤
+i,e∆xi
+ q⊤
+i,epi
+
+.
+(15)
+Combining these with the parameter derivatives of the stable Neo-Hookean energy as implemented –
+the reparameterized form Ψ = µ
+2 (∥F∥2
+F −3) +
+¯λ
+2 (J −α)2 with ¯λ = µ + λ, α = 1 + µ/¯λ (Smith
+et al., 2018), whose Piola derivatives are ∂P/∂µ = F + (J −2) cof F and ∂P/∂λ = (J −1) cof F
+(equivalently ∂Ve/∂µ = 1
+2(∥Fe∥2
+F −3) + 1
+2(Je −2)2 and ∂Ve/∂λ = 1
+2(Je −1)2, each up to a
+state-independent constant) – closes the material gradient: one dot product and one quadratic form
+per incident element, reusing the pi already computed for the state adjoint.
+Two consequences are worth stating. First, the cost of material gradients is a constant multiple of the
+state adjoint, which is why enabling them does not change the asymptotic backward cost. Second,
+Eqs. (14)–(15) are precisely the terms that defect (ii) of §3.5 drops: an implementation that keeps
+them for parameters but not for the state adjoint produces material gradients that look correct while
+the state gradient carries error ∝∥∆x∥.
+D
+SUPPORTING FIGURES AND TABLES
+This appendix collects the qualitative results and supporting tables referenced from the main text.
+E
+ADDITIONAL INVERSE PROBLEMS
+Three further inverse problems, each a scalar or low-dimensional recovery by backpropagation
+through the full rollout, are reported here rather than in §6.5 for space. They are included because
+they probe a regime the main-text tasks do not: the optimized quantity is not a material constant or an
+initial state but a rest-shape parameter (the dress scale below) or a persistent external force (the cape
+wind), and in both cases the gradient must survive pinning constraints and contact along the whole
+trajectory. Table 7 summarizes them.
+13
+
+
+Table 5: Differentiation strategies for implicit solvers. Executed solver?: does the backward operate on the
+same finite block sweep the forward ran, rather than on a converged equation or an unrolled implementation
+graph. Global object: the global linear-algebra structure the backward constructs, if any. Block-local?: is the
+backward a per-block solve in the forward’s color partition. Memory vs. K: asymptotic in solver depth at fixed
+mesh size; our constant of ≈4 kilobytes per vertex per sweep is measured (App. K). Scale: largest configuration
+reported in each work.
+Method
+Executed
+solver?
+Global
+object
+Block-
+local?
+Memory vs. K
+Scale
+Unrolled AD
+graph level
+none
+no
+linear in graph
+∼10k DoF
+Equation-level impl. diff.
+no
+sparse adj.
+no
+O(1)
+varies
+DiffPD / DiffCloth
+no
+PD Cholesky
+no
+O(1)
+∼10k DoF
+DiffXPBD
+constr. proj.
+none
+partial
+linear in states
+66k verts
+DiffQN
+no
+quasi-Newton
+no
+O(1)
+∼10k DoF
+DiffIPC
+no
+step Hessian
+no
+O(1)
+∼20k verts
+Ours
+yes
+none
+yes
+lin., ≈4 KB/v/sw
+8M verts
+Figure 3: Cube center of mass trajectory under the initial parameters versus the optimized ones, side and top
+view. The optimizer, not the initialization, drives the target hit.
+Shear modulus from a scalar sag target.
+A 484-vertex square cloth (side 0.6 m, extruded to a thin
+three-tet shell) is pinned at its four corners and sags into a hammock under gravity. Stiffer µ gives
+shallower center sag, so the inverse problem L(µ)=(yctr(µ) −y⋆
+ctr)2 is scalar and monotonic. From
+an over-stiff initialization µ0=8000 Pa against a target µ⋆=2000 Pa, Adam (learning rate 0.10, cosine
+decay, 80 iterations) on ∂L/∂µ – obtained from the per-tetrahedron parameter-gradient outputs of
+the reverse sweep, summed over tetrahedra – recovers ˆµ=1996.7 Pa (0.16% error) and reduces the
+loss by five orders of magnitude (Fig. 8).
+Rest-shape size from a hem-height target.
+A 924-vertex procedural A-line dress is pinned at an
+SMPL-X (Pavlakos et al., 2019) neckline (y=1.45 m) and drapes through 35 DiffVBD steps. A single
+scalar scale s multiplies all rest-pose radii, so the optimized quantity enters through the rest metric
+rather than through the material or the initial state; the target is the hem height y⋆
+hem=0.654 m under
+L(s)=(yhem(s) −y⋆
+hem)2. Eighty Adam iterations (learning rate 0.025) drive L from 3.4 × 10−2 to
+1.8 × 10−7 and recover ˆs=0.910 to within 0.5% (Fig. 9).
+Constant wind force from a hem-shape target.
+An 864-vertex cape pinned along its top edge is
+exposed to an unknown constant wind term w added to free-vertex velocities each step (a per-step
+velocity increment, in m/s). Given the target hem shape produced by w⋆=(2.5, 0, 1.5), we recover w
+from a zero-wind start with 120 Adam iterations on L(w)=∥xT (w) −x⋆
+T ∥2. Each step’s adjoint
+(§3.4) returns ∂L/∂vpre, which chains to the wind by w ←w −ηh P
+i ¯vi. Final relative error is
+below 0.3%, with the loss falling from 4 × 10−2 to 2 × 10−8 (Fig. 10). This task differs from the
+flag-wind task of §6.5, which recovers a 24-scalar time-varying wind on a different mesh and is
+under-determined; here the wind is constant and the recovery is unique.
+F
+GRADIENT VALIDATION AGAINST FINITE DIFFERENCES
+Independently of that reference, we validate against central finite differences on a single-tetrahedron
+scene, sweeping the relative FD step ϵ ∈[10−3, 10−8] for x0, v0, µ and λ. The quantity reported
+is the maximum relative error between the analytic and FD gradients; a configuration passes if that
+14
+
+
+Figure 4: Beam µ/λ identification, target deformation (µ, λ)=(800, 400) under a 60◦angular kick. Blue ghost:
+target equilibrium. Both parameters are recovered to < 0.3%.
+Figure 5: Dress µ/λ identification. Left: initial stiff configuration (µ=5000). Remaining panels: target draping
+progression (µ=1500).
+error is below 10−6 and stable across the ϵ sweep (so that it reflects the gradient, not FD truncation or
+round-off). All 11 checks pass; Table 6 (App. D) lists six representative rows. CPU and GPU agree
+to machine precision.
+G
+SOLVER DEPTH AND ACHIEVED OUTCOME
+Deeper solvers give more accurate gradients, but the operative question is whether that changes what
+an optimizer achieves. Whether better gradients help the optimizer at all is subtle in general (Suh
+et al., 2022). Repeating the cube initial-state task at K ∈{5, 20, 100} under identical 40-iteration
+Adam budgets from the default initialization gives best center-of-mass-to-target distances of 0.039,
+0.058 and 0.024 m (Fig. 11). All three land far closer than the uncontrolled trajectory, but the ordering
+is not monotone in K, which from a single initialization is uninformative: with six optimization
+variables and a short budget the gap between depths could easily be smaller than the spread induced
+by where the optimizer starts.
+We therefore measured that spread. The optimization is deterministic given an initialization, so we
+re-ran the full sweep from 8 initializations drawn around the default with 15% relative jitter, holding
+everything else fixed (Table 8).
+Two things follow, and we state both. The mean does improve from K=5 to K=20 (0.052 →
+0.034 m) and then flattens, with K=20 and K=100 statistically indistinguishable (Welch t=0.11).
+But the improvement from K=5 is only borderline resolved at this sample size (Welch t=2.16,
+df≈10.5 against K=100; t=1.87 against K=20), so we do not claim a significant depth effect
+on the achieved objective. The clearer effect is on variance: the standard deviation falls by 1.9×
+from K=5 to K=100, i.e. deeper solves make the outcome more repeatable across initializations
+even where they do not make it better on average. The claim we do make remains the one in §6.1,
+about gradient accuracy, which is measured against a reference rather than inferred from optimizer
+outcomes.
+H
+IMPLEMENTATION DETAILS
+Backends.
+Two GPU implementations share one algorithm. The first is written in NVIDIA Warp
+(Macklin, 2022) kernels; the second is a fused CUDA C++ extension compiled on first use through
+PyTorch’s load inline and cached thereafter. Both are float64 end to end. They agree to
+10−16 on forward state and on gradients, which is what lets us use either as the reference for the
+other; the fused path is 7–22× faster because one kernel launch per color performs assembly, the
+3×3 solve, the saturation and the write-back without a round trip to global memory between stages.
+Data layout.
+Each vertex owns a star: the list of (tetrahedron, local vertex index) pairs it participates
+in, packed into flat offset/element/local-index arrays so a thread reads a contiguous range. The inverse
+15
+
+
+Figure 6: Bunny initial-state optimization: start, mid-bounce, and at the target.
+Figure 7: Cover the Spot. Three soft-body disks are jointly optimized by backpropagation through the full
+DiffVBD rollout to land such that their union covers a painted target spot. Top: top-down view of the optimized
+landing (left) and optimization curves (right). Bottom: 3D snapshots of the optimized throw at three moments:
+high mid-air, low mid-air, and settled. Final hard uncovered area: 0.0% (full coverage).
+rest metric of each tetrahedron is stored as nine separate scalar arrays IB00 . . . IB22 rather than as
+a 3×3 struct, so that a 32-thread hardware warp reading one column is coalesced. Vertices are
+distance-1 greedily colored, which guarantees that two vertices of one color never share a tetrahedron
+and can therefore be updated in parallel without write conflicts.
+Replay buffer.
+The backward does not store an AD graph. Per sweep k and vertex i it stores only
+the applied update ∆x(k)
+i
+(three doubles) and the six independent entries of the symmetric block
+H(k)
+i
+, that is nine float64 per vertex per sweep, or 72 bytes. Everything else the reverse sweep
+needs is recomputed from the replayed state. The ≈4 KB per vertex per sweep quoted in Table 9 is
+the caching-allocator peak (torch.cuda.max memory allocated), which also contains the
+mesh, the star index and the material arrays; the tape proper is the 72 bytes. The reverse pass walks
+sweeps, colors and vertices in exactly reversed order, undoing ∆xi to recover the pre-update state
+rather than storing it.
+Safeguards.
+Two safeguards in the forward are differentiated rather than treated as constants, which
+is what §3.5 requires. The per-vertex block is regularized as Hi + τI with τ=10−6 in the h2-scaled
+system the kernels assemble (equivalently τ/h2 in the normalization of Eq. (2)), and every update is
+saturated by ∆x ←∆x c/(∥∆x∥+ c + ε) with c=0.1 m and ε=10−12. Both constants are defined
+once as compile-time macros shared by the forward and backward kernels, so the two cannot drift
+apart. Two details matter for a faithful re-implementation of Algorithm 1: the saturation Jacobian of
+Eq. (13) is applied only to the copy of ¯x+
+i that enters the local adjoint solve (the identity branch of
+16
+
+
+Table 6: Finite-difference (FD) validation. Maximum relative error between analytic and FD gradients. The
+improvement with K reflects the executed solver approaching a stationary point, where the FD reference is best
+conditioned.
+Configuration
+Max relative error
+Pass
+Baseline (K=1, CPU)
+4.07 × 10−10
+✓
+Baseline (K=1, GPU)
+4.07 × 10−10
+✓
+Multi-sweep K=2
+1.64 × 10−9
+✓
+Multi-sweep K=3
+3.05 × 10−10
+✓
+µ-only (λ=0)
+1.34 × 10−9
+✓
+λ-only (µ=0)
+5.33 × 10−10
+✓
+Table 7: Additional inverse problems. All use the DiffVBD adjoint with Adam. Loss is the task objective at
+convergence; error is relative to the known ground truth used to generate the target.
+Task
+#vars
+Iters
+Loss (start →end)
+Outcome
+Cape µ (center sag)
+1
+80
+1.67×10−2 →1.64×10−7
+ˆµ=1996.7 Pa (0.16%)
+Dress size (hem height)
+1
+80
+3.4×10−2 →1.8×10−7
+ˆs=0.910 (<0.5%)
+Cape wind (hem shape)
+3
+120
+4×10−2 →2×10−8
+<0.3% relative
+Eq. (8) uses the untransformed adjoint), and the Hessian-tangent and parameter contractions use the
+raw update ∆xraw
+i
+, recovered exactly by inverting the saturation of the recorded step. Writing them
+exactly matters: Warp through version 1.11 rounds a literal inside wp.float64(0.1) through
+float32 first, which perturbs c by 1.5 × 10−8 relative and was large enough to move the Warp
+backend off machine precision until the constants were written exactly.
+Contact.
+Two primitives coexist. The built-in self and floor model is an IPC (Li et al., 2020) log
+barrier with stiffness κ, activation distance ˆd and a lagged dissipation term cdamp that damps only
+downward motion, so the damping does not fight separation. For many-body scenes a differentiable
+center-of-mass penalty acts between bodies: a uniform-grid fixed-radius search (cell size equal to
+the search radius, linearized cell keys sorted once, candidates from the 27 neighbor cells by binary
+search) supplies candidate pairs, and a ReLU (optionally softplus, sharpness α) penalty on the overlap
+supplies the force, differentiable in the centers of mass and therefore in the vertex positions that define
+them. The pair list is index data with no gradient, so the broad phase adds nothing to the adjoint.
+Tensor interface and large runs.
+Both backends expose forward and backward entry points that
+consume and return GPU-resident tensors, so an outer optimization loop never copies through the
+host; this is roughly 4× faster than the array-based interface for backpropagation-through-time loops.
+At 106 bodies the rollout is gradient-checkpointed (Chen et al., 2016) every 5 steps, bodies are packed
+into a single mega-mesh processed in chunks of 65,536, gradients are clipped at norm 5, and the
+material is optimized through a sigmoid parameterization that confines µ to a bounded range instead
+of relying on projection.
+I
+INVERSE-PROBLEM TASKS IN DETAIL
+These are the per-task descriptions for §6.5; the headline numbers are Table 4 in the main text, and
+the reproduction protocols are Appendix J.
+Figure 12: Beam µ identification at three
+twist stages.
+Blue: initial (µinit=105).
+Coral: target (µtrue=106). Green: recov-
+ered.
+Material identification. Given a target rollout produced
+by unknown Lam´e parameters, recover them. On a 1029-
+vertex cantilever twisted 180◦and released, Adam with back-
+propagation through time recovers µopt=1.001 × 106 from
+an initialization 10× too soft (0.1% error, 76 iterations to
+the 10−4 stopping criterion). With both parameters free,
+(µ, λ)=(800, 400) is recovered from (300, 150) to < 0.25%
+(Figs. 12, 4). On a 600-vertex dress draping over a capsule
+mannequin with IPC ground contact, single-stage log-space
+17
+
+
+(top) Init µ0=8000 Pa (over-stiff, hammock barely sags); (bottom) recovered ˆµ=1996.7 Pa (target µ⋆=2000,
+err 0.16%)
+Figure 8: Shear modulus recovery on a four-corner-pinned cape. The translucent silhouette below the cloth
+is the optimization target (deeper sag). Frames at t ∈{0.02, 0.08, 0.15, 0.22, 0.28, 0.33} s.
+(top) Init dress scale s0=0.45 (too short, hem above waist); (bottom) recovered ˆs=0.910 (hem at mid-thigh, err
+<0.5%)
+Figure 9: Fitting a procedural dress to a body by optimizing a rest-shape scale.
+Frames at t ∈
+{0.02, 0.13, 0.25, 0.37, 0.58} s.
+Adam recovers (1471, 880) from (5000, 3000) (Fig. 5); replacing the vertex-position loss with a
+radial silhouette profile gives (1528, 900).
+The dress pair is recovered by a two-stage schedule whose structure mirrors the solver’s own block-
+coordinate principle. No single observation window identifies both parameters: the time-averaged
+settled drape pins µ (to 0.4% under a 1-D Newton) but leaves λ nearly free, while per-step matching
+of the early frames – before the contact-rich trajectory decoheres (Metz et al., 2021) – pins λ (to ≈1%)
+but constrains µ weakly from the soft side. Stage A runs Adam on the sum of both objectives, which
+moves the pair together into the correct basin; stage B then alternates damped 1-D Newton solves,
+µ against the settled-shape objective and λ against the early-dynamics objective. The alternation
+alone is insufficient: started from (5000, 3000) it locks into a self-consistent wrong fixed point
+(1325, 3310), which is why the basin-entering stage comes first. From the same initialization the
+full schedule reaches (1499.9, 800.2) against the true (1500, 800), bit-identical over three repeated
+runs. The same schedule transfers to the silhouette variant with every observation restricted to radial
+profiles (a silhouette sequence rather than a single settled silhouette): it recovers (1500.0, 800.0)
+exactly, and although the stage-A iterates differ slightly across repeated runs, stage B contracts all of
+them to the same fixed point, so the answer is run-to-run identical.
+Initial-state optimization. Given a target voxel, optimize (x0, v0) so the center of mass reaches it
+after ground contact. The best center-of-mass–target distance over the rollout drops from 0.304 m
+under the initial parameters to 0.013 m for a cube (8 vertices, 6 tetrahedra), confirming that the
+optimization, not the initialization, drives the result. The bunny starts much closer to its target
+(0.035 m) and ends at 0.034 m, so that task exercises the gradient without demonstrating a large
+improvement (Figs. 13, 6; Fig. 11 overlays the uncontrolled baseline).
+Figure 14: Flag under the recovered time-
+varying wind, at three times in the rollout.
+Wind control. Given a target flag trajectory, recover a
+spatially-uniform, time-varying wind on a 442-vertex flag
+pinned along its top edge, parameterized as piecewise-
+constant over 8 equal time windows (8 × 3 = 24 scalars,
+dimensionless force units relative to a unit reference wind).
+Loss falls from 3.2 × 101 to 5.1 × 10−3 m2 in 199 iterations
+(Fig. 14). The recovered wind differs from the reference by
+∥∆w∥= 15.3 because the problem is under-determined: 24
+wind scalars act through ∼12 effective trajectory degrees of
+freedom, so trajectory matching does not identify the wind uniquely.
+18
+
+
+(top) Init w0=0; (bottom) recovered ˆw=(2.49, 0, 1.49)
+Figure 10: Wind-force recovery on a top-pinned cape. Frames at t ∈{0.02, 0.13, 0.27, 0.40, 0.50} s.
+Table 8: Initialization spread of the cube initial-state task, best center-of-mass–target distance in metres over
+8 perturbed initializations per depth, identical 40-iteration budgets. Deeper solves are better on average and
+roughly twice as consistent, but the mean gap is at the edge of what 8 initializations resolve.
+K
+mean
+std
+min
+max
+5
+0.052
+0.020
+0.023
+0.081
+20
+0.034
+0.018
+0.015
+0.065
+100
+0.035
+0.010
+0.021
+0.053
+Contact-rich planning (Cover the Spot). Three soft disks (r=0.42, r/R=0.933, just above the
+R
+√
+3/2 infeasibility bound) drop from 2.5 m onto a target of radius R=0.45 m. All three share one
+mega-mesh in a single Vertex Block Descent context, so disk–disk and disk–floor interactions are
+resolved by the IPC log barrier (κ=400, ˆd=2 cm, lagged damping cd=8; frictionless). We jointly
+optimize per-disk v0 and a small x0 offset (18 scalars) under a smooth coverage objective with
+sigmoid sharpness annealed 4 →25; each forward rolls 160 steps with full backpropagation through
+time, so adjoints flow through every barrier evaluation. 600 Adam iterations in < 40 s reduce the
+hard uncovered fraction from 89% to 0.0% (App. D, Fig. 7).
+J
+TASK PROTOCOLS
+Every task below is a script in the released harness and is run by a single command; scenes are
+constructed procedurally, so there are no data dependencies. We state what is given, what is optimized,
+and what counts as success. Reported values are read out of the run logs by the harvesting script
+rather than transcribed by hand.
+Beam µ identification.
+Given: a target rollout of a 13 × 4 × 4 tetrahedralized cantilever (0.5 ×
+0.2 × 0.2 m), twisted 180◦and released, simulated at h=2 ms for 100 steps with K=15 under a
+known λ=106. Optimized: the scalar µ, from an initialization 10× too soft (105 against a true 106),
+by Adam on ∂L/∂µ with the per-tetrahedron parameter gradients summed. Criterion: relative error
+in the recovered µ.
+Beam µ, λ identification.
+As above but with both Lam´e parameters free and a 60◦angular kick
+as excitation; initialization (300, 150) against a true (800, 400). Criterion: relative error in both
+parameters.
+Dress µ, λ and dress silhouette.
+Given: a target drape of a garment mesh over a capsule mannequin
+with IPC ground contact. Optimized: (µ, λ) in log space, so that the iterates stay positive without
+clipping. The two variants differ only in the loss: a per-vertex squared position error, or a radial
+silhouette profile that discards the correspondence and compares only the outline. Criterion: relative
+error against the parameters that generated the target.
+19
+
+
+Figure 11: Optimized cube center of mass trajectories at three solver depths under identical 40-iteration Adam
+budgets, with the uncontrolled trajectory under the initial parameters overlaid (gray dashed). Every optimized
+trajectory passes close to the target; the ordering between depths is within run-to-run spread on this task (App. G).
+Figure 13: Cube initial-state optimization: start, mid-
+bounce, and near target. The center of mass trajectory
+comparison is Fig. 3.
+Flag wind control.
+Given: a target trajectory of a 442-vertex flag pinned along its top edge, rolled
+out for 120 steps at K=10. Optimized: a spatially uniform wind held piecewise constant over 8 equal
+time windows, i.e. 24 scalars, by Adam at learning rate 2.0. Criterion: squared trajectory error. We
+additionally report ∥∆w∥against the generating wind, which stays large because the map from 24
+wind scalars to the trajectory is not injective; the task is trajectory matching, not wind identification,
+and we label it as such.
+Cube and bunny initial state.
+Given: a target voxel. Optimized: the initial position offset and
+velocity (6 scalars for the cube, 3 for the bunny) by Adam with gradient clipping, over a rollout that
+includes floor contact. Criterion: the closest center-of-mass approach to the target over the rollout,
+compared against the same quantity under the initial parameters, so that the initialization cannot be
+credited with the result.
+Cover the Spot.
+Given: a circular target of radius R and three soft disks released from a fixed
+height. Optimized: per-disk initial velocity and a small initial position offset (18 scalars) under a
+smooth coverage objective whose sigmoid sharpness is annealed during optimization, with all three
+disks in one mega-mesh so that disk–disk and disk–floor contact is resolved by the IPC barrier and
+differentiated through every step. Criterion: the hard (non-smoothed) uncovered fraction of the target.
+The task is feasible only when the disk radius exceeds R
+√
+3/2; below that bound no three disks can
+cover the target and the script refuses to run, so the radius is part of the protocol and not a free knob.
+K
+FULL K × |V | SCALING GRID
+The backward-to-forward ratio is not a single number, and its dependence is easy to misread, so
+we state it explicitly: at 339 vertices the ratio is 4.2× for the Warp backend and 1.7× for the fused
+backend, both dominated by fixed per-color kernel-launch overhead rather than by adjoint arithmetic;
+the overhead amortizes as |V | grows, and Table 9 reports the full grid.
+Controlled scaling study on a held-out soft jelly-cube tetrahedral mesh (not used elsewhere), on an
+NVIDIA RTX A6000. 1-to-8 tetrahedral subdivision gives four resolution levels L0–L3; we roll out
+50 implicit steps and backpropagate through all of them and sweep both solver depth K and mesh
+resolution. Every row is measured.
+This grid measures our method alone; the controlled cross-method comparison is Table 3 (one
+forward, one GPU, one mesh for all four routes).
+20
+
+
+Table 9: Measured K × |V | grid (RTX A6000, all rows measured). Across the grid the backward/forward
+time ratio stays in 0.96–1.14 (excluding the K=5 first-call warm-up, which includes kernel compilation), and
+peak memory divided by K|V | stays in 3.6–4.6 kilobytes per vertex per sweep, so linearity in K|V | holds to
+±13%. At fixed K, 360× more vertices costs 370× memory.
+Mesh
+K
+|V |
+forward (ms)
+backward (ms)
+peak (MB)
+L0
+5
+558
+1.4
+4.3
+12
+L0
+10
+558
+1.5
+1.6
+22
+L0
+20
+558
+2.7
+2.7
+42
+L0
+50
+558
+6.4
+6.2
+100
+L0
+100
+558
+12.5
+12.2
+201
+L0
+200
+558
+24.8
+24.0
+393
+L1
+10
+3,766
+2.8
+3.2
+149
+L1
+50
+3,766
+12.6
+14.4
+677
+L1
+100
+3,766
+24.9
+28.3
+1,336
+L2
+10
+27,169
+17.0
+17.1
+1,074
+L2
+20
+27,169
+31.7
+32.9
+2,025
+L2
+50
+27,169
+76.0
+80.5
+4,926
+L3
+10
+201,341
+113.3
+115.8
+8,136
+L3
+20
+201,341
+214.0
+224.5
+15,001
+L
+REPRODUCIBILITY DETAILS
+Hardware and software.
+The controlled backward comparison (§6.1–§6.3), the finite-difference
+checks and the inverse problems were run on a single NVIDIA RTX 4090 Laptop GPU (16 GB)
+with CUDA 12.1 and PyTorch 2.3, inside one process so that all four backward routes see the same
+device state. The K × |V | grid of Table 9 was run on an RTX A6000, and the 106-body run on one
+H100 (80 GB). All solver arithmetic is float64; no result in this paper depends on mixed-precision
+behavior.
+Determinism and seeds.
+Scene construction is deterministic: meshes, colorings and rest metrics
+are generated procedurally from fixed integer parameters, so a given task builds the identical problem
+on every machine. The one deliberate exception is that the backward scatters neighbor contributions
+with atomic adds, whose summation order is not fixed; run-to-run gradient differences from this are
+at the level of float64 round-off and are far below every tolerance reported here, but they mean
+bitwise reproducibility is not claimed. Random initializations are drawn from seeded generators
+recorded in the run log.
+What to run.
+The released harness maps each numbered claim to a single command; one driver
+re-runs every experiment and writes one log per experiment, and a harvesting script reads the quoted
+numbers out of those logs rather than transcribing them. Everything except the 106-body run (§6.6)
+reproduces in minutes on one consumer GPU.
+21
