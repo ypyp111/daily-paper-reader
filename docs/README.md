@@ -6,44 +6,32 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-15
-- 运行时间：2026-08-15 19:49:24 UTC
+- 最新运行日期：2026-08-16
+- 运行时间：2026-08-16 19:50:41 UTC
 - 运行状态：成功
-- 本次总论文数：8
+- 本次总论文数：4
 - 精读区：1
-- 速读区：7
+- 速读区：3
 
 ### 今日简报（AI）
-今日重点为机器学习加速PDE求解，精读RECAST框架（9.0/10）实现粗网格校正与超分辨率。速读另涉逆向伴随、刚性运动等变PDE发现及复杂系统优化（7.0/6.0分）。建议优先通读RECAST，可显著提升粗网格模拟精度与效率。
-- 详情：[/202608/15/README](/202608/15/README)
+今日聚焦4篇论文，精读1篇高分研究：人类与AI在格罗滕迪克常数长期数学协作中的案例。最值得关注的是AI数学协作潜力与Agent技能复用瓶颈（基于138K文件实证）。建议关注AI+数学推导方向，并留意技能泛化与经验管理的新思路。
+- 详情：[/202608/16/README](/202608/16/README)
 
 ### 精读区论文标签
-1. [RECAST: A Machine-Learning Framework for Correction and Super-Resolution of Coarse-Grid PDE Solvers](/202608/15/2608.11572v1-recast-a-machine-learning-framework-for-correction-and-super-resolution-of-coarse-grid-pde-solvers)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：面向粗网格PDE求解器的机器学习校正与超分辨框架，直接属于AI求解PDE的前沿进展。
+1. [Long-Horizon AI Research for Grothendieck Constant: A Case Study in Human-AI Mathematical Collaboration](/202608/16/2608.11195v1-long-horizon-ai-research-for-grothendieck-constant-a-case-study-in-human-ai-mathematical-collaboration)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：长期AI研究系统改进格罗滕迪克常数边界，与基于LLM和智能体的自动化科学算法发现需求一致
 
 ### 速读区论文标签
-1. [Differentiate the Solver, Not the Equation: Reverse-Sweep Adjoints for Block Implicit Simulation](/202608/15/2608.08559v1-differentiate-the-solver-not-the-equation-reverse-sweep-adjoints-for-block-implicit-simulation)  
+1. [Kernel Localization and Whole-Trajectory Generalization for Linear Multistep Methods in Deep Learning-Based Discovery of Dynamical Systems](/202608/16/2608.08435v1-kernel-localization-and-whole-trajectory-generalization-for-linear-multistep-methods-in-deep-learning-based-discovery-of-dynamical-systems)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：为隐式求解器提供可微仿真，是物理信息神经网络的关键支撑技术
-2. [Discovering PDEs equivariant under rigid motions](/202608/15/2608.08913v1-discovering-pdes-equivariant-under-rigid-motions)  
+   evidence：基于线性多步法和核分析的深度学习动力系统发现
+2. [What Keeps Agent Skills from Being Reusable? Evidence from 138K SKILL.md Files](/202608/16/2608.08453v1-what-keeps-agent-skills-from-being-reusable-evidence-from-138k-skillmd-files)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：直接研究对称性约束下偏微分方程发现，是AI求解PDE方向的重要工作
-3. [CEDAR: Agent-Orchestrated Tree Search for Goal-Directed Optimization of Complex Systems](/202608/15/2608.06871v1-cedar-agent-orchestrated-tree-search-for-goal-directed-optimization-of-complex-systems)  
+   evidence：对138K个SKILL.md文件的大规模分析，探讨智能体技能为何不可复用
+3. [Tree-of-Experience: Hierarchical Experience Management for Self-Evolving Agents](/202608/16/2608.09044v1-tree-of-experience-hierarchical-experience-management-for-self-evolving-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：自主智能体编排树搜索优化复杂系统，属于AI智能体科学发现范畴
-4. [Agentic Auto-Research is Fuzz Testing](/202608/15/2608.09855v1-agentic-auto-research-is-fuzz-testing)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：从模糊测试视角审视自主科研智能体与稀疏反馈
-5. [ArchAgent v2: A Case Study with the Data Prefetching Championship](/202608/15/2608.09874v1-archagent-v2-a-case-study-with-the-data-prefetching-championship)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：智能体自动进行算法设计与搜索，与智能体算法发现主题相关
-6. [Better, Faster, Stronger: Programmatic Skill Learning Best Reduces Agent Cost](/202608/15/2608.11338v1-better-faster-stronger-programmatic-skill-learning-best-reduces-agent-cost)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：比较技能学习策略；程序性技能可降低智能体成本
-7. [LoongReflect: Boosting Long-Horizon Reflection in Search Agents via Global Perspective Distillation](/202608/15/2608.11967v1-loongreflect-boosting-long-horizon-reflection-in-search-agents-via-global-perspective-distillation)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：提升LLM搜索智能体的长程反思能力，对自主PDE与算法发现智能体有迁移价值
+   evidence：面向自进化智能体的经验管理框架
 
 
 <div class="dpr-home-promo-card">
