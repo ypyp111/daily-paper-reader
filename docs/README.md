@@ -6,43 +6,59 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-17
-- 运行时间：2026-08-17 20:23:17 UTC
+- 最新运行日期：2026-08-18
+- 运行时间：2026-08-18 20:56:57 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：1
-- 速读区：6
+- 本次总论文数：13
+- 精读区：6
+- 速读区：7
 
 ### 今日简报（AI）
-1) 今日7篇论文聚焦AI与数学协作前沿，精读Grothendieck常数研究，开启人机数学推理的深度探索。  
-2) 最值关注：长周期AI数学研究证实人机协作可行，HYDRA架构则革新了KAN网络的动态表示能力。  
-3) 下一步可结合精读案例，验证AI在数学猜想验证中的实际收益，再拓展至其他核心领域。
-- 详情：[/202608/17/README](/202608/17/README)
+今日精读13篇，重点聚焦AI与数学交叉：两阶段PINN求解多孔介质方程反问题获满分评价，另关注流体重建迁移算子。最值得看的是PINN反问题方法，以及从固定网格到移动粒子的可迁移潜算子。建议先从PINN论文入手，其方法对图像去噪、扩散过程建模也有参考价值。
+- 详情：[/202608/18/README](/202608/18/README)
 
 ### 精读区论文标签
-1. [Long-Horizon AI Research for Grothendieck Constant: A Case Study in Human-AI Mathematical Collaboration](/202608/17/2608.11195v2-long-horizon-ai-research-for-grothendieck-constant-a-case-study-in-human-ai-mathematical-collaboration)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：自主AI研究系统改进数学常数界，属于AI智能体用于科学发现
+1. [A Two-Stage Learning PINN Approach for Solving the Inverse Problem of the 1D Porous Medium Equation](/202608/18/2608.16475v1-a-two-stage-learning-pinn-approach-for-solving-the-inverse-problem-of-the-1d-porous-medium-equation)  
+   标签：评分：10.0/10、query:ai-pde
+   evidence：直接应用物理信息神经网络求解PDE的正反问题
+2. [From Fixed Grids to Moving Particles:A Transferable Latent Operator for Fluid Dynamics](/202608/18/2608.14120v2-from-fixed-grids-to-moving-particlesa-transferable-latent-operator-for-fluid-dynamics)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：面向流体动力学的神经算子，实现欧拉预测到拉格朗日粒子推演的零样本迁移
+3. [A Novel Fourier Feature Network for Solving Partial Differential Equations](/202608/18/2608.14733v1-a-novel-fourier-feature-network-for-solving-partial-differential-equations)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：使用傅里叶特征求解偏微分方程的神经网络方法
+4. [MiNO: Cotangent-bundle propagator learning for PDEs](/202608/18/2608.15187v1-mino-cotangent-bundle-propagator-learning-for-pdes)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：在相空间学习PDE传播子的微局部神经算子，超越PINN和标准神经算子
+5. [Beyond Field Accuracy: Two-Axis Diagnosis of Inverse-PINN Parameter Error](/202608/18/2608.15373v1-beyond-field-accuracy-two-axis-diagnosis-of-inverse-pinn-parameter-error)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：直接针对逆物理信息神经网络及其参数反演误差问题
+6. [FAST-DeepONet: Factor-Augmented Branch Representations for High-Dimensional PDE Inputs in the Small-Sample Regime](/202608/18/2608.15408v1-fast-deeponet-factor-augmented-branch-representations-for-high-dimensional-pde-inputs-in-the-small-sample-regime)  
+   标签：评分：9.0/10、query:ai-pde
+   evidence：面向高维PDE输入和小样本稳定性的DeepONet改进
 
 ### 速读区论文标签
-1. [Long-Horizon AI Research for Grothendieck Constant: A Case Study in Human-AI Mathematical Collaboration](/202608/17/2608.11195v3-long-horizon-ai-research-for-grothendieck-constant-a-case-study-in-human-ai-mathematical-collaboration)  
+1. [From Fixed Grids to Moving Particles:A Transferable Latent Operator for Fluid Dynamics](/202608/18/2608.14120v1-from-fixed-grids-to-moving-particlesa-transferable-latent-operator-for-fluid-dynamics)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：用于流体动力学PDE的神经算子，实现欧拉到拉格朗日预测迁移
+2. [AI-Assisted Discovery and Construction of a Counterexample to the Convergence of Three-Block ADMM with the Identity Matrix as its Third Constraint Block](/202608/18/2608.14396v1-ai-assisted-discovery-and-construction-of-a-counterexample-to-the-convergence-of-three-block-admm-with-the-identity-matrix-as-its-third-constraint-block)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：AI辅助发现并构造ADMM收敛性的反例
+3. [Reference-free logged energy-oracle recovery for neural approximations of symmetric coercive variational problems: conforming Riesz reconstruction and archive-level selection](/202608/18/2608.16473v1-reference-free-logged-energy-oracle-recovery-for-neural-approximations-of-symmetric-coercive-variational-problems-conforming-riesz-reconstruction-and-archive-level-selection)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：基于Riesz监测器的神经PDE近似无参考选择
+4. [Structure-preserving uncertainty quantification for GENERIC dynamics](/202608/18/2608.12624v1-structure-preserving-uncertainty-quantification-for-generic-dynamics)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：人机协作的长时程数学研究
-2. [HYDRA: Hyperbolic Dynamic Representation Architecture for Kolmogorov-Arnold Networks](/202608/17/2608.12194v1-hydra-hyperbolic-dynamic-representation-architecture-for-kolmogorov-arnold-networks)  
+   evidence：面向结构保持物理模型的物理信息神经网络不确定性量化方法。
+5. [AI Research Preference Models](/202608/18/2608.13940v1-ai-research-preference-models)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：面向函数逼近的KAN架构，是物理信息神经网络的基础组件
-3. [The Past and Future of AI Scientists](/202608/17/2608.14407v1-the-past-and-future-of-ai-scientists)  
+   evidence：用于选择候选执行方案的AI研究智能体与偏好模型
+6. [ALKEMIE Agent: an autonomous platform for computational materials design](/202608/18/2608.15776v1-alkemie-agent-an-autonomous-platform-for-computational-materials-design)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：面向科学发现的自主智能体
-4. [Beyond Final Scores: A Systematic Evaluation of Agents for Long-Horizon AI Research and Development](/202608/17/2608.13417v1-beyond-final-scores-a-systematic-evaluation-of-agents-for-long-horizon-ai-research-and-development)  
+   evidence：用于计算材料设计的、具备注册技能的自主智能体平台
+7. [HyperSkill: Self-Evolving LLM Agents via Hypergraph-Structured Skill Memory](/202608/18/2608.16114v1-hyperskill-self-evolving-llm-agents-via-hypergraph-structured-skill-memory)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：对长时程研究任务中智能体能力的系统评估，与自主科学发现相关
-5. [Demystifying Agent Skills: Why They Work-Until They Don't](/202608/17/2608.14036v1-demystifying-agent-skills-why-they-work-until-they-dont)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：对智能体技能表示、注释、检索等作用的实验剖析，与科学计算智能体技能需求相关
-6. [ScienceFlow: A long-horizon agent for ML research, scientific discovery and beyond](/202608/17/2608.14354v1-scienceflow-a-long-horizon-agent-for-ml-research-scientific-discovery-and-beyond)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：面向机器学习和科学发现的长周期智能体框架，可用于PDE发现
+   evidence：为LLM智能体提供超图结构技能记忆
 
 
 <div class="dpr-home-promo-card">
