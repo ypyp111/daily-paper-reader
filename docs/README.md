@@ -6,51 +6,38 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-19
-- 运行时间：2026-08-19 20:26:16 UTC
+- 最新运行日期：2026-08-20
+- 运行时间：2026-08-20 20:37:38 UTC
 - 运行状态：成功
-- 本次总论文数：9
+- 本次总论文数：6
 - 精读区：2
-- 速读区：7
+- 速读区：4
 
 ### 今日简报（AI）
-今日精读9篇论文，聚焦AI智能体科学发现与物理信息重建两大前沿。
-
-最值得关注：科学方法驱动的LLM智能体（9.0）以实验循环提升推理，物理信息Gegenbauer重建（9.0）攻克输运主导难题。
-
-建议普通读者优先看速读中的降阶建模与状态估计，理解工程实用价值。
-- 详情：[/202608/19/README](/202608/19/README)
+今日精读聚焦随机均场控制的自监督算子学习与肿瘤动力学的物理信息神经网络，均为8.0高分。最值得关注的是将物理约束与自监督结合提升复杂系统建模效率，以及用序贯PINN求解ODE优化问题的新思路。下一步可围绕这两篇的方法迁移至自身研究，并速读速览SkillCommit等应用方向以拓宽视野。
+- 详情：[/202608/20/README](/202608/20/README)
 
 ### 精读区论文标签
-1. [The Little Scientist: LLM Agent-Driven Discovery via the Scientific Method](/202608/19/2608.16951v1-the-little-scientist-llm-agent-driven-discovery-via-the-scientific-method)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：LLM智能体以科学方法循环自动设计算法，直接对应大模型/智能体自动算法发现
-2. [Physics-Informed Learning of Probabilistic Gegenbauer Reconstruction for Transport-Dominated Problems](/202608/19/2608.18001v1-physics-informed-learning-of-probabilistic-gegenbauer-reconstruction-for-transport-dominated-problems)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：物理信息机器学习框架用于传输主导PDE重构，与PINN思路一致
+1. [Self-supervised In-context Operator Learning for Stochastic Mean-Field Control](/202608/20/2608.18282v1-self-supervised-in-context-operator-learning-for-stochastic-mean-field-control)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：面向随机平均场控制PDE的自监督无网格神经算子
+2. [Modeling of an ODE-constrained optimization problem describing tumor dynamics, and numerical approximation via sequential physics-informed neural networks](/202608/20/2608.18974v1-modeling-of-an-ode-constrained-optimization-problem-describing-tumor-dynamics-and-numerical-approximation-via-sequential-physics-informed-neural-networks)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：使用物理信息神经网络求解最优控制中的状态和伴随系统
 
 ### 速读区论文标签
-1. [Reduced Order Modeling and Applications to Inverse State Estimation](/202608/19/2608.14328v1-reduced-order-modeling-and-applications-to-inverse-state-estimation)  
+1. [SkillCommit: Evolving Agent Skills through Behaviorally Validated Scope Expansion](/202608/20/2608.15165v1-skillcommit-evolving-agent-skills-through-behaviorally-validated-scope-expansion)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：降阶建模将参数化PDE近似作为监督学习任务，与AI求解PDE相关
-2. [SkillCommit: Evolving Agent Skills through Behaviorally Validated Scope Expansion](/202608/19/2608.15165v1-skillcommit-evolving-agent-skills-through-behaviorally-validated-scope-expansion)  
+   evidence：通过行为验证的范围扩展演化可复用代理技能的框架
+2. [Eureka: Task-Conditioned Meta-Agent Orchestration for Scientific Discovery](/202608/20/2608.19047v1-eureka-task-conditioned-meta-agent-orchestration-for-scientific-discovery)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：提出LLM智能体技能演化框架，将历史经验转化为可复用程序性技能，契合智能体技能与算法发现主题
-3. [Synthesizing Feature Extractors: An Agentic Approach for Algorithm Selection](/202608/19/2608.17170v1-synthesizing-feature-extractors-an-agentic-approach-for-algorithm-selection)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：大语言模型智能体通过检查-修复-验证循环合成特征提取代码，用于算法选择
-4. [Automating Parent Selection Configuration in Genetic Programming with Agentic AI](/202608/19/2608.17172v1-automating-parent-selection-configuration-in-genetic-programming-with-agentic-ai)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：利用基于大模型的智能体AI自动设计并实现符号回归算法，是科学计算的核心任务
-5. [Identifiability-aware neural ordinary differential equations for parsimonious and reliable dynamic modelling](/202608/19/2608.13044v1-identifiability-aware-neural-ordinary-differential-equations-for-parsimonious-and-reliable-dynamic-modelling)  
+   evidence：面向科学发现的任务条件元智能体编排框架
+3. [Personalized Auto-Research: Towards a True AI Co-Scientist](/202608/20/2608.14881v1-personalized-auto-research-towards-a-true-ai-co-scientist)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：提出可辨识性感知的神经ODE以进行可靠动态建模，与AI求解PDE在方法上可衔接
-6. [ER-KANs: Efficient and Robust Kolmogorov-Arnold Networks for Data-Scarce Scientific Machine Learning](/202608/19/2608.14773v1-er-kans-efficient-and-robust-kolmogorov-arnold-networks-for-data-scarce-scientific-machine-learning)  
+   evidence：面向个性化科学发现的自主智能体框架
+4. [When AI Designs AI: Innovation or Imitation?](/202608/20/2608.17471v1-when-ai-designs-ai-innovation-or-imitation)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：面向数据稀缺科学机器学习的鲁棒KAN，可应用于PDE求解代理模型
-7. [TRUSS: Towards Task-Reliable and User-Safe Automated Agent Skill Generation](/202608/19/2608.17588v1-truss-towards-task-reliable-and-user-safe-automated-agent-skill-generation)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：自动化代理技能生成与安全验证，可迁移至科学计算技能
+   evidence：利用LLM智能体设计AI方法；提出算法设计创新度量化框架，助力自动科学算法发现
 
 
 <div class="dpr-home-promo-card">
