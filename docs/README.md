@@ -6,80 +6,65 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-12 ~ 2026-08-21
-- 运行时间：2026-08-21 10:48:14 UTC
+- 最新运行日期：2026-08-22
+- 运行时间：2026-08-22 19:59:05 UTC
 - 运行状态：成功
-- 本次总论文数：20
-- 精读区：8
+- 本次总论文数：15
+- 精读区：3
 - 速读区：12
 
 ### 今日简报（AI）
-今日共读20篇，精读8篇，核心看点集中于LLM程序演化与算法自动合成方向。最值得精读的两篇9分工作：ε-MemEvo实现跨任务自适应记忆迁移，ATLAS用嵌入引导的质量-多样性搜索完成无脚手架算法合成；另有8分物理模拟类速读（层级图网络、SUPG稳定有限元高速绕流）。建议普通读者先吃透两篇9分论文，再按需顺藤摸瓜翻阅物理模拟速读清单。
-- 详情：[/20260812-20260821/README](/20260812-20260821/README)
+今日共读15篇论文，精读3篇、速读12篇，聚焦AI科学与工程模拟前沿。最值得关注的是两项8分精读：神经算子代理实现喷雾注射器气液界面快速模拟，以及可扩展的智能科学数据服务框架。建议普通读者优先了解神经代理在复杂物理建模中的应用潜力。
+- 详情：[/202608/22/README](/202608/22/README)
 
 ### 精读区论文标签
-1. [$\varepsilon$-MemEvo: Adaptive Cross-Task Memory Transfer for LLM Program Evolution](/20260812-20260821/2608.12522v1-varepsilon-memevo-adaptive-cross-task-memory-transfer-for-llm-program-evolution)  
-   标签：评分：9.0/10、query:sci-ml-agent
-   evidence：面向LLM程序进化的跨任务记忆迁移，明确针对FunSearch等算法发现系统
-2. [ATLAS: Scaffold-Free Algorithm Synthesis by LLMs via Embedding-Guided Quality-Diversity Search](/20260812-20260821/2608.15546v2-atlas-scaffold-free-algorithm-synthesis-by-llms-via-embedding-guided-quality-diversity-search)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：基于LLM的无脚手架完整算法合成，采用嵌入引导的质量多样性搜索
-3. [Physics-informed Reinforcement Learning for Stochastic Reach-Avoid Analysis](/20260812-20260821/2608.17117v1-physics-informed-reinforcement-learning-for-stochastic-reach-avoid-analysis)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：物理信息神经网络与强化学习结合，求解随机到达-避让Hamilton-Jacobi偏微分方程
-4. [Physics-informed neural network for inverse modeling of granular flows](/20260812-20260821/2608.18641v1-physics-informed-neural-network-for-inverse-modeling-of-granular-flows)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：物理信息神经网络用于PDE逆向建模
-5. [Multi-stage neural operator learning with application for convolutions](/20260812-20260821/2608.18851v1-multi-stage-neural-operator-learning-with-application-for-convolutions)  
-   标签：评分：9.0/10、query:sci-ml-agent
-   evidence：面向PDE算子近似的神经算子框架，采用弱形式训练与多阶段细化
-6. [Evo-GTransNet for Parabolic PDEs: A Fixed-Feature Galerkin Method of Lines with Quadrature-Mass Orthonormalization](/20260812-20260821/2608.19615v1-evo-gtransnet-for-parabolic-pdes-a-fixed-feature-galerkin-method-of-lines-with-quadrature-mass-orthonormalization)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：基于神经网络的抛物型PDE求解器，采用Galerkin直线法，直接面向AI求解PDE
-7. [Complementary, Not Cumulative: Interaction Effects in Physics-Informed Neural Networks for Navier-Stokes Vortex Shedding](/20260812-20260821/2608.19632v1-complementary-not-cumulative-interaction-effects-in-physics-informed-neural-networks-for-navier-stokes-vortex-shedding)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：专注于PINN求解Navier-Stokes方程，在圆柱绕流基准上研究技术交互
-8. [Kerr Quasinormal Modes without Variable Separation: A Two-Dimensional Hyperboloidal Teukolsky Solver with Physics-Informed Neural Networks](/20260812-20260821/2608.19774v1-kerr-quasinormal-modes-without-variable-separation-a-two-dimensional-hyperboloidal-teukolsky-solver-with-physics-informed-neural-networks)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：使用物理信息神经网络求解Teukolsky偏微分方程的本征值问题，与需求1直接匹配。
+1. [Towards Rapid Prototyping of Spray Injectors: A Regime-Agnostic Neural Operator Surrogate for Gas-Liquid Interface Evolution](/202608/22/2608.17825v1-towards-rapid-prototyping-of-spray-injectors-a-regime-agnostic-neural-operator-surrogate-for-gas-liquid-interface-evolution)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：面向喷雾器CFD的神经算子代理模型，预测气液界面演化
+2. [Scientific Data Skills: Enabling Agent-Ready Scientific Data Services at Scale](/202608/22/2608.19625v1-scientific-data-skills-enabling-agent-ready-scientific-data-services-at-scale)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：提出科学数据技能SciDSK，将数据集知识封装为可复用智能体技能，直接契合智能体科学计算技能需求。
+3. [AI4AI-Bench: Benchmarking LLM Agents in Algorithmic Design for Recursive Self-Improvement](/202608/22/2608.20318v1-ai4ai-bench-benchmarking-llm-agents-in-algorithmic-design-for-recursive-self-improvement)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：为LLM智能体在算法设计上的自动化发现构建基准，对应大模型与智能体的算法自动发现。
 
 ### 速读区论文标签
-1. [HI-MeshGraphNets: Efficient and Accurate Mesh-based Physics Learning with Hierarchical Multi-scale Graph Neural Networks](/20260812-20260821/2608.13827v1-hi-meshgraphnets-efficient-and-accurate-mesh-based-physics-learning-with-hierarchical-multi-scale-graph-neural-networks)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：面向网格物理仿真的层次化多尺度图神经网络代理模型
-2. [A physics-informed SUPG-stabilized finite element framework with shock-capturing for simulating inviscid high-speed flows around a cylinder](/20260812-20260821/2608.14883v1-a-physics-informed-supg-stabilized-finite-element-framework-with-shock-capturing-for-simulating-inviscid-high-speed-flows-around-a-cylinder)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：将物理信息神经网络与稳定化有限元框架结合，用于可压缩欧拉方程
-3. [ATLAS: Scaffold-Free Algorithm Synthesis by LLMs via Embedding-Guided Quality-Diversity Search](/20260812-20260821/2608.15546v1-atlas-scaffold-free-algorithm-synthesis-by-llms-via-embedding-guided-quality-diversity-search)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：LLM引导的无脚手架算法合成，结合演化质量多样性搜索
-4. [Reduced-Order Physics-Informed Neural Network with Adaptive Basis Refinement for Structural Identification](/20260812-20260821/2608.17131v1-reduced-order-physics-informed-neural-network-with-adaptive-basis-refinement-for-structural-identification)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：自适应基修正的降阶物理信息神经网络用于结构识别
-5. [Reconstructive AI Spectroscopy of Charged Particle Beams](/20260812-20260821/2608.11628v1-reconstructive-ai-spectroscopy-of-charged-particle-beams)  
+1. [The Problem Is the Problem: Towards Scalable Mathematical Discovery](/202608/22/2608.16977v1-the-problem-is-the-problem-towards-scalable-mathematical-discovery)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：物理信息神经网络用于能谱重建并保证物理一致性
-6. [Agent Skills Can Be Harmful: An Empirical Study of Skill-Induced Failures in LLM Agents](/20260812-20260821/2608.11888v1-agent-skills-can-be-harmful-an-empirical-study-of-skill-induced-failures-in-llm-agents)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：实证分析技能导致智能体失败与成本退化的原因，对科学计算技能设计具有警示作用。
-7. [Analysis of Error Propagation in Autoencoder-Based Reduced-Order Neural Ordinary Differential Equations](/20260812-20260821/2608.13132v1-analysis-of-error-propagation-in-autoencoder-based-reduced-order-neural-ordinary-differential-equations)  
+   evidence：人机协同数学发现范式，聚焦问题选择与评审瓶颈，与自主科学发现主题相关。
+2. [Universal Approximation of Maximal Lyapunov Functions with Anchored Neural Networks](/202608/22/2608.17290v1-universal-approximation-of-maximal-lyapunov-functions-with-anchored-neural-networks)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：针对Burgers和Gray-Scott等PDE系统，分析神经常微分方程代理模型的误差传播
-8. [SkillShapley: Boundary-Adaptive Shapley Valuation for Skill Step Attribution in LLM Agents](/20260812-20260821/2608.13173v1-skillshapley-boundary-adaptive-shapley-valuation-for-skill-step-attribution-in-llm-agents)  
+   evidence：面向Lyapunov函数的神经网络通用逼近，属科学机器学习方法
+3. [Procedural Content Metageneration via Program Search and Continual Abstraction Discovery](/202608/22/2608.17947v1-procedural-content-metageneration-via-program-search-and-continual-abstraction-discovery)  
+   标签：评分：7.0/10、query:sci-ml-agent
+   evidence：LLM引导的演化程序合成，结合持续抽象发现来演化可执行Python生成器
+4. [Composing Flow-Matching Energies with Known Physics: Generation, OOD Detection, and Inversion on PDE Fields](/202608/22/2608.18004v1-composing-flow-matching-energies-with-known-physics-generation-ood-detection-and-inversion-on-pde-fields)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：提出基于Shapley的智能体技能步骤贡献归因方法，对科学计算中的智能体技能设计具有参考价值。
-9. [Designing Compact Neural Architectures via Neuron Gating and Mixed Activation](/20260812-20260821/2608.14443v1-designing-compact-neural-architectures-via-neuron-gating-and-mixed-activation)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：通用神经架构搜索框架，连续松弛
-10. [Iterative Refinement Diffusion for Super-Resolved Data Assimilation of Multiscale Physical Systems](/20260812-20260821/2608.14744v1-iterative-refinement-diffusion-for-super-resolved-data-assimilation-of-multiscale-physical-systems)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：用于多尺度物理系统数据同化的迭代精化扩散方法
-11. [Eigenanalysis framework for autoregressive neural emulators of multi-scale chaotic dynamics](/20260812-20260821/2608.16084v1-eigenanalysis-framework-for-autoregressive-neural-emulators-of-multi-scale-chaotic-dynamics)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：神经模拟器稳定性的特征分析，可迁移至PDE代理模型
-12. [SkillEffect: Checked Lowering for Memory-Bounded Agent Tools](/20260812-20260821/2608.17007v1-skilleffect-checked-lowering-for-memory-bounded-agent-tools)  
+   evidence：将已知物理方程与流匹配能量模型相结合，用于PDE场生成、OOD检测与反演。
+5. [SPADE: Self-Play in Adaptive Synthetic Executable Environments](/202608/22/2608.19197v1-spade-self-play-in-adaptive-synthetic-executable-environments)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：自博弈强化学习框架，生成自适应可执行环境以获取智能体技能，可用于科学计算。
+6. [Learning Deterministic and Stochastic Forced Hamiltonian Systems](/202608/22/2608.19688v1-learning-deterministic-and-stochastic-forced-hamiltonian-systems)  
+   标签：评分：7.0/10、query:sci-ml-agent
+   evidence：用保结构神经网络学习哈密顿系统，属科学机器学习方法
+7. [AgentRewind: Recoverable Execution for Long-Horizon LLM Agents](/202608/22/2608.14380v1-agentrewind-recoverable-execution-for-long-horizon-llm-agents)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：为内存受限的智能体技能/工具调用提供可校验的lowering运行时，有助于科学计算中可靠智能体技能。
+   evidence：为长时程LLM智能体提供运行时恢复框架，对科学发现和PDE求解中的自主智能体具有重要意义。
+8. [LP-NAS: Linear Programming-based Neural Architecture Search](/202608/22/2608.14472v1-lp-nas-linear-programming-based-neural-architecture-search)  
+   标签：评分：6.0/10、query:sci-ml-agent
+   evidence：提出基于线性规划的NAS框架LP-NAS，适用于连续搜索空间，可迁移到PINN等科学机器学习模型的自动设计。
+9. [Executable Code Knowledge: Code as a Native, Validation-Carrying Knowledge Representation for AI Coding Agents](/202608/22/2608.16295v1-executable-code-knowledge-code-as-a-native-validation-carrying-knowledge-representation-for-ai-coding-agents)  
+   标签：评分：6.0/10、query:sci-ml-agent
+   evidence：将代码作为携带验证信息的原生知识表示，支持AI生成代码的可执行验证，与自动化算法发现相关
+10. [Physics-Informed and Hybrid Machine Learning in Additive Manufacturing: Application to Fused Filament Fabrication](/202608/22/2608.17246v1-physics-informed-and-hybrid-machine-learning-in-additive-manufacturing-application-to-fused-filament-fabrication)  
+   标签：评分：6.0/10、query:sci-ml-agent
+   evidence：面向增材制造的物理信息混合机器学习方法
+11. [Tight Bounds for Data-driven Multiple Hyper-parameter Tuning with Structured Loss Function](/202608/22/2608.17343v1-tight-bounds-for-data-driven-multiple-hyper-parameter-tuning-with-structured-loss-function)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：数据驱动算法设计的紧伪维数界，支撑自动化算法发现理论。
+12. [Accelerated Genetic Programming Hyper-Heuristics for Simulation-Based Scheduling via Agentic AI](/202608/22/2608.19487v1-accelerated-genetic-programming-hyper-heuristics-for-simulation-based-scheduling-via-agentic-ai)  
+   标签：评分：6.0/10、query:sci-ml-agent
+   evidence：使用智能体AI加速遗传规划超启发式，对仿真调度代码进行程序合成与优化。
 
 
 <div class="dpr-home-promo-card">
