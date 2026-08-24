@@ -6,52 +6,52 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-23
-- 运行时间：2026-08-23 20:46:58 UTC
+- 最新运行日期：2026-08-24
+- 运行时间：2026-08-24 21:00:51 UTC
 - 运行状态：成功
 - 本次总论文数：10
-- 精读区：1
-- 速读区：9
+- 精读区：5
+- 速读区：5
 
 ### 今日简报（AI）
-今日精读AutoML流水线进化，速读AI代理部署与科学评测，共10篇。  
-最值得关注的是语言模型驱动的可执行流水线进化，以及代理技能选择的理论保障。  
-建议优先浏览SWE-bench Science，了解编码代理在科研工程任务中的实际表现。
-- 详情：[/202608/23/README](/202608/23/README)
+今日聚焦神经PDE求解器，精读两篇高影响力论文，重点在于效率与安全。  
+最值得看《STCO》提出条件神经算子求解含时PDE，以及《Wrong-Physics》揭示神经PDE算子中的“错误物理”后门风险。  
+下一步可关注物理信息核函数的半正定性方法，在提升精度的同时注意模型鲁棒性。
+- 详情：[/202608/24/README](/202608/24/README)
 
 ### 精读区论文标签
-1. [Evolving Executable Pipeline Programs for AutoML with Language Models](/202608/23/2608.16416v1-evolving-executable-pipeline-programs-for-automl-with-language-models)  
+1. [STCO: Conditional Neural Operators for Time-Dependent PDEs](/202608/24/2608.20477v1-stco-conditional-neural-operators-for-time-dependent-pdes)  
+   标签：评分：9.0/10、query:sci-ml-agent
+   evidence：面向时变PDE的条件神经算子代理建模，直接对应PDE神经算子代理模型。
+2. [Wrong-Physics Backdoors in Neural PDE Operators](/202608/24/2608.20439v1-wrong-physics-backdoors-in-neural-pde-operators)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：LACE将大语言模型作为变异算子，通过进化循环生成可执行的Python流水线程序，直接对应LLM引导的进化程序合成。
+   evidence：揭示神经PDE算子中的错误物理后门，直接影响物理验证和参数正确性
+3. [Shared Physics Responses Recover Hidden Rankings in Neural Operator Libraries](/202608/24/2608.20441v1-shared-physics-responses-recover-hidden-rankings-in-neural-operator-libraries)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：面向流体、反应扩散、波动动力学的神经算子库，对应PDE代理建模
+4. [AutoMOOSE: Use Case and Logical Views of Agentic Phase-Field Simulation Software](/202608/24/2608.20571v1-automoose-use-case-and-logical-views-of-agentic-phase-field-simulation-software)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：面向自然语言驱动的MOOSE相场（偏微分方程）模拟的智能体多智能体框架
+5. [Techno-Economic Analysis of Repurposing Abandoned Oil Wells for Geothermal Energy Extraction Using Physics-Informed Neural Networks](/202608/24/2608.21092v1-techno-economic-analysis-of-repurposing-abandoned-oil-wells-for-geothermal-energy-extraction-using-physics-informed-neural-networks)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：利用物理信息神经网络对受物理方程控制的闭式地热系统建模
 
 ### 速读区论文标签
-1. [Deploying Frontier Agentic Technology in MOOSEnger, a Multiphysics-Capable AI Assistant](/202608/23/2608.15881v1-deploying-frontier-agentic-technology-in-moosenger-a-multiphysics-capable-ai-assistant)  
+1. [Optimal Sobolev Approximation by Deterministic and Random Shallow Sigmoidal Networks](/202608/24/2608.19797v2-optimal-sobolev-approximation-by-deterministic-and-random-shallow-sigmoidal-networks)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：面向MOOSE多物理仿真框架的AI智能体，具备验证与诊断流程
-2. [SWE-bench Science: Can Coding Agents Resolve Engineering Tasks in Science?](/202608/23/2608.19799v1-swe-bench-science-can-coding-agents-resolve-engineering-tasks-in-science)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：用于科学软件工程任务的编码智能体基准
-3. [Optimal Skill Selection for LLM Agents with Provable Bicriteria Guarantees](/202608/23/2608.19993v1-optimal-skill-selection-for-llm-agents-with-provable-bicriteria-guarantees)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：面向LLM智能体的最优技能选择，与科学计算智能体技能相关
-4. [HyMem: Hierarchical Context Management for Long-Horizon Agents via Information Isolation](/202608/23/2608.15703v1-hymem-hierarchical-context-management-for-long-horizon-agents-via-information-isolation)  
+   evidence：浅层网络在Sobolev空间的最优逼近率，为基于神经网络的PDE求解提供理论基础
+2. [Resolution-Consistent Greedy Neural Approximation on Infinite-Dimensional Spaces](/202608/24/2608.20812v1-resolution-consistent-greedy-neural-approximation-on-infinite-dimensional-spaces)  
+   标签：评分：7.0/10、query:sci-ml-agent
+   evidence：无限维输入的贪心神经逼近；面向PDE代理模型的算子学习
+3. [Resolving positive semi-definiteness in physics-informed kernels for scientific machine learning](/202608/24/2608.20985v1-resolving-positive-semi-definiteness-in-physics-informed-kernels-for-scientific-machine-learning)  
+   标签：评分：7.0/10、query:sci-ml-agent
+   evidence：科学机器学习中的物理信息核，建立微分算子核的正半定条件
+4. [NestyNet. III. Symbolic Regression from Analytic Neural Surrogates](/202608/24/2608.21051v1-nestynet-iii-symbolic-regression-from-analytic-neural-surrogates)  
+   标签：评分：7.0/10、query:sci-ml-agent
+   evidence：利用解析可微神经代理进行符号回归，自动发现闭式物理规律，是面向科学机器学习与PDE发现的强相关方法。
+5. [Looped Language Models Improve Compositional Tool Calling](/202608/24/2608.18171v1-looped-language-models-improve-compositional-tool-calling)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：面向长时程LLM智能体的分层上下文管理框架
-5. [Crystal-structure design by agentic AI in a language of motifs](/202608/23/2608.15900v1-crystal-structure-design-by-agentic-ai-in-a-language-of-motifs)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：用于科学发现的智能体AI框架，具备可解释基序语言与第一性原理验证
-6. [CAPO: Constraint-Aware Prompt Optimization for LLM Agents](/202608/23/2608.16068v1-capo-constraint-aware-prompt-optimization-for-llm-agents)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：面向LLM智能体的约束感知提示优化，与智能体框架开发相关
-7. [Function-On-Function Regression Through Separable Neural Operators](/202608/23/2608.19070v1-function-on-function-regression-through-separable-neural-operators)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：神经算子用于函数回归，可迁移至PDE代理建模
-8. [DeltaML-Bench: Evaluating Machine Learning Agents on Real-World Research Repositories](/202608/23/2608.19653v1-deltaml-bench-evaluating-machine-learning-agents-on-real-world-research-repositories)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：提出在真实研究代码库上评估自主机器学习智能体的基准，面向自主实验智能体研究，与科学发现智能体相关但非PDE专用。
-9. [Optimal Sobolev Approximation by Deterministic and Random Shallow Sigmoidal Networks](/202608/23/2608.19797v1-optimal-sobolev-approximation-by-deterministic-and-random-shallow-sigmoidal-networks)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：为科学机器学习中浅层Sigmoid网络提供最优Sobolev逼近率
+   evidence：循环语言模型在组合式工具调用上的能力提升，为科学智能体工作流提供关键技能
 
 
 <div class="dpr-home-promo-card">
