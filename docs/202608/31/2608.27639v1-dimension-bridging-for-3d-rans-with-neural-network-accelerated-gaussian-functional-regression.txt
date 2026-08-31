@@ -1,0 +1,1387 @@
+Title: Dimension Bridging for 3D RANS with Neural Network Accelerated Gaussian Functional Regression
+
+URL Source: https://arxiv.org/pdf/2608.27639v1
+
+Published Time: Mon, 31 Aug 2026 00:10:21 GMT
+
+Number of Pages: 37
+
+Markdown Content:
+# Dimension Bridging for 3D RANS with Neural Network Accelerated Gaussian Functional Regression 
+
+Wesley Lao ∗ † , Thomas Scott ‡, and Tan Bui-Thanh §
+
+University of Texas at Austin, Austin, TX 78712 
+
+Paul Laiu ¶ and Matt Bement ‖
+
+Oak Ridge National Laboratory, Oak Ridge, TN 37830 
+
+In many computational science and engineering problems, repeatedly solving fully resolved physics-based models to design for a quantity of interest (QoI) can quickly become intractable, requiring the use of low-fidelity models to predict the same QoI but introduce errors where some features are neglected or are otherwise inaccurately resolved. We use Gaussian Functional Regression (GFR) to learn a correction to a 2D Reynolds-Averaged Navier-Stokes (RANS) model to predict the aerodynamic coefficients from a 3D RANS model. This model pair has a disparity in the governing physics from the reduced dimensionality, a previously unexplored application for GFR. Empirically, our results show that with a proper choice of low-dimensional (LD) model, the proposed kernel allows for the use of fewer high-dimensional (HD) evaluations to regress a response surface to the same level of accuracy as standard stationary kernels. Moreover, the new kernel provides more informative uncertainty quantification, which we show is advantageous when used to drive an adaptive sampling algorithm. Finally, we propose a novel neural network accelerated kernel, which we show offers predictions in good agreement while speeding up evaluations by millions of times in wall clock measurements, bringing the computational budget within the real-time regime. 
+
+## I. Introduction 
+
+In many design and decision-making applications, a predictive model is iteratively evaluated to find design parameters which optimize a performance indicator or other QoI. This introduces a tradeoff between the fidelity of the predictive model and the computational cost to perform the optimization procedure. It is common to combine predictions from a set of models of varying fidelity (and cost) such that the design loop has a lower total computational cost than if only the 
+
+> ∗
+
+Ph.D. Student, Oden Institute for Computational Engineering & Sciences, 201 E 24th Street, Austin, TX 78712 
+
+> †
+
+Corresponding author, email: wesley.lao@austin.utexas.edu 
+
+> ‡
+
+Ph.D. Student, Department of Aerospace Engineering & Engineering Mechanics, 2617 Wichita Street, C0600 Austin, Texas 78712. 
+
+> §
+
+Professor, Department of Aerospace Engineering & Engineering Mechanics and Oden Institute for Computational Engineering & Sciences, 201 E 24th Street, Austin, TX 78712. 
+
+> ¶
+
+Staff Mathematician, Oak Ridge National Laboratory, 1 Bethel Valley Road, Oak Ridge, TN 37830. 
+
+> ‖
+
+Section Head, Oak Ridge National Laboratory, 1 Bethel Valley Road, Oak Ridge, TN 37830. arXiv:2608.27639v1 [cs.CE] 27 Aug 2026 high-fidelity model were used [1, 2]. High-fidelity models refer to finely discretized solutions to the PDEs which govern a physical application. Common low-fidelity models include coarse discretizations, simplified physics [3–6], lower dimensionality [6], projected basis reduced-order models [5, 7], and data-driven surrogates [3–5, 8]. We are interested in predicting and optimizing the performance of a parametric design geometry where the associated high-fidelity model is prohibited due to its cost for such a many-query task. This places a limit on the availability of high-fidelity data we can use to regress QoI values as a function of the design and operation parameters (also called a response surface [8]), which prevents us from directly fitting data-driven surrogates to high-fidelity data. Instead, we use the predictions of a low-fidelity model, and introduce corrections using the high-fidelity data to better capture the underlying physics. We also desire uncertainty quantification, for which we turn to Gaussian Process Regression (GPR) [9], also known as kriging in geostatistics [10], which provides a response surface prediction and uncertainty quantification as mean and pointwise standard deviation, respectively, of a Gaussian Bayesian posterior distribution over the input space. In particular, we assume that our low-fidelity model is cheap enough to be run at every point in our design space. In the Bayesian sense, the low-fidelity response surface will serve as the mean of our prior distribution. Similar to [11], we will add a Gaussian process (GP) correction such that the posterior mean approximates the high-fidelity response surface. However, rather than standard stationary kernels typically used in GPR, we instead desire to use the low-fidelity physics to better inform the regression. To this end, we consider the addition of a GP forcing term in the low-fidelity PDE. In the weak form, this forcing term is identified by a linear functional, thus allowing us to use the machinery of Gaussian Functional Regression (GFR) developed in [3–5] to condition the forcing term on evaluations of various observation functionals. This is equivalent to using the low-fidelity model as a feature map, with which the response surface kernel is composed (see Appendix XI for a formal derivation.). This featurization allows the kernel to identify where the low-fidelity response has higher sensitivity (which we assume is related to uncertainty) and gives a better set of basis functions which, when weighted by the observed data, regress the response surface. In the zero-noise case, we would consider this basis to be a “cardinal basis”, in which each basis function is equal to 1 at the point corresponding to its observation weight and 0 at other observation points. It is easy to see that this would be an interpolation of the observations. With noise, our basis may not exactly recover this cardinality property (i.e., it is a regression of the observations). Equivalently, one may consider the interpretation that the kernel provides a better basis of kernel functions to regress the response. However, the relationship between the kernel function basis and data is not immediately obvious in the latter form, since the inverse covariance maps the data to the weights on the kernel basis, as shown later in Eq. (2b). Herein, our visualizations will be using the data-weighted basis interpretation. In this work, we will expand the use of GFR to nonlinear low-fidelity models and nonlinear observation operators which lie in a lower-dimensional physical space. This construction places the majority of the compute on the low-dimensional model, so we describe the models by their physical dimensionality as high-dimensional (HD) or 2low-dimensional (LD), as opposed to their relative fidelity. Since our goal is to connect the cost of an LD model with the accuracy of an HD one, we call this approach a dimension-bridging model. In the case where the LD model or geometry is not derived from symmetry of the HD model, such that changes in a subset of design parameters cannot be captured by the (primary) LD model, we will introduce an auxiliary LD model that can capture the neglected parameters. The combination of primary and auxiliary LD models will give rise to a separable featurized kernel, which will be used to regress the HD response surface. Further, we will show that driving an adaptive sampling algorithm with the uncertainty quantification given by the featurized kernel leads to faster convergence of the regressed surface relative to standard stationary kernels. Even with use of an significantly cheaper LD model, evaluations of this kernel can be prohibitively expensive. Looking ahead to our test problem, we will require a 2D Compressible Reynolds-Averaged Navier Stokes (RANS) forward and adjoint solve for every new parameter. The need for fast inference of the QoIs in applications such as simulating flight dynamics using the force and moment coefficients motivates our proposed novel neural network (NN) approach for learning an arbitrary Mercer kernel. The NN training is comparable in cost to the GF hyperparameter tuning, thus not increasing offline cost significantly. More importantly, during online inference when evaluations of unseen parameters are required, the neural network evaluation will remove the need for additional RANS solves in the online phase. The speedup in terms of wall clock evaluation time is on the order of millions. Moreover, these evaluations performs well both in accuracy and speed when forming and factoring kernel matrices for predicting the GP posterior. Ultimately our integration of the physics-informed GF correction with a high-speed NN Mercer kernel surrogate enables LD-physics-informed real-time predictions of the HD-QoIs. The rest of the paper is organized as follows: Section II provides background knowledge on GPR and GFR, Section III gives a mathematical statement of the regression problem, Section IV describes the construction of the proposed featurized kernel and hyperparameter selection, Section VI details the neural network for accelerating evaluations, Section VIII compares our proposed kernel construction and standard GPR kernels when applied to response surface regression and adaptive sampling, and concluding remarks are presented in Section IX. 
+
+## II. Background and Relevant Work 
+
+A. Gaussian Process Regression 
+
+We begin by briefly reviewing GPR (kriging). GPR is a statistical data-driven surrogate model, which seeks to approximate a function by considering it to be a realization of a GP. A GP is a distribution over functions and can be thought of as a generalization of the finite multivariate Gaussian distribution. Analogous to multivariate Gaussians, GPs are uniquely characterized by a mean and covariance. In this case, however, the mean is a measurable function and the 3covariance is a symmetric, positive-definite kernel. GPR involves constructing (generating) a joint distribution for the evaluation of the function at training and testing points. We assign a GP prior on 𝑓 , with some mean function 𝑚 and covariance kernel 𝑘 . The joint distribution is then generated via pointwise evaluation of 𝑚 and 𝑘 , i.e., 
+
+
+
+𝑓 (𝒙 )
+
+𝑓 ( ˆ𝒙 )
+
+
+
+∼ N 
+
+©«
+
+𝑚 (𝒙 )
+
+𝑚 ( ˆ𝒙 )
+
+
+
+,
+
+
+
+𝑘 (𝒙 , 𝒙 ) 𝑘 (𝒙 , ˆ𝒙 )
+
+𝑘 ( ˆ𝒙 , 𝒙 ) 𝑘 ( ˆ𝒙 , ˆ𝒙 )
+
+ª®®®¬
+
+(1) where 𝒙 is the vector of training points and ˆ 𝒙 is the vector of test points. We abuse the notation of a function with scalar arguments acting on a vector-valued inputs to denote the generation of a vector by evaluating the function on the argument(s) element-wise. Evaluating the kernel on elements of the input vectors in lexicographical order generates a matrix. We observe the (noisy) evaluation of 𝑓 (𝒙 ) + 𝜼 =: 𝒅 , where noise vector 𝜼 is assumed to be i.i.d. from a centered Gaussian with standard deviation 𝜎 . Then, predictions on test points amounts to computing the conditional distribution of the evaluation of 𝑓 ( ˆ𝒙 ), given the observations 𝒅 . Numerically, this is nothing but a Schur complement, where the covariance matrix of the training evaluations need only be inverted once before predicting on any number of test point sets. 
+
+( 𝑓 ( ˆ𝒙 ) | 𝑓 (𝒙 ) = 𝒅 − 𝜼 ) ∼ N 
+
+
+
+𝑚 † ( ˆ𝒙 ) , 𝑘 † ( ˆ𝒙 , ˆ𝒙 )
+
+
+
+(2a) 
+
+𝑚 † ( ˆ𝒙 ) = 𝑚 ( ˆ𝒙 ) + 𝑘 ( ˆ𝒙 , 𝒙 ) 𝐾 −1 
+
+> 𝑑
+
+( 𝒅 − 𝑚 (𝒙 )) (2b) 
+
+𝑘 † ( ˆ𝒙 , ˆ𝒙 ) = 𝑘 ( ˆ𝒙 , ˆ𝒙 ) − 𝑘 ( ˆ𝒙 , 𝒙 ) 𝐾 −1 
+
+> 𝑑
+
+𝑘 (𝒙 , ˆ𝒙 ) (2c) 
+
+𝐾 𝑑 =
+
+
+
+𝑘 (𝒙 , 𝒙 ) + 𝜎 2 𝐼 
+
+
+
+(2d) Here, our use of the † superscript denotes a posterior quantity. 𝐾 𝑑 is the covariance matrix of 𝑓 (𝒙 ) + 𝜼 .
+
+B. Gaussian Functionals 
+
+Gaussian Functionals (GFs) are an extension of GPs to functionals (maps from functions to scalars) [3–5]. In the same way that GPs maps vectors in R𝑁 to multivariate Gaussians, GFs map vectors of measurable functions in M 𝑁 to multivariate Gaussians. The action of a GF 𝑔 with mean functional 𝑚 and covariance kernel 𝑘 on a vector of 𝑁 test functions 𝒗 := {𝑣 𝑖 }𝑁 𝑖 =1 is jointly Gaussian: 4𝑔 (𝒗 ) =
+
+
+
+𝑔 (𝑣 1)
+
+...𝑔 (𝑣 𝑁 )
+
+
+
+∼ N ( 𝑚 (𝒗 ) , 𝑘 (𝒗 , 𝒗 )) (3) In this paper, we are interested in regressing a map from design parameters 𝜽 to forcing correction 𝑔 in our low-fidelity model. In a weak setting, the forcing function is a linear functional in the dual of the test space. It is thus natural to model the class of all forcing functions as a GF that acts on a product space of measurable functions M and the parameter space Θ ⊂ 𝑅 𝑁 . Specifically, we postulate a GF with mean 𝑚 and covariance 𝑘 on the forcing 𝑔 :
+
+𝑔 ∼ GF ( 𝑚, 𝑘 ) , 𝜃 ∈ Θ, 𝑣 ∈ 𝑉 (4a) 
+
+𝒒 := 𝑔 (𝜽 ; 𝒗 ) ∼ N ( 𝑚 (𝒗 , 𝜽 ) , 𝑘 (( 𝒗 , 𝜽 ) ,(𝒗 , 𝜽 ))) (4b) where 𝜽 is the vector of design configurations and 𝒗 is the vector of test functions. 𝒒 is a multivariate random variable output, which will become our response surface surrogate. We interpret the elementwise evaluation over the vector tuple (𝒗 , 𝜽 ) as iterating over the flattened tensor product of the two component vectors. For 𝑁 functions and 𝑁 
+
+parameter configurations, this flattened vector takes the form 
+
+(𝒗 , 𝜽 ) =
+
+
+
+(𝑣 1, 𝜃 1)
+
+...
+
+(𝑣 1, 𝜃 𝑁 )(𝑣 2, 𝜃 1)
+
+...
+
+(𝑣 𝑁 , 𝜃 𝑁 )
+
+
+
+Though (4) is defined for general test functions 𝒗 , only a specific choice of 𝒗 is needed for the computation of our QoI. In particular, we can show that (a full derivation is provided in Appendix X.A) each evaluation of the QoI response for a given 𝜽 is given by the evaluation of the forcing functional 𝑔 (𝜽 ) on the adjoint solution 𝜙 (𝜽 ) with respect to the QoI for that 𝜽 . Thus, 𝑞 in (4) for can be rewritten as a GP over the parameter space, where the test function argument to the GF is restricted to 𝑣 = 𝜙 (𝜽 )
+
+𝑞 ∼ GP  𝑚 𝑞 , 𝑘 𝑞 
+
+ with 𝑚 𝑞 (𝜽 ) = 𝑚 (𝜙 (𝜽 ) , 𝜽 ) and 𝑘 𝑞 (𝜽 , 𝜽 ) = 𝑘 (( 𝜙 (𝜽 ) , 𝜽 ) ,(𝜙 (𝜽 ) , 𝜽 )) (5) 5Note that a realization of the GP response surface is now only a process over the parameter configuration 𝜃 , and that the LD adjoint solution 𝜙 serves as a feature map with which the kernel is composed to give the GP covariance. 
+
+C. Sum and Product Kernels 
+
+To avoid misspecification, we parameterize the parameter-only kernel as a non-negatively weighted sum of distinct classes of kernels, each of which is individually positive definite, i.e., 
+
+𝑘  𝜽 𝑖 , 𝜽 𝑗 
+
+ =
+
+> 𝑀
+
+∑︁ 
+
+> 𝑚 =1
+
+𝜎 𝑚 𝑘 𝑚 
+
+ 𝜽 𝑖 , 𝜽 𝑗 
+
+ (6) where 𝑚 is the kernel model index, 𝜎 𝑚 are non-negative weights, and the subscript on 𝜽 denotes that the arguments may be elements of some subset of the design space. For example, Matérn kernels [12] are parameterized by a positive real number 𝜈 , which allows for processes with this kernel to be mean square differentiable up to 𝑛 < 𝜈 times [9]. We optimize over a mixture of Matérn kernels for 𝜈 ∈  12 , 32 , 52 , ∞ to infer the regularity (or other structure) needed by the kernel from the data. The hyperparameters of the sum mixture include the hyperparameters of each individual kernel and its associated non-negative weight. For regressing over a design space in a Cartesian product space Θ ⊂ R𝑃 , it is natural to consider a product kernel where each factor only acts on one dimension of the product space, 
+
+𝑘  𝜽 𝑖 , 𝜽 𝑗 
+
+ =
+
+> 𝑃
+
+Ö
+
+> 𝑝 =1
+
+𝑘 𝑝 
+
+
+
+(𝜽 𝑖 ) 𝑝 , 𝜽 𝑗 
+
+
+
+> 𝑝
+
+
+
+(7) where 𝑝 is the element or dimension index. This allows for efficient inversion and matrix-vector product computation via use of the Kronecker product if the input set is a regular Cartesian grid in R𝑃 . A product spectral mixture kernel was introduced in [13], generalizing the work of [14] to product input spaces. The sum kernel structure can be thought of as a logical OR, where two evaluations are correlated if any of the summand kernels predict correlation. By contrast, the product kernel structure can be thought of as a logical AND, where two evaluations are correlated if all of the factor kernels predict correlation. We can combine these concepts to design kernels based on a number of simple Boolean assumptions. In our case, we use product kernel structure to separate the GF input space into its function space and parameter space factors, ensuring evaluations are correlated only if the parameters are similar AND they have similar sensitivity under the LD model. We then employ a sum kernel within each so that the factor kernel predicts correlation if any of its summand kernels do. 
+
+D. Interpolated and Sparse Kernels 
+
+Standard GPs suffer heavily from scalability issues. Not only does the computation and storage have O  𝑁 3 and 
+
+O  𝑁 2 complexity, respectively, for 𝑁 data points, but kernel functions with large support and length scales (e.g., the 6popular Gaussian kernel) can lead to ill-conditioned covariance matrices. To overcome this, there have been methods for improving the scalability of kernels via approximation or sparse construction. Some approximations use a set of 
+
+𝑀 inducing points, where 𝑀 ≪ 𝑁 , which reduces the computation and storage complexities to O  𝑀 3 + 𝑀 2 𝑁  and 
+
+O  𝑀 𝑁 + 𝑀 2, respectively [15]. A treatment for incomplete grids was proposed in [13], where the training set is augmented with dummy observations that do not impact the posterior. The augmented data covariance is inverted with a preconditioned conjugate gradient method, which allows for the dummy observations to be ignored. An improvement known as Structured Kernel Interpolation [16] factors an approximation of the full data covariance into a matrix product 
+
+𝑘 (𝒙 , 𝒙 ) ≈ 𝑊 𝑘 (𝒖 , 𝒖 ) 𝑊 T , where 𝑊 is the interpolation matrix and 𝒖 is the vector of inducing points. This can lower the complexities to O( 𝑁 + 𝑀 log (𝑀 )) and O( 𝑁 + 𝑀 ), respectively, allowing for inducing-data point splits with 𝑀 ≈ 𝑁 
+
+[17]. In Section VI, we introduce our novel ML kernel as a nonlinear interpolation extending our kernel from the training data, which can be thought of as our inducing points, to any arbitrary points. 
+
+E. Nonstationarity through Warping 
+
+A kernel is stationary if it can be defined as a function of the distance 𝑑 (· , ·) between its inputs. That is, 
+
+∃ 𝑓 : 𝑘  𝑥 𝑖 , 𝑥 𝑗 
+
+ = 𝑓  𝑑  𝑥 𝑖 , 𝑥 𝑗 
+
+ 
+
+By contrast, a nonstationary kernel does not have translational symmetry. This can be beneficial if the behavior of the target function changes over its domain (e.g., is more jagged over some regions and more smooth over others), but nonstationarity tends to have a more complicated parameterization and is harder to optimize. Warping refers to modifying kernel functions by either pointwise multiplication with a shape function (warping the output) or by composing the kernel with a continuous transformation (warping the input). For the former, consider a mixture of experts, where the input space has been divided among possibly infinite “expert” GPs, which serve as the predictive model for its subset [18, 19]. The sum of these expert kernels, multiplied by the warping functions (or expert indicators in this case) is thus a nonstationary kernel. For the latter, consider the shape parameter in Gaussian kernels, where larger shape parameters lead to more decay in the distance term. If this shape parameter varies in space, we are able to inject information about varying behavior in space, where quickly-varying regions have larger shape parameters and slowly-varying regions have smaller shape parameters, thus creating a nonstationary kernel [20, 21]. In this work, we use a combination of these two warping approaches, where the parameter-to-adjoint map can be thought of as an input warping, and the product kernel form can be thought of as PDE-informed output warping on a standard kernel. This is similar to the form used in [5], but we employ a different function kernel that directly follows from the GF correction lying in the dual of the test space, as we will show in Section IV and Appendix XI. 7𝑘  𝜽 𝑖 , 𝜽 𝑗 
+
+ = 𝑘 Θ
+
+ 𝜽 𝑖 , 𝜽 𝑗 
+
+ 𝑘 𝑉 
+
+ 𝜙 (𝜽 𝑖 ) , 𝜙  𝜽 𝑗 
+
+ (8) 
+
+## III. Problem Statement 
+
+We are interested in predicting a QoI for a physical system as a function of design variables and physical parameters, such as geometry or non-dimensional quantities. We have access to an HD ground-truth model, from which the QoI can be derived as an integrated quantity of the solution. However, solving this model for every parameter configuration is not feasible for limited computational budget. With limited data from the HD model, we wish to predict the QoI at new parameter configurations using a cheaper, but inaccurate, LD model. Recall that for our purposes, the “dimension” of a model refers to the spatial dimension of the problem under consideration. To this end, our objective is 
+
+> to regress a corrective forcing term to the LD model such that the error between the corrected LD QoI and HD QoI is minimized.
+
+Consider a general weak PDE for the HD and LD models defined over open bounded domains Ω and boundaries Γ,implicitly parameterized by a configuration 𝜽 from the design space Θ. From here on, 𝜽 is omitted as an argument unless it is needed for clarity. Seek 𝑢 𝐻 ∈ 𝑈 𝐻 :
+
+
+
+(P 𝐻 (𝑢 𝐻 ) , 𝑣 ) = ( 𝑓 𝐻 , 𝑣 ) ∀𝑣 ∈ 𝑉 𝐻 
+
+(B 𝐻 (𝑢 𝐻 ) , 𝑤 ) = (ℎ𝐻 , 𝑤 ) ∀𝑤 ∈ 𝑊 𝐻 
+
+Seek 𝑢 𝐿 ∈ 𝑈 𝐿 :
+
+
+
+(P 𝐿 (𝑢 𝐿 ) , 𝑣 ) = ( 𝑓 𝐿 , 𝑣 ) ∀𝑣 ∈ 𝑉 𝐿 
+
+(B 𝐿 (𝑢 𝐿 ) , 𝑤 ) = (ℎ𝐿 , 𝑤 ) ∀𝑤 ∈ 𝑊 𝐿 
+
+(9) where (· , ·) denotes the 𝐿 2 inner product (or more generally a duality pairing), and the subscript denotes which model the term is attributed to, namely, 𝐻 is for HD and 𝐿 is for LD. Here, 𝑢 is the solution to the PDE, P and B are the differential operators on the domain and boundary, 𝑓 and ℎ are the forcing and boundary terms, 𝑈 is the trial space, and 
+
+𝑉 and 𝑊 are the test spaces for the interior and boundaries, respectively. The QoI 𝑞 is found by integrating the solution 
+
+𝑞 (𝜽 ) = 𝐹 (𝑢 (𝜽 )) (10) where 𝐹 is an operator that defines QoI 𝑞 as a function of 𝑢 . In general, 𝑞 𝐿 ≠ 𝑞 𝐻 , and we are interested in finding a corrected counterpart of 𝑞 𝐿 , denoted as 𝑞 †, so that 𝑞 † approximates the unknown 𝑞 𝐻 . A straightforward approach would 8be to construct a GP for the error 𝑒 = 𝑞 𝐻 − 𝑞 𝐿 , and then define 𝑞 † = 𝑞 𝐿 (𝜽 ) + 𝑒 (𝜽 ). This approach is purely data-driven and does not take the underlying structure of the problem into account. For that reason, our numerical examples will show that it could take more data to yield a desired accuracy. Aiming at overcoming this potential issue, we developed a physics-aware approach by postulating a corrective forcing term that indirectly corrects 𝑞 𝐿 by way of producing 𝑢 † by accounting for the missing physics that are relevant to the QoI. To that end, we seek 𝑔 ∈ 𝑉 ∗ 
+
+> 𝐿
+
+(Ω𝐿 ) , 𝑢 † ∈ 𝑈 𝐿 (Ω𝐿 ) such that for all 𝜽 
+
+
+
+P𝐿 
+
+
+
+𝑢 †
+
+, 𝑣 
+
+
+
+= ( 𝑓 𝐿 , 𝑣 ) + ( 𝑔, 𝑣 ) ∀𝑣 ∈ 𝑉 𝐿 (11a) 
+
+
+
+B𝐿 
+
+
+
+𝑢 †
+
+, 𝑤 
+
+
+
+= (ℎ𝐿 , 𝑤 ) ∀𝑤 ∈ 𝑊 𝐿 (11b) 
+
+𝑞 † = 𝐹 
+
+
+
+𝑢 †
+
+(11c) We further assume that the observed data 𝑑 (𝜽 ) is corrupted by noise 𝜂 , i.e., 𝑑 (𝜽 ) = 𝑞 𝐻 (𝜽 ) + 𝜂 , and that the noise 𝜂 
+
+is also the difference between the data 𝑑 (𝜽 ) and our corrected QoI 𝑞 † (𝜽 ):
+
+𝑑 (𝜽 ) = 𝑞 † (𝜽 ) + 𝜂 (12) We will place a GF prior on 𝑔 , with mean functional 𝑚 and covariance kernel 𝑘 . This is equivalent to placing a GP prior over the QoI response surface 𝑞 , with prior mean equal to the LD response surface and covariance featurized by the configuration-to-adjoint map. We condition the GP on satisfying the observational model (12) on the training set, which provides a dimension-bridging surrogate of the true QoI response surface and its uncertainty by way of the posterior mean and covariance, respectively. 
+
+## IV. The Inner Product Kernel 
+
+A. Covariance of Inner Products 
+
+From (3), we know that the covariance of a GF acts symmetrically on two functions and takes a tuple of functions 
+
+𝑣, 𝑤 to a real number in a positive definite manner, quantifying the covariance between the evaluation of the functional on the two arguments. The covariance ultimately takes the form of a double integral operator: 
+
+𝑘 𝑉 (𝑣, 𝑤 ) =
+
+∬
+
+𝜅 (𝑥, 𝑦 ) 𝑣 (𝑥 )𝑑𝑥 𝑤 (𝑦 )𝑑𝑦. (13) Here, the integral kernel 𝜅 is taken as the covariance kernel of a GP (see Appendix B for a detailed discussion). 9B. Auxiliary LD Models 
+
+We now consider the effects of geometry that cannot be captured by the LD model, specifically the case where such geometry can be described with parameters 𝜉 . We can extend our parametric GF to act on a new design space defined as the product of the LD-visible subspace Θ and the LD-invisible subspace Ξ, i.e., 
+
+𝑔 ∼ GF ( 𝑚, 𝑘 ) , (14a) 
+
+𝑚 : 𝑉 × Θ × Ξ → R, (14b) 
+
+𝑘 : (𝑉 × Θ × Ξ)2 → R. (14c) However, since the geometry 𝜉 ∈ Ξ is neglected by the primary LD model, the LD solution and adjoints will not change as 𝜉 varies. This places all variation in the predicted quantity due to geometry on the geometry kernel 𝑘 Ξ. Our goal is to exploit the LD physics solver available to us to design a geometry kernel with improved performance over standard GPR kernels. Assuming the parametric geometry also admits an LD representation, we may add an auxiliary LD model to featurize 
+
+𝜉 . This time, we assume the effects of the geometry are associated with the structure of the new auxiliary LD solution, as opposed to the adjoints. This is because we are not evaluating the GF on an adjoint solution, but rather using the auxiliary solve as a way to map the parameters that are invisible to the primary LD model to a more feature-rich space which may better inform the regression of our QoI. With this in mind, we define a new product kernel with factor covariances 𝑘 𝑈 and dependence on Ξ acting on both adjoint solutions, primal solutions, and parameters, respectively. 
+
+𝑘 = 𝑘 𝑉 𝑘 Θ×Ξ 𝑘 𝑈 (15) where 𝑢 ∈ 𝑈 are the auxiliary solutions associated with the geometric parameters 𝜉 . Since 𝑘 𝑈 is a kernel over a function space, we employ the same integral form used in the primary kernel (13). Furthermore, in practice we have found that including the forward solutions from the primal model is beneficial even when an auxiliary model is unnecessary. In our results, we consider two cases: one varying an LD-visible parameter and one varying an LD-invisible parameter that demands an auxiliary solution. In the former, we use both 𝑘 𝑉 and 𝑘 𝑈 via the primary LD model and in the latter, we only use 𝑘 𝑈 from the auxiliary model. Still, the most general case remains where a combination of 𝑘 𝑉 and 𝑘 𝑈 may be used given both a primary and an auxiliary LD model. 10 C. Multiple QoIs 
+
+When modeling multiple quantities (e.g., lift, drag, and pitching moment coefficients.), we independently learn different parameterizations of our featurized kernel for each QoI. When 𝑘 𝑉 is used, only the appropriate adjoint for each QoI is utilized. Although the double integral operator (13) allows for a natural form of cross-covariance by sharing the same integral kernel 𝜅 , we have found in practice that this produces poor results. We observed that stronger sensitivities (larger adjoint state magnitudes) tend to dominate, leading the regression of less sensitive QoIs to “ignore” the contribution of observations in favor of predicted covariances with more sensitive QoIs. 
+
+D. Hyperparameter Tuning 
+
+Most GP models optimize the hyperparameters through maximum likelihood estimation (MLE). In other words, inferring an optimal hyperparameter set from the available data. This is done by minimizing the negative log-likelihood of the data with respect to its marginal distribution (which is defined by the hyperparameters). For data 𝒅 , given the training configurations 𝑇 and hyperparameters 𝜶 , the optimal hyperparameter 
+
+𝜶 ∗ = argmin 
+
+> 𝜶
+
+log P[𝒅 |𝑇, 𝜶 ] (16) with the Gaussian negative log-likelihood given by 
+
+−2 log P[𝒅 |𝑇, 𝜶 ] = |𝑇 | ln 2 𝜋 + ln det 𝐾 𝑇𝑇 + ( 𝒅 − 𝒎 )T (𝐾 𝑇𝑇 )−1 ( 𝒅 − 𝒎 ) (17) where 𝒎 is the prior mean prediction, 𝐾 𝑇𝑇 is the covariance matrix for the QoI evaluations over the training set 𝑇 ,and | · | denotes cardinality of the set. In practice, it is difficult to avoid local minima when optimizing (16), so we employ multiple restarts with randomized initialization, taking the best results and rejecting those resulting in numerically singular or numerically zero results. Additionally, we observed a tendency for the optimization to converge on very small or very large variances. To counteract this, we introduced a regularization to (16), penalizing the prior variances from being very different from the observed squared errors. This can be interpreted as a maximum a posteriori (MAP) estimation problem where we have assigned a prior to the hyperparameters, defined such that we expect them to produce variances similar to the observed square errors from the prior mean. Specifically, we postulate that the mean estimate of the training set variances follows a Gamma distribution (since it is restricted to be positive) with mode equal to the mean observed squared error. We enforce this mode by choosing the shape parameter to be 2 and the scale parameter to be the mean observed squared error. This resulting prior is given by 11 log P[𝜶 ] = −2 ln 1
+
+|𝑇 | 
+
+> |𝑇 |
+
+∑︁ 
+
+> 𝑖 =1
+
+(𝑑 𝑖 − 𝑚 𝑖 )2
+
+!
+
+− ln Γ(2) + ln 1
+
+|𝑇 | 
+
+> |𝑇 |
+
+∑︁ 
+
+> 𝑖 =1
+
+𝑘    𝜽 𝑖 , 𝝃 𝑖 
+
+, 𝜽 𝑖 , 𝝃 𝑖 
+
+ 
+
+− 1
+
+|𝑇 |2 
+
+> |𝑇 |
+
+∑︁ 
+
+> 𝑖 =1
+
+(𝑑 𝑖 − 𝑚 𝑖 )2
+
+! |𝑇 |∑︁ 
+
+> 𝑖 =1
+
+𝑘    𝜽 𝑖 , 𝝃 𝑖 
+
+, 𝜽 𝑖 , 𝝃 𝑖 
+
+ ! (18) where Γ is the Gamma function. Using Bayes’ Rule, we write the log proportional posterior as 
+
+P[𝜶 |𝑇, 𝒅 ] ∝ P[𝒅 |𝑇, 𝜶 ] P[𝜶 ] (19a) log P[𝜶 |𝑇, 𝒅 ] = log P[𝒅 |𝑇, 𝜶 ] + log P[𝜶 ] + 𝑐 (19b) for some constant 𝑐 . We then employ L-BFGS-B to minimize this (log) cost over the hyperparameters with multiple randomized restarts and rejection. 
+
+## V. Adaptive Sampling 
+
+Since our problems of interest assume a prohibitively expensive HD solver, we are interested in regressing the QoI response surface with as few HD samples as possible. It is difficult to determine how many samples are sufficient a priori, much less the specific configurations to sample at. To this end, so-called adaptive sampling algorithms are of interest to expensive many query problems. In these methods, the prediction is iteratively improved by only sampling at each step when needed. Given some indicator of error or uncertainty, an acquisition function is used to identify the best place to acquire a new sample if the current prediction is short of some tolerance. For standard GPR applications in the literature, this acquisition function is typically taken to be the posterior variance, where the point with the greatest posterior variance is sampled for the next iteration. The goal of this type of greedy approach is to find the next samples to reduce the variance. When using stationary kernels, this typically corresponds to points in the domain far away from existing samples. In contrast, nonstationary kernels, such as our adjoint inner product kernel, can cluster samples around points which “need” more information, as predicted by the kernel. In our case, this would be where the LD solutions vary quickly, i.e. where they are sensitive to changes in the design parameters. Since the LD physics-aware kernel gives larger uncertainty where we should sample, we acquire the point of maximal variance at each iteration. For multiple quantities, we consider maximizer of the pointwise variance sum, weighted by the precision of each measurement. This means we select the point which is the most uncertain, and favor quantities based on how precise their observations are. Specifically, 12 (𝜽 , 𝝃 )𝑡 +1 = argmax     
+
+> (𝜽 ∗,𝝃 ∗) ∈ 𝐴 𝑡 \𝑇 𝑡
+
+∑︁ 𝑛 
+
+Var  𝑞 (𝑛 )† (𝜽 ∗, 𝝃 ∗) | 𝑑 (𝑇 𝑡 )
+
+𝜎 2
+
+> 𝑛
+
+(20) where 𝐴 𝑡 and 𝑇 𝑡 are the acquirable set (we choose fixed, evenly spaced) and training set (i.e. initial samples and those previously chosen), respectively, at iteration 𝑡 . Here, 𝜎 𝑛 is the standard deviation of the measurement noise for the 𝑛 -th QoI. Another possibility is to replace the 𝑛 -th noise variance by the 𝑛 -th minimal pointwise variance, so that we favor observations with large spatial variation in their pointwise variance. There exist other acquisition functions from optimal experimental design, (e.g., A-optimality, I-optimality) whose incorporation we leave to future work. Our acquisition in (20) is of the V-optimal (variance) type. 
+
+## VI. Neural Network Accelerated Kernel 
+
+A. Framework 
+
+We modify the GF algorithm to include an additional step before GP training where some set of the LD points is used to train a neural network (NN) for each QoI to provide Cov 
+
+h
+
+𝑞 (𝑛 )  𝜽 𝑖 , 𝝃 𝑖 
+
+ , 𝑞 (𝑛 ) 
+
+𝜽 𝑗 , 𝝃 𝑗 
+
+i 
+
+≈ 𝑘 (𝑛 ) 
+
+> 𝑁 𝑁
+
+(( 𝜽 𝑖 , 𝝃 𝑖 ), (𝜽 𝑗 , 𝝃 𝑗 )) 
+
+without requiring any additional forward and adjoint LD solves during online inference, as would be required for every new parameter when evaluating (15) directly. In the present work, we only consider learning a covariance where QoIs are a priori independent. This is advantageous when fast online inference is desirable but the desired set of test parameters should be large or only its distribution is known at training time, i.e. in order to provide a reduction in total cost and to provide reliable evaluations. Since we wish to approximate a known kernel, we have to carefully ensure the approach can learn arbitrary symmetric positive definite kernels. This is trickier than parameterizing a symmetric positive definite matrix of known size, such as done in existing literature [22], as we wish to evaluate at any arbitrary parameters, even those not known at training time. We propose a novel NN approach for approximating an arbitrary kernel to speed up evaluation through approximating a finite sequence of functions 𝝓 1, . . . , 𝝓 𝑀 : R𝑃 → R. Additionally, learnable log-weights 𝜏 1, . . . , 𝜏 𝑀 are used to ease the training of smaller contributions. Specifically, we consider the neural network of the following form 
+
+𝑘 (𝑛 ) 
+
+> 𝑁 𝑁
+
+(( 𝜽 𝑖 , 𝝃 𝑖 ), (𝜽 𝑗 , 𝝃 𝑗 )) :=
+
+> 𝑀
+
+∑︁ 
+
+> 𝑚 =1
+
+𝑒 2𝜏 𝑚 𝝓 (𝑛 ) 
+
+> 𝑚
+
+(( 𝜽 𝑖 , 𝝃 𝑖 )) 𝝓 (𝑛 ) 
+
+> 𝑚
+
+(( 𝜽 𝑗 , 𝝃 𝑗 )) (21) This specific form is motivated by Mercer’s theorem [23]. Mercer guarantees the existence of a sequence √𝜆 𝑖 𝜓 𝑖 (𝒙 )
+
+where 𝜓 𝑖 are orthonormal and continuous and give the series expansion of a positive definite kernel (Mercer kernel) 13 𝑘 (𝒙 , 𝒙 ′) =
+
+> ∞
+
+∑︁ 
+
+> 𝑖 =1
+
+𝜆 𝑖 𝜓 𝑖 (𝒙 )𝜓 𝑖 (𝒙 ′) (22) with uniform and absolute convergence. That is, the neural network universal approximation theorem (see, e.g., [24] and references therein) for each 𝜓 combined with Mercer’s theorem gives universal approximation for NNs of form (21) and any Mercer kernel. However, 𝜓 𝑖 from the canonical Mercer series are eigenfunctions of the Hilbert-Schmidt operator associated with the kernel. We do not directly seek these or enforce orthonormality. Rather, we train some 
+
+𝝓 1, 𝝓 2, ..., 𝝓 𝑀 that minimizes some loss involving the finite term approximation. 
+
+B. Training 
+
+We use a minibatched elementwise least squares loss, using the upper triangular part to avoid overcounting symmetric components. Specifically, the loss function 
+
+Jmini := 1
+
+|𝐼 mini |∑︁ (𝑖, 𝑗 ) ∈ 𝐼 mini ⊂𝐼 train 
+
+
+
+[𝐾 ]𝑖, 𝑗 − [ 𝐾 𝑁 𝑁 ]𝑖, 𝑗 
+
+2
+
+(23a) 
+
+[𝐾 ]𝑖, 𝑗 := 𝑘 
+
+
+
+(𝜽 𝑖 , 𝝃 𝑖 ), (𝜽 𝑗 , 𝝃 𝑗 )
+
+
+
+(23b) 
+
+[𝐾 𝑁 𝑁 ]𝑖, 𝑗 := 𝑘 𝑁 𝑁 
+
+
+
+(𝜽 𝑖 , 𝝃 𝑖 ), (𝜽 𝑗 , 𝝃 𝑗 )
+
+
+
+(23c) where 𝐼 are multi-index sets. The subscript “mini” refers to the current minibatch and the square brackets and subscripts are used to denote taking the (𝑖, 𝑗 )-th element of the matrix in brackets. After selecting 𝑁 train parameters for training, we have the training index set 
+
+𝐼 train :=
+
+
+
+(𝑖, 𝑗 ) ∈ { 1, . . . , 𝑁 train }2 : 𝑗 ≥ 𝑖 
+
+
+
+(24) The minibatch approach involves performing gradient descent steps based on the gradient of Jmini , rather than the loss over the entire training dataset. We partition 𝐼 train into subsets 𝐼 mini and iterate over them until some number of “epochs” (times covering all of 𝐼 train ) has passed. Before splitting the data into test and train subsets, it is desirable to shift and scale the dataset to near a unit domain and range, as is standard practice in machine learning. A common choice is to standardize the inputs and outputs (e.g., by enforcing zero mean and unit standard deviation, or by mapping into a unit hypercube), but our dataset consists of PSD matrices generated by Mercer kernels, which are not closed under element-wise sum with arbitrary matrices. However, we can find the largest scalar, within numerical precision, that can be subtracted and retain positive definiteness. In our 14 case, we thus consider a unit range to refer to a restriction on the cone of positive semi-definite matrices such that the maximal element has unit magnitude. To that end, let 𝐾 denote the 𝑁 × 𝑁 PSD kernel matrix constructed from the train and test data. And let 𝜆 1 (𝑀 ) ≥ · · · ≥ 𝜆 𝑁 (𝑀 ) be the eigenvalues of a given 𝑁 × 𝑁 matrix 𝑀 . Consider the shifted matrix ˜𝐾 := 𝐾 − 𝜇 11 T , 𝜇 > 0 (25) where 1 is a vector of all ones. Then Weyl’s inequality applied to ˜ 𝐾 + 𝜇 11 T gives 
+
+𝜆 𝑖 ( ˜𝐾 ) + 𝜆 𝑗 (𝜇 11 T ) ≤ 𝜆 𝑖 + 𝑗 − 𝑁 (𝐾 )
+
+Apply again to 𝐾 − 𝜇 11 T and we have 
+
+𝜆 𝑖 (𝐾 ) + 𝜆 𝑗 (− 𝜇 11 T ) ≤ 𝜆 𝑖 + 𝑗 − 𝑁 ( ˜𝐾 ).
+
+Exploiting the 𝑁 − 1 eigenvalues equal to 0 in 𝜇 11 T by setting 𝑗 = 𝑁 in the first relation and 𝑗 = 𝑁 − 1 in the second while considering 𝑖 one higher gives 
+
+𝜆 𝑖 +1 (𝐾 ) ≤ 𝜆 𝑖 ( ˜𝐾 ) ≤ 𝜆 𝑖 (𝐾 )
+
+Through considering 𝑖 = 𝑁 − 1, we now know that the second smallest eigenvalue of ˜ 𝐾 is larger than smallest eigenvalue of 𝐾 , and repeating this for different 𝑖 yields 
+
+𝜆 1 ( ˜𝐾 )...𝜆 𝑁 −1 ( ˜𝐾 ) ≥ 𝜆 𝑁 (𝐾 ) ≥ 0.
+
+Consequently, we seek the critical value 𝜇 crit where 𝜆 𝑁 ( ˜𝐾 ) = 0, and then we choose 𝜇 as 
+
+𝜇 := (1 − 𝜀 𝑚 ) 𝜇 crit (26) where 𝜀 𝑚 is the floating point precision (i.e., 2 −52 in the IEEE 754 standard 64-bit architecture). Since the determinant is the product of eigenvalues, and all other eigenvalues are greater than 0, we can find 𝜇 crit by solving for det ( ˜𝐾 ) = 0. Applying the matrix determinant lemma [25] gives det ( ˜𝐾 ) = (1 − 𝜇 1𝐾 −11T ) det (𝐾 )
+
+and finally we have 15 𝜇 crit = 1/( 1𝐾 −11T ) (27) In practice, we compute the shift via a Cholesky factorization of 𝐾 followed by a sum reduction. Finally, after shifting, the data is rescaled by dividing by the maximal element of ˜ 𝐾 .
+
+C. Evaluation 
+
+After training, we use the NN to construct 𝑁 train × 𝑁 test matrices of kernel evaluations evaluated at the Cartesian product of parameter vectors for use in the computations of the GPR posterior (where 𝑁 test ≥ 𝑁 train ). It is efficient and convenient to evaluate the network at 𝑁 train + 𝑁 test inputs, or just 𝑁 test if parameter vectors are equal such as for the marginal covariances for the train and test sets, producing all the needed 𝝓 1, . . . , 𝝓 𝑀 evaluations. In popular linear algebra libraries [26, 27], the final kernel computation can be accomplished concisely using broadcasting of the series basis and coefficients followed by a sum reduction. In practice, the dominant cost will be evaluating the neural network, i.e. the evaluation scales with O( 𝑁 test ).
+
+## VII. ALGORITHM 
+
+The overall inference and data acquisition process is summarized in Algorithm 2, using the evaluation of our kernel as described in Algorithm 1. The additional step of pre-correcting the LD QoIs using the empirical statistics of the HD observations to shift and scale as described in Algorithm 2 is motivated by the superior performance and can be reconciled with the theory by considering a modified LD observation functional, where the scaling does effect the adjoint solution up to a factor but ultimately can be canceled from the trained scaling factors in the kernel parameterization. That is, it is justified in practice to just scale and shift the LD QoI without modifying the numerics of the observation functional and adjoint. 
+
+Algorithm 1 Gaussian Functional Regression 
+
+Require: HD parameters {( 𝜃, 𝜉 ) ∈ 𝑇 𝑡 } and corresponding 𝑞 𝐻 at each for GP training, and LD parameters {( 𝜃, 𝜉 ) ∈ 𝐴 𝑡 }
+
+for kernel samples  
+
+> 1:
+
+Gaussian Functional Regression  
+
+> 2:
+
+if NN is trained then  
+
+> 3:
+
+Evaluate kernel at all training and desired sample locations by plugging parameters into Eqn (21)  
+
+> 4:
+
+else  
+
+> 5:
+
+Run LD simulations at all parameters, obtaining solutions and any needed adjoints  
+
+> 6:
+
+Evaluate kernel at all training and desired sample locations by plugging parameters as well as LD solutions and/or adjoints into Eqn (15)  
+
+> 7:
+
+end if  
+
+> 8:
+
+Obtain posterior mean, Eqn (2b)  
+
+> 9:
+
+Obtain posterior covariance, Eqn (2d) 16 Algorithm 2 GFR with training acquisition for a single QoI  
+
+> 1:
+
+Hyperparameter Optimization  
+
+> 2:
+
+Use empirical mean and standard deviation of available HD QoI samples to shift and rescale 𝑞 𝐿 as the prior mean  
+
+> 3:
+
+Maximize Log-Marginal Likelihood (16) or Log-Posterior (19) via gradient based methods to provide kernel hyperparameters  
+
+> 4:
+
+Neural Network Training (Optional)  
+
+> 5:
+
+Shift dataset (kernel samples) by (1 − 𝜀 𝑚 ) 𝜇 crit and scale by maximal element  
+
+> 6:
+
+Remove some elements from 𝐼 train to save as test set  
+
+> 7:
+
+Train NN until converged using Eqn (23a)  
+
+> 8:
+
+Gaussian Functional Prediction  
+
+> 9:
+
+Use current HD samples to get posterior QoI response via Algorithm 1  
+
+> 10:
+
+Acquisition & Sampling (Optional)  
+
+> 11:
+
+Find the next query point, maximizing Eqn (20) based on posterior variance  
+
+> 12:
+
+Run the HD model to acquire new data  
+
+> 13:
+
+Continue with new Hyperparameter Optimization unless maximum iterations reached 
+
+## VIII. Results 
+
+A. Test Problem: Winglet Geometry 
+
+For our test problem of interest, we correct predictions of the aerodynamic coefficients provided by a 2D simulation over an airfoil to better model the ground-truth values given by a 3D simulation over the full wing. For the governing equations, we use the compressible Reynolds-Averaged Navier-Stokes (RANS) equations. For the turbulence model, we use the 2003 Menter Shear Stress Transport model (SST-2003) [28]. This is a two-equation linear eddy viscosity model, which introduces conservation equations for the turbulent kinetic energy 𝑘 and specific dissipation rate 𝜔 . We refer readers to Menter and related works for the full closure definition. This results in solutions with six-vector values in 3D and five-vector values in 2D. In conservative form, these components are density, momentum, energy, and the turbulence quantities. We use SU2 [29] as the primary and adjoint solver. We review the laminar compressible Navier-Stokes equations 17 𝜕𝑈 𝜕𝑡 + ∇ · 𝐹 𝑐 (𝑈 ) − ∇ · 𝐹 𝑣 (𝑈, ∇𝑈 ) − 𝑆 = 0 (28a) 
+
+𝑈 = [𝜌, 𝜌𝑢, 𝜌𝑣, 𝜌𝑤, 𝜌𝐸 ]T (28b) 
+
+𝐹 𝑐 =
+
+
+
+𝜌 𝒖 
+
+𝜌 𝒖 ⊗ 𝒖 + 𝑝𝐼 𝜌𝐸 𝒖 + 𝑝 𝒖 
+
+
+
+(28c) 
+
+𝐹 𝑣 =
+
+
+
+0
+
+𝜏 𝜏 · 𝒖 + 𝜅 ∇𝑇 
+
+
+
+(28d) 
+
+𝜏 = 𝜇  ∇𝒖 + ∇ 𝒖 T  − 23 𝜇𝐼 (∇ · 𝒖 ) (28e) where 𝜌 is the density, 𝑢 , 𝑣 , and 𝑤 are components of the velocity 𝒖 , 𝐸 is the specific energy, 𝑝 is the pressure, and 𝑇 
+
+is the temperature. The modeled terms include the viscous stress tensor 𝜏 , the viscosity 𝜇 , and the thermal conductivity 
+
+𝜅 . For concision, we use 𝐹 𝑐 and 𝐹 𝑣 as the convective and viscous flux tensors, respectively, 𝑆 is a forcing term, and 𝐼 is the 3 × 3 identity matrix. The RANS equations are derived by time-averaging (28) to obtain a mean flow solution ¯ 𝑈 and modeling the terms that arise as functions of the deviatoric quantities ˆ 𝑈 . Linear eddy viscosity models, including the SST-2003 model we use, assume the so-called Reynolds stress 𝜏 𝑡 is linearly related to the deviatoric strain rates through an eddy viscosity term 𝜇 𝑡 (the Boussinesq assumption): 
+
+𝜏 𝑡 = 𝜇 𝑡 
+
+ ∇ ˆ𝒖 + ∇ ˆ𝒖 T  − 23 𝜇 𝑡 𝐼 (∇ · ˆ𝒖 ) (29) The 3D geometry is based on the ONERA M6 wing [30, 31], which is a common validation case for turbulent external flows. We have designed a continuous blended winglet geometry parameterize by 𝜉 , which is the height of the wingtip chord above the ONERA M6 chord plane ℎ normalized by the root chord length 𝐶 , i.e., 
+
+𝜉 = ℎ/𝐶 (30) If 𝜉 corresponds to a height at which the winglet has not reached the full 100 ◦ cant, the geometry is truncated by a plane at the current cant angle. If 𝜉 corresponds to a height after the winglet has reached the full cant angle, the winglet taper rate is decreased and the sweep operation is extended along the canted chord plane so that the wingtip size reaches 18 a minimum at 0 .281 𝐶 . We choose this wingtip size to match the same taper rate as the ONERA M6 until full cant is reached. This results in a continuous variation in geometry, but creates two regions of changing behavior: (1) after the winglet reaches full cant, the entire geometry changes past the original wingtip, whereas only the winglet tip grows before reaching full cant, and (2) when 𝜉 is zero, the definition of 𝜉 being associated with a quantity normal to direction of geometry addition results in an infinite rate of change. Example solutions at a Mach number of 0.84, Reynolds number of 11.72 thousand, angle of attack of 3 degrees, and 𝜉 of 0 and 0.25 is shown in Figure 1. Since the root airfoil does not change with 𝜉 , we introduce an auxiliary solve around the winglet tip airfoil for when regressing across changes in 𝜉 . The domain is taken to be the plane that contains the wingtip. This plane starts as a span-normal plane at 𝜉 = 0 and cants to 100 ◦ as 𝜉 increases. The freestream condition is then projected onto the in-plane components and used as the 2D freestream condition, i.e., 
+
+𝒖 (∞)  
+
+> 2𝐷
+
+=  𝐼 − 𝒏 2𝐷 𝒏 T
+
+> 2𝐷
+
+ 𝒖 (∞)  
+
+> 3𝐷
+
+(31a) 
+
+𝛼 2𝐷 = arctan ©« 𝐼 − 𝒆 1 𝒆 T
+
+> 1
+
+ 𝒖 (∞) 
+
+> 2𝐷
+
+𝒆 1 𝒆 T
+
+> 1
+
+𝒖 (∞) 
+
+> 2𝐷
+
+ª®®¬
+
+(31b) Re 2𝐷 =
+
+𝒖 (∞)  
+
+> 2𝐷
+
+𝐶 𝑡𝑖 𝑝 
+
+𝒖 (∞)  
+
+> 3𝐷
+
+𝐶 𝑟 𝑜𝑜𝑡 
+
+Re 3𝐷 (31c) Ma 2𝐷 =
+
+𝒖 (∞) 
+
+> 2𝐷
+
+𝒖 (∞) 
+
+> 3𝐷
+
+Ma 3𝐷 (31d) where the infinity superscript denotes a freestream quantity, 𝒏 2𝐷 is the wingtip normal vector, 𝒆 is the canonical basis vector, 𝛼 is the angle of attack, and Ma and Re are the Mach and Reynolds numbers, respectively. Since the 3D domain uses the symmetric boundary condition on the root plane, we use a slip boundary condition on the 2D wall. Examples of 2D meshes are given in Figure 2. For the stationary kernels in the following examples, we use a mixture of Matérn kernels, with regularity parameters 
+
+𝜈 = 1/2, 3/2, 5/2, ∞. This allows the regularity of the regression to be inferred from data. 
+
+1. Varying Winglet Size 
+
+We evaluate the benefits of PDE-informed nonstationarity in the auxiliary kernel by comparing the product kernel involving the auxiliary primal solution (but not the primary LD solutions) to stationary kernels while varying the winglet size. Since the winglet size does not impact the root plane, this regression relies solely on the auxiliary kernels, i.e. it only uses the 2D wing tip solutions. As discussed previously, the design of the parameterization results in an infinite rate of change when 𝜉 = 0, which will give the auxiliary solution kernel an opportunity to guide regression by increasing 19 Figure 1 SU2 solutions for (Top) 𝜉 = 0 and (Bottom) 𝜉 = 0.25 . The root plane is colored by the Mach number and the wing surface is colored by the pressure coefficient 
+
+20 Figure 2 Auxiliary 2D meshes for (Left) 𝜉 = 0, (Center) 𝜉 = 0.025 and (Right) 𝜉 = 0.125 .
+
+basis variability and posterior uncertainty close to 𝜉 = 0. The angle of attack is fixed to 3 degrees, the Mach number is fixed to 0.84, and the Reynolds number is fixed to 11.72 thousand. To demonstrate the effectiveness of using the nonstationary kernel in an adaptive setting, we run an adaptive sampling algorithm using the two kernels to acquire the point with the most posterior variance at each iteration, starting with 2 points on the domain boundary in Figure 3. Regressions at iterations 1, 2, 3 are presented in Figures 4, 5, and 6, respectively. We also present the Matérn regression with the PDE-acquired dataset to show that the PDE kernel outperforms the Matérn kernel with the same dataset. As we acquire more samples, the PDE kernels drive acquisition near the regions of high uncertainty (large adjoint sensitivity), quickly resolving the features of interest. By comparison, the stationary kernels are unaware of the surface features until enough samples have been acquired to make shorter length scales more likely. 
+
+2. Varying Flight Condition 
+
+Additionally, we evaluate the benefits of the adjoint inner product kernel by comparing the regression with no winglet ( 𝜉 = 0) across the so-called critical Mach number, which is the Mach number at which the upper surface shock appears, resulting in rapid changes in aerodynamic forcing as a function of Mach number. By varying the flight condition, all changes are seen by the 2D root LD model and thus we use its primal and adjoint solutions in the kernel but not the tip solutions that the preceding varying winglet size results relied on. Since the 2D model should also exhibit critical Mach behavior, we expect the regression with the adjoint inner product kernel to allow for rapid change around this number. However, since such behavior is associated with small length scales, a stationary kernel will not be able to resolve this behavior without observing many samples. The regressions are given an equispaced grid covering an interval which includes the critical Mach number. The angle of attack is fixed at 3 degrees, and the Reynolds number is fixed to 11.72 thousand. We see that the stationary kernel attempts to predict a curve with uniform variability, whereas the adjoint inner product kernel shows both (1) a 21 GF QoI regressors 
+
+0 50 100 Size [%c] 0.25 0.30 CL 
+
+0 50 100 Size [%c] 0.018 0.020 0.022 CD 
+
+0 50 100 Size [%c] 
+
+−0.10 
+
+−0.05 CMy GF 2 σ
+
+Prior 2 σ
+
+GF Regressor Ground Truth Precorrected LD GPR Training Data 
+
+GF basis functions 
+
+0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 Matérn vs GF QoI regressors 
+
+0 50 100 Size [%c] 0.25 0.30 CL 
+
+0 50 100 Size [%c] 0.018 0.020 0.022 CD 
+
+0 50 100 Size [%c] 
+
+−0.10 
+
+−0.05 CMy GF 2 σ
+
+Matérn GP 2 σ
+
+GF Regressor Matérn GP Regressor Ground Truth GF Adapted Data Matérn Adapted Data 
+
+Matérn basis functions 
+
+0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 Figure 3 Comparison between our GF kernel and a Matérn mixture on the QoI regression and basis functions at iteration 0 (before sampling). 
+
+22 GF QoI regressors 
+
+0 50 100 Size [%c] 0.2 0.3 CL 
+
+0 50 100 Size [%c] 0.018 0.020 0.022 CD 
+
+0 50 100 Size [%c] 
+
+−0.10 
+
+−0.05 CMy GF 2 σ
+
+Prior 2 σ
+
+GF Regressor Ground Truth Precorrected LD GPR Training Data 
+
+GF basis functions 
+
+0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 01Matérn vs GF QoI regressors 
+
+0 50 100 Size [%c] 0.25 0.30 CL 
+
+0 50 100 Size [%c] 0.020 0.022 CD 
+
+0 50 100 Size [%c] 
+
+−0.10 
+
+−0.05 CMy GF 2 σ
+
+Matérn GP 2 σ
+
+GF Regressor Matérn GP Regressor Ground Truth GF Adapted Data Matérn Adapted Data 
+
+Matérn basis functions 
+
+0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 Figure 4 Comparison between our GF kernel and a Matérn mixture on the QoI regression and basis functions at iteration 1. 
+
+23 GF QoI regressors 
+
+0 50 100 Size [%c] 0.25 0.30 CL 
+
+0 50 100 Size [%c] 0.018 0.020 0.022 CD 
+
+0 50 100 Size [%c] 
+
+−0.10 
+
+−0.05 CMy GF 2 σ
+
+Prior 2 σ
+
+GF Regressor Ground Truth Precorrected LD GPR Training Data 
+
+GF basis functions 
+
+0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 Matérn vs GF QoI regressors 
+
+0 50 100 Size [%c] 0.250 0.275 0.300 CL 
+
+0 50 100 Size [%c] 0.020 0.022 CD 
+
+0 50 100 Size [%c] 
+
+−0.10 
+
+−0.08 
+
+−0.06 CMy GF 2 σ
+
+Matérn GP 2 σ
+
+GF Regressor Matérn GP Regressor Ground Truth GF Adapted Data Matérn Adapted Data 
+
+Matérn basis functions 
+
+0 50 100 Size [%c] 010 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 Figure 5 Comparison between our GF kernel and a Matérn mixture on the QoI regression and basis functions at iteration 2. 
+
+24 GF QoI regressors 
+
+0 50 100 Size [%c] 0.2 0.3 CL 
+
+0 50 100 Size [%c] 0.020 0.022 CD 
+
+0 50 100 Size [%c] 
+
+−0.100 
+
+−0.075 
+
+−0.050 CMy GF 2 σ
+
+Prior 2 σ
+
+GF Regressor Ground Truth Precorrected LD GPR Training Data 
+
+GF basis functions 
+
+0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 Matérn vs GF QoI regressors 
+
+0 50 100 Size [%c] 0.25 0.30 CL 
+
+0 50 100 Size [%c] 0.020 0.022 CD 
+
+0 50 100 Size [%c] 
+
+−0.10 
+
+−0.08 CMy GF 2 σ
+
+Matérn GP 2 σ
+
+GF Regressor Matérn GP Regressor Ground Truth GF Adapted Data Matérn Adapted Data 
+
+Matérn basis functions 
+
+0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 0 50 100 Size [%c] 0.0 0.5 1.0 Figure 6 Comparison between our GF kernel and a Matérn mixture on the QoI regression and basis functions at iteration 3. 
+
+25 GF QoI regressors GF Lagrange basis functions                    
+
+> 0.6 0.7 0.8 0.9 Mach # 0.10 0.15 0.20 0.25 CL
+> 0.6 0.7 0.8 0.9 Mach # 0.02 0.04 CD
+> 0.6 0.7 0.8 0.9 Mach # −0.07 −0.06 −0.05 CMy 0.6 0.7 0.8 0.9 Mach # 020.6 0.7 0.8 0.9 Mach # 010.6 0.7 0.8 0.9 Mach # −2 0Precorrected LF Prior 2 σ
+> GF 2 σfrom NN GF 2 σ
+> GF Regressor from NN GF Regressor Ground Truth GPR Training Data
+
+Figure 7 GPR using original FGP kernel evaluations vs neural network with finer evaluation 
+
+rapid change around the critical Mach number and (2) more slowly varying behavior before the critical Mach number. Since the adjoint inner product kernel is warping a stationary kernel, the stationary kernel is able to learn the longest possible length scale to represent how slowly the quantity varies between similar adjoint solutions, while the rapid change in the primary and adjoint solutions around the critical Mach number introduces nonstationarity that allows for a local increase in variability in the basis functions. This is also paired with an increase in posterior uncertainty around the critical Mach number, which is completely unseen by the stationary kernel alone. We present the regressions and associated basis functions in Figures 7 and 8. These also include the neural network kernel, using hyperparameters detailed later. 
+
+3. Cost-Benefit Analysis 
+
+To quantify the cost-benefit tradeoff of using the PDE kernels to predict LD QoIs compared to generating the HD data, we compare wall clock evaluation time. Across all parameterizations, the HD primal solutions ran for an average of 54,700 s, the LD primal solutions ran for an average of 92 s, and the LD adjoint solutions ran for an average of 162 s. We also observed over 200 parameterizations, the average cost to evaluate the neural network kernel was 0.498 𝜇 s per pair (matrix entry) and 99.6 𝜇 s per parameter. Accounting for the fact that the primal solution can be re-used across QoIs, the NN provides a speedup of 1 .93 𝑒 6 when evaluating our three QoIs at a new parameter. All cases were executed on a single Intel Xeon Platinum 8362 CPU with 64 processes, fully utilizing its available threads. As shown in Figures 3-6, using the PDE kernel resulted in a better accuracy for a given number of adaptive iterations as shown in the varying winglet size case. This demonstrates the ability to save on HD evaluation costs as less samples are required to achieve a given accuracy. In the Mach-varying case, the PDE kernel more closely followed the HD QoI 26 Matérn vs GF QoI regressors Matérn Lagrange basis functions                     
+
+> 0.6 0.7 0.8 0.9 Mach # 0.200 0.225 0.250 CL
+> 0.6 0.7 0.8 0.9 Mach # 0.02 0.04 CD
+> 0.6 0.7 0.8 0.9 Mach # −0.07 −0.06 −0.05 CMy 0.6 0.7 0.8 0.9 Mach # 0.0 0.5 1.0 0.6 0.7 0.8 0.9 Mach # 0.0 0.5 1.0 0.6 0.7 0.8 0.9 Mach # 0.0 0.5 1.0 GF 2 σfrom NN Matérn GP 2 σ
+> GF Regressor from NN Matérn GP Regressor Ground Truth GPR Training Data
+
+Figure 8 GPR with GF kernel vs GPR with Matérn mixture kernel 
+
+response and gave more informative uncertainty compared to the stationary kernel given samples at identical parameters, further strengthening its benefit in adaptive sampling applications. While case dependent (more expensive 3D solvers will exaggerate the benefits; poor 2D solvers will diminish the benefits), we empirically demonstrate the capability of the PDE kernels to give improved regression capabilities at an overall cost savings for expensive many-query applications. 
+
+B. Neural Network Accelerated Kernel 
+
+We use a standard deep, fully-connected neural network. To aide in learning finer scale features, we use a Gaussian Fourier feature mapping, i.e. inputs 𝜽 are mapped to [cos (2𝜋𝐵 𝜽 ), sin (2𝜋𝐵 𝜽 )] T , where 𝐵 ∈ R𝐹 ×𝑃 is a random matrix with entries 𝐵 𝑖, 𝑗 ∼ N ( 0, 𝜎 2). We chose 𝐹 = 8, 𝜎 = 1.0 and note that the parameters (e.g., Mach number) are first scaled to a unit domain. We see, given otherwise identical neural networks trained separately, that final error in the NN results converges quickly with 𝑀 as detailed in Table 1. We emphasize that the displayed relative errors is on the shifted dataset and can be several orders of magnitude smaller on the bare kernel evaluations due to the flatness of the GF kernel functions. The final neural network architecture used 3 hidden layers, each with 512 neurons, 52 series terms, and 8 random Fourier features. The same settings were used for each QoI. The kernel itself, evaluated at significantly more points than the LD model in our other results, is shown in Figure 9. In addition to accurately replicating the kernel evaluations, as discussed in the Varying Flight Condition results, the NN is able to adequately replicate the GP posterior when used for all involved kernel evaluations. This requires a particularly small error as small differences in entries of the training data matrix can have a significant larger effect on the solved coefficients. Nevertheless, the NN was able to provide sufficient accuracy. The speedup in the order of 27 0.6 0.7 0.8 0.9 Mach # 0.60 0.65 0.70 0.75 0.80 0.85 0.90 Mach #       
+
+> CL
+> 0.6 0.7 0.8 0.9 Mach # 0.60 0.65 0.70 0.75 0.80 0.85 0.90 Mach #
+> CD
+> 0.6 0.7 0.8 0.9 Mach # 0.60 0.65 0.70 0.75 0.80 0.85 0.90 Mach #
+> CMy
+> 0.0 0.5 1.0 1.5 1e−3
+> 012341e−5
+> −2 −1 012341e−5
+
+Figure 9 Neural network kernel evaluated at fine points 
+
+millions justifies its use in real-time applications but it may be unnecessary when only a few LD parameters need be evaluated with no demanding time constraints. 
+
+Table 1 Post-training error over the entire dataset, as 𝑀 increases for 𝐶 𝐿 in the varying-mach case 
+
+M Relative Element-Wise L2 Error 1 9.7E-2 2 4.0E-4 4 2.5E-4 8 2.1E-4 16 1.8E-4 32 1.6E-4 64 1.7E-4 
+
+## IX. Conclusion 
+
+We introduced a warped inner product kernel over parameter space that uses LD primal and adjoint solutions as feature maps for the parameters. Our novel contributions were the application of GF to nonlinear models and observation functionals, with differing model dimensionality, and our approach for speeding up kernel evaluations with neural networks. This construction creates a non-stationary kernel that attenuates covariance and increases variance where the LD model has higher sensitivity. The resulting kernel provides a better basis for regressing the response surface and confidence interval with minimal HD data. To account for geometry changes that a primary LD model cannot capture (e.g., symmetry-breaking features), we introduced auxiliary LD models to featurize these parameters. The resulting product kernel effectively captures variation across the entire design space. We proposed a machine learning approach to learn the featurized Mercer kernel. This approach speeds up the kernel evaluation substantially by eliminating the need for forward and adjoint LD solves, which could become expensive during online inference. The non-stationary PDE-informed kernel resolved complex features, such as the rapid change in aerodynamic forcing at the critical Mach number and small winglet height, which stationary kernels failed to capture without further sampling. Ultimately, 28 the integration of dimension-bridging GF corrections with neural network surrogates enables real-time predictions of quantities of interest. 
+
+## Appendix X. Approximating Error with Adjoint Inner Products 
+
+First we show how the adjoint solution accounts for the error in the LD QoI prediction. To that end, we frame the correction problem (11) as a constrained least squares problem (the so-called optimal recovery problem in the kernel ridge regression approach). minimize 
+
+> 𝑔
+
+12 𝒅 − 𝑞 † (𝜽 ) 2 
+
+> Σ−1
+> 𝜂
+
++ 12 ∥𝑔 (𝜽 ) − 𝑚 (𝜽 )∥ 2
+
+> H𝑘
+
+| {z } 
+
+> =:J
+
+(𝒈 ,𝒖 †)
+
+s.t.
+
+
+
+P𝐿 
+
+
+
+𝑢 †
+
+− 𝑓 𝐿 − 𝑔 (𝜽 )
+
+| {z }
+
+> =:𝑅
+
+(𝑔,𝑢 † ,𝜽 )
+
+= 0 ∀𝜃 ∈ 𝑇 𝑞 † (𝜃 ) := 𝐹  𝑢 † (𝜃 )
+
+(32) where, again, 𝑞 † (𝜃 ) is the QoI given by the corrected solution 𝑢 † for parameter 𝜃 and correction 𝑔 (𝜃 ), Σ𝜂 = 𝜎 2 
+
+> 𝜂
+
+𝐼 is the covariance of the observation noise, ∥·∥ H𝑘 is the norm in the Reproducing Kernel Hilbert Space (RKHS) generated by the prior GF covariance kernel 𝑘 .Note that the optimization problem (32) could be shown to be a MAP (maximum a posteriori) point of a Bayesian formulation, but we omit the details here. We are not interested in finding the MAP point, but to provide a constructive approach for deriving the adjoint equation to find the test function 𝜙 , which we need for our functional Gaussian process regression. To that end we consider the following artificial optimal recovery problem: minimize  
+
+> 𝑔
+
+J
+
+
+
+𝒈 , 𝒖 †
+
+:= 𝐹 
+
+
+
+𝑢 † (𝜽 )
+
+
+
+s.t. 𝑅 
+
+
+
+𝑔, 𝑢 †, 𝜽 
+
+
+
+= 0 ∀𝜃 ∈ 𝑇 
+
+(33) We derive the adjoint equation using the Lagrangian approach. To begin, we define an unconstrained optimal recovery problem with the Lagrangian L.minimize  
+
+> 𝑔,𝑢 †,𝜆
+
+L := J
+
+
+
+𝒈 , 𝒖 †
+
+−
+
+
+
+𝑅 
+
+
+
+𝒈 , 𝒖 †
+
+, 𝝀 
+
+
+
+(34) At any critical point of (34), 𝒈 and 𝝀 must satisfy the following forward and adjoint equation in the weak form: 29 
+
+P𝐿 
+
+
+
+𝒖 †
+
+− 𝑓 𝐿 − 𝒈 , 𝛿 𝝀 
+
+
+
+= 0
+
+ 𝛿𝐹 𝛿 𝒖 † , 𝛿 𝒖 †
+
+
+
+−
+
+ 𝛿 P𝐿 
+
+𝛿 𝒖 †
+
+∗
+
+𝝀 , 𝛿 𝒖 †
+
+
+
+= 0(35) where we have defined 𝛿𝐹 𝛿 𝒖 † and 𝛿 P𝐿  
+
+> 𝛿 𝒖 †
+
+as the functional derivatives of 𝐹 and P𝐿 with respect to 𝒖 †, and 𝛿 𝒖 † as an arbitrary variation of 𝒖 †. The functional derivatives and variations of other quantities are defined correspondingly in a similar fashion. Here, 
+
+ 𝛿 P𝐿 (𝒖 †)
+
+> 𝛿 𝒖 †
+
+∗
+
+denotes the adjoint (with respect to the 𝐿 2-inner product) of 𝛿 P𝐿 (𝒖 †) 
+
+> 𝛿 𝒖 †
+
+. In the strong form, the forward and the adjoint equations read 
+
+P𝐿 
+
+
+
+𝒖 †
+
+= 𝑓 𝐿 + 𝒈 
+
+ 𝛿 P𝐿 
+
+𝛿 𝒖 †
+
+∗
+
+𝝀 = 𝛿𝐹 𝛿 𝒖 †
+
+We are interested in estimating the error in QoI: 
+
+𝑞 † (𝜽 ) − 𝑞 𝐿 (𝜽 ) = 𝐹 
+
+
+
+𝑢 † (𝜃 )
+
+
+
+− 𝐹 (𝑢 𝐿 (𝜃 )) ≈ 
+
+ 𝛿𝐹 𝛿𝑢 𝐿 
+
+, 𝒖 † (𝜃 ) − 𝒖 𝐿 (𝜃 )
+
+
+
+,
+
+where we have ignored O
+
+
+
+𝑢 † − 𝑢 𝐿 2
+
+in the Taylor expansion of 𝐹  𝑢 † (𝜃 ) around 𝑢 𝐿 . To the end of this section, we will ignore all the second-order terms, including cross second-order terms such as 
+
+ 𝛿𝐹 𝛿 𝒖 † − 𝛿𝐹 𝛿 𝒖 𝐿 , 𝑢 † − 𝑢 𝐿 
+
+
+
+. We continue estimating the error using the strong form adjoint equation: 
+
+𝑞 † (𝜃 ) − 𝑞 𝐿 (𝜃 ) ≈ 
+
+ 𝛿𝐹 𝛿 𝒖 † , 𝒖 † (𝜃 ) − 𝒖 𝐿 (𝜃 )
+
+
+
+=
+
+ 𝛿 P𝐿 
+
+𝛿 𝒖 †
+
+∗
+
+𝝀 , 𝒖 † (𝜃 ) − 𝒖 𝐿 (𝜃 )
+
+
+
+≈
+
+ 𝛿 P𝐿 
+
+𝛿 𝒖 𝐿 
+
+∗
+
+𝝀 , 𝒖 † (𝜃 ) − 𝒖 𝐿 (𝜃 )
+
+
+
+=
+
+
+
+𝝀 , 𝛿 P𝐿 
+
+𝛿 𝒖 𝐿 
+
+
+
+𝒖 † (𝜃 ) − 𝒖 𝐿 (𝜃 )
+
+
+
+In the third line, we have linearized about 𝒖 𝐿 , and thus assume the functional derivative 𝛿 P𝐿  
+
+> 𝛿 𝒖 †
+
+is well-approximated by 𝛿 P𝐿  
+
+> 𝛿 𝒖 𝐿
+
+. This is a strong assumption that emphasizes the importance of selecting an LD model which balances cost and accuracy. Now from the strong form of the forward equation, similarly linearizing about 𝒖 𝐿 gives 
+
+P𝐿 (𝒖 𝐿 ) + 𝛿 P𝐿 
+
+𝛿 𝒖 𝐿 
+
+
+
+𝒖 † (𝜃 ) − 𝒖 𝐿 (𝜃 )
+
+
+
+≈ 𝑓 𝐿 + 𝒈 
+
+30 and since P𝐿 (𝒖 𝐿 ) = 𝑓 𝐿 , we have 
+
+𝛿 P𝐿 
+
+𝛿 𝒖 𝐿 
+
+
+
+𝒖 † (𝜃 ) − 𝒖 𝐿 (𝜃 )
+
+
+
+≈ 𝒈 
+
+The error estimation for the QoI now reads 
+
+𝑞 † (𝜽 ) − 𝑞 𝐿 (𝜽 ) ≈ ( 𝝀 , 𝒈 ) (36) When the forward equation is linear, i.e. when P𝐿 is a linear operator, and the quantity of interest is linear, i.e when 
+
+𝐹 is a linear operator, then there are no approximation errors in the above derivation. In particular, we would have 
+
+𝑞 † (𝜽 ) − 𝑞 𝐿 (𝜽 ) = (𝝀 , 𝒈 )
+
+A. Regression 
+
+We need to compute the inner products (36) for a given 𝜽 for which we do not have HD observations (i.e., we do not know 𝑞 †, and thus cannot find (𝝀 , 𝒈 )). We assume that the noise and the GF 𝒈 are independent. The problem of finding the posterior distribution of 𝒈 given the noisy error observation 𝑞 † (𝜽 ) − 𝑞 𝐿 (𝜽 ), where 𝑞 † (𝜽 ) on the training data set is given as in (12), can be derived analogously to the standard Gaussian process regression since 
+
+𝑑 − 𝑞 𝐿 (𝜽 ) = (𝝀 , 𝒈 ) + 𝜂 
+
+In particular, we can define a multivariate Gaussian distribution describing the corrective GF 𝑔 by its evaluation on a finite set of adjoint-parameter pairs. We then define a joint distribution between the evaluations on the test set and train set to give the covariance between the observed error on a point in the training set 𝑑 (𝜃 ) − 𝑞 𝐿 (𝑢 𝐿 (𝜃 )) and a prediction on the test set  𝜙   ˆ𝜃  , 𝑔   ˆ𝜃  because they are modeled as jointly Gaussian. The posterior (or conditional) GF has a posterior mean 𝑚 † and covariance 𝑘 † given by formulas analogous to the multivariate conditional distribution. 31 𝑔 | 𝒅 ∼ GF 
+
+
+
+𝑚 †, 𝑘 †
+
+𝑚 † = 𝑚 + 𝒌 𝑇 
+
+ 𝐾 𝑇𝑇 + Σ𝜂 
+
+ −1 ( 𝒅 − 𝒒 𝐿 )
+
+𝑘 † = 𝑘 − 𝒌 𝑇 
+
+ 𝐾 𝑇𝑇 + Σ𝜂 
+
+ −1 𝒌 T
+
+> 𝑇
+
+𝒌 𝑇 =
+
+
+
+𝑘 (· ,(𝜙 (𝜃 1) , 𝜃 1)) 
+
+...𝑘  ·, 𝜙  𝜃 𝑁 𝑇 
+
+ , 𝜃 𝑁 𝑇 
+
+ 
+
+(37) where the capital 𝐾 denotes the covariance matrix generated from evaluating the covariance operator on the test functions (and associated parameters) in the subscript and 𝒌 𝑇 is the vector of kernel functions associated with the train tuples. We then use the posterior to predict new QoIs at new parameter configurations by running the adjoint solver at the new configuration ˆ 𝜃 (if not run already) and evaluate 
+
+𝑞 †   ˆ𝜃  = 𝑞 𝐿 
+
+  ˆ𝜃  + 𝑚 †  𝜙   ˆ𝜃  , ˆ𝜃  (38) 
+
+## XI. Derivation of the Adjoint Inner Product Kernel 
+
+Using the standard definition of covariance and the postulation 𝑔 ∼ GF ( 𝑚, 𝑘 𝑉 ), we write the covariance between the evaluation of the GF on two functions as 
+
+𝑘 𝑉 (𝑣, 𝑤 ) = Cov [𝑔 (𝑣 ) , 𝑔 (𝑤 )] 
+
+= E[( 𝑔 (𝑣 ) − 𝑚 (𝑣 ))( 𝑔 (𝑤 ) − 𝑚 (𝑤 ))] 
+
+= E[( 𝑔 − 𝑚, 𝑣 )( 𝑔 − 𝑚, 𝑤 )] 
+
+(39) Here, we use the blackboard E to denote the expectation operator. In (39), we identify the functionals with their function representers in the appropriate function space and combine the inner products with the linearity of the inner product. Note that taking the test functions 𝑣, 𝑤 to be the adjoint states 𝜆 and 𝜆 ′ from Appendix X, we see that the kernel predicts the covariance in the errors of the LD model. 
+
+𝑘 𝑉 (𝜆, 𝜆 ′) ≈ Cov 
+
+h 
+
+𝑞 † − 𝑞 𝐿 
+
+
+
+,
+
+
+
+𝑞 † − 𝑞 𝐿 
+
+′i
+
+(40) Rewriting the 𝐿 2 inner product with integrals over the appropriate domain and combining them with Fubini’s Theorem, we now have the expression 32 𝑘 𝑉 (𝑣, 𝑤 ) =
+
+∬
+
+E[( 𝑔 (𝑥 ) − 𝑚 (𝑥 ))( 𝑔 (𝑦 ) − 𝑚 (𝑦 ))] 
+
+| {z } 
+
+> =:𝜅 (𝑥,𝑦 )
+
+𝑣 (𝑥 )𝑑𝑥 𝑤 (𝑦 )𝑑𝑦 (41) The expression for 𝑘 𝑉 (𝑣, 𝑤 ) in (41) also tells us that we can define 𝑘 𝑉 (𝑣, 𝑤 ) by first choosing an appropriate kernel 
+
+𝜅 (𝑥, 𝑦 ). Indeed, if 𝜅 is a positive definite Hilbert-Schmidt kernel, from Mercer’s Theorem [23], we know that continuous and bounded positive definite kernels uniquely identify Hilbert-Schmidt integral operators. Thus, 𝑘 𝑉 (𝑣, 𝑤 ) defined through a Hilbert-Schmidt kernel 𝜅 (𝑥, 𝑦 ) via the integral (41) is indeed symmetric positive definite. This approach allows us to use kernels of GPs to define kernels for GFs, which simplifies the construction of GF kernels significantly. For vector-valued function spaces, we rewrite the integral (assuming column vectors) in (41) as 
+
+∬
+
+𝒗 (𝑥 )T 𝐾 (𝑥, 𝑦 ) 𝒘 (𝑦 ) 𝑑𝑥𝑑𝑦 (42) where the integral kernel is now denoted with 𝐾 , a symmetric positive definite matrix. This form was similarly justified in [32]. A general nonstationary parameterization of 𝐾 based on LU factorization can be given as follows: 
+
+𝐾 (𝑥, 𝑦 ) = 𝐿 (𝑥 ) 𝐿 (𝑦 )T (43a) 
+
+𝐿 (𝑥 )𝑖 𝑗 =
+
+
+
+0 𝑖 < 𝑗 𝜑 𝑖 𝑗 (𝑥 ) 𝑖 ≥ 𝑗 
+
+(43b) where each parametric element function 𝜑 𝑖 𝑗 is continuous and bounded. This allows for asymmetric cross covariance matrices, but ensures collocated covariance matrices are positive semidefinite. If we use a stationary kernel, we would no longer be able to differentiate between transposed cross evaluations, so cross covariances must also be symmetric. Note that stationary GPs do not represent stationary GFs in general. This is because a stationary GF requires its covariance operator to be a function of the distance in function space 𝑑 𝑉 = ∥𝑣 − 𝑤 ∥𝐿 2 , whereas the stationary GP has a covariance that is a function of distance in the physical domain 𝑑 Ω = ∥𝑥 − 𝑦 ∥ℓ2 . Consider a set of test functions with compact support over a small subset of the domain that have translational symmetry. For any two functions in this set, if their supporting sets are disjoint almost everywhere, their distance in the function space is the same as all other such pairs. Thus, a stationary GF kernel would have equal covariance between evaluations on all such function pairs. However, a GF represented by a stationary GP will predict smaller covariance as the translation distance grows. For this reason, we opt to use the stationary formulation for the GP covariance. We use the Linear Model for Coregionalization (LMC) from geostatistics [33]. LMC defines 𝐾 as a (physically) stationary diagonally weighted 33 product of two full column rank matrices. 
+
+𝐾 (𝑥, 𝑦 ) = 𝐴𝐷 (𝑥, 𝑦 ) 𝐴 T (44a) 
+
+𝐷 𝑖𝑖 (𝑥, 𝑦 ) = 𝑠 𝑖 (∥ 𝑥 − 𝑦 ∥) (44b) 
+
+𝐴 ∈ R𝑛 ×𝑚 , 𝑛 ≥ 𝑚 (44c) where 𝑠 𝑖 are possibly independently parameterized stationary kernels that define the diagonal elements for any pair of evaluation points. For parameter efficiency, we define 𝐴 as a lower triangular matrix, which uses half of the parameters to factor a full rank 𝐾 . This is equivalent to defining a stationary Cholesky factorization by absorbing 𝐷 1/2 into 𝐿 .
+
+𝐾 (𝑥, 𝑦 ) = 𝐿𝐷 (𝑥, 𝑦 )𝐿 T = ˜𝐿 (𝑥, 𝑦 ) ˜𝐿 (𝑥, 𝑦 )T (45a) 
+
+𝐿 𝑖 𝑗 =
+
+
+
+0 𝑖 < 𝑗 
+
+1 𝑖 = 𝑗 𝜆 𝑖 𝑗 𝑖 > 𝑗 
+
+(45b) 
+
+𝜆 𝑖 𝑗 ∈ R (45c) 
+
+## Funding Sources 
+
+This manuscript has been authored, in part, by UT-Battelle, LLC under Contract No. DE-AC05-00OR22725 with the U.S. Department of Energy. The United States Government retains and the publisher, by accepting the article for publication, acknowledges that the United States Government retains a non-exclusive, paid-up, irrevocable, world-wide license to publish or reproduce the published form of this manuscript, or allow others to do so, for United States Government purposes. The Department of Energy will provide public access to these results of federally sponsored research in accordance with the DOE Public Access Plan ( http://energy.gov/downloads/doe-public-access-plan ). 34 Acknowledgment 
+
+We acknowledge the Texas Advanced Computing Center (TACC) at The University of Texas at Austin for providing computational resources that have contributed to the research results reported within this paper. URL: http://www.tacc.utexas.edu . 
+
+## References 
+
+[1] Fernández-Godino, M. G., “Review of multi-fidelity models,” Advances in Computational Science and Engineering ,Vol. 1, No. 4, 2023, pp. 351–400. https://doi.org/10.3934/acse.2023015, URL https://www.aimsciences.org/article/id/ 656460fbeca2737fc4ef5257. [2] Peherstorfer, B., Willcox, K., and Gunzburger, M., “Survey of multifidelity methods in uncertainty propagation, inference, and optimization,” Siam Review , Vol. 60, No. 3, 2018, pp. 550–591. [3] Nguyen, N. C., and Peraire, J., “Gaussian functional regression for linear partial differential equations,” Computer Methods in Applied Mechanics and Engineering , Vol. 287, 2015, pp. 69–89. [4] Nguyen, N. C., Men, H., Freund, R. M., and Peraire, J., “Functional Regression for State Prediction Using Linear PDE Models and Observations,” SIAM , 2016. URL https://dspace.mit.edu/handle/1721.1/103578, accepted: 2016-07-12T18:43:37Z Publisher: Society for Industrial and Applied Mathematics (SIAM). [5] Nguyen, N. C., and Peraire, J., “Gaussian functional regression for output prediction: Model assimilation and experimental design,” Journal of Computational Physics , Vol. 309, 2016, pp. 52–68. https://doi.org/10.1016/j.jcp.2015.12.035, URL https://www.sciencedirect.com/science/article/pii/S0021999115008542. [6] Morrison, R. E., Oliver, T. A., and Moser, R. D., “Representing model inadequacy: A stochastic operator approach,” SIAM/ASA Journal on Uncertainty Quantification , Vol. 6, No. 2, 2018, pp. 457–496. [7] Rozza, G., Huynh, D. B. P., and Patera, A. T., “Reduced basis approximation and a posteriori error estimation for affinely parametrized elliptic coercive partial differential equations: application to transport and continuum mechanics,” Archives of Computational Methods in Engineering , Vol. 15, No. 3, 2008, pp. 229–275. [8] Jones, D. R., Schonlau, M., and Welch, W. J., “Efficient global optimization of expensive black-box functions,” Journal of Global optimization , Vol. 13, 1998, pp. 455–492. [9] Williams, C. K., and Rasmussen, C. E., Gaussian processes for machine learning , MIT press Cambridge, MA, 2006. [10] Matheron, G., “Principles of geostatistics,” Economic geology , Vol. 58, No. 8, 1963, pp. 1246–1266. [11] Kennedy, M. C., and O’Hagan, A., “Predicting the output from a complex computer code when fast approximations are available,” Biometrika , Vol. 87, No. 1, 2000, pp. 1–13. [12] Stein, M. L., Interpolation of spatial data: some theory for kriging , Springer Science & Business Media, 1999. 
+
+35 [13] Wilson, A. G., Gilboa, E., Nehorai, A., and Cunningham, J. P., “Fast kernel learning for multidimensional pattern extrapolation,” 
+
+Advances in neural information processing systems , Vol. 27, 2014. [14] Wilson, A., and Adams, R., “Gaussian process kernels for pattern discovery and extrapolation,” International conference on machine learning , PMLR, 2013, pp. 1067–1075. [15] Quinonero-Candela, J., and Rasmussen, C. E., “A unifying view of sparse approximate Gaussian process regression,” Journal of machine learning research , Vol. 6, No. Dec, 2005, pp. 1939–1959. [16] Wilson, A., and Nickisch, H., “Kernel interpolation for scalable structured Gaussian processes (KISS-GP),” International conference on machine learning , PMLR, 2015, pp. 1775–1784. [17] Wang, K., Pleiss, G., Gardner, J., Tyree, S., Weinberger, K. Q., and Wilson, A. G., “Exact Gaussian processes on a million data points,” Advances in neural information processing systems , Vol. 32, 2019. [18] Rasmussen, C., and Ghahramani, Z., “Infinite mixtures of Gaussian process experts,” Advances in neural information processing systems , Vol. 14, 2001. [19] Meeds, E., and Osindero, S., “An alternative infinite mixture of Gaussian process experts,” Advances in neural information processing systems , Vol. 18, 2005. [20] Gibbs, M. N., “Bayesian Gaussian processes for regression and classification,” Ph.D. thesis, Citeseer, 1998. [21] Bozzini, M., Lenarduzzi, L., Rossini, M., and Schaback, R., “Interpolation with variably scaled kernels,” IMA Journal of Numerical Analysis , Vol. 35, No. 1, 2015, pp. 199–219. [22] Wilson, A. G., Hu, Z., Salakhutdinov, R., and Xing, E. P., “Deep kernel learning,” Artificial intelligence and statistics , PMLR, 2016, pp. 370–378. [23] Mercer, J., “Xvi. functions of positive and negative type, and their connection the theory of integral equations,” Philosophical transactions of the royal society of London. Series A, containing papers of a mathematical or physical character , Vol. 209, No. 441-458, 1909, pp. 415–446. [24] Bui-Thanh, T., “A unified and constructive framework for the universality of neural networks,” IMA Journal of Applied Mathematics , Vol. 89, No. 1, 2023. https://doi.org/10.1093/imamat/hxad032, URL https://par.nsf.gov/biblio/10517351. [25] Ding, J., and Zhou, A., “Eigenvalues of rank-one updated matrices with some applications,” Applied Mathematics Letters ,Vol. 20, No. 12, 2007, pp. 1223–1226. https://doi.org/https://doi.org/10.1016/j.aml.2006.11.016, URL https://www.sciencedirect. com/science/article/pii/S0893965907000614. [26] Harris, C. R., Millman, K. J., Van Der Walt, S. J., Gommers, R., Virtanen, P., Cournapeau, D., Wieser, E., Taylor, J., Berg, S., Smith, N. J., et al., “Array programming with NumPy,” nature , Vol. 585, No. 7825, 2020, pp. 357–362. 
+
+36 [27] Bradbury, J., Frostig, R., Hawkins, P., Johnson, M. J., Katariya, Y., Leary, C., Maclaurin, D., Necula, G., Paszke, A., VanderPlas, J., Wanderman-Milne, S., and Zhang, Q., “JAX: composable transformations of Python+NumPy programs,” , 2018. URL http://github.com/jax-ml/jax. [28] Menter, F., Kuntz, M., and Langtry, R., “Ten years of industrial experience with the SST turbulence model,” Heat and Mass Transfer , Vol. 4, 2003. [29] Economon, T. D., Palacios, F., Copeland, S. R., Lukaczyk, T. W., and Alonso, J. J., “SU2: An open-source suite for multiphysics simulation and design,” Aiaa Journal , Vol. 54, No. 3, 2016, pp. 828–846. [30] Schmitt, V., and Charpin, F., “Pressure distributions on the ONERA M6-wing at transonic mach numbers, experimental data base for computer program assessment,” AGARD AR-138 , 1979. URL https://www.sto.nato.int/publications/AGARD/AGARD-AR-138/AGARD-AR-138.pdf. [31] Destarac, D., and Dumont, A., “ONERA M6 Wing Test-Case, Original and TMR,” , 2016. [32] Sung, C.-L., Wang, W., Cakoni, F., Harris, I., and Hung, Y., “FUNCTIONAL-INPUT GAUSSIAN PROCESSES WITH APPLICATIONS TO INVERSE SCATTERING PROBLEMS,” Statistica Sinica , Vol. 34, No. 4, 2024, pp. pp. 1883–1902. URL https://www.jstor.org/stable/27335773. [33] Bourgault, G., and Marcotte, D., “Multivariable variogram and its application to the linear model of coregionalization,” 
+
+Mathematical Geology , Vol. 23, 1991, pp. 899–928. 
+
+37
