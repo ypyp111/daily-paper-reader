@@ -1,0 +1,743 @@
+Title: PINN-Phase: A physics-informed neural network for curvature-driven multiphase-field evolution
+
+URL Source: https://arxiv.org/pdf/2608.29413v1
+
+Published Time: Tue, 01 Sep 2026 01:08:24 GMT
+
+Number of Pages: 45
+
+Markdown Content:
+# PINN-Phase: A physics-informed neural network for curvature-driven multiphase-field evolution 
+
+Seifallah Elfetni a, ∗, Peter H. Seeberger a,b , Theodore Tyrikos-Ergas a, ∗
+
+> aCenter for the Transformation of Chemistry, Puschstr. 6b, 04103 Leipzig, Germany
+> bMax Planck Institute of Colloids and Interfaces, Biomolecular Systems Department, Am Muehlenberg 1, 14476 Potsdam, Germany
+
+Abstract 
+
+Phase-field simulation of polycrystalline microstructures becomes costly when many re-lated cases must be evolved over long times. We introduce PINN-Phase, a physics-informed neural time integrator that advances the full multiphase field from its initial condition and enforces phase bounds and unit sum at every step; on the reported explicit multiphase-field benchmarks, post-initial-condition reference states serve only for evaluation. Without case-specific tuning, a single trained 25-grain model meets all predefined criteria in seven of eight unseen microstructures fixed before evaluation and in both stress cases, with 0.94 –3.71% 
+
+terminal grain-label disagreement across the ten cases. Each 12,000-step rollout takes about 
+
+5.2 min on a single GPU and reaches nearly three times the temporal horizon represented during training. A pre-registered 64-grain model reaches 6.09% disagreement, retaining all 21 reference survivors plus one additional grain; a post-evaluation continuation with a dou-bled training horizon and 25 additional epochs reaches 3.97% and the exact survivor set. In three dimensions, one trained 16-grain 96 3 model recovers the exact terminal active set and all three extinction identities in six of six unseen microstructures, five of which meet the complete predefined qualification. These results demonstrate structurally admissible long-horizon prediction and prospective initial-condition transfer within fixed benchmark families. 
+
+Keywords: physics-informed neural networks, multiphase-field modeling, microstructure evolution, diffuse-interface methods, autoregressive learning, topology change 
+
+1. Introduction 
+
+Microstructure evolution links processing to the mechanical and functional response of polycrystalline materials. Grain boundaries migrate under capillary forces, domains coarsen, and small grains disappear, continually changing the topology of the microstructure. These processes are central to classical descriptions of normal grain growth and to modern full-field studies of polycrystalline evolution [1, 2, 3, 4, 5]. Phase-field (PF) models provide a natural continuum framework because diffuse order-parameter fields represent interfaces without    
+
+> ∗Corresponding authors.
+> Email addresses: seifallah.elfetni@ctc-germany.org (Seifallah Elfetni),
+> theodore.tyrikos-ergas@ctc-germany.org (Theodore Tyrikos-Ergas) arXiv:2608.29413v1 [cond-mat.mtrl-sci] 29 Aug 2026
+
+explicit front tracking and allow topological events to emerge from the evolution equations [6, 7, 8, 9, 10, 11]. In multiphase-field (MPF) formulations, separate phase fields represent individual grains or phases and are coupled through local phase-fraction constraints [12, 13]. The approach is well established in two and three dimensions and can incorporate anisotropic boundary properties, stored-energy gradients, particles, and external fields [14, 15, 16, 17]. Its computational cost, however, grows rapidly with spatial resolution, simulation time, phase count, and domain dimension. Adaptive discretizations alleviate this burden but do not remove the cost of repeated long-horizon simulations or large parameter studies [18, 19, 20]. Learned surrogates offer a complementary route when many related forward evaluations are required. Recurrent latent-space models, conventional machine-learning surrogates, and neural operators have accelerated phase-field predictions by learning from simulated trajecto-ries [21, 22, 23]. Recent work in this direction includes resolution-invariant grain-growth op-erators [24], hybrid adaptive operators with convolutional backbones [25], operator-network surrogates for solidification grain growth [26], energy- and numerics-consistent operators for three-dimensional phase fields [27], and graph-recurrent frameworks for long-term two- and three-dimensional microstructure forecasting [28]. Related developments for Allen–Cahn dy-namics include fully-discrete operator learning [29] and energy-dissipation-preserving residual training [30]. These approaches span trajectory-supervised, reduced-state, operator-learning, and recurrent formulations, with different supervision budgets and state representations. Quantitative comparison across them is not attempted here because the governing opera-tors, discretizations, training data, and evaluation trajectories differ. Physics-informed neural networks (PINNs) replace or augment trajectory supervision with a residual of the governing equations [31, 32, 33]. Most PINNs use coordinate net-works and collocation losses; long-time integration and constrained gradient flows have mo-tivated causal training, temporal decomposition, adaptive sampling, time marching, and energy-based strategies [34, 35, 36, 37, 38, 39, 40]. Phase-field applications include Allen– Cahn and Cahn–Hilliard systems, fracture, damage, and corrosion [41, 42, 43, 44, 45, 46]. Convolutional-recurrent physics-informed solvers have also shown that a neural field can be advanced autoregressively while boundary conditions are encoded in the architecture [47]. Within multiphase and microstructure modeling, complementary strategies address dif-ferent aspects of this problem. PINNs-MPF uses coordinated phase-wise coordinate networks with space, time, and phase decomposition, together with soft phase-sum enforcement and normalization [48]. An earlier preliminary study [49] reported a precursor hybrid architecture in an energy-based transfer-learning setting, including initial multiphase and multigrain ex-plorations. Supervised grain-state models such as GrainGNN represent the microstructure by graph features and explicit event operations learned from phase-field trajectories [50], while physics-embedded graph models provide another route to process-specific microstructure pre-diction [51]. PF-PINNs and Sharp-PINNs address coupled Allen–Cahn/Cahn–Hilliard corro-sion systems [42, 46]; Phase-Field DeepONet and recent PINO formulations learn phase-field evolution operators through energy or governing-equation residual objectives [52, 53, 54]; and PFNet and PENCO combine trajectory supervision with physics-informed architectural or loss terms [55, 27]. Collectively, these methods establish a broad design space spanning coor-dinate solvers, learned time-step operators, graph representations, and hybrid physics-guided surrogates. For many-grain multiphase-field evolution, however, the challenge is not field regression 2alone. A learned time integrator must preserve local phase admissibility, remain stable as the active grain set changes, represent coalescence and extinction, and avoid the accumulation of small per-step errors over long autoregressive sequences. High voxelwise agreement can otherwise coexist with an incorrect survivor set or a mistimed topological event. The question addressed here is whether these requirements can be combined in one shared autoregressive framework that advances the full N -component diffuse field, learns from a physical residual evaluated on its own evolving state without post-initial-condition reference fields on the reported explicit-MPF path, enforces the local phase-fraction constraints after every update, and retains phase identities so that topology changes can be audited directly. To address this question, we introduce PINN-Phase, a physics-informed neural time integrator for constrained multiphase-field evolution. The model evaluates a projected multiphase-field residual on its own predicted state. A site-local multilayer-perceptron branch represents the nonlinear local response of the diffuse interface, while a convolutional-recurrent branch propagates spatial interactions and temporal memory. Their combined response is converted to a bounded, phase-sum-neutral field increment, after which a hard clip-and-renormalize admissibility map restores the phase bounds and unit-sum constraint of the carried state. For the reported explicit-MPF path, the initial condition is the only phase-field state used during training; post-initial-condition PF states are reserved for of-fline evaluation. Relative to trajectory-supervised surrogates, the training signal is therefore supplied by the governing residual evaluated on the model rollout rather than by later refer-ence frames; relative to phase-wise coordinate approaches such as PINNs-MPF, PINN-Phase advances all channels recurrently with one shared field model. These distinctions concern supervision, state representation, and constraint handling rather than providing a basis for direct numerical ranking across methods. The present paper supersedes that preliminary study [49] with a projected multi-channel Allen–Cahn rollout, a clip-and-renormalize multiphase admissibility map, explicit-MPF training that excludes post-initial-condition reference fields, and registered many-grain, prospective initial-condition, and designed three-dimensional extinction audits. The contribution is threefold. First, PINN-Phase provides a structurally admissible, post-initial-condition label-free neural time integrator for topology-changing MPF dynam-ics. Second, a branch-composition study—including an objective-controlled comparison at 
+
+128 2—and a warm-started horizon ladder probe the complementary roles of the local and convolutional-recurrent branches and the association between represented training horizon and long-time stability. Third, the method is evaluated on a progressively more demand-ing set of curvature-driven problems, from long-horizon many-grain coarsening to designed three-dimensional extinction. The evidence includes prospective initial-condition tests in both two and three dimensions: the N = 25 cascade-family cohort evaluates unseen two-dimensional microstructures, while a separate N = 16 , 96 3 cohort tests one fixed model on six prospectively defined unseen three-dimensional initial conditions without case-specific adaptation. These evaluations remain within fixed benchmark families and therefore test initial-condition transfer rather than material, resolution, phase-count, or operator general-ization. Validation is against explicit integration of the same discretized physical operator, so the reported errors measure the learned time integrator relative to that operator rather than agreement with an independent constitutive model. 3Figure 1 summarizes the framework, benchmark hierarchy, and the distinction between temporal extrapolation and prospective initial-condition transfer. Section 2 defines the phys-ical operator, neural time integration, admissibility map, training objective, and evaluation protocol. Section 3 presents the benchmark progression, and Section 4 discusses the compu-tational contribution, its relation to neighboring approaches, and the path toward calibrated materials workflows. 
+
+2. Method 
+
+2.1. Field representation and problem scope 
+
+For the explicit multiphase problems, the state is an N -component diffuse field φ(x, t ) = (φ1, . . . , φ N ) defined on a periodic two- or three-dimensional grid. Each component is a local phase fraction and the field is admissible when 
+
+AN =
+
+(
+
+φ ∈ [0 , 1] N :
+
+> N
+
+X
+
+> k=1
+
+φk = 1 
+
+)
+
+. (1) Thus, every spatial point must satisfy both the component bounds and the unit-sum con-straint. Preserving this condition during repeated neural time steps is a structural require-ment, not an auxiliary accuracy metric. The scalar benchmarks use one order parameter to describe a grain in an implicit matrix. They share the Allen–Cahn physical lineage but are not the N = 1 limit of Equation (1), which would be identically equal to one. All simulations use periodic boundary conditions. Physical coefficients are expressed in the normalized grid-unit convention of the reference calculations; the corresponding values and time increments are listed in Supplementary Table S4. The main benchmark hierarchy and evaluation quantities are summarized in Table 1. 
+
+2.2. Projected multiphase-field operator 
+
+The explicit MPF benchmarks use a projected multi-channel Allen–Cahn operator [7]. Vector-valued multiphase Allen–Cahn formulations, their constrained state space and their junction behavior are developed in [56, 57, 58]; the present operator is the equal-parameter, isotropic member of that family. For a vector v ∈ RN , define the zero-sum projection 
+
+PN (v)k = vk − 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+vj ,
+
+> N
+
+X
+
+> k=1
+
+PN (v)k = 0 . (2) Let 
+
+W (φ) = φ2(1 − φ)2, W ′(φ) = 2 φ(1 − φ)(1 − 2φ). (3) The rate evaluated in training and used by the direct reference integrator is 
+
+R(φ) = μσ PN
+
+
+
+∇2φ − 1
+
+η2 W ′(φ)
+
+
+
+, (4) where μ is the interface-mobility coefficient, σ sets the interfacial energy scale, η is the diffuse-interface width, and W ′ is applied componentwise. The projection gives P 
+
+> k
+
+Rk = 0 ,4(b) represented training horizon H  
+
+> 0HTrollout steps
+
+Development / training lane    
+
+> Development IC
+> ϕ(dev) 0
+> PINN-Phase training rollout depths up to H
+
+Fixed trained model  
+
+> autonomous rollout, same IC temporal extrapolation same weights
+
+Initial-condition transfer      
+
+> fixed weights, no retraining
+> Unseen IC kk= 1, … , m
+> dashed outline: unseen during training
+> direct input
+
+Same trained model  
+
+> initial-condition transfer
+> within represented horizon initial-condition transfer + temporal extrapolation
+> benchmark-dependent continuation (dotted)
+
+Figure 1: PINN-Phase framework, validation hierarchy, and two axes of reuse. (a) The ini-tial multiphase field is advanced by the shared site-local and convolutional-recurrent rate model. Training matches a projected MPF residual on the predicted state; a bounded phase-neutral increment and hard clip-and-renormalize map enforce admissibility. Post-t0 PF states are audit-only on the reported explicit-MPF path. The lower strip summarizes the benchmark ladder; graph conditioning is optional and limited to two-dimensional Voronoi controls. (b) Training produces a model fixed before evaluation, with represented horizon H. Same-IC rollout beyond H tests temporal extrapolation. Panel (b) distinguishes temporal ex-trapolation from initial-condition transfer: within-family transfer applies the same trained model directly to unseen initial conditions, while benchmark-dependent continuation beyond H combines transfer with tem-poral extrapolation. Transfer is demonstrated only within the fixed benchmark families. 
+
+5so the continuous rate is tangent to the unit-sum manifold. The implemented explicit-MPF benchmarks are symmetric, equal-parameter, curvature-driven systems; anisotropic pairwise energies, heterogeneous mobilities, and bulk driving forces are outside the present opera-tor. The present equal-parameter operator belongs to the broader constrained multiphase Allen–Cahn family [56, 57, 58] and is related to the multiphase-field framework of Steinbach et al. [12]. The reference trajectories used in the audit, however, are obtained by direct integration of Equation (4), not from an independent Steinbach-type solver. On a grid Ωh with spacing ∆x, the Laplacian is evaluated by second-order central differ-ences, 
+
+(∇2
+
+> h
+
+φ)i = 1∆x2
+
+> d
+
+X
+
+> m=1
+
+ φi+em − 2φi + φi−em
+
+ , (5) with periodic indexing in each of the d spatial directions. The convolutional branch uses the same periodicity through circular padding. The scalar benchmark family follows the double-obstacle-type Allen–Cahn form used in the underlying scalar reference calculations, 
+
+∂φ ∂t = μ
+
+
+
+σ
+
+
+
+∇2φ + π2
+
+2η2 (2 φ − 1) 
+
+
+
++ πη
+
+pφ(1 − φ) ∆ g
+
+
+
+, (6) where ∆g is a bulk driving force and is zero in the curvature-driven studies. The scalar and explicit-MPF benchmark families therefore share an Allen–Cahn diffuse-interface lineage but use different local potentials; the scalar equation should not be read as the one-channel limit of Equation (4). In the reported scalar training runs, both the learned derivative and its physical target use a bound-aware rate map before the state update. At points with φ ≤ 10 −3, negative outward rates are set to zero; at points with φ ≥ 1 − 10 −3, positive outward rates are set to zero. The reported state is then clipped to [0 , 1] . Thus the scalar PDE loss compares the learned derivative with the effective bound-aware Allen–Cahn rate, while Equation (6) defines the underlying unconstrained operator used by the direct reference step before clipping. For curvature-driven shrinkage ( ∆g = 0 ), the sharp-interface area law for an isolated circular grain is 
+
+R2(t) = R20 − 2μσt, text = R20
+
+2μσ , (7) where R0 is the initial radius, following the classical curvature-driven boundary motion of [59]. This relation is used as a benchmark observable; no asymptotic grain-growth law is inferred from it. 
+
+2.3. Hybrid neural rate operator 
+
+PINN-Phase predicts its update from the current model field. Two branches produce complementary responses that are combined by a learned convex blend, 
+
+zt = fθ(φt) = γ zloc  
+
+> t
+
++ (1 − γ) zsp  
+
+> t
+
+, γ ∈ (0 , 1) , (8) where γ is the sigmoid of a single trainable scalar, initialized at 1/2. The local response zloc 
+
+is produced by a shared multilayer perceptron applied independently to each phase channel 6at every grid point. Its inputs comprise the local phase fraction, a phase-index coordinate, and periodic spatial-coordinate features, allowing the branch to represent nonlinear local interface responses without enlarging the spatial receptive field. The spatial response zsp is produced by a convolutional long short-term memory (ConvLSTM) branch that carries hid-den state through the predicted sequence and communicates information across neighboring grid points [60]. The combined response is converted to a bounded field increment by the up-date head defined next. The branch-composition ablation in Section 3.1 tests whether both contributions are needed. Layer dimensions, kernel sizes, parameter counts, and run-specific training settings are reported in Supplementary Table S5. For the many-grain studies we additionally impose the symmetries of the equal-parameter periodic MPF operator. Under that operator the grain channels are physically interchange-able and the absolute grid origin carries no physical grain identity, so a phase-index feature and absolute spatial-coordinate features are potential shortcut variables: they permit phys-ically equivalent microstructures to evolve differently merely because the channels are rela-beled or the periodic field is translated. The cascade-family, the two-dimensional prospective cohort, and the dense N = 64 studies therefore use a distinct permutation-equivariant for-mulation of the same two-branch local–spatial PINN-Phase design, exactly equivariant to permutations of the phase channels and to integer periodic translations of the grid. The equivariance rests on the following architectural properties. First, the site-local branch receives the local phase fraction alone: the phase-index coordinate and the periodic spatial-coordinate features described above are removed, since neither transforms with the phase channels under a relabeling. Second, all channel-wise maps are shared and all cross-phase communication passes through permutation-symmetric aggregation of the phase channels, so relabeling the input permutes the output identically; this is the standard construction for set-structured inputs [61] and for group-equivariant convolution [62]. Third, the spatial branch uses circular padding, and the predicted increment is centered on its phase mean before the admissibility map, so the bounded update respects the constraint P 
+
+> p
+
+∆φp = 0 
+
+by construction rather than by penalty. The equivariant formulation retains a single global blend scalar and uses no graph conditioner. It has 9,605 trainable parameters and is re-ported in Section 3.3 and Figure 7; its configuration appears in Supplementary Table S5. The two-branch local–spatial design is retained while the channel handling and conditioning are redesigned, so the two formulations are distinct models rather than two settings of one model, and results obtained with them are labeled accordingly throughout. The prospective 
+
+N = 16 , 96 3 cohort of Section 2.11 deliberately retains the earlier non-equivariant develop-ment checkpoint and evaluates raw phase identities without relabeling. 
+
+2.4. Bounded time integration and structural admissibility 
+
+Let ∆tm denote the effective model integration interval and let ∆φmax be a fixed incre-ment scale. The combined neural response is squashed by a hyperbolic tangent, scaled, and centered across the phase channels by the same zero-sum projection used in the physical operator, 
+
+∆φt = ∆ φmax PN [tanh( zt)] , ψt+1 = φt + ∆ φt. (9) The hyperbolic tangent limits the change applied in one neural step while remaining dif-ferentiable, and the phase-mean removal makes the increment itself sum to zero at ev-7ery grid point, mirroring the tangency of the continuous rate; each component satisfies 
+
+|∆φk| ≤ 2∆ φmax (N −1) /N by construction. This prevents very large early-training responses from being hidden by the subsequent admissibility map. The learned rate associated with the update is rt = ∆ φt/∆tm. The effective interval is related to the reference integration coefficient by ∆tm = ∆ tμσ /(μσ ) for the explicit MPF configurations. The code identifiers corresponding to ∆tm and ∆φmax are listed in Supplementary Table S1; code-style names are not used as mathematical symbols in the main text. Admissibility is imposed after every update. For a raw phase vector ψ, define 
+
+¯ψk = min(1 , max(0 , ψ k)) , s =
+
+> N
+
+X
+
+> j=1
+
+¯ψj , (10) and 
+
+Πk(ψ) = 
+
+
+
+¯ψk/s, s > ε Π,
+
+1/N, s ≤ εΠ,
+
+φt+1 = Π( ψt+1 ). (11) Here εΠ > 0 is a small numerical guard preventing division by a vanishing post-clipping sum; it acts only on the denominator and removes nothing from the state. This hard clip-and-renormalize map guarantees 0 ≤ φk ≤ 1 and P 
+
+> k
+
+φk = 1 after each update. It is not the Euclidean nearest-point projection onto the simplex. Some reported configurations additionally remove sub-threshold phase tails before renormalization; that optional pruning is a separate, benchmark-specific state-map variant and is not the denominator guard above, even where a configuration gives the two the same numerical value. The exact map used by each benchmark is identified in Supplementary Table S5. The final N = 16 , 96 3 continuation uses the same strict clip-and-renormalize map during training and prediction. Three distinct mechanisms therefore act at different points of one update, and they are complementary rather than alternative treatments of the same constraint. The zero-sum projection of Equation (2) constrains the physical rate in Equation (4); the phase-mean removal in Equation (9) constrains the proposed increment , making it phase-sum neutral before it is applied; and the map of Equation (11) constrains the carried state after every update. Two further mechanisms are optional and benchmark-specific rather than structural: the pre-map phase-sum penalty described in Section 2.5, which is an auxiliary training term and does not enforce admissibility of the carried state, and the sub-threshold pruning above. Neither optional mechanism is a substitute for the admissibility map. 
+
+2.5. Physics-informed training objective 
+
+The two operations are compared in Figure 2: the increment projection acts on a rate, the admissibility map acts on a state, and only the latter is applied to the field that is carried forward. Training starts from the initial field φ0. At each neural step, the physical target increment is evaluated on the current predicted field and compared with the bounded neural increment of Equation (9), 
+
+qt = ∆ tm R(φt), pt = ∆ φt. (12) The per-step loss combines a relative discrepancy, which adapts to the magnitude of the 8Figure 2: Bounded neural update and hard multiphase admissibility. (a) The post-update admis-sibility map clips the raw phase vector componentwise and renormalizes it to unit sum. The two explicit operations return the state to the admissible set but do not constitute a Euclidean nearest-point projec-tion onto the simplex. (b) The neural response is squashed componentwise, projected onto the zero-sum phase subspace, and scaled by ∆φmax , producing a bounded, phase-sum-neutral field increment. (c) The soft phase-sum penalty, where a run enables it, is an auxiliary training term: it encourages, but does not guarantee, admissibility at intermediate update steps, and it is not the mechanism that enforces the carried state. The hard map is that mechanism, enforcing the phase bounds and unit-sum constraint after every update. The increment projection and the state-admissibility map act on different objects and serve distinct numerical roles. 
+
+physical rate, and an absolute term normalized by a fixed displacement scale sabs , which prevents weak late-time dynamics from becoming numerically irrelevant, 
+
+ℓt = wrel 
+
+(pt − qt)2
+
+q2 
+
+> t
+
++ εr
+
++ wabs 
+
+(pt − qt)2
+
+s2abs + εr
+
+, (13) where ⟨·⟩ denotes the mean of the squared entries over phase channels and spatial grid points. All reported explicit-MPF runs use εr = 10 −8 and sabs = 0 .05 ; the weights (wrel , w abs ) and the interface-weighted variants used by some runs are listed per benchmark in Supplementary Table S5. For a training horizon H, the core residual component of the objective is 
+
+Lres (θ) = 1
+
+H
+
+> H−1
+
+X
+
+> t=0
+
+ℓt. (14) Equation (14) is the dominant but not the complete optimized objective. The quantity actually minimized additionally contains benchmark-dependent terms that are nonzero in the reported runs: the residual at the first rollout step carries twice the weight of every 9later step, because the initial-condition weight and the residual weight are both unity and multiply the same quantity; some runs add a phase-sum penalty on the pre-map field and a small magnitude penalty on the convolutional-branch response; and the interface-weighted runs replace the numerator means of Equation (13) as described in SM-B. The scalar bench-mark family is trained by a separate objective containing an energy-monotonicity penalty and one algebraic target term per learned branch. Where active, each branch-target term carries weight 1.0, and the configurations that use a physics-only branch warm-up stage op-timize during that stage only the target term or terms belonging to their active branch or branches; the exact per-run scope is given in Table S3. Every nonzero term, its weight in each reported run, and its mathematical definition are given in SM-B, Equation (S6) and Table S3. The first-step weighting and the branch-magnitude penalty are structural rather than incidental: the first is a fixed property of every explicit-MPF run, and the second acts asymmetrically on one of the two branches whose combination Section 3.1 assesses. The state used at the next step is advanced with the bounded increment in Equation (9) and the admissibility map in Equation (11); the loss compares the bounded increment with the physical target increment, and the admissibility map acts after the increment, outside the loss. Gradients are propagated through windows of the sequence using truncated backprop-agation through time (TBPTT), with the recurrent state detached between windows. The training horizon and TBPTT length are reported separately because the former controls the physical duration represented during training, whereas the latter controls the depth of the retained computational graph. No post-initial-condition PF state is used to construct qt, the loss, the early-stopping criterion, or the selected checkpoint on the explicit MPF path. The reference trajectory is opened only after training for offline evaluation. Configuration checks, static source in-spection, and runtime checks were used to verify this separation; the implementation-level evidence is summarized in SM-F. 
+
+2.6. Optional graph conditioning 
+
+An optional graph module conditions the backbone response in the two-dimensional Voronoi studies. The graph is reconstructed from the current predicted argmax partition: active grain regions define nodes, shared boundaries define edges, and all node and edge features are computed from the model field. No reference graph is used. A graph network returns bounded per-node scale and shift factors, which are broadcast to the corresponding phase channels, 
+
+z′ = α(Gt) ⊙ z + β(Gt), (15) where Gt = G(φt). The modulation acts before the bounded update: the conditioned response replaces z in Equation (9). The graph module is secondary to the core method and is not used in the three-dimensional benchmarks; its construction and bounded modulator ranges are detailed in SM-B. 
+
+2.7. Reference integration and evaluation metrics 
+
+The PF references are generated by explicit integration of the same discretized operator used in the training residual, 
+
+φref  
+
+> t+1
+
+= Π  φref  
+
+> t
+
++ ∆ tmR(φref  
+
+> t
+
+) , (16) 10 with the benchmark-specific admissibility-map variant documented in Supplementary Ta-ble S5. The reported comparisons therefore quantify the error introduced by the learned time integrator relative to direct integration of the same discrete model. They are not comparisons with an independent constitutive formulation or experiment. Let ˆφ denote the PINN-Phase field and φref the reference. The primary categorical metric is the fraction of grid points assigned to different phase labels, 
+
+Dt = 1
+
+|Ωh|
+
+X
+
+> x∈Ωh
+
+1
+
+h
+
+arg max  
+
+> k
+
+ˆφk(x, t )̸ = arg max  
+
+> k
+
+φref  
+
+> k
+
+(x, t )
+
+i
+
+. (17) The corresponding agreement is 1 − Dt. Field fidelity is measured by the mean absolute error 
+
+MAE t = 1
+
+N |Ωh|
+
+> N
+
+X
+
+> k=1
+
+X
+
+> x∈Ωh
+
+ˆφk(x, t ) − φref  
+
+> k
+
+(x, t ) . (18) The persistence baseline, denoted static-t0 in the figures, holds the initial field fixed for all later comparison times. For the explicit MPF benchmarks, the active phase set is defined from the argmax par-tition, 
+
+St =
+
+
+
+k : ∃ x ∈ Ωh such that k = arg max  
+
+> j
+
+φj (x, t )
+
+
+
+. (19) A phase extinction is registered at the first saved frame at which its label is absent from St
+
+and remains absent thereafter. Event times are consequently resolved only at the saved-frame cadence. For the scalar benchmarks, connected components are counted after thresholding at φ > 1/2 and do not represent persistent grain identities. The equivalent radius is obtained from the phase-field mass, not from a thresholded region: the two-dimensional area A and three-dimensional volume V are the discrete integrals of the order parameter, A = P 
+
+> x∈Ωh
+
+φ(x) ∆ x ∆y and V = P 
+
+> x∈Ωh
+
+φ(x) ∆ x ∆y ∆z, so that the equivalent radius is 
+
+R2D eq = pA/π, R3D eq =
+
+3V
+
+4π
+
+1/3
+
+. (20) The same mass-based estimator is applied to the reference and to the prediction, so the reported radius histories and slope errors compare like with like. A threshold-based estimator would give systematically different values; thresholding at φ > 1/2 is used only for the connected-component counts above. The interface-band proxy used in the scalar coarsening diagnostics is 
+
+Lt = |{ x ∈ Ωh : 0 .1 ≤ φ(x, t ) ≤ 0.9}| . (21) It is a grid-dependent count of diffuse-interface points, not a calibrated interfacial length. The normalized energy diagnostic and additional component statistics are defined in SM-C. 
+
+2.8. Benchmark design and implementation 
+
+The benchmark progression is designed to separate physical and numerical requirements. Scalar shrinkage and coalescence test interface motion and simple topology change. The four-11 phase junction tests multiphase relaxation and the sensitivity to represented training horizon. The 25- and 64-grain Voronoi cases test long-time coarsening with multiple simultaneous interfaces and extinction events. The scalar 64 3 problem tests three-dimensional feasibility under different bound-enforcement modes. The N = 8 , 64 3 and N = 16 , 96 3 cubes test one and three designed grain extinctions, respectively. Table 1 gives the domain, phase count, training horizon, evaluation quantity, and scientific role of each benchmark. The models are implemented in PyTorch and trained with TBPTT. The two-branch local–spatial design is selected once through the scalar branch-composition ablation and is retained as the common design across the benchmark progression, with capacity and sequence settings adapted to each benchmark. The cascade-family, the two-dimensional prospective cohort and the dense N = 64 studies additionally use the permutation-equivariant formula-tion of Section 2.3, so the networks are not architecturally identical across the progression. Exact optimizer settings, learning rates, epoch counts, horizons, TBPTT lengths, and map variants are listed in Supplementary Table S5, completed directly from the reported config-uration files; representative computational requirements are summarized in Supplementary Table S2. 
+
+2.9. Prospective evaluation on unseen two-dimensional initial conditions 
+
+The 25-grain cascade-family benchmarks of Section 2.8 use two initial conditions—the one used in training, and a second held out from training but inspected during development—so they measure fidelity rather than initial-condition transfer. To separate the two, we evaluated the trained model on a cohort of initial conditions it had never seen, under a protocol fixed in advance. 
+
+Cohort. The primary model was trained on the single development initial condition of the 25-grain cascade family used in Section 2.8. The evaluation cohort comprises eight further initial conditions of the same family, none used in training or in any earlier selection decision, together with two deliberately atypical cases: one with an unusually dense and one with an unusually sparse late-stage grain population. The ten cases, their evaluation order, and the reference trajectory for each were generated and fixed before any model prediction was produced for them. 
+
+Criteria. A complete set of conditions was fixed before scoring and applied unchanged; a case is reproduced only when all of them hold. At simulation step 4,000, the gain over the persistence baseline must be at least 0.70 and at least 70% of the differing pixels must lie in the diffuse-interface region. At step 12,000, the grain-label disagreement must be at most 
+
+15% , the gain over persistence at least 0.60 , and the terminal grain-identity F1 at least 0.90 .No grain may be absent from the prediction that the reference still retains. The case must also be structurally valid: finite fields, a phase-sum error of at most 10 −5, field values within 
+
+10 −6 of [0 , 1] , an admissibility margin of at least 0.30 at step 4,000, and no grain reappearing after it has disappeared. Here the gain over the persistence baseline is 1 − Dmodel /D persist ,the fractional reduction in disagreement relative to holding the initial condition fixed. The cohort bar required at least seven of the eight unseen initial conditions to meet the complete set, both stress cases to meet it, a median step-4,000 gain of at least 0.70 , a worst-case gain above zero, and a worst-case terminal F1 of at least 0.80 . The cohort was required in advance to be adequately challenging, every case showing a persistence disagreement of at least 10% at step 4,000 and at least 30% at step 12,000, so that neither gain denominator 12 is degenerate. Extinction-timing quantities were declared descriptive at the same time and enter no criterion. Supplementary Table S9 lists every threshold beside its observed range. The thresholds were fixed before scoring and are not presented as universal standards: related phase-field and microstructure-learning studies use different physical systems, state representations and accuracy measures, so their reported errors are not directly transfer-able. What the set is designed to do is test complementary failure modes. The relative-gain and absolute-field requirements act together, because G = 1 − Dmodel /D persist ≥ 0.60 
+
+is equivalent to Dmodel ≤ 0.4 Dpersist , so the effective field requirement at step 12,000 is 
+
+Dmodel ≤ min(15% , 0.4 Dpersist ); at step 4,000 the stricter G ≥ 0.70 likewise requires Dmodel ≤
+
+0.3 Dpersist . The relative term scales the requirement to how difficult each individual trajec-tory is, while the absolute ceiling prevents a case with a large persistence error from qualifying despite a large absolute mismatch. The remaining conditions test what a field error cannot see: interface localization asks whether the residual disagreement is concentrated near mov-ing diffuse boundaries rather than inside grains; terminal grain-identity F1 tests survivor-set fidelity; the no-missing-reference-survivor condition prevents a premature extinction from being hidden by good aggregate pixel agreement; and the structural-validity conditions test numerical admissibility independently of field accuracy. 
+
+Models and scoring. Two graph-free permutation-equivariant models were fixed before scoring in this two-dimensional evaluation. The primary model was trained on one develop-ment initial condition, and its checkpoint was fixed at a specified epoch before the cohort was defined; the secondary descriptive model was trained on six initial conditions from the same family and did not affect the primary outcome. Neither is the graph-conditioned control of Section SM-H. These statements apply only to the two-dimensional cohort; the three-dimensional cohort of Section 2.11 uses a separate model lineage. The cohort was scored once against independently generated references, with no revision of thresholds, cases, mod-els, or checkpoints after results were seen. The earlier, smaller cohort is reported separately in Section SM-G and is not pooled with this evaluation. Predictions stop at step 12,000. A reference-only continuation to step 13,000 is reported in Section SM-G for descriptive context; all qualification criteria are evaluated at or before step 12,000. 
+
+2.10. Long-horizon evaluation at 64 grains 
+
+The dense 64-grain benchmark is reported in two stages. 
+
+Primary evaluation. The graph-free permutation-equivariant model was trained for 100 epochs with a represented horizon H = 4 ,096 and TBPTT length 8. Its final checkpoint was fixed before evaluation and rolled autonomously from the initial condition to step 12,000, with states saved every 50 steps. Field disagreement and grain-set topology are scored against a reference integrated over the same interval and cadence. This defines the pre-registered single-attempt primary result. 
+
+Post-evaluation continuation. After primary scoring, training resumed from that check-point with the optimizer moments restored for 25 additional epochs at H = 8 ,192 , TBPTT length 8, and a constant learning rate of 5 × 10 −6; the network, loss, admissibility map, initial condition, reference, saved-state cadence, and scoring rule were unchanged. The com-parison thresholds were fixed before the continuation. A second 12,000-step rollout was then evaluated, leaving 3,808 steps beyond the represented horizon. Because represented horizon 13 and training effort changed together and the continuation followed the completed primary evaluation, it is sensitivity evidence rather than an independent evaluation and does not isolate a horizon-only effect. As throughout, the reference is used only for evaluation. 
+
+2.11. Prospective three-dimensional cohort evaluation 
+
+To test whether the N = 16 , 96 3 result extends beyond its development initial condition, one fixed trained model was evaluated on six prospectively fixed initial microstructures from the same designed-extinction family. The grid, phase count, physical operator, numerical discretization and three-extinction design are unchanged; only the grain arrangement varies between cases. The six initial conditions were drawn from a disjoint prospective seed pool and admitted before any model or reference evaluation, and none was used for case-specific retraining, tuning, checkpoint selection or post hoc adaptation. The evaluated checkpoint is the one already reported for the development cube of Section 3.5; this cohort introduces no additional training run and no new configuration. The model trajectories were produced first, and post-initial reference trajectories were generated or opened only afterwards for evaluation, so no reference field after t0 informed any rollout. Phase labels are evaluated raw, with no permutation, alignment or relabeling. States are saved every 200 simulation steps. The scored terminal state is step 1600, after the three designed extinctions; the saved record continues through step 3200 so that late persistence of the predicted trajectory can be tested. Terminal quantities are therefore evaluated at step 1600 and never at step 3200. Agreement is the voxel fraction whose argmax grain identity equals the reference. For this cohort, improvement over persistence is reported as the absolute percentage-point gain in label agreement, ∆At = 100 [ Amodel (t) − Astatic-t0 (t)] , rather than the normalized gain used for the two-dimensional cohort of Section 2.9; the two quantities are distinct and are not compared numerically. A case satisfies the complete predefined qualification only when every registered condition holds. The conditions cover numerical integrity, terminal field fidelity, persistence relative to static-t0, terminal active-set identity, extinction-event identity, timing and wave order, and tail active-set agreement; their exact definitions and thresholds are given in Supplementary Section SM-I. Individual extinction times are resolved only at the 200-step saved-state cadence, so no continuous-time timing claim is made. 14 Table 1: Benchmark hierarchy and evaluation design. The progression separates interface motion, topology change, long-horizon multiphase coarsening, and three-dimensional designed-extinction tests. Exact physical, numerical, and training settings are reported in Supplementary Tables S4 and S5. aThe prospective N = 16 
+
+cohort is an evaluation-only use of the checkpoint already reported for the N = 16 , 96 3 development cube; it involves no additional training run and adds no training configuration. 
+
+Benchmark Domain State size Training protocol Primary evaluation Scientific role Scalar shrinkage and two-grain problems 2D, 128 2 one field case-specific field MAE, radius law, event timing interface motion and elementary topology change Scalar multigrain coarsening 2D, 128 2 one field case-specific component count and coarsening proxies descriptive multigrain evolution Four-phase junction 2D, 128 2 N = 4 H128–H1024 horizon ladder step-6000 label disagreement and junction angles warm-started horizon-sensitivity study Voronoi coarsening 2D, 128 2 N = 25 H4096 label disagreement through step 12000; active phases long-horizon coarsening and extinction cascade (H4096 hybrid variant, original reference initial condition; baseline of Supplementary Figure S8) Voronoi cascade family 2D, 128 2 N = 25 H4096, permutation-equivariant variant, 9,605 parameters label disagreement through step 12000; terminal survivor set; extinction timing long-horizon coarsening under exact phase-permutation and periodic-translation equivariance; two development initial conditions Dense Voronoi coarsening 2D, 128 2 N = 64 H4096, permutation-equivariant variant label disagreement through step 12000; active grains and survivor set long-horizon evolution at larger phase count Prospective cohort 2D, 128 2 N = 25 evaluation only; no training on these cases complete predefined criterion set; terminal label and grain-identity metrics prospective initial-condition transfer within the fixed cascade family; criteria fixed before scoring (Table 3) Scalar spherical shrinkage 3D, 64 3 one field fixed reported scalar-3D model equivalent-radius trajectory under named bound-enforcement modes three-dimensional feasibility Designed-extinction cube 3D, 64 3 N = 8 512 → 2048 
+
+horizon curriculum step-2000 label agreement, survivor set, extinction frame validated single-extinction benchmark Designed-extinction cube 3D, 96 3 N = 16 H2048 strict-map continuation step-1600 label agreement, survivor set, three extinction frames validated multi-extinction benchmark Prospective 
+
+N = 16 cohort 3D, 96 3 N = 16 evaluation only; one fixed model, no case-specific adaptation a
+
+terminal label disagreement; exact active set; extinction identity, timing and order; persistence through step 3200 within-family prospective initial-condition transfer at fixed phase count and resolution (Table S13) 
+
+15 Algorithm 1 Physics-informed training and autoregressive prediction with PINN-Phase. The physical residual is evaluated on the predicted field at every step. For the reported explicit multiphase-field path, post-initial-condition reference fields are not inputs to the training procedure. 
+
+Given: initial field φ0; response network fθ; physical residual R; admissibility map Π; horizon H; TBPTT window B; effective interval ∆tm; increment scale 
+
+∆φmax .1 for each training epoch do 
+
+2 set φ ← φ0, initialize the recurrent state, and set the window accumulator 
+
+Lwin ← 0
+
+3 for t = 0 , . . . , H − 1 do 
+
+4 evaluate the neural response zt = fθ(φt) and the model-field target 
+
+qt = ∆ tmR(φt)
+
+5 compute the bounded increment ∆φt from Equation (9) and add the applicable per-step objective of Equation (S6) to Lwin , using pt = ∆ φt and qt;which of its terms are nonzero in each reported run is given in Table S3 6 set φt+1 = Π( φt + ∆ φt)
+
+7 if B steps have accumulated then backpropagate Lwin , apply the configured gradient clipping, take one optimizer step on θ, zero the gradients, detach both the recurrent state and the carried field φt+1 , and reset Lwin ← 0
+
+8 end for 
+
+9 end for Prediction: initialize with φ0; then at each step evaluate the neural response 
+
+zt = fθ(φt), compute the bounded phase-mean-centered increment ∆φt of Equation (9), apply the configured admissibility map φt+1 = Π( φt + ∆ φt), and repeat. No physical target is evaluated, no loss is constructed, and no gradients are required. 
+
+3. Results 
+
+The results follow the benchmark hierarchy in Table 1. Unless stated otherwise, field labels are obtained from the channel-wise argmax, and categorical error is reported as the label disagreement Dt in Equation (17). The persistence baseline, shown as static-t0 in the figures, holds the initial field fixed. Table 2 collects the principal quantitative results. 
+
+3.1. Architecture and structural constraints 
+
+The hybrid rate operator is first assessed on scalar shrinkage, where the physical tra-jectory is simple enough to examine the contribution of the two branches. Each variant keeps the capacity settings of the branch it retains, so the hybrid is the union of the two single-branch models rather than a parameter-matched competitor: it has 3,916 trainable parameters against 2,698 for the ConvLSTM-only model and 1,218 for the site-local branch alone. A capacity contribution to the hybrid’s advantage therefore cannot be excluded. On the 128 2 benchmark, the hybrid reaches a full-field MAE of 0.00306 , compared with 0.03162 
+
+for the ConvLSTM-only model and 0.18944 for the site-local branch alone (ANN-local-only). The same ordering is obtained at 64 2 (0.00201 , 0.00669 , and 0.06044 , respectively), although 16 Table 2: Principal quantitative results. Disagreement and MAE are lower-is-better metrics; agreement is higher-is-better. The persistence baseline holds the initial field fixed and is labeled static-t0 in the figures. Event agreement is evaluated at the saved-frame cadence. The reference-or-baseline column names the comparison used in each row: the PF reference itself (field-accuracy rows), the persistence baseline (label-agreement rows), or reported comparator variants (ablation and diagnostic rows). 
+
+Benchmark Quantity PINN-Phase Reference or baseline Physical or topological outcome Scalar single grain, 128 2
+
+full-field MAE 0.00306 (hybrid) 0.03162 
+
+ConvLSTM-only; 
+
+0.18944 local-only hybrid also matches the reference radius-law slope within 1.75% 
+
+Two independent grains full-field MAE 7.35 × 10 −4 PF reference 2 → 1 → 0 components; extinction-time errors 
+
+2.91% and 1.41% 
+
+Coalescing grains full-field MAE 1.430 × 10 −3 PF reference coalescence time within seven time units ( 14 .0% 
+
+of one saved-frame interval); merged-body extinction error 0.197% 
+
+Four-phase junction step-6000 label disagreement 
+
+3.272% 6.543% 
+
+persistence four active phases; final junction-angle RMS deviation 5.5◦ from 120 ◦
+
+Voronoi N = 25 
+
+(H4096 hybrid variant, original reference initial condition) step-12000 label disagreement 
+
+17 .20% 39 .70% 
+
+persistence terminal extinction-count lag: 17 active phases versus 14 in the reference Voronoi N = 25 
+
+cascade, training initial condition (permutation-equivariant variant) step-12000 label disagreement 
+
+1.46% (0.81% at step 4000) 
+
+44 .37% 
+
+persistence (26 .59% at step 4000) exact sixteen-grain terminal survivor set; predominantly premature event timing, three of seven events within ±50 steps by step 4096 Voronoi N = 25 
+
+cascade, second initial condition held out from training but inspected during development (permutation-equivariant variant) step-12000 label disagreement 
+
+1.13% (0.95% at step 4000) 
+
+51 .25% 
+
+persistence (28 .97% at step 4000) exact twelve-grain terminal survivor set; all thirteen extinctions reproduced; residuals predominantly premature Dense Voronoi 
+
+N = 64 
+
+step-12000 label disagreement 
+
+6.09% PF reference 1.35% and 3.50% at steps 4000 and 8000; 21 reference survivors all retained and one additional phase Prospective 
+
+N = 25 cohort cases satisfying the complete predefined criterion set 7 of 8; 2 of 2 stress criteria fixed before scoring 
+
+0.94 –3.71% differing pixels at step 12000 against a 32 .50 –49 .33% persistence baseline; meets the pre-registered cohort threshold exactly Scalar 3D, 64 3 radius slope / terminal residual radius reported bounded configuration: slope ratio 0.991 ;residual radius 
+
+0.034515 
+
+PF reference (internal diagnostics: clamp-only 
+
+0.011613 ;unbounded control fails) bound enforcement is required; feasibility result MPF cube, N = 8 ,
+
+64 3
+
+step-2000 label agreement 
+
+99 .53% 94 .01% 
+
+persistence exact seven-grain survivor set; designed extinction within one saved frame MPF cube, 
+
+N = 16 , 96 3
+
+step-1600 label agreement 
+
+99 .668% 93 .32% 
+
+persistence exact thirteen-grain survivor set; extinctions at steps 1000, 1200, and 1400 in model and reference Prospective 
+
+N = 16 , 96 3
+
+cohort cases satisfying the complete predefined qualification 5 of 6 criteria fixed before scoring 
+
+95 .06 –95 .83% terminal agreement at step 1600, 
+
++1 .71 to +2 .47 pp over static-t0; exact terminal thirteen-grain active set and all three extinction identities in 6 of 6 
+
+17 the 64 2 variants differ in their training objective as well as in architecture and so corroborate rather than replicate the objective-controlled comparison (SM-B). The local-only model did not reproduce coherent interface motion on these benchmarks, whereas the convolutional-recurrent branch did not reproduce the diffuse-interface correction with the same accuracy. Their combination tracks both the field and the equivalent-radius trajectory, with a radius-law slope error of 1.75% on the registered 128 2 case (Figure 3). The admissibility map acts after every neural update. Across the explicit MPF bench-marks, the predicted fields remain bounded and satisfy the unit-sum constraint to numerical precision. The three-dimensional N = 8 and N = 16 cases reach maximum unit-sum devi-ations of 2.4 × 10 −7 and 4.77 × 10 −7, respectively. These values characterize the numerical implementation of the hard state update; they are not obtained by adding a phase-sum penalty to the objective. 18 Figure 3: Branch-composition ablation of the hybrid rate operator. (a) Reference, hybrid, ConvLSTM-only, and ANN-local-only predictions on the 64 2 scalar shrinkage problem, with signed field errors on a common scale. (b) Equivalent-radius histories. (c) Full-field MAE on the registered 128 2 bench-mark. (d) Logged total objective for each 64 2 run. These totals sum different term sets—the hybrid objective includes two branch-target terms the single-branch runs do not have—so the three curves show convergence behavior and are not comparable in level (SM-B). The hybrid attains an MAE of 0.00306 at 128 2, com-pared with 0.03162 and 0.18944 for the ConvLSTM-only and ANN-local-only models. The variants share the capacity settings of the branches they retain but not the total parameter count: the hybrid contains both branches ( 3,916 trainable parameters against 2,698 and 1,218 ). Branch addition is therefore compared under the reported configurations, but total capacity changes with the branch set, so branch composition is not isolated from parameter count (SM-B). 
+
+19 3.2. Scalar interface motion and topology change 
+
+The scalar benchmark progression tests shrinkage, extinction, coalescence, and multicom-ponent morphology without the additional complexity of explicit phase identities (Figure 4). For a single grain, the predicted equivalent radius follows the curvature-driven area law in Equation (7). Two separated grains disappear in the sequence 2 → 1 → 0 with a full-field MAE of 7.35 × 10 −4; the extinction-time errors are 2.91% and 1.41% for the smaller and larger grain. When the initial grains are close enough to interact, the model reproduces coalescence before the merged domain shrinks. The full-field MAE is 1.430 × 10 −3; the coalescence time differs by seven time units ( 14 .0% of one saved-frame interval), and the merged-domain extinction error is 0.197% .The sparse multigrain case satisfies the prescribed closure tolerance, with a terminal residual radius of 0.014663 below the 0.025 threshold. In the denser scalar cases, the number of thresholded connected components decreases from 36 to 0 and from 54 to 1. These component counts describe the topology of a single thresholded field; they are not persistent grain labels. Figure 5 provides complementary field and morphology diagnostics. The predicted line profile resolves the 0.1 ≤ φ ≤ 0.9 diffuse-interface band. Across the multigrain cases, the component count, interface-band proxy, and normalized energy diagnostic decrease with time in the same direction as the reference. The connected-component area distribution shifts toward fewer, larger domains. These statistics characterize the reported simulations and are not used to infer an asymptotic grain-growth distribution. A sparse-to-dense warm start reaches the same fixed-budget training criterion in 4.08 h at epoch 75, compared with 
+
+15 .76 h at epoch 300 from scratch ( 3.86 ×). The result is reported as a qualified transfer observation because the interface-weighted error remains elevated and the corresponding denser transfer is neutral. 20 Figure 4: Scalar benchmark progression from shrinkage to multicomponent coarsening. Each row shows reference states, the corresponding PINN-Phase prediction, a signed field error, and either the equivalent-radius history or the number of thresholded connected components. The model reproduces single-grain extinction, two-grain coalescence, and the coarsening sequence in the sparse, dense, and denser initial conditions. The sparse case reaches a residual radius of 0.014663 , below the prescribed 0.025 tolerance. 
+
+21 Figure 5: Diffuse-interface and morphology diagnostics across the scalar benchmarks. (a) Phase-field profile through a shrinking grain. (b) Thresholded component count. (c) Interface-band proxy. (d) Normalized energy diagnostic. (e) Empirical distribution of connected-component areas. (f) Fixed-budget sparse-to-dense warm start. The diagnostics show consistent interface resolution and coarsening trends; the area statistics are descriptive, and the 3.86 × transfer result is qualified by the interface-error and neutral-transfer controls reported in SM-E. 
+
+3.3. Multiphase relaxation and two-dimensional coarsening 
+
+The four-phase junction provides a controlled test of long-horizon stability; equilibrium junction angles are a standard multiphase-field benchmark quantity [63]. The initial right-angle configuration relaxes toward the equal-energy equilibrium geometry (Figure 6). At step 6000, the lower-left junction angles are 127 .8◦, 115 .9◦, and 116 .4◦, corresponding to an RMS deviation of 5.5◦ from 120 ◦. The H1024 model reaches a label disagreement of 3.272% ,compared with 6.543% for the persistence baseline, while all four phases remain active. The normalized energy diagnostic is 0.005553 , within 0.4% of the reference value 0.005574 .Across the warm-started ladder, the two longer-horizon stages show lower late-time dis-agreement than the shorter stages. The step-6000 disagreement is 15 .454% for H128, 16 .455% 
+
+for H256, 8.276% for H512, and 3.272% for H1024. The H256 point is non-monotone, but the two longer horizons provide a clear reduction in extrapolation error. Within this warm-started chain, longer represented horizons are associated with lower late-time disagreement. 22 Figure 6: Four-phase junction relaxation across the warm-started horizon ladder. (a) Reference and PINN-Phase fields and their discrepancy at steps 0, 500, 2000, and 6000. (b) Label disagreement versus simulation step. (c) Step-6000 disagreement for horizons H128–H1024. (d) Junction geometry at step 6000. The H1024 model reaches 3.272% disagreement, preserves four active phases, and gives junction angles of   
+
+> 127 .8◦,115 .9◦, and 116 .4◦. The stages of the ladder are warm-started in sequence and their epoch counts differ, so represented horizon and training effort co-vary along it and the H256 point is non-monotone; panel (c) is therefore not a horizon-only causal law.
+
+The stages differ in epoch count as well as in horizon, so the association is a practical observation about the training schedule rather than a horizon-only causal attribution. The 25-grain Voronoi cascade family extends the evaluation to long coarsening sequences with repeated topology change (Figure 7). Two initial conditions of this family are re-ported, both evaluated with the same trained model and no retraining: the one used in training, whose reference loses nine grains ( 25 → 16 ) over 12,000 simulation steps, and a second initial condition that was held out from training but inspected during development, whose reference loses thirteen ( 25 → 12 ). Neither is prospective evidence. PINN-Phase (permutation-equivariant variant), which has 9,605 trainable parameters, reaches label dis-agreements of 0.81% and 1.46% at steps 4000 and 12,000 on the training initial condition, against persistence errors of 26 .59% and 44 .37% , and 0.95% and 1.13% on the held-out initial condition against 28 .97% and 51 .25% . It recovers the exact terminal survivor set in both cases, sixteen grains and twelve grains respectively, and reproduces all thirteen extinctions 23 of the held-out sequence. Structural admissibility is maintained throughout: the phase sum deviates from unity by at most 4.8 × 10 −7. Both are advanced autonomously for 12,000 steps from the initial condition alone; the PF reference trajectory is used only for evaluation, and the final 7,904 steps lie beyond the 4,096-step represented training horizon. The residual error is concentrated in event timing rather than in boundary placement, and the pre-registered timing tolerance is not met. Of the seven extinctions occurring within the 4,096-step training horizon on the training initial condition, three fall within ±50 steps of the reference event, and the residuals are predominantly premature on both initial conditions, with medians of −53 and −85 steps at the audited 50-step reference cadence. For comparison, PINN-Phase (H4096 hybrid variant) evaluated on the original 25-grain reference initial condition, which is the configuration underlying the graph-conditioning com-parison of Supplementary Figure S8 and the branch-deletion control of Figure S2, reaches 
+
+17 .20% label disagreement at step 12,000 against 39 .70% for persistence and retains 17 active phases where that reference has 14. The dominant residual symptom therefore differs across the configurations reported here: predominantly premature event timing for the permutation-equivariant variant on the cascade-family initial conditions, and a terminal extinction-count lag for the H4096 hybrid variant on the original reference initial condition. These configura-tions differ in both model variant and initial condition, and the difference is reported as an observation without attribution to either factor. The dense 64-grain benchmark extends the two-dimensional long-horizon evaluation to a larger phase count. It uses the graph-free permutation-equivariant formulation described in Section 2.3 and is advanced autonomously for 12,000 steps from the initial condition. Two results are reported for it, in the order in which they were produced. The primary model was trained with a 4,096-step horizon and evaluated once against criteria fixed beforehand; that pre-registered single-attempt primary outcome is reported below and in Table S6. The same model was then continued for 25 further epochs at an 8,192-step horizon, and Figure 8 displays that continuation. The two must not be conflated: the continuation is a sensitivity study carried out after the evaluation had been completed, not an independent confirmation of the benchmark. For the 8,192-step continuation displayed in Figure 8, grain-label disagreement with the reference grows from 0.85% at step 4,000 to 2.07% at step 8,000 and 
+
+3.97% at step 12,000. The represented horizon ends at step 8,192, so the final 3,808 steps of the rollout are autonomous extrapolation beyond it. The coarsening is substantial, from 64 grains to 21, and the terminal survivor set and extinction identities are recovered exactly: at step 12,000 the prediction retains the same 21 survivors as the reference and matches 43/43 reference extinctions by identity, with no grain eliminated that the reference retains, no additional extinction, and no grain reappearing after disappearing. At the terminal step, the remaining discrepancy is therefore in boundary placement rather than survivor identity or count. The run displayed in Figure 8 raised the represented training horizon from 4,096 to 8,192 steps and added 25 training epochs, after the pre-registered evaluation had been scored. Because both change together, the improvement cannot be attributed to horizon alone. The pre-registered single-attempt result on this benchmark remains 1.35% , 3.50% and 6.09% at the same three steps, with 22 active grains at step 12,000 against the reference’s 21 — all 21 reference survivors retained, plus one grain the reference had eliminated. Both runs are tabulated in Table S6, where the 4,096-step evaluation is the primary result. 24 Figure 7: Long-horizon coarsening of a 25-grain cascade with the permutation-equivariant vari-ant. (a) Reference simulation, PINN-Phase prediction, and differing grain-label pixels at steps 0, 2,000, 4,000, and 12,000 for the development initial condition used in training. (b) Grain-label disagreement for the training and held-out development initial conditions against the persistence baseline. Shading separates the represented temporal depth through H = 4 ,096 from autonomous extrapolation beyond H; the rollout is autonomous throughout. (c) Active-grain count against the reference for the trajectory shown in panel (a). (d) Extinction-timing residuals for both development initial conditions; the dashed line marks H, and the shaded band denotes the pre-registered ±50 -step timing tolerance. Both initial conditions are development evidence, not prospective tests. The pre-registered timing anchor is not met, and the residuals are predomi-nantly premature. The original 25-grain reference initial condition evaluated with the H4096 hybrid variant is reported separately in Supplementary Figure S8. 
+
+25 0.00% 0.85% 2.07% 3.97% 0 4000 8000 12000 Simulation step 0246Grain-label disagreement (%)  Within represented horizon Autonomous extrapolation +3,808 steps 0 4000 8000 12000 Simulation step 020 40 60 Active grains  21 active grains PF reference (evaluation only) PINN-Phase autonomous rollout    
+
+> Within represented horizon
+> Autonomous rollout · H = 8,192
+> Autonomous extrapolation
+> 3,808 steps beyond H Step 0 4,000 8,000 12,000 PF reference PINN-Phase Differing pixels
+
+(a) (b) (c) Figure 8: Post-evaluation sensitivity continuation of the dense 64-grain Voronoi benchmark. The displayed H = 8 ,192 model continues the pre-registered H = 4 ,096 primary model for 25 additional epochs; the primary result remains the H = 4 ,096 evaluation reported in Table S6. (a) Reference, PINN-Phase prediction, and differing grain-label pixels at steps 0, 4,000, 8,000, and 12,000. (b) Grain-label disagreement and (c) active-grain count over the rollout. Shading separates the represented horizon from the final 3,808 steps of autonomous temporal extrapolation. At step 12,000 the continuation reaches 3.97% disagreement and recovers the exact 21-grain survivor set. Because horizon and added training effort change together, the comparison does not isolate a horizon-only effect. 
+
+26 3.4. Prospective transfer to unseen two-dimensional initial conditions 
+
+The benchmarks above are development evidence rather than prospective tests of un-seen initial conditions: every initial condition they use was available during development. Whether the model has learned the dynamics of a family of microstructures, rather than the few cases within that family it has already seen, is a separate question, answerable only by evaluation on initial conditions fixed before the answer is known. Section 2.9 describes the protocol: eight unseen initial conditions of the 25-grain cascade family, two deliberately atypical stress cases, criteria and cohort bar fixed in advance, and one scoring pass. The model meets the complete set of predefined criteria in seven of the eight unseen initial conditions and in both stress cases (Figure 9, Table 3). All ten cases are structurally valid and no case shows a grain reappearing after it has disappeared. Across the unseen cases, the grain-label disagreement at step 12,000 lies between 0.97% and 3.71% , against a persistence baseline of 32 .50% to 49 .33% at the same step; the two stress cases lie between 0.94% and 
+
+2.15% . The corresponding gain over persistence is 0.912 to 0.975 across the unseen cases, and terminal grain-identity F1 lies between 0.968 and 1.000 . Every case places its differing pixels entirely within the diffuse-interface region. The complete criterion set with its observed ranges is given in Supplementary Table S9, the complete temporal evolution of all ten cases, with no selection, in Supplementary Figures S3–S7, and per-case values in Supplementary Table S10. The seven-of-eight outcome meets the pre-registered cohort threshold exactly, with no margin above the minimum required. With eight cases, the 95% Wilson interval on the underlying rate runs from 0.529 to 0.978 , so the cohort establishes that the behavior is not specific to the training initial condition but does not resolve the rate to better than this. The one case that does not meet the complete set fails on a single condition: a grain is absent from the prediction at step 12,000 while the reference still holds it. That case fails one of the seven per-case conditions and satisfies the remaining six, with terminal F1 0.968 
+
+and a grain-label disagreement of 3.71% , the largest in the cohort. The reference eliminates that same grain 933 steps after the evaluation horizon, which is reported in Section SM-G as context and cannot change the outcome, because every criterion is evaluated at or before step 12,000. A second model, trained on six initial conditions of the same family and likewise using no graph conditioner, was declared in advance as descriptive; it meets the complete set in the same seven cases and fails the same one, so it does not change the primary outcome (Supplementary Table S11). Training on six initial conditions rather than one did not change the cohort outcome. This result supports prospective initial-condition transfer within the fixed 25-grain cas-cade family, at fixed phase count and resolution, without case-specific retraining or tuning. 27 1.38% 1 10 Grain-label disagreement at step 12,000 (%) Unseen case 1 Unseen case 2 Unseen case 3 Unseen case 4 Unseen case 5 Unseen case 6 Unseen case 7 Unseen case 8 Dense stress Sparse stress PINN-Phase Persistence baseline Reference simulation PINN-Phase prediction Step 0 4,000 8,000 12,000 Differing pixels (a) 
+
+> Unseen case 2 one of the ten evaluation cases, shown in full in the Supplement 1.85 1.38 1.17 1.59 1.10 0.97 3.71 1.62 0.94 2.15 Terminal (%) Complete criterion set (Table 3)
+
+●●●●●●○●●●
+
+> (b)
+
+Figure 9: Prospective evaluation on unseen two-dimensional initial conditions. (a) One case of the ten, shown evolving: the reference simulation and the PINN-Phase prediction at simulation steps 0, 4,000, 8,000 and 12,000, with the pixels whose grain label differs at step 12,000 in the last column. The case shown is the unseen initial condition whose terminal grain-label disagreement is closest to the cohort median, a rule fixed for this figure so that neither the best nor the worst case is presented as typical; grain colors identify phases within this case and are not comparable between cases. (b) All ten cases, in the order fixed before evaluation: eight unseen initial conditions of the 25-grain cascade family, then a dense and a sparse stress case below the rule. For each case the filled marker is the grain-label disagreement at step 12,000 and the open marker is that case’s own persistence baseline, on a logarithmic axis, so the horizontal span of each pair is the gain over persistence. The right-hand column repeats the terminal value, and the glyph records whether the case met all of the criteria fixed in advance (Table 3), not terminal grain-set agreement alone. The complete temporal evolution of every case is given in Supplementary Figures S3–S7. 
+
+28 Table 3: Prospective transfer to unseen initial conditions of the 25-grain cascade family. A case counts as reproduced only when it satisfies every criterion fixed in advance, listed in full in Supplementary Table S9. Each case was evaluated once. Terminal quantities are at simulation step 12,000. Unseen initial conditions Stress cases Criterion Cases evaluated 8 2 —Cases meeting all predefined criteria 7 2 ≥ 7 of 8; 2 of 2 Wilson 95% interval on the rate 0.529–0.978 — —Grain-label disagreement (%) 0.97–3.71 0.94–2.15 ≤ 15                    
+
+> Persistence baseline (%) 32.50–49.33 35.49–48.86 ≥30
+> Gain over persistence, step 12,000 0.912–0.975 0.956–0.974 ≥0.60
+> Terminal grain-identity F10.968–1.000 1.000–1.000 ≥0.90
+> Cases missing a reference survivor 100 required Cases with a grain reappearing 000 required The complete criterion set, with every threshold and the observed range, is given in Supplementary Table S9; per-case values in Supplementary Table S10. The ten cases, their evaluation order and all thresholds were fixed before scoring, and scoring was performed once. Extinction-timing quantities were declared descriptive in advance and enter no criterion. This cohort is separate from the earlier partial cohort of Section SM-G and the two are never pooled.
+
+3.5. Three-dimensional progression 
+
+The three-dimensional study begins with scalar spherical shrinkage under explicit bound enforcement (Figure 10). In the reported bounded configuration, the equivalent-radius slope is 0.991 times the reference slope and the terminal residual radius is 0.034515 . A clamp-only diagnostic gives a smaller residual radius of 0.011613 , whereas the unbounded control becomes inadmissible. These results establish three-dimensional feasibility for the scalar model and show that the reported outcome depends on the bound-enforcement scheme. The first explicit MPF cube contains eight grains and one designed extinction. The reference coarsens from eight to seven active grains, with the target grain disappearing at step 1800 (Figure 11). The terminal comparison is performed at step 2000, where the persistence baseline has 94 .01% label agreement. PINN-Phase is trained from the initial cube with a horizon curriculum extending to 2048 steps. At step 2000, the model reaches 99 .53% label agreement ( 0.47% disagreement), recovers the exact seven-grain survivor set, and contains no spurious or missing phase. The designed grain disappears at step 2000, one saved frame after the reference event. The model matches the persistence baseline at t0 and exceeds it at every later saved frame. At step 3200, the agreement remains 99 .15% , compared with 92 .82% for persistence. The predicted field remains admissible throughout (Figure 12). This is a validated single designed-extinction benchmark, not a statistical test of three-dimensional grain-growth kinetics. The second cube increases the grid to 96 3 and the initial phase count to 16. The reference was designed to contain three ordered interior extinctions: grains 9, 10, and 11 disappear at steps 1000, 1200, and 1400, reducing the active count to 13 before the terminal comparison at step 1600. Figure 13 locates the three target grains, characterizes their initial neighborhoods, and documents the terminal reference morphology. The reference is used only for offline evaluation. The final N = 16 model is initialized from the preceding N = 16 , H = 2048 post-initial-condition label-free checkpoint trained with the thresholded-renormalization map, and is 29 0 250 500 750 1000 1250 1500 
+
+simulation time  
+
+> 0.00 0.05 0.10 0.15 0.20 0.25 0.30 0.35
+> equivalent radius (normalized)
+> t= 1400 (residual)
+
+(a)  
+
+> parentheses: fitted R2(t) slope / PF-reference slope curvature-driven law PF reference bounded rollout (0.991) clamp-only (0.998) reported bounded rollout clamp-only comparison unbounded comparison 0.00 0.01 0.02 0.03 0.04 0.05
+> residual radius @  t = 1400
+> 0.0345 0.0116 (unstable)
+
+(b) 
+
+> bound enforcement required
+
+(c) t = 0 t = 400 t = 700 t = 1000 t = 1200    
+
+> near-extinction
+> max = 0.069
+> (mid-plane)
+> t= 1400 reported bounded rollout, 64 3grain: true-3D isosurfaces (shared scale) shrinking to near-extinction
+
+Figure 10: Scalar 64 3 shrinkage under bound enforcement. (a) Equivalent-radius trajectory. (b) Termi-nal behavior for the bounded, clamp-only diagnostic, and unbounded configurations. (c) Three-dimensional isosurfaces and a terminal mid-plane section. The bounded-rollout radius slope is 0.991 of the reference value; the unbounded control fails. 
+
+then continued for 20 epochs with the strict clip-and-renormalize map used in both training and prediction. It reproduces the three extinctions at the same saved frames as the reference and recovers the exact thirteen-grain survivor set with no spurious or missing phase (Fig-ure 14). The terminal label agreement is 99 .668% , compared with 93 .32% for persistence, an improvement of 6.35 percentage points. The remaining 0.3315% disagreement is entirely con-tained within a one-voxel dilation of the reference interface. The maximum unit-sum error is 
+
+4.77 × 10 −7, and the active count remains 13 through step 3200. The event times are exact at the 200-step saved-frame resolution; no continuous-time zero-lag claim is made. Together with the N = 8 case, this result forms a two-level validation of designed three-dimensional extinction events. 
+
+3.6. Prospective transfer to unseen three-dimensional initial conditions 
+
+The single N = 16 , 96 3 cube above establishes high-fidelity evolution on a development configuration. The prospective cohort asks a separate question: whether the fixed model transfers to unseen initial geometries drawn from the same three-dimensional designed-extinction family. Six initial microstructures were fixed before evaluation and were advanced with one model, without case-specific retraining, tuning, or checkpoint selection (Figure 15). 30 Figure 11: Reference evolution for the N = 8 , 64 3 designed-extinction cube. (a) Three-dimensional states at steps 0, 1200, 1800, and 2000. (b) Terminal orthogonal label sections and the max k φk field. (c) Normalized volume of the target grain. (d) Benchmark summary. The designed grain is absent by step 1800, leaving seven active grains at step 2000. 
+
+At the scored terminal state, step 1600, grain-label agreement ranges from 95 .06% to 
+
+95 .83% , against 93 .08% to 93 .78% for each case’s own static-t0 persistence baseline, an improvement of +1 .71 to +2 .47 percentage points. The prediction recovers the exact terminal thirteen-grain active set in all six cases and reproduces the identities of all three disappearing grains in all six. Across the eighteen extinction events, every saved-state timing offset lies within ±200 simulation steps, one output interval: eleven events coincide exactly, two are early by one interval, and five are late by one. Five of the six microstructures satisfy the complete predefined qualification. The remaining case, Unseen microstructure 5, does not fail terminal topology or ex-tinction identity. Its three individual extinctions each remain within the timing tolerance, but two adjacent reference disappearance waves are merged into a single saved state in the prediction, and its gain over static-t0 persistence becomes slightly negative at the final saved state, reaching −0.081 percentage points at step 3200 after exceeding the baseline at the preceding fifteen saved states. The nearest qualifying case remains positive by +0 .007 
+
+percentage points at that same state. The two cases therefore lie on opposite sides of a numerically marginal persistence criterion at the final saved state. Complete active-grain trajectories, persistence-gain histories, and the diagnostic for the non-qualifying case are given in Figure S9; exact per-case outcomes and extinction steps are given in Table S13. This result supports prospective initial-condition transfer within the fixed N = 16 , 96 3
+
+designed-extinction family. 31 Figure 12: PINN-Phase prediction for the N = 8 , 64 3 cube. (a,b) Reference and predicted terminal microstructures at step 2000. (c) Label-mismatch cells. (d) Label agreement versus simulation step. (e) Active-grain count. (f) Training objective over the horizon curriculum. The model reaches 99 .53% terminal agreement, recovers the exact seven-grain survivor set, and captures the designed extinction within one saved frame. 
+
+32 Figure 13: Reference anatomy of the N = 16 , 96 3 designed-extinction cube. (a) Initial cutaway, analysis planes, and orthogonal label sections locating grains 9, 10, and 11. (b) Target-centered initial neighborhoods and geometric descriptors. (c) Terminal reference sections, max k φk, and the saved-frame extinction sequence 16 → 15 → 14 → 13 . Colors identify phase labels and do not encode crystallographic orientation. 
+
+33 Figure 14: Prediction of three interior grain extinctions in the N = 16 , 96 3 cube. (a) Reference and PINN-Phase neighborhoods for grains 9, 10, and 11 at matched saved frames. (b) Terminal cutaways at step 1600 and the interface-localized label mismatch. (c) Normalized target-grain volumes and active-grain count. The model reproduces the 16 → 15 → 14 → 13 sequence at the 200-step saved-frame resolution, recovers the exact terminal survivor set, and reaches 99 .668% label agreement, 6.35 percentage points above persistence. 
+
+34 1 2 3 4 5 6            
+
+> 123Step 0 Reference PINN-Phase Grain 1 1000 1200
+> Grain 2 1200 1400
+> Grain 3 1200 1400
+> 123Step 0 Reference PINN-Phase Grain 1 800 1000
+> Grain 2 1000 1400
+> Grain 3 1200 1400
+> 567Terminal grain-label disagreement (%) Unseen microstructure 6 Unseen microstructure 5 Unseen microstructure 4 Unseen microstructure 3 Unseen microstructure 2 Unseen microstructure 1 4.94 4.38 4.17 4.40 4.55 4.46
+> PINN-Phase Static-t 0persistence
+
+(a) Six prospectively fixed unseen initial microstructures (b) Matched extinction dynamics in two unseen microstructures 
+
+Unseen microstructure 2 Unseen microstructure 3 
+
+(c) Six-case prospective result 
+
+> Dterminal
+> (%) 13-grain set Extinction identities Complete criteria
+
+Figure 15: Prospective transfer to unseen three-dimensional initial conditions at fixed N = 16 
+
+and 96 3. (a) Six prospectively fixed unseen initial microstructures from the same designed-extinction family, advanced by one fixed model without case-specific adaptation; colors denote grain identity only. (b) Matched extinction dynamics in two successful unseen microstructures shown as illustrative examples; cohort-wide outcomes are reported in (c). Grain 1–3 denotes reference disappearance order; a dashed contour marks the last occupied region after a grain has disappeared; one event in the second example is offset by a single saved interval. (c) Terminal grain-label disagreement Dterminal , the voxel fraction whose argmax grain identity differs from the reference at step 1600, against each case’s own static-t0 persistence baseline, with terminal active-set identity, extinction-identity recovery, and complete-criterion status; the monitored horizon continues to step 3200. The exact terminal thirteen-grain active set and all three extinction identities are recovered in 6 of 6 cases; 5 of 6 satisfy the complete predefined qualification. 
+
+35 4. Discussion 
+
+4.1. A structurally admissible neural time integrator for multiphase fields 
+
+PINN-Phase combines three functions that must remain compatible during long autore-gressive multiphase evolution: a physics-informed rate model evaluated on the evolving pre-dicted field, a neural time integrator that retains phase identity through topology change, and a state update that enforces the local phase-fraction constraints after every step. Across the benchmark ladder, this combination advances full diffuse fields without post-initial-condition phase-field states in the reported explicit-MPF training path, preserves bounded phase frac-tions and unit sum during rollout, and remains operational as grains disappear and the active phase set changes. The hard admissibility map has a distinct numerical role from the projected physical rate and the phase-neutral neural increment. Projection of the multiphase Allen–Cahn rate makes the physical residual tangent to the unit-sum manifold; phase-mean removal makes the proposed neural increment phase-sum neutral; and clip-and-renormalize constrains the state that is actually carried to the next step. The architecture study provides complemen-tary evidence at the model level: the site-local branch represents nonlinear diffuse-interface response, whereas the convolutional-recurrent branch propagates spatial interactions and temporal state. Their combination is substantially more accurate than either branch alone in the reported comparison, while the larger parameter count of the hybrid prevents attribut-ing that difference to branch composition alone. The many-grain results demonstrate stable long-horizon evolution through repeated topology change. The permutation-equivariant N = 25 model recovers the exact termi-nal survivor sets of both development cascades after 12,000 autonomous steps (Figure 7). On the dense N = 64 benchmark, the pre-registered H = 4096 primary result retains all 21 reference survivors with one additional grain over the same rollout length; the post-evaluation H = 8192 continuation subsequently recovers the exact 21-grain survivor set and all 43 reference extinction identities (Figure 8; Supplementary Figure S1). Residual errors are concentrated mainly in boundary placement and extinction timing, but their character is configuration dependent. The permutation-equivariant N = 25 cascades show predominantly premature extinction timing, whereas some earlier hybrid and shorter-horizon controls ex-hibit extinction-count lag (Supplementary Figures S2 and S8). These controls differ in model formulation and in initial condition, so the origin of that variation is not isolated here. The three-dimensional evidence does not show a systematic extinction-delay mode: the N = 8 
+
+event is reproduced within one saved frame, the N = 16 development extinctions occur at the same saved frames as the reference, and all eighteen events in the prospective N = 16 
+
+cohort lie within the registered one-frame timing tolerance (Figures 12, 14 and 15). The training-horizon evidence should be interpreted separately from this cross-configuration failure-mode comparison. Across the warm-started triple-junction ladder, the longer represented horizons are associated with lower late-time disagreement, although hori-zon and epoch count co-vary and the H256 point is non-monotone. The N = 64 continuation is consistent with the practical importance of the represented horizon, but it also receives 25 additional training epochs. The present evidence therefore supports represented training horizon as a stability-relevant training setting for autoregressive evolution, not as an isolated causal control on accuracy. 36 Finally, the validation level is deliberately defined. The reference trajectories are obtained by direct integration of the same discretized projected multiphase-field operator used in the model-field residual. The reported errors therefore assess the learned time integrator for that operator. They do not constitute independent constitutive or material validation, a distinction that is retained explicitly in Section 4.3. 
+
+4.2. Relation to physics-informed solvers and microstructure surrogates 
+
+PINN-Phase lies at the intersection of physics-informed time integration and learned microstructure evolution, but it addresses a different state and supervision regime from either class alone. Conventional PINNs represent solutions as coordinate networks constrained by differential-equation residuals [31, 32], while temporal decomposition and time-marching strategies extend that formulation to longer transients [35, 36, 37]. Convolutional-recurrent physics-informed models show that an entire field can instead be advanced recurrently with boundary conditions encoded structurally [47]. PINN-Phase adopts that time-marching viewpoint for an N -component phase-fraction field whose admissibility and active phase set change during evolution. PINNs-MPF provides a useful comparison within multiphase-field PINNs. It uses co-ordinated phase-wise coordinate networks with space, time and phase decomposition, soft phase-sum enforcement and normalization [48]. PINN-Phase instead carries all phase chan-nels in one shared local–spatial autoregressive field model and imposes admissibility in the state update. These are complementary scaling strategies rather than directly comparable implementations: one decomposes the coordinate representation across phases and domains, while the other evolves many explicit phase channels through a shared recurrent operator. Supervised recurrent, latent-space, graph and neural-operator surrogates address another computational regime by learning from precomputed phase-field trajectories [21, 22, 23]. GrainGNN, for example, represents the microstructure as a dynamic graph and learns grain evolution and topology events from phase-field data [50], while recent supervised or hybrid grain-growth surrogates have demonstrated larger three-dimensional domains or longer data-driven and PF-corrected forecasts [64, 65]. The distinguishing contribution of PINN-Phase is therefore the conjunction rather than any one component in isolation: the reported explicit-MPF path learns from the governing residual evaluated on the model’s own evolving state without post-initial-condition PF states in the loss or checkpoint selection, advances an ex-plicit N -component diffuse field, enforces multiphase admissibility structurally, retains phase identity through topology change, and, in the reported N = 25 and N = 64 formulation, imposes exact equivariance to phase permutations and integer periodic translations of the grid. The prospective two- and three-dimensional cohorts then test whether fixed mod-els can be reused on unseen initial microstructures. These results extend physics-informed phase-field learning toward long-horizon, constrained, topology-changing many-grain neural time integration; they do not provide a basis for numerical ranking against methods trained with different trajectory data, physical models or state representations. The optional graph conditioner is secondary to this core contribution. It is constructed from the predicted field and introduces no reference graph into training. In the earlier non-equivariant controls it modestly improves N = 64 boundary-level agreement and, for N = 25 ,reproduces the reference terminal active-grain count, although the latter model has larger long-horizon pixel disagreement and was continued from the graph-free checkpoint. The 37 evidence therefore supports graph conditioning as a topology-sensitive optional extension, not as a universal improvement or as a demonstrated three-dimensional mechanism. 
+
+4.3. Scope, temporal extrapolation, and implications for materials workflows 
+
+Two distinct forms of reuse are demonstrated in the present study: temporal extrapo-lation beyond the duration represented during training, and transfer to unseen initial con-ditions. They should not be conflated. The permutation-equivariant N = 25 development model and the pre-registered dense N = 64 primary model each use a represented training horizon of H = 4096 but are advanced autonomously to step 12,000. Their final 7,904 steps therefore lie beyond the represented training horizon. The post-evaluation N = 64 contin-uation increases H to 8,192 but still contains 3,808 autonomous steps beyond that horizon. The rollout is autonomous throughout; temporal extrapolation refers specifically to the part extending beyond H. The accurate many-grain fields and survivor sets retained through these intervals show that the learned integrator can remain useful after leaving the temporal range represented during training, although field error and extinction timing remain sensi-tive long-horizon diagnostics. Because the N = 64 continuation also received 25 additional training epochs, its improvement cannot be assigned to the horizon change alone. Initial-condition transfer tests a different capability. In two dimensions, one fixed N = 25 
+
+model satisfies the complete predefined criterion set in seven of eight prospectively fixed unseen initial conditions and in both stress cases, without case-specific retraining or tuning. In three dimensions, the fixed N = 16 model recovers the exact terminal thirteen-grain active set and all three extinction identities in all six unseen microstructures, while five of six satisfy the complete predefined qualification. Together, these cohorts show that the learned evolution is not restricted to the individual development initial conditions in either dimensional setting. The evidence supports prospective initial-condition transfer within the fixed benchmark families tested here. The present scope remains deliberately bounded. The transfer studies keep the physi-cal operator, phase count and spatial resolution fixed within each family; the cohorts are finite; residual extinction-timing error persists in some two-dimensional cases; and the three-dimensional experiments are designed-extinction tests rather than a statistical grain-growth campaign. The study also validates neural integration against direct integration of the same discrete operator rather than against an independently calibrated material model. Material-specific calibration, transfer across phase counts or resolutions, parameter-conditioned gener-alization and statistical three-dimensional grain-growth prediction therefore remain outside the demonstrated evidence. The prospective value of PINN-Phase is consequently not as a replacement for a high-fidelity phase-field solver in an isolated forward calculation, but as a reusable, structurally constrained evolution model for many related queries. After material-specific calibration and broader parameter conditioning, such a model could be applied across families of ini-tial microstructures, coupled to sparse observations, or differentiated through morphology objectives, while direct phase-field simulations and experiments remain the calibration and verification layers for selected cases. The next steps are therefore to broaden transfer across independently generated microstructure families and physical parameters, establish material-facing calibration, test statistically representative three-dimensional ensembles, and quantify amortized training-plus-inference cost in repeated-use workflows. 38 5. Conclusion 
+
+PINN-Phase is a physics-informed neural time integrator for topology-changing multiphase-field dynamics that advances the full diffuse N -component state from a resid-ual evaluated on its own evolving field. A bounded, phase-sum-neutral neural increment and a hard clip-and-renormalize map enforce the local phase-fraction constraints after every step; on the reported explicit-MPF path, post-initial-condition PF states are excluded from the loss, early stopping, and checkpoint selection and are reserved for offline evaluation. The many-grain benchmarks demonstrate autonomous evolution beyond the temporal depth represented during training and prospective reuse across unseen initial conditions. The permutation-equivariant N = 25 development model is advanced to step 12,000 from 
+
+H = 4 ,096 , with exact terminal survivor sets on both development cascades; in the prospec-tive N = 25 cohort, one fixed model meets the complete predefined criteria in seven of eight unseen cases and both stress cases without case-specific tuning. The pre-registered dense 
+
+N = 64 primary result reaches 6.09% terminal grain-label disagreement while retaining all 21 reference survivors plus one additional grain; a post-evaluation H = 8 ,192 , 25-epoch con-tinuation reduces the disagreement to 3.97% and recovers the exact 21-grain survivor set and all 43 reference extinction identities. In three dimensions, the N = 16 , 96 3 develop-ment cube reaches 99 .668% agreement with the exact thirteen-grain survivor set and the three designed extinctions at the reference saved frames; on six prospectively fixed unseen microstructures, the same fixed model recovers the exact terminal thirteen-grain active set and all three extinction identities in all six, with five of six satisfying the complete predefined qualification. Together, these results extend physics-informed phase-field learning toward long-horizon, structurally admissible, topology-changing many-grain neural time integration and support prospective initial-condition transfer within the evaluated two- and three-dimensional bench-mark families. The present evidence validates neural integration of the studied discrete operator rather than material-specific grain-growth prediction. The next step is broader parameterized training and material-facing calibration against simulations and experiments, together with statistically representative three-dimensional ensembles and a many-query training-plus-inference cost study, while direct phase-field simulation and experiment remain the calibration and verification layers for selected cases. 
+
+Declarations 
+
+Declaration of competing interest. The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+Funding. This work was supported by the German Federal Ministry of Research, Technology and Space through the project “StStG CTC – Wissenschafft Perspektiven für die Region: Center for the Transformation of Chemistry gGmbH” (funding reference 03WSP1573). 
+
+Acknowledgments. The first author acknowledges Prof. Reza Darvishi Kamachali for initi-ating the original conceptual direction of PINN-Phase and for earlier scientific discussions on combining physics-informed neural networks with multiphase-field modeling. The further 39 development, implementation, validation, results, and conclusions of the present manuscript were carried out independently by the authors. 
+
+Data and code availability. PINN-Phase is publicly available under the BSD 3-Clause License in its public GitHub repository. The repository provides the source code, environment specifications, evaluation and replay scripts, derived replay weights with provenance records, and distributed benchmark packages. Larger reference and initial-condition fields, training configurations, and parent checkpoints are not publicly distributed and are identified by SHA-256 digest. Additional methodological and reproducibility details are provided in the Supplementary Material submitted with this article. 
+
+References 
+
+[1] M. Hillert, On the theory of normal and abnormal grain growth, Acta Metallurgica 13 (3) (1965) 227–238. doi:10.1016/0001-6160(65)90200-2 .[2] R. Darvishi Kamachali, A. Abbondandolo, K. F. Siburg, I. Steinbach, Geometrical grounds of mean field solutions for normal grain growth, Acta Materialia 90 (2015) 252–258. doi:10.1016/j.actamat.2015.02.025 .[3] R. Darvishi Kamachali, J. Hua, I. Steinbach, A. Hartmaier, Multiscale simulations on the grain growth process in nanostructured materials, International Journal of Materials Research 101 (11) (2010) 1332–1338. doi:10.3139/146.110419 .[4] L. Maire, B. Scholtes, C. Moussa, N. Bozzolo, D. Pino Muñoz, M. Bernacki, Im-provement of 3D mean field models for capillarity-driven grain growth based on full field simulations, Journal of Materials Science 51 (2016) 10970–10981. doi:10.1007/ s10853-016-0309-6 .[5] Y. Li, Z. Wang, Y. Wang, J. Li, J. Wang, Revealing curvature and stochastic effects on grain growth: a thermodynamic perspective from extremal principle, Scripta Materialia 217 (2022) 114766. doi:10.1016/j.scriptamat.2022.114766 .[6] J. W. Cahn, J. E. Hilliard, Free energy of a nonuniform system. I. interfacial free energy, The Journal of Chemical Physics 28 (2) (1958) 258–267. doi:10.1063/1.1744102 .[7] S. M. Allen, J. W. Cahn, A microscopic theory for antiphase boundary motion and its application to antiphase domain coarsening, Acta Metallurgica 27 (6) (1979) 1085–1095. 
+
+doi:10.1016/0001-6160(79)90196-2 .[8] I. Steinbach, Phase-field models in materials science, Modelling and Simulation in Ma-terials Science and Engineering 17 (7) (2009) 073001. doi:10.1088/0965-0393/17/7/ 073001 .[9] N. Provatas, K. Elder, Phase-Field Methods in Materials Science and Engineering, Wiley-VCH, Weinheim, 2010. doi:10.1002/9783527631520 .[10] L.-Q. Chen, Phase-field models for microstructure evolution, Annual Review of Materi-als Research 32 (2002) 113–140. doi:10.1146/annurev.matsci.32.112001.132041 .40 [11] G. Abrivard, E. P. Busso, S. Forest, B. Appolaire, Phase field modelling of grain boundary motion driven by curvature and stored energy gradients. Part II: Applica-tion to recrystallisation, Philosophical Magazine 92 (28–30) (2012) 3643–3664. doi: 10.1080/14786435.2012.717726 .[12] I. Steinbach, F. Pezzolla, B. Nestler, M. Seeßelberg, R. Prieler, G. J. Schmitz, J. L. L. Rezende, A phase field concept for multiphase systems, Physica D: Nonlinear Phenom-ena 94 (3) (1996) 135–147. doi:10.1016/0167-2789(95)00298-7 .[13] R. Darvishi Kamachali, I. Steinbach, 3-D phase-field simulation of grain growth: topo-logical analysis versus mean-field approximations, Acta Materialia 60 (6–7) (2012) 2719– 2728. doi:10.1016/j.actamat.2012.01.037 .[14] E. Miyoshi, T. Takaki, Multi-phase-field study of the effects of anisotropic grain-boundary properties on polycrystalline grain growth, Journal of Crystal Growth 474 (2017) 160–165. doi:10.1016/j.jcrysgro.2016.11.097 .[15] Y. Rezaei, M. Jafari, A. Hassanpour, M. Jamshidian, Multi-phase-field modeling of grain growth in polycrystalline titanium under magnetic field and elastic strain, Applied Physics A 128 (10) (2022) 874. doi:10.1007/s00339-022-06008-8 .[16] C. Schwarze, R. Darvishi Kamachali, I. Steinbach, Phase-field study of zener drag and pinning of cylindrical particles in polycrystalline materials, Acta Materialia 106 (2016) 59–65. doi:10.1016/j.actamat.2015.10.045 .[17] C. J. Grose, P. D. Asimow, A multi-phase field model for mesoscopic interface dynamics with large bulk driving forces, Computational Materials Science 212 (2022) 111570. 
+
+doi:10.1016/j.commatsci.2022.111570 .[18] D. Tourret, H. Liu, J. LLorca, Phase-field modeling of microstructure evolution: re-cent applications, perspectives and challenges, Progress in Materials Science 123 (2022) 100810. doi:10.1016/j.pmatsci.2021.100810 .[19] Y. Li, J. Kim, Phase-field simulations of crystal growth with adaptive mesh refinement, International Journal of Heat and Mass Transfer 55 (25–26) (2012) 7926–7932. doi: 10.1016/j.ijheatmasstransfer.2012.08.009 .[20] W. Xu, Y. Li, H. Li, S. Qiang, C. Zhang, C. Zhang, Multi-level adaptive mesh refinement technique for phase-field method, Engineering Fracture Mechanics 276 (2022) 108891. 
+
+doi:10.1016/j.engfracmech.2022.108891 .[21] C. Hu, S. Martin, R. Dingreville, Accelerating phase-field predictions via recurrent neu-ral networks learning the microstructure evolution in latent space, Computer Methods in Applied Mechanics and Engineering 397 (2022) 115128. doi:10.1016/j.cma.2022. 115128 .41 [22] D. Montes de Oca Zapiain, J. A. Stewart, R. Dingreville, Accelerating phase-field-based microstructure evolution predictions via surrogate models trained by ma-chine learning methods, npj Computational Materials 7 (2021) 3. doi:10.1038/ s41524-020-00471-8 .[23] V. Oommen, K. Shukla, S. Goswami, R. Dingreville, G. E. Karniadakis, Learning two-phase microstructure evolution using neural operators and autoencoder architectures, npj Computational Materials 8 (2022) 190. doi:10.1038/s41524-022-00876-7 .[24] I. Peivaste, A. Makradi, S. Belouettar, Teaching artificial intelligence to perform rapid, resolution-invariant grain growth modeling via Fourier neural operator, Computer Meth-ods in Applied Mechanics and Engineering 440 (2025) 117945. doi:10.1016/j.cma. 2025.117945 .[25] C. Bonneville, N. Bieberdorf, A. Hegde, M. Asta, H. N. Najm, L. Capolungo, C. Safta, Accelerating phase field simulations through a hybrid adaptive Fourier neural operator with U-net backbone, npj Computational Materials 11 (1) (2025) 14. doi:10.1038/ s41524-024-01488-z .[26] D. Ciesielski, Y. Li, S. Hu, E. King, J. Corbey, P. Stinis, Deep operator network surro-gate for phase-field modeling of metal grain growth during solidification, Computational Materials Science 246 (2025) 113417. doi:10.1016/j.commatsci.2024.113417 .[27] M. Bamdad, M. S. Eshaghi, C. Anitescu, N. Valizadeh, T. Rabczuk, PENCO: A physics– energy–numerics–consistent operator for 3D phase field modeling, Computer Methods in Applied Mechanics and Engineering 454 (2026) 118862. doi:10.1016/j.cma.2026. 118862 .[28] H. Razavi, N. Moelans, Physics-informed GCN-LSTM framework for long-term fore-casting of 2D and 3D microstructure evolution, npj Computational Materials 12 (2026) 190. doi:10.1038/s41524-026-01999-x .[29] Y. Geng, Y. Teng, Z. Wang, L. Ju, A deep learning method for the dynamics of classic and conservative Allen–Cahn equations based on fully-discrete operators, Journal of Computational Physics 496 (2024) 112589. doi:10.1016/j.jcp.2023.112589 .[30] M. Kütük, H. Yücel, Energy dissipation preserving physics informed neural network for Allen–Cahn equations, Journal of Computational Science 87 (2025) 102577. doi: 10.1016/j.jocs.2025.102577 .[31] M. Raissi, P. Perdikaris, G. Karniadakis, Physics-informed neural networks: a deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations, Journal of Computational Physics 378 (2019) 686–707. doi: 10.1016/j.jcp.2018.10.045 .[32] G. E. Karniadakis, I. G. Kevrekidis, L. Lu, P. Perdikaris, S. Wang, L. Yang, Physics-informed machine learning, Nature Reviews Physics 3 (6) (2021) 422–440. doi:10. 1038/s42254-021-00314-5 .42 [33] S. Cuomo, V. S. Di Cola, F. Giampaolo, G. Rozza, M. Raissi, F. Piccialli, Scientific ma-chine learning through physics-informed neural networks: where we are and what’s next, Journal of Scientific Computing 92 (3) (2022) 88. doi:10.1007/s10915-022-01939-z .[34] A. Daw, J. Bu, S. Wang, P. Perdikaris, A. Karpatne, Mitigating propagation failures in physics-informed neural networks using retain-resample-release (R3) sampling, in: Proceedings of the 40th International Conference on Machine Learning, Vol. 202 of Proceedings of Machine Learning Research, 2023, pp. 7264–7302. URL https://proceedings.mlr.press/v202/daw23a.html 
+
+[35] M. Penwarden, A. D. Jagtap, S. Zhe, G. E. Karniadakis, R. M. Kirby, A unified scal-able framework for causal sweeping strategies for physics-informed neural networks (PINNs) and their temporal decompositions, Journal of Computational Physics 493 (2023) 112464. doi:10.1016/j.jcp.2023.112464 .[36] X. Meng, Z. Li, D. Zhang, G. E. Karniadakis, PPINN: parareal physics-informed neu-ral network for time-dependent PDEs, Computer Methods in Applied Mechanics and Engineering 370 (2020) 113250. doi:10.1016/j.cma.2020.113250 .[37] A. D. Jagtap, G. E. Karniadakis, Extended physics-informed neural networks (XPINNs): a generalized space-time domain decomposition based deep learning framework for non-linear partial differential equations, Communications in Computational Physics 28 (5) (2020) 2002–2041. doi:10.4208/cicp.OA-2020-0164 .[38] Z. Chen, S.-K. Lai, Z. Yang, AT-PINN: advanced time-marching physics-informed neu-ral network for structural vibration analysis, Thin-Walled Structures 196 (2024) 111423. 
+
+doi:10.1016/j.tws.2023.111423 .[39] C. Wu, M. Zhu, Q. Tan, Y. Kartha, L. Lu, A comprehensive study of non-adaptive and residual-based adaptive sampling for physics-informed neural networks, Computer Methods in Applied Mechanics and Engineering 403 (2023) 115671. doi:10.1016/j. cma.2022.115671 .[40] J. Guo, H. Wang, C. Hou, An adaptive energy-based sequential method for training PINNs to solve gradient flow equations, Applied Mathematics and Computation 479 (2024) 128890. doi:10.1016/j.amc.2024.128890 .[41] C. L. Wight, J. Zhao, Solving Allen–Cahn and Cahn–Hilliard equations using the adap-tive physics informed neural networks, Communications in Computational Physics 29 (3) (2021) 930–954. doi:10.4208/cicp.OA-2020-0086 .[42] N. Chen, S. Lucarini, R. Ma, A. Chen, C. Cui, PF-PINNs: physics-informed neural net-works for solving coupled Allen–Cahn and Cahn–Hilliard phase field equations, Journal of Computational Physics 529 (2025) 113843. doi:10.1016/j.jcp.2025.113843 .[43] S. Goswami, C. Anitescu, S. Chakraborty, T. Rabczuk, Transfer learning enhanced physics informed neural network for phase-field modeling of fracture, Theoretical and Applied Fracture Mechanics 106 (2020) 102447. doi:10.1016/j.tafmec.2019.102447 .43 [44] W. Zhang, J. Li, The robust physics-informed neural networks for a typical fourth-order phase field model, Computers & Mathematics with Applications 140 (2023) 64–77. 
+
+doi:10.1016/j.camwa.2023.03.016 .[45] C. J. G. Rojas, J. L. Boldrini, M. L. Bittencourt, Parameter identification for a damage phase field model using a physics-informed neural network, Theoretical and Applied Mechanics Letters 13 (3) (2023) 100450. doi:10.1016/j.taml.2023.100450 .[46] N. Chen, C. Cui, R. Ma, A. Chen, S. Wang, Sharp-PINNs: staggered hard-constrained physics-informed neural networks for phase field modelling of corrosion, Computer Methods in Applied Mechanics and Engineering 447 (2025) 118346. doi:10.1016/ j.cma.2025.118346 .[47] P. Ren, C. Rao, Y. Liu, J.-X. Wang, H. Sun, PhyCRNet: physics-informed convolutional-recurrent network for solving spatiotemporal PDEs, Computer Methods in Applied Mechanics and Engineering 389 (2022) 114399. doi:10.1016/j.cma.2021. 114399 .[48] S. Elfetni, R. D. Kamachali, PINNs-MPF: a physics-informed neural network frame-work for Multi-Phase-Field simulation of interface dynamics, Engineering Analysis with Boundary Elements 176 (2025) 106200. doi:10.1016/j.enganabound.2025.106200 .[49] S. Elfetni, R. D. Kamachali, PINN-Phase: a physics-informed neural network hy-brid framework for energy-based transfer learning in diffuse interface problems, SSRN preprint 5207041 (2025). doi:10.2139/ssrn.5207041 .[50] Y. Qin, S. DeWitt, B. Radhakrishnan, G. Biros, GrainGNN: a dynamic graph neural network for predicting 3D grain microstructure, Journal of Computational Physics 510 (2024) 113061. doi:10.1016/j.jcp.2024.113061 .[51] T. Xue, Z. Gan, S. Liao, J. Cao, Physics-embedded graph network for accelerating phase-field simulation of microstructure evolution in additive manufacturing, npj Com-putational Materials 8 (2022) 201. doi:10.1038/s41524-022-00890-9 .[52] W. Li, M. Z. Bazant, J. Zhu, Phase-field DeepONet: Physics-informed deep operator neural network for fast simulations of pattern formation governed by gradient flows of free-energy functionals, Computer Methods in Applied Mechanics and Engineering 416 (2023) 116299. doi:10.1016/j.cma.2023.116299 .[53] G. Gangmei, S. Rana, B. Rolfe, K. Mitra, S. Bhattacharyya, Learning coupled Allen– Cahn and Cahn–Hilliard phase-field equations using physics-informed neural operator (PINO) (2025). arXiv:2507.18731 .URL https://arxiv.org/abs/2507.18731 
+
+[54] N. Chen, A. Chen, R. Ma, Physics-informed neural operator for predictive parametric phase-field modelling (2026). arXiv:2603.09693 .URL https://arxiv.org/abs/2603.09693 
+
+44 [55] J. Xiong, Y. Wu, X. Zhou, P. Zhao, J. Zhu, Physics-informed operator learning for transferable energy-dissipative microstructure dynamics (2026). arXiv:2605.07279 .URL https://arxiv.org/abs/2605.07279 
+
+[56] H. Garcke, B. Nestler, B. Stoth, A multiphase field concept: Numerical simulations of moving phase boundaries and multiple junctions, SIAM Journal on Applied Mathemat-ics 60 (1) (1999) 295–315. doi:10.1137/S0036139998334895 .[57] B. Nestler, F. Wendler, M. Selzer, B. Stinner, H. Garcke, Phase-field model for multi-phase systems with preserved volume fractions, Physical Review E 78 (1) (2008) 011604. 
+
+doi:10.1103/PhysRevE.78.011604 .[58] S. Wu, J. Xu, Multiphase Allen–Cahn and Cahn–Hilliard models and their discretiza-tions with the effect of pairwise surface tensions, Journal of Computational Physics 343 (2017) 10–32. doi:10.1016/j.jcp.2017.04.039 .[59] W. W. Mullins, Two-dimensional motion of idealized grain boundaries, Journal of Ap-plied Physics 27 (8) (1956) 900–904. doi:10.1063/1.1722511 .[60] X. Shi, Z. Chen, H. Wang, D.-Y. Yeung, W.-K. Wong, W.-c. Woo, Convolutional LSTM network: a machine learning approach for precipitation nowcasting, in: Advances in Neural Information Processing Systems (NeurIPS), Vol. 28, 2015. URL https://papers.nips.cc/paper_files/paper/2015/hash/ 07563a3fe3bbe7e3ba84431ad9d055af-Abstract.html 
+
+[61] M. Zaheer, S. Kottur, S. Ravanbakhsh, B. Póczos, R. Salakhutdinov, A. J. Smola, Deep sets, in: Advances in Neural Information Processing Systems (NeurIPS), Vol. 30, 2017. URL https://papers.nips.cc/paper_files/paper/2017/hash/ f22e4747da1aa27e363d86d40ff442fe-Abstract.html 
+
+[62] T. S. Cohen, M. Welling, Group equivariant convolutional networks, in: Proceedings of the 33rd International Conference on Machine Learning, Vol. 48 of Proceedings of Machine Learning Research, 2016, pp. 2990–2999. URL https://proceedings.mlr.press/v48/cohenc16.html 
+
+[63] S. Daubner, P. W. Hoffrogge, M. Minar, B. Nestler, Triple junction benchmark for multiphase-field and multi-order parameter models, Computational Materials Science 219 (2023) 111995. doi:10.1016/j.commatsci.2022.111995 .[64] A. Zhou, S. Zahran, C. Chen, Z. Zhang, Y. Wang, A joint voxel flow-phase field framework for ultra-long microstructure evolution prediction with physical regulariza-tion, Computational Materials Science 272 (2026) 114890. doi:10.1016/j.commatsci. 2026.114890 .[65] Z. Tian, K. Yang, M. Tonks, A. R. Krause, J. B. Harley, A physics-regulated neural framework for learning 3D grain growth dynamics (2026). arXiv:2607.04680 .URL https://arxiv.org/abs/2607.04680 
+
+45

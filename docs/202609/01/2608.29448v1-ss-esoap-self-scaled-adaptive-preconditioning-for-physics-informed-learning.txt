@@ -1,0 +1,2174 @@
+Title: SS-ESOAP: Self-Scaled Adaptive Preconditioning for Physics-Informed Learning
+
+URL Source: https://arxiv.org/pdf/2608.29448v1
+
+Published Time: Tue, 01 Sep 2026 01:13:08 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# SS-ESOAP: Self-Scaled Adaptive Preconditioning for Physics-Informed Learning 
+
+Guangyuan Wang 1,2 Mads Toftrup 3 Sebastian Loeschcke 4
+
+Yixuan Wang 2 Anima Anandkumar 2
+
+> 1
+
+McGill University 2California Institute of Technology 
+
+> 3
+
+Aarhus University 4University of Copenhagen 
+
+Abstract 
+
+Physics-informed neural networks (PINNs) often face ill-conditioned ob-jectives that limit high-accuracy training. Dense quasi-Newton methods improve local conditioning but require expensive optimizer state, while Kronecker-factored methods such as SOAP scale to larger networks but rely on periodic basis updates. We introduce SS-ESOAP, which augments SOAP-style preconditioning with a scalar secant-energy correction adapted to Kronecker geometry and an adaptive basis update followed by variance-state downscaling. We characterize the directional secant matching induced by the scalar correction and give a bound on variance-state mismatch across basis changes. Across eight PDE benchmarks, SS-ESOAP attains the lowest final residual on six, including Burgers and Boussinesq, while SOAP-family baselines perform better on Gray-Scott and Ginzburg-Landau. On Boussi-nesq, SS-ESOAP reaches a residual of 10 −5 in 4.1 hours with 9.2 GB peak VRAM, while Adam does not reach this target within 14 hours. Three-seed 
+
+L2 and H1 errors on four representative PDEs support the link between lower residuals and improved solution accuracy. These results position SS-ESOAP as a scalable option for stiff, high-accuracy physics-informed training, rather than a uniform replacement for existing optimizers. 
+
+1 Introduction 
+
+High-precision optimization is central to scientific machine learning. One example is the search for finite-time singularities in the three-dimensional Euler and Navier-Stokes equa-tions. PINNs have been used to reconstruct candidate self-similar profiles in unbounded domains [1–3]. Such candidates require low residuals before computer-assisted analy-sis. PINN objectives are often ill-conditioned near this accuracy regime, where standard first-order training may plateau [4–8]. More broadly, PINN optimization presents challenges that differ from standard supervised learning. PINN losses combine PDE residuals with boundary and initial-condition terms, which can induce gradient imbalance, numerical stiffness, and ill-conditioned loss land-scapes [4–6]. As a result, standard first-order optimizers such as Adam often converge slowly or plateau in high-accuracy regimes, motivating curvature-aware methods for PINN training [9]. Second-order methods use curvature information via Hessian-approximation updates, enabling more efficient descent directions than first-order methods in many non-convex problems. Quasi-Newton methods such as BFGS [10] and L-BFGS [11] build these approx-imations from gradient differences, avoiding explicit second derivatives while retaining  
+
+> Preprint. Under review. Correspondence to: guangyuan.wang@mail.mcgill.ca .arXiv:2608.29448v1 [cs.LG] 29 Aug 2026
+
+favorable local convergence. Self-scaled variants, such as SS-BFGS, rescale the Hessian approximation to better match the local curvature spectrum [9, 12–14]. However, these methods operate on the flattened vector, requiring O(d2in d2out ) for a single dout × din matrix parameter, making exact self-scaled quasi-Newton updates impractical for deep networks. Kronecker-factored preconditioners provide a scalable alternative. Methods such as K-FAC [15], Shampoo [16], and SOAP [17] approximate curvature or gradient covariance through tensor products of smaller matrices, enabling structured preconditioning without maintaining a dense Hessian approximation. Rather than enforcing a quasi-Newton secant condition, these methods use second-order statistics such as empirical Fisher information or uncentered gradient covariance to rescale the gradient. However, existing Kronecker-factored methods still face limitations in non-stationary regimes. Standard Shampoo and SOAP typically update the preconditioner eigenspace at fixed intervals, which may not match the rate at which curvature statistics evolve during PINN training. Moreover, accu-mulated second-moment statistics are often reprojected after basis updates, which can be unstable when the basis rotates substantially [18]. In this work, we propose SS-ESOAP, a layerwise Kronecker-factored optimizer for high-accuracy PINN training. The method adds two operations to SOAP-style preconditioning. First, a scalar factor matches the Kronecker metric to the secant energy observed along the latest parameter displacement. Second, an EShampoo-style off-diagonal criterion triggers a basis update [18]. At each triggered update, SS-ESOAP reprojects the momentum state and downscales the coordinatewise second moment instead of reprojecting that second moment. For a dout × din matrix parameter, SS-ESOAP stores O(d2in + d2out ) Kronecker factors in addition to Adam-style states. The scalar secant calculation costs O(din dout ) after the required eigenspace quantities are available, or O(din dout ) when counted over all matrix entries. The basis check and eigendecomposition retain cubic layer-width costs, analyzed in Appendix F. Across eight PDE benchmarks, SS-ESOAP records the lowest final residual on six. On Boussinesq, it reaches 10 −5 in 4.1 hours, while Adam does not reach the same target within a 14-hour run. The gains are regime-dependent. Purifying Shampoo performs better on Gray-Scott, and SOAP performs better on Ginzburg-Landau. We therefore study SS-ESOAP as a specialized optimizer for stiff, high-accuracy regimes. 
+
+Our contributions are: 
+
+• We derive a directional secant-energy correction for a Kronecker-factored metric. • We pair an adaptive basis trigger with momentum reprojection and a variance-state transition designed for abrupt basis changes. • We state the scope of two theoretical results: a one-directional secant-matching result and a steady-state variance-mismatch bound. • We compare against first-order, structured, PINN-specific, and self-scaled quasi-Newton baselines, with wall-clock, memory, multi-seed, and physical-error measurements. • We identify regimes where self-scaling helps and regimes where it hurts. 
+
+2 Background and Related Work 
+
+2.1 Physics-Informed Neural Networks (PINNs) 
+
+Physics-informed neural networks (PINNs) [19, 20] solve PDE-constrained learning prob-lems by representing the solution field with a neural network and enforcing the govern-ing equations through differentiable residual losses. Formally, given a PDE of the form 
+
+F [u]( x, t) = 0 over a domain Ω, a PINN approximates the solution u(x, t) by a neural network uθ (x, t). Automatic differentiation evaluates F [uθ ], and the network is trained by minimizing a composite objective 
+
+L(θ) = λr Lr (θ) + λbLb(θ) + λdLd(θ),where Lr penalizes the PDE residual at collocation points, Lb enforces boundary or initial conditions, and Ld incorporates observational data when available. 22.2 Optimization for Physics-Informed Learning 
+
+PINN objectives combine residual, boundary, initial-condition, and data terms. Their gradients may differ sharply in scale and direction [4, 5, 21]. Loss-balancing methods address this issue through learning-rate annealing, NTK-based reweighting, or parameterwise normalization [4, 21, 22]. Other work targets the geometry of the full objective. Examples include NysNewton-CG [6], PDE preconditioning [23], energy and Gauss-Newton natural gradients [24, 25], ANaGRAM [26], dual natural gradients [27], and K-FAC for PINNs [28]. Recent work also studies gradient alignment under SOAP [7], self-scaled BFGS and Broyden methods [29, 30]. SS-ESOAP targets a different point in this design space. It does not reweight the PINN loss components or solve a global parameter-space or residual-space system. It combines layerwise Kronecker statistics with a directional secant correction. Dense self-scaled methods remain stronger references when their state and line-search costs are tractable. 
+
+2.3 Structured Matrix Preconditioning 
+
+Shampoo approximates full-matrix AdaGrad with Kronecker factors [16]. For a matrix parameter Wt ∈ Rm×n and gradient Gt, it maintains 
+
+Lt = β2 Lt−1 + ( 1 − β2)Gt G⊤ 
+
+> t
+
+, Rt = β2 Rt−1 + ( 1 − β2)G⊤ 
+
+> t
+
+Gt. (1) SOAP applies Adam in the eigenbasis of these factors [17]. Muon instead orthogonalizes matrix updates and is related to a zero-decay Shampoo limit [31, 32]. SOAP commonly refreshes its basis on a fixed schedule. Purifying Shampoo separates eigenvalue and eigenbasis errors and develops an adaptive stopping criterion for warm-started basis updates [18]. SS-ESOAP adopts this off-diagonal basis diagnostic. Its new elements are the Kronecker-adapted secant correction and the second-moment transition used after a triggered basis change. Muon [31] is a recent optimization algorithm designed to approximate second-order scaling for large-scale neural network training at a cost comparable to first-order methods. The method uses Newton-Schulz iterations to orthogonalize the gradient as G′ = UV ⊤, where 
+
+G = UΣV⊤ is the SVD of the matrix gradient of a linear layer. Additionally, it can be seen as a special case of Shampoo with β2 = 0 as (GG ⊤)−1/4 G(G⊤ G)−1/4 = UV T [32]. 
+
+2.4 Limitations of SOAP, Purifying Shampoo, and Adaptive Eigenvalue Correction 
+
+Standard implementations of SOAP update the eigenbasis (QL, QR) at fixed intervals. This static schedule fails to distinguish between different stages of training or layers with varying dynamics. Furthermore, when the basis is updated, standard approaches reproject the accumulated second-moment estimator Vk. We argue that reprojecting Vk via similarity transformation Vnew k = ( Qnew L )T QLVk QTR Qnew R assumes variance preservation under rotation, which is invalid when the principal directions of the Hessian shift significantly, leading to unstable step sizes. Recent analysis of the Shampoo algorithm has identified that its practical success relies heavily on two heuristics: stale preconditioning (updating the eigenbasis at fixed, infrequent intervals) and learning rate grafting (forcing the update magnitude to match Adam’s to mitigate spectral errors). [18] formalized these issues by decomposing the preconditioner update into its eigenvector (basis) and eigenvalue (curvature) components, termed the “Purifying” framework. 
+
+2.5 Self-Scaling in Quasi-Newton Iteration Algorithms 
+
+A general class of quasi-Newton iteration algorithms can be cast under the self-scaled Broyden formula [13]. If we define the auxiliary variables 
+
+sk = Θk+1 − Θk, yk = ∇J(Θk+1) − ∇ J(Θk), vk = pyk · Hkyk
+
+ sk
+
+yk · sk
+
+− Hkyk
+
+yk · Hkyk
+
+
+
+,3Algorithm 1 SS-ESOAP 
+
+Input: W0, η, β1, β2, τtrigger , L0, R0 ← I, QL, QR ← I, eM0, V0 ← 0
+
+for k = 1, 2, . . . do 
+
+Compute gradient Gk and Lk, Rk via (1) 
+
+if k (mod interval ) = 0 then 
+
+Compute off-diagonal ratio via (4) 
+
+if max {ρ(Lk, QL), ρ(Rk, QR)} > τtrigger then 
+
+Qold  
+
+> L
+
+← QL, Qold  
+
+> R
+
+← QR
+
+Recompute QL, QR from Lk, Rk
+
+eMk−1 ← (Q⊤ 
+
+> L
+
+Qold  
+
+> L
+
+) eMk−1(( Qold  
+
+> R
+
+)⊤ QR)
+
+Vk−1 ← γVk−1
+
+end if end if 
+
+Project G′ 
+
+> k
+
+= QTL Gk QR and update M′
+
+> k
+
+, Vk (Adam updates in eigenspace) Compute τk via (3) and precondition N′ 
+
+> k
+
+← τ−1/2  
+
+> k
+
+M′
+
+> k
+
+/(√Vk + ϵ)
+
+Update Wk ← Wk−1 − ηQL N′ 
+
+> k
+
+QTR
+
+end for 
+
+then, the next approximation of the inverse Hessian matrix at each iteration can be calculated as in [33, 34] by 
+
+Hk+1 = 1
+
+τk
+
+
+
+Hk − Hkyk ⊗ Hkyk
+
+yk · Hkyk
+
++ ϕkvk ⊗ vk
+
+
+
++ sk ⊗ sk
+
+yk · sk
+
+,where we define 
+
+τk = min 
+
+(
+
+1, yk · sk
+
+αksk · H−1 
+
+> k
+
+sk
+
+)
+
+. (2) Here, ⊗ denotes the tensor product of two vectors and τk, ϕk are respectively the scaling and the updating parameters, which often change between iterations. For τk = 1 and ϕk = 1, one recovers the standard BFGS algorithm. To efficiently compute the scaling parameter 
+
+τk, [9] set H−1 
+
+> k
+
+sk = −αk∇J(Θk) so the explicit dependence of τk on H−1 
+
+> k
+
+disappears. This is feasible since the step length αk and the gradient ∇J (Θk) are available at iteration k. Thus, the calculation of τk only involves vector multiplications in O(n).The original scaling scheme of [12] is τ(1) 
+
+> k
+
+= −yk ·sk    
+
+> αksk·∇ J(Θk)
+
+, which reduces the condition number of the transformed Hessian in the new space. However, this choice was shown to be inferior in terms of performance compared to the standard BFGS, when combined with an inexact line search computation of αk, as confirmed by [14]. The choice of taking the minimum value of both, as adapted by [9], is essentially a switch between standard BFGS ( τk = 1) and self-scaled BFGS which ensures theoretically super-linear convergence with inexact line searches. 
+
+3 Methodology: SS-ESOAP 
+
+We propose SS-ESOAP, which integrates a self-scaling factor τk and a purifying-style adaptive update strategy. Algorithm 1 presents a simplified overview, while Algorithm 2 in the appendix provides the full pseudocode. 
+
+3.1 Self-Scaling Curvature Correction 
+
+Inspired by Self-Scaling BFGS (SS-BFGS) [9], we introduce a scalar τk to the inverse Hessian approximation to ensure the preconditioner spans the correct spectrum of the true Hessian. In the Kronecker structure, we approximate the inverse Hessian as ( ˆHSS k )−1 = τ−1 
+
+> k
+
+(L−1 
+
+> k
+
+⊗
+
+R−1 
+
+> k
+
+). Leveraging the secant condition properties, we define the scaling factor τk using the 4trace of the updates. Let sk = vec (Wk − Wk−1) and yk = vec (Gk − Gk−1) then for the case of a Kronecker approximation of the Hessian in (2) we get: 
+
+τk = min 
+
+(
+
+1, Tr (( Gk − Gk−1)T (Wk − Wk−1)) 
+
+Tr (( Wk − Wk−1)T L−1 
+
+> k
+
+(Wk − Wk−1)R−1 
+
+> k
+
+)
+
+)
+
+. (3) We observe that τk = 1 is chosen for most training iterations, with self-scaling activated only infrequently. Nevertheless, these occasional adjustments are sufficient to yield substantial improvements in optimization performance. This formulation ensures that the scale of the preconditioner aligns with the curvature along the most recent displacement. This is applied in the eigenspace update as N′ 
+
+> k
+
+= τ−1/2  
+
+> k
+
+M′
+
+> k
+
+/√Vk + ϵ, where M′ 
+
+> k
+
+is the momentum in the eigenspace. 
+
+3.2 Adaptive Basis Updates and Variance-State Transition 
+
+To address the stability issues of fixed intervals and reprojection, we implement an eigen-value correction to adaptively control the approximation error of the eigenspace. 
+
+Adaptive eigenbasis trigger. Following the stopping criterion studied by [18], we monitor the relative off-diagonal mass of each Kronecker factor in its current basis, 
+
+ρ(Lk, QL) = ∥Q⊤ 
+
+> L
+
+Lk QL − diag (Q⊤ 
+
+> L
+
+Lk QL)∥F
+
+∥Q⊤ 
+
+> L
+
+Lk QL∥F
+
+. (4) The statistic measures how poorly the current basis diagonalizes the tracked Kronecker factor. It is a heuristic proxy for preconditioning degradation, not an exact Hessian-staleness measure. We recompute a basis when the maximum ratio for the left and right factors exceeds τtrigger . Appendix Table 9 compares this statistic with consecutive gradient cosine similarity around a triggered update. 
+
+State transition after a basis update. When the basis changes, we first reproject the mo-mentum so that it represents the same update direction in the new coordinates. We do not reproject the coordinatewise second moment. Instead, we retain its coordinatewise shape and apply Vk−1 ← γVk−1, with γ ∈ { 0.25, 0.5, 0.75 } selected from the observed off-diagonal ratio. Because V appears in the denominator of the Adam-style update, γ < 1 raises the immediate effective step magnitude before new gradients refresh the state. We treat this transition as an empirical transient heuristic. Theorem 4.1 gives a steady-state mismatch bound and does not establish the optimality of γ < 1. Appendix Figure 10 reports the targeted transient ablation. 
+
+4 Theoretical Analysis 
+
+We analyze self-scaling and variance downscaling theoretically, with proofs in Appendix A. 
+
+4.1 Spectral Stability Analysis of Variance Adaptation Theorem 4.1 (Variance-state stability under basis changes) . Let C t = E[gt g⊤ 
+
+> t
+
+] denote the population gradient second-moment matrix at step t. For an orthogonal basis Q ∈ O(d), define the diagonal second-moment operator DQ(C) := diag  Q⊤CQ . Let V t = DQt (Ct) and V ∗ 
+
+> t+1
+
+=
+
+DQt+1 (Ct+1), where V t is the diagonal second-moment state in the old basis Q t, and V ∗ 
+
+> t+1
+
+is the oracle diagonal second-moment state in the new basis Q t+1. Define the basis transition matrix U = Q⊤
+
+> t+1
+
+Qt. Consider the scalar soft-reset update V scale = γVt, 0 < γ ≤ 1. Then 
+
+Vscale − V∗  
+
+> t+1F
+
+≤ (1 − γ) ∥Vt∥F + 2 ∥Ct∥2 ∥I − U∥F + ∥Ct+1 − Ct∥F .
+
+In particular, if the gradient second moment evolves slowly, so that ∥Ct+1 − Ct∥F ≤ ∆t, then 
+
+Vscale − V∗  
+
+> t+1F
+
+≤ (1 − γ) ∥Vt∥F + 2 ∥Ct∥2 ∥I − U∥F + ∆t.54.2 Self-Scaling Spectral Analysis Theorem 4.2 (Kronecker secant-energy matching) . Let S k = Wk − Wk−1, Y k = ∇L (Wk) −∇L (Wk−1), and let K k ≻ 0 denote the Kronecker metric whose quadratic form is s ⊤
+
+k Kksk =
+
+Tr 
+
+
+
+S⊤
+
+k L−1
+
+k Sk R−1
+
+k
+
+
+
+, where s k = vec (Sk). Assume s k̸ = 0 and s ⊤
+
+k yk > 0. Define a k = s⊤
+
+k Kksk and ck = s⊤
+
+k yk. Then the scaling factor 
+
+τk = min 
+
+
+
+1, ck
+
+ak
+
+
+
+= min 
+
+(
+
+1, s⊤
+
+k yk
+
+s⊤
+
+k Kksk
+
+)
+
+is the unique solution of the clipped one-dimensional log-secant matching problem 
+
+τk = arg min 
+
+0<τ≤1
+
+"
+
+log s⊤
+
+k yk
+
+s⊤
+
+k (τKk)sk
+
+#2
+
+.
+
+If y k = Hksk + rk, then, whenever the unclipped solution is active, the scaled Kronecker quadratic form satisfies s ⊤
+
+k (τkKk)sk = s⊤
+
+k Hksk + s⊤
+
+k rk. Thus the mismatch between the scaled Kronecker secant energy and the true directional curvature is exactly the directional secant error s ⊤
+
+k rk.
+
+5 Numerical Experiments 
+
+We evaluate SS-ESOAP on a suite of challenging optimization tasks, including matrix regression, low-rank completion tasks and nonlinear evolutionary PDEs. The matrix tasks provide controlled settings where the curvature structure is known, allowing us to isolate the effect of self-scaling on the optimizer dynamics. In contrast, the nonlinear PDE benchmarks evaluate its robustness against the curvature anisotropy and stiffness typically encountered in frontier AI for Science applications [4–6]. 
+
+5.1 Baselines 
+
+The main comparisons include Adam [35], Muon [31], SOAP [17], and the adaptive Shampoo variant implemented from [18]. We also evaluate L-BFGS, SS-BFGS, SS-Broyden, K-FAC for PINNs, NTK reweighting, and MultiAdam where their memory and training requirements fit the benchmark [11, 21, 22, 28, 29]. Appendix C.4 reports each search space, selected setting, precision, stopping rule, hardware, and seed. 
+
+5.2 Matrix Regression Tasks 
+
+To evaluate the robustness and versatility of SS-ESOAP across varying optimization land-scapes, we conduct a comprehensive suite of matrix optimization experiments. These tasks span the spectrum of convexity and gradient stochasticity, ranging from strongly convex problems and convex objectives to challenging non-convex settings. This diverse testbed allows us to rigorously benchmark SS-ESOAP against baselines in both deterministic and stochastic regimes. Detailed analysis is in Appendix C.3. 0 500 1000 1500 2000 Steps (k) 10 13                     
+
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> 10 3
+> Loss
+> Adam Muon Purifying Shampoo SOAP SS-ESOAP
+> 0500 1000 1500 2000 Steps (k) 10 3
+> 8.75 × 10 2
+> 9 × 10 2
+> 9.25 × 10 2
+> 9.5 × 10 2
+> 9.75 × 10 2
+> 1.025 × 10 3
+> Residual
+> 0500 1000 1500 2000 Steps (k) 10 2
+> 10 3
+> 10 4
+> 10 5
+> 10 6
+> Hessian Cond. Num.
+> 0500 1000 1500 2000 Steps (k) 10 2
+> 10 1
+> 10 0
+> 10 1
+> Grad. Nuclear Norm
+
+Figure 1: Matrix Quadratic Regression Task. SS-ESOAP consistently achieves faster con-vergence and lower residuals in the quadratic regime where the self-scaling mechanism captures the spectrum. 
+
+Quadratic regression. We consider a matrix quadratic regression objective f (X) :=
+
+12 ∥AXB − C∥2F, where X ∈ Rm×n, A ∈ Rp×m, B ∈ Rn×q and C ∈ Rp×q. Then its gradient 6is ∇ f (X) = A⊤(AXB − C)B⊤, its Hessian is ∇2 f (X) = ( BB ⊤) ⊗ (A⊤ A) ∈ Rmn ×mn . The Hessian structure implies that ideal preconditioning isolates the residual condition number 
+
+κ(E) from the constant spectral skew of A and B. We set (m, n, p, q) = ( 500, 100, 1000, 250 )
+
+so that f is strongly convex. As illustrated in Figure 1, SS-ESOAP demonstrates a clear advantage in navigating the structured curvature of the quadratic objective. The quadratic task isolates the setting where the Hessian has an exact Kronecker form. It therefore tests whether the scalar correction recovers the directional scale predicted by the analysis without the nonlinear and multi-objective effects of a PINN. Logistic regression and low-rank completion results appear in Appendix C.3. 
+
+5.3 PINN Benchmarks 
+
+We apply SS-ESOAP to standard PINN benchmarks including the Allen-Cahn, 1D Burgers, and 2D Boussinesq equations, assessing performance across varying degrees of physical complexity. Table 1 shows that SS-ESOAP achieves the lowest final residual on six of eight PINN benchmarks. The largest gains appear on Wave, where SS-ESOAP reaches 4.12 × 10 −5 com-pared to 1.18 × 10 −3 for the best baseline, and on Boussinesq, where it reaches 8.42 × 10 −7
+
+compared to 2.85 × 10 −6. SS-ESOAP also improves over the strongest baselines on Burg-ers (5.54 × 10 −10 vs. 1.12 × 10 −9), Korteweg-de Vries (3.52 × 10 −10 vs. 8.12 × 10 −10 ), and Lid-Driven Cavity (8.23 × 10 −8 vs. 2.10 × 10 −7). The exceptions are Gray-Scott, where Puri-fying Shampoo obtains 5.12 × 10 −9 compared to 7.46 × 10 −7 for SS-ESOAP, and Ginzburg-Landau, where SOAP obtains 9.12 × 10 −12 compared to 1.75 × 10 −11 for SS-ESOAP. Overall, these results indicate that SS-ESOAP is most beneficial in regimes where additional scale calibration and damping improve the stability of structured preconditioning, while the gains are problem-dependent and not uniform across all PDEs. 
+
+1D Burgers and 2D Boussinesq. To validate our optimizer’s capability in this frontier regime, we adopt the rigorous high-precision formulations for the 1D Burgers and 2D Boussinesq equations established by [3]. In these stiff settings, standard first-order methods typically stall due to spectral cliffs. However, SS-ESOAP reaches substantially lower residuals, driving the residual down to 5.54 × 10 −10 precision for the Burgers equation, which is an improvement of about 3.9 orders of magnitude over Adam. Similarly, on the 2D Boussinesq equation, SS-ESOAP achieves a final residual of 8.42 × 10 −7, successfully resolving the singular blow-up profiles where baselines like Muon and Adam stagnate at 2.57 × 10 −2 and 5.12 × 10 −4 respectively. 
+
+Additional benchmarks. Additional results for Lid-Driven Cavity, Wave, Korteweg-de Vries, Gray-Scott, and Ginzburg-Landau are provided in Appendix Figure 8. Detailed problem formulations and hyperparameter settings are given in Appendix C.2. Table 1: Final PDE residual after the fixed training budget. Lower is better. Each entry reports the selected run under the tuning protocol in Appendix C.4. Bold marks the lowest value within each row. Residual is an optimization metric. Physical solution errors and three-seed statistics appear in Appendix 8.                                                                                                                               
+
+> BENCHMARK ADAM MUON SOAP PURIFYING SHAMPOO SS-ESOAP (Ours) Wave 2.15 ×10 −35.12 ×10 41.45 ×10 −31.18 ×10 −34.12 ×10 −5
+> Burgers 4.21 ×10 −63.85 ×10 −42.15 ×10 −91.12 ×10 −95.54 ×10 −10
+> Allen-Cahn 2.10 ×10 −71.25 ×10 −78.45 ×10 −73.15 ×10 −91.85 ×10 −9
+> Boussinesq 5.12 ×10 −42.57 ×10 −29.15 ×10 −62.85 ×10 −68.42 ×10 −7
+> Korteweg-de Vries 1.85 ×10 −81.93 ×10 −38.12 ×10 −10 1.75 ×10 −73.52 ×10 −10
+> Gray-Scott 3.10 ×10 −64.20 ×10 −42.10 ×10 −75.12 ×10 −97.46 ×10 −7
+> Ginzburg-Landau 1.15 ×10 −75.40 ×10 −89.12 ×10 −12 2.45 ×10 −11 1.75 ×10 −11
+> Lid-Driven Cavity 1.88 ×10 −61.25 ×10 −33.81 ×10 −72.10 ×10 −78.23 ×10 −8
+
+7PDE residual alone does not establish solution accuracy. We therefore compare predictions with high-fidelity reference solutions on four representative PDEs. Appendix Table 8 reports relative L2 and H1 errors over three seeds for general-purpose, PINN-specific, and quasi-Newton baselines. The error ranking agrees with the residual ranking on the stiff Burgers and Boussinesq cases, while the full table records the remaining method-dependent differences. 
+
+5.4 Component Analysis and Ablation Studies 
+
+To isolate the impact of the specific mechanisms introduced in SS-ESOAP, namely variance downscaling, Kronecker-aware self-scaling, and the adaptive trigger, we conduct targeted ablation studies on the stiff Allen-Cahn and 2D Boussinesq benchmarks. 
+
+Variance-state transition. Figure 2 compares downscaling, reprojection, and a reset on Allen-Cahn and Boussinesq. Reprojection produces large transient loss spikes in these runs. A reset avoids the largest spikes but converges to a higher final loss. The targeted 
+
+γ experiment in Appendix Figure 10 separates behavior immediately before and after a triggered basis update. 
+
+Kronecker-adapted secant scaling. We compare the directional correction in Equation (3) with an unscaled update and a scalar correction that omits the Kronecker metric. Figure 2 reports the resulting trajectories. This experiment tests directional scale matching. It does not compare a full dense SS-BFGS update, which appears only in the tractable small-network experiment in Appendix Table 7. Figure 2 summarizes the ablations for the proposed structural choices. Figures 2a, 2c show that adaptive variance downscaling stabilizes basis updates. Figures 2b, 2d show that the Kronecker-adapted scaling factor τk improves stability and convergence relative to unscaled and scalar SS-BFGS-style variants. Together, these results suggest that SS-
+
+> E
+
+SOAP captures part of the step-size regulation benefit of self-scaled quasi-Newton methods without requiring dense Hessian cross-terms. 
+
+Efficiency of the adaptive trigger. Finally, we analyze the sensitivity of the eigenbasis update threshold τtrigger . As shown in Table 11 in the Appendix, extreme values de-grade performance: τtrigger = 0 (updates every step) incurs prohibitive computational cost, while τtrigger ≥ 0.8 (lazy updates) leads to stale curvature estimates and poor con-vergence. However, we observe a broad stable operating region τtrigger ∈ [0.15, 0.3 ] where performance remains consistent. We use the fixed default values ( τtrigger = 0.2 and discrete 
+
+γ ∈ { 0.25, 0.5, 0.75 }) across all experiments in this paper, ranging from simple regression tasks to the stiff Burgers and Boussinesq PDEs. SS-ESOAP achieves strong results across diverse problems without problem-specific tuning, suggesting that its adaptive mechanisms are robust across scales and stiffness regimes. 
+
+5.5 Computational Efficiency Summary 
+
+While SS-ESOAP introduces a modest per-step computational overhead compared to first-order methods, its curvature-aware updates drastically reduce the total iterations required for convergence on stiff problems. As summarized in Table 2, SS-ESOAP maintains a memory footprint highly competitive with Adam by leveraging Kronecker factorization. This effectively bypasses the prohibitive storage costs of full quasi-Newton methods. Ulti-mately, this structural efficiency translates to a substantial reduction in time-to-solution for high-precision PDE training. A comprehensive analysis detailing structural efficiency and memory tradeoffs is provided in Appendix F. Table 2: Compute and memory comparison between Adam and SS-ESOAP on 2D Boussi-nesq, targeting residual 10 −5 on a single consumer GPU.                
+
+> METRIC ADAM SS-ESOAP (O URS )Storage Complexity (Per Layer) O(din dout )O(din dout +d2in +d2out )
+> Peak VRAM Footprint 8.2 GB 9.2 GB Time to Target Solution DNC ( >14.0 hours) 4.1 hours
+> Scalability (10M+ Parameters) Tractable Tractable
+
+80 20000 40000 60000 80000 100000        
+
+> Training Epochs
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Total Loss (Log Scale)
+
+Stability Ablation: Eigenbasis Updates 
+
+> Exact Reprojection (Theorem 4.1) Hard Reset (Naïve) Adaptive Downscaling (Ours)
+
+(a) Stability ablation, adaptive eigenbasis, Boussinesq. 0 20000 40000 60000 80000 100000     
+
+> Training Epochs
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> Total Loss (Log Scale)
+
+Seelf-Scaling Ablation 
+
+> SS-ESOAP w/o clip SS-SS-BFGS style SS-ESOAP (ours)
+
+(b) Self-scaling, Boussinesq. 0 50000 100000 150000 200000 250000 300000     
+
+> Training Epochs
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> Total Loss (Log Scale)
+
+Stability Ablation: Eigenbasis Updates (Allen-Cahn) 
+
+> Exact Reprojection (Theorem 4.1) Hard Reset (Naïve) Adaptive Downscaling (Ours)
+
+(c) Stability ablation, adaptive eigenbasis, Allen-Cahn. 0 50000 100000 150000 200000 250000 300000     
+
+> Training Epochs
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> Total Loss (Log Scale)
+
+Self-Scaling Ablation (Allen-Cahn) 
+
+> SS-ESOAP w/o clip SS-SS-BFGS style SS-ESOAP (ours)
+
+(d) Self-scaling, Allen-Cahn. 
+
+Figure 2: Ablation studies on 2D Boussinesq (top) and Allen-Cahn (bottom). (a) and (c): Stability analysis of the eigenbasis update. (b) and (d): Efficacy of the self-scaling curvature correction. The proposed Kronecker-adapted factor τk (in blue) accelerates and stabilizes convergence compared to the unclipped counterpart, standard Oren-Luenberger scaling (τOL , SS-BFGS style), and the unscaled baseline ( τ = 1, SS-), validating structure-aware step-size regulation. 
+
+6 Limitations 
+
+Our analysis does not prove global convergence or sufficient decrease for the full nonconvex algorithm. The basis trigger uses the tracked Kronecker factors as a heuristic proxy for preconditioning degradation. Its O(d3) check and eigendecomposition costs limit use in wide layers. Dense SS-BFGS or SS-Broyden may offer better directions on networks small enough to store their state, and modern residual-space natural-gradient methods form a strong alternative. The empirical gains are not uniform: SOAP-family methods perform better on Gray-Scott and Ginzburg-Landau. All main PDE experiments use MLP or PirateNet backbones. Transfer to transformer-based physics models such as PINNsFormer, whose reported loss surface is smoother [36], remains unevaluated. The three-seed study covers four representative PDEs, so broader seed-level conclusions require more runs. 
+
+7 Conclusion 
+
+We introduced SS-ESOAP, a Kronecker-factored optimizer that combines directional secant-energy matching with adaptive basis updates and a variance-state transition. The method attains the lowest final residual on six of eight PDE benchmarks and improves wall-clock time to a fixed target on the stiff Boussinesq case. Three-seed physical errors on four PDEs support the solution quality of these low-residual fits. Results on Gray-Scott and Ginzburg-Landau show that the added scaling is not uniformly beneficial. The main open questions are how to reduce the cubic basis-check cost, how to select the state transition from online diagnostics, and how the method transfers to smoother physics architectures. 9References 
+
+[1] Yongji Wang, C-Y Lai, Javier Gómez-Serrano, and Tristan Buckmaster. Asymptotic self-similar blow-up profile for three-dimensional axisymmetric euler equations using neural networks. Physical Review Letters , 130(24):244002, 2023. [2] Yongji Wang, Mehdi Bennani, James Martens, Sébastien Racanière, Sam Blackwell, Alex Matthews, Stanislav Nikolov, Gonzalo Cao-Labora, Daniel S Park, Martin Arjovsky, et al. Discovery of unstable singularities. arXiv preprint arXiv:2509.14185 , 2025. [3] Yixuan Wang, Ziming Liu, Zongyi Li, Anima Anandkumar, and Thomas Y Hou. High precision pinns in unbounded domains: application to singularity formulation in pdes. 
+
+arXiv preprint arXiv:2506.19243 , 2025. [4] Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing , 43(5):A3055–A3081, 2021. [5] Aditi Krishnapriyan, Amir Gholami, Shandian Zhe, Robert Kirby, and Michael W Mahoney. Characterizing possible failure modes in physics-informed neural networks. 
+
+Advances in neural information processing systems , 34:26548–26560, 2021. [6] Pratik Rathore, Weimu Lei, Zachary Frangella, Lu Lu, and Madeleine Udell. Challenges in training pinns: A loss landscape perspective. arXiv preprint arXiv:2402.01868 , 2024. [7] Sifan Wang, Ananyae Kumar Bhartari, Bowen Li, and Paris Perdikaris. Gradient align-ment in physics-informed neural networks: A second-order optimization perspective. 
+
+arXiv preprint arXiv:2502.00604 , 2025. [8] Chenhui Xu, Dancheng Liu, Amir Nassereldine, and Jinjun Xiong. Fp64 is all you need: Rethinking failure modes in physics-informed neural networks. Advances in Nerual Information Processing Systems , 2025. [9] Jorge F Urbán, Petros Stefanou, and José A Pons. Unveiling the optimization process of physics informed neural networks: How accurate and competitive can pinns be? 
+
+Journal of Computational Physics , 523:113656, 2025. [10] C. G. BROYDEN. The convergence of a class of double-rank minimization algorithms 1. general considerations. IMA Journal of Applied Mathematics , 6(1):76–90, 03 1970. [11] Dong C. Liu and Jorge Nocedal. On the limited memory bfgs method for large scale optimization. Mathematical Programming , 45(1-3):503–528, 1989. [12] S. S. Oren and D. G. Luenberger. Self-scaling variable metric (ssvm) algorithms. Man-agement Science , 20(5):845–862, 1974. [13] M. Al-Baali. Highly efficient broyden methods of minimization with variable parameter. 
+
+Optimization Methods and Software , 1(4):301–310, 1992. [14] Jorge Nocedal and Ya-xiang Yuan. Analysis of a self-scaling quasi-Newton method. 
+
+Mathematical Programming , 61(1):19–37, 1993. [15] James Martens and Roger Grosse. Kronecker-factored approximate curvature for deep networks. In International Conference on Machine Learning (ICML) , 2016. [16] Vineet Gupta and et al. Shampoo: Preconditioned stochastic tensor optimization. In Proceedings of the 35th International Conference on Machine Learning (ICML) , pages 1842–1850, 2018. [17] Nikhil Vyas, Depen Morwani, Rosie Zhao, and et al. Soap: Improving and stabilizing shampoo using adam. arXiv preprint arXiv:2409.11321 , 2024. [18] Runa Eschenhagen, Aaron Defazio, Tsung-Hsien Lee, Richard E Turner, and Hao-Jun Michael Shi. Purifying shampoo: Investigating shampoo’s heuristics by decompos-ing its preconditioner. arXiv preprint arXiv:2506.03595 , 2025. 10 [19] M. Raissi, P. Perdikaris, and G.E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. [20] George Em Karniadakis, Ioannis G. Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , 3:422 – 440, 2021. [21] Sifan Wang, Xinling Yu, and Paris Perdikaris. When and why pinns fail to train: A neural tangent kernel perspective. Journal of Computational Physics , 449:110768, 2022. [22] Jiachen Yao, Chang Su, Zhongkai Hao, Songming Liu, Hang Su, and Jun Zhu. Mul-tiadam: Parameter-wise scale-invariant optimizer for multiscale training of physics-informed neural networks. In International conference on machine learning , pages 39702– 39721. PMLR, 2023. [23] Songming Liu, Chang Su, Jiachen Yao, Zhongkai Hao, Hang Su, Youjia Wu, and Jun Zhu. Preconditioning for physics-informed neural networks. arXiv preprint arXiv:2402.00531 , 2024. [24] Johannes Müller and Marius Zeinhofer. Achieving high accuracy with PINNs via energy natural gradients. In International Conference on Machine Learning (ICML) , 2023. [25] Anas Jnini, Flavio Vella, and Marius Zeinhofer. Gauss-newton natural gradient descent for physics-informed computational fluid dynamics. Computers & Fluids , 2024. [26] Nilo Schwencke and Cyril Furtlehner. ANaGRAM: A natural gradient relative to adapted model for efficient PINNs learning. In The Thirteenth International Conference on Learning Representations (ICLR) , 2025. [27] Anas Jnini and Flavio Vella. Dual natural gradient descent for scalable training of physics-informed neural networks. Transactions on Machine Learning Research , 2025. [28] Felix Dangel, Johannes Müller, and Marius Zeinhofer. Kronecker-factored approximate curvature for physics-informed neural networks. In Advances in Neural Information Processing Systems (NeurIPS) , 2024. [29] Elham Kiyani, Khemraj Shukla, Jorge F Urbán, Jérôme Darbon, and George Em Karniadakis. Optimizing the optimizer for physics-informed neural networks and kolmogorov-arnold networks. Computer Methods in Applied Mechanics and Engineering ,446:118308, 2025. [30] Anas Jnini, Elham Kiyani, Khemraj Shukla, Jorge F Urban, Nazanin Ahmadi Daryake-nari, Johannes Müller, Marius Zeinhofer, and George Em Karniadakis. Curvature-aware optimization for high-accuracy physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 462:119289, 2026. [31] Keller Jordan, Yuchen Jin, Vlado Boza, Jiacheng You, Franz Cesista, Laker Newhouse, and Jeremy Bernstein. Muon: An optimizer for hidden layers in neural networks. 
+
+https://kellerjordan.github.io/posts/muon/ , 2024. Accessed: 2026-01-27. [32] Jeremy Bernstein and Laker Newhouse. Old optimizer, new norm: An anthology, 2024. [33] M. Al-Baali. Variational quasi-newton methods for unconstrained optimization. Journal of Optimization Theory and Applications , 77(1):127–143, 1993. [34] M. Al-Baali and H. Khalfan. Wide interval for efficient self-scaling quasi-newton algorithms. Optimization Methods and Software , 20(6):679–691, 2005. [35] Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In 
+
+International Conference on Learning Representations (ICLR) , 2015. 11 [36] Zhiyuan Zhao, Xueying Ding, and B. Aditya Prakash. PINNsformer: A transformer-based framework for physics-informed neural networks. In The Twelfth International Conference on Learning Representations , 2024. [37] Sifan Wang, Bowen Li, Yuhan Chen, and Paris Perdikaris. Piratenets: Physics-informed deep learning with residual adaptive networks. Journal of Machine Learning Research ,25(402):1–51, 2024. [38] Andrés Guzmán-Cordero, Felix Dangel, Gil Goldshlager, and Marius Zeinhofer. Im-proving energy natural gradient descent through Woodbury, momentum, and random-ization. In Advances in Neural Information Processing Systems (NeurIPS) , 2025. 
+
+Appendix A Proofs of Main Theorems 
+
+A.1 Proof of Theorem 4.1 
+
+Proof. By the triangle inequality, 
+
+γVt − V∗  
+
+> t+1F
+
+≤ ∥ (γ − 1)Vt∥F + Vt − V∗  
+
+> t+1F
+
+.Since 0 < γ ≤ 1, 
+
+∥(γ − 1)Vt∥F = ( 1 − γ) ∥Vt∥F .It remains to bound the second term, Vt − V∗ 
+
+> t+1F
+
+. Define Mt := Q⊤ 
+
+> t
+
+Ct Qt. Since U =
+
+Q⊤
+
+> t+1
+
+Qt, we have Qt+1 = QtU⊤. Therefore, 
+
+Q⊤
+
+> t+1
+
+Ct Qt+1 = UQ ⊤ 
+
+> t
+
+Ct QtU⊤ = UM tU⊤.Using the definitions of Vt and V∗
+
+> t+1
+
+,
+
+Vt = diag 
+
+
+
+Q⊤ 
+
+> t
+
+Ct Qt
+
+
+
+= diag (Mt) , V∗ 
+
+> t+1
+
+= diag 
+
+
+
+Q⊤
+
+> t+1
+
+Ct+1Qt+1
+
+
+
+.Hence, 
+
+Vt − V∗  
+
+> t+1F
+
+= diag 
+
+
+
+Q⊤ 
+
+> t
+
+Ct Qt
+
+
+
+− diag 
+
+
+
+Q⊤
+
+> t+1
+
+Ct+1Qt+1
+
+
+
+> F
+
+≤ diag 
+
+
+
+Q⊤ 
+
+> t
+
+Ct Qt
+
+
+
+− diag 
+
+
+
+Q⊤
+
+> t+1
+
+Ct Qt+1
+
+
+
+> F
+
++ diag 
+
+
+
+Q⊤
+
+> t+1
+
+Ct Qt+1
+
+
+
+− diag 
+
+
+
+Q⊤
+
+> t+1
+
+Ct+1Qt+1
+
+ 
+
+> F
+
+.For the first term, using Mt = Q⊤ 
+
+> t
+
+Ct Qt and Q⊤
+
+> t+1
+
+Ct Qt+1 = UM tU⊤,
+
+diag 
+
+
+
+Q⊤ 
+
+> t
+
+Ct Qt
+
+
+
+− diag 
+
+
+
+Q⊤
+
+> t+1
+
+Ct Qt+1
+
+ 
+
+> F
+
+= diag (Mt) − diag 
+
+
+
+UM tU⊤ 
+
+> F
+
+.The diagonal projection is non-expansive in Frobenius norm, so 
+
+diag (Mt) − diag 
+
+
+
+UM tU⊤ 
+
+> F
+
+≤ Mt − UM tU⊤
+
+> F
+
+Now, 
+
+Mt − UM tU⊤ = ( I − U)MtU⊤ + Mt
+
+
+
+I − U⊤
+
+.Therefore, 
+
+Mt − UM tU⊤ 
+
+> F
+
+≤ (I − U)MtU⊤ 
+
+> F
+
++ Mt
+
+
+
+I − U⊤
+
+> F
+
+≤ ∥ I − U∥F ∥Mt∥2 + ∥Mt∥2 I − U⊤ 
+
+> F
+
+.Since I − U⊤ F = ∥I − U∥F, and orthogonal similarity preserves spectral norm, 
+
+∥Mt∥2 = Q⊤ 
+
+> t
+
+Ct Qt 2 = ∥Ct∥2 ,12 we obtain 
+
+Mt − UM tU⊤ 
+
+> F
+
+≤ 2 ∥Ct∥2 ∥I − U∥F.For the second term, observe that 
+
+diag 
+
+
+
+Q⊤
+
+> t+1
+
+Ct Qt+1
+
+
+
+− diag 
+
+
+
+Q⊤
+
+> t+1
+
+Ct+1Qt+1
+
+
+
+> F
+
+= diag 
+
+
+
+Q⊤ 
+
+> t+1
+
+(Ct − Ct+1) Qt+1
+
+ 
+
+> F
+
+.Again, diagonal projection is non-expansive in Frobenius norm, and Frobenius norm is orthogonally invariant. Hence, 
+
+diag 
+
+
+
+Q⊤ 
+
+> t+1
+
+(Ct − Ct+1) Qt+1
+
+ 
+
+> F
+
+≤ ∥ Ct − Ct+1∥F .Combining the preceding bounds gives 
+
+Vt − V∗  
+
+> t+1F
+
+≤ 2 ∥Ct∥2 ∥I − U∥F + ∥Ct+1 − Ct∥F .Finally, 
+
+Vscale − V∗  
+
+> t+1F
+
+= γVt − V∗ 
+
+> t+1F
+
+≤ (1 − γ) ∥Vt∥F + Vt − V∗ 
+
+> t+1F
+
+≤ (1 − γ) ∥Vt∥F + 2 ∥Ct∥2 ∥I − U∥F + ∥Ct+1 − Ct∥F
+
+If ∥Ct+1 − Ct∥F ≤ ∆t, then the simplified bound follows immediately 
+
+Vscale − V∗  
+
+> t+1F
+
+≤ (1 − γ) ∥Vt∥F + 2 ∥Ct∥2 ∥I − U∥F + ∆t.This completes the proof. 
+
+A.2 Proof of Theorem 4.2 
+
+Proof. Let 
+
+ak = s⊤ 
+
+> k
+
+Kksk, ck = s⊤ 
+
+> k
+
+yk.Because Kk ≻ 0 and sk̸ = 0, we have ak > 0. By the curvature assumption, ck > 0. Consider 
+
+J(τ) = 
+
+"
+
+log ck
+
+s⊤ 
+
+> k
+
+(τKk)sk
+
+#2
+
+=
+
+
+
+log ck
+
+τak
+
+2
+
+.Let 
+
+u = log ck
+
+ak
+
+, z = log τ.The constraint 0 < τ ≤ 1 is equivalent to z ≤ 0. Therefore 
+
+J(τ) = ( u − z)2.The unique minimizer over z ≤ 0 is the Euclidean projection of u onto (−∞, 0 ], namely 
+
+z⋆ = min {u, 0 }.Hence 
+
+τ⋆ 
+
+> k
+
+= exp (z⋆) = min 
+
+
+
+1, ck
+
+ak
+
+
+
+= min 
+
+(
+
+1, s⊤ 
+
+> k
+
+yk
+
+s⊤ 
+
+> k
+
+Kksk
+
+)
+
+.This proves that it is the unique clipped log-secant matching solution. Finally, suppose 
+
+yk = Hksk + rk.Then 
+
+s⊤ 
+
+> k
+
+yk = s⊤ 
+
+> k
+
+Hksk + s⊤ 
+
+> k
+
+rk.When the unclipped solution is active, τk = ck/ak, and therefore 
+
+s⊤ 
+
+> k
+
+(τkKk)sk = τk ak = ck = s⊤ 
+
+> k
+
+Hksk + s⊤ 
+
+> k
+
+rk.Thus, under an exact secant relation, the scaled Kronecker quadratic form matches the true directional curvature exactly; under an approximate secant relation, the mismatch is precisely the directional secant error. If the unconstrained solution exceeds one, the constraint 0 < τ ≤ 1 selects the closest admissible log-scale match, namely τk = 1. 13 B Algorithms Pseudocode 
+
+To connect our SS-ESOAP presented in Algorithm 2 with the established algorithms in the second-order optimizer literature, we provide the following technical context. 
+
+B.1 Relation to Idealized and Warm-Started Shampoo 
+
+Our algorithm can be viewed as a curvature-corrected approximation of Idealized Eigenvalue-Corrected Shampoo (Algorithm 1 in [18]). In the idealized setting, the exact eigendecomposition of the preconditioners Lt and Rt is computed at every step to perform the update Wt+1 = Wt − ηL−1/2  
+
+> t
+
+Gt R−1/2  
+
+> t
+
+. Standard SOAP approximates this efficiently using Warm-started QR iteration (Algorithm 4 in [18]), which performs a single step of power iteration followed by QR decomposition to update the eigenbasis. SS-ESOAP improves upon this approximation in two critical ways. First, instead of a fixed schedule or a single QR step, we use the Purifying trigger (Step 2 in Algorithm 2). We monitor the off-diagonal mass of the preconditioner in the current basis, 
+
+ρ(A, Q), which serves as a proxy for the approximation error of the stale eigenbasis. We only trigger a computationally expensive re-decomposition when this error exceeds τtrigger ,ensuring the eigenbasis is refined only when the curvature landscape shifts significantly. Second, we introduce the scalar τk (Step 4), which acts as a global correction factor for the eigenvalues, ensuring the trace of the inverse Hessian approximation matches the secant condition along the most recent displacement. 
+
+B.2 Relation to EShampoo and Grafting 
+
+We highlight two key advantages of our strategy over EShampoo (Algorithm 2 in [18]) and Shampoo with Adam grafting. 
+
+Stability via Downscaling vs. Reprojection. EShampoo typically employs a fixed eigen-basis computation frequency F. When the basis is updated, standard approaches often reproject the optimizer state (e.g., the second moment Vt ) into the new basis via similarity transformation. As detailed in our analysis, this is numerically unstable: a significant rotation of the eigenbasis can map historical low-variance directions to high-curvature directions in the new basis, causing overly large updates. SS-ESOAP replaces reprojection with variance downscaling (Step 2, Soft Reset). By keeping the historical Vt but reducing its magnitude by γ, we effectively increase the damping uniformly, preserving optimization history while conservatively forgetting the precise directional variance that is no longer valid. 
+
+Intrinsic vs. Extrinsic Scaling. Shampoo with Adam grafting attempts to stabilize second-order updates by forcing the update magnitude or direction to align with Adam. This is an ad-hoc extrinsic constraint. In contrast, SS-ESOAP achieves intrinsic stability via the self-scaling factor τk. This factor naturally damps the update when the local curvature is high (large denominator in (3)) and accelerates it in flat regions without the need for grafting or manual tuning of the epsilon parameter. 
+
+B.3 Efficient Computation of τk
+
+Similar to (2), we avoid direct computation of the inverse preconditioner H−1 
+
+> k
+
+, as it is O(n3)
+
+and can be numerically unstable when the curvature matrices are ill-conditioned. In our setting, the preconditioner admits a Kronecker-factored eigendecomposition 
+
+Hk = Lk ⊗ Rk,
+
+Lk = QL,k diag (DL,k) Q⊤
+
+> L,k
+
+,
+
+Rk = QR,k diag (DR,k) Q⊤
+
+> R,k
+
+,14 Algorithm 2 SS-ESOAP, full pseudocode 
+
+Require: W0 ∈ Rm×n, η > 0, β1, β2 ∈ (0, 1 ), ϵ > 0, λ ≥ 0, τmin ∈ (0, 1 ].
+
+Require: Icheck , τtrigger , Twarm .
+
+Initialize: eM0 = V0 = 0, L0 = ϵIm, R0 = ϵIn, QL = Im, QR = In.
+
+for t = 1, . . . , T do 1. Gradient and Kronecker factors 
+
+Gt ← ∇ W L(Wt−1)
+
+Lt ← β2 Lt−1 + ( 1 − β2)Gt G⊤ 
+
+> t
+
+, Rt ← β2 Rt−1 + ( 1 − β2)G⊤ 
+
+> t
+
+Gt
+
+2. Adaptive eigenbasis update if t > Twarm and t mod Icheck = 0 then 
+
+ρ(A, Q) ← ∥Q⊤ AQ − diag (Q⊤ AQ )∥F
+
+∥Q⊤ AQ ∥F + ϵ , ρt ← max {ρ(Lt, QL), ρ(Rt, QR)}
+
+if ρt > τtrigger then 
+
+(Qold  
+
+> L
+
+, Qold  
+
+> R
+
+) ← (QL, QR)
+
+QL ← eigvec (Lt), QR ← eigvec (Rt)
+
+eMt−1 ← (Q⊤ 
+
+> L
+
+Qold  
+
+> L
+
+) eMt−1(( Qold  
+
+> R
+
+)⊤ QR)
+
+γt ← 0.25 if ρt > 0.8, 0.5 if ρt > 0.5, and 0.75 otherwise 
+
+Vt−1 ← γtVt−1
+
+end if end if 3. Eigenspace statistics 
+
+eGt ← Q⊤ 
+
+> L
+
+Gt QR
+
+eMt ← β1 eMt−1 + ( 1 − β1) eGt, Vt ← β2Vt−1 + ( 1 − β2) eG⊙2
+
+> t
+
+4. Self-scaling correction if t = 1 then 
+
+τt ← 1
+
+else 
+
+St ← Wt−1 − Wt−2, Yt ← Gt − Gt−1
+
+ct ← Tr (Y⊤ 
+
+> t
+
+St), at ← Tr (S⊤ 
+
+> t
+
+L−1 
+
+> t
+
+St R−1 
+
+> t
+
+)
+
+if ct > 0 and at > 0 then 
+
+τt ← min {1, max {τmin , ct/at}} 
+
+else 
+
+τt ← 1
+
+end if end if 5. Parameter update 
+
+bMt ← eMt/(1 − βt
+
+> 1
+
+), bVt ← Vt/(1 − βt
+
+> 2
+
+)
+
+eUt ← τ−1/2  
+
+> t
+
+bMt ⊘ (
+
+qbVt + ϵ)
+
+Ut ← QL eUt Q⊤ 
+
+> R
+
+, Wt ← (1 − ηλ )Wt−1 − ηUt
+
+end for 
+
+where QL,k and QR,k are orthogonal matrices and DL,k, DR,k contain the corresponding eigenvalues. By rotating tensors into the eigenspaces of Lk and Rk, the application of H−1 
+
+> k
+
+reduces to elementwise scaling by the inverse eigenvalues D−1 
+
+> L,k
+
+and D−1
+
+> R,k
+
+. Consequently, all terms required to compute τk can be evaluated using matrix-vector products and elementwise operations, without explicitly forming inverse matrices. Specifically, defining the rotated quantities ˜Sk = Q⊤
+
+> L,k
+
+Sk QR,k, ˜Yk = Q⊤
+
+> L,k
+
+Yk QR,k,the denominator in (3) can be written as Tr (S⊤ 
+
+> k
+
+L−1 
+
+> k
+
+Sk R−1 
+
+> k
+
+) = ∑
+
+> i,j
+
+˜S2
+
+> k,ij
+
+DL,k,i DR,k,j
+
+, (5) 15 which is computable in O(n) time. On the other hand, the numerator simplifies to Tr (Y⊤ 
+
+> k
+
+Sk) = ∑
+
+> i,j
+
+˜Yk,ij ˜Sk,ij .Thus, the scaling parameter is evaluated as 
+
+τk = min 
+
+(
+
+1, ∑i,j ˜Yk,ij ˜Sk,ij 
+
+∑i,j ˜S2
+
+> k,ij
+
+/(DL,k,i DR,k,j)
+
+)
+
+, (6) without ever forming H−1 
+
+> k
+
+. This formulation preserves numerical stability while maintaining the computational efficiency required for large-scale optimization. 
+
+C Architectures and Additional Design Choices 
+
+C.1 PirateNet 
+
+PirateNet [37] aims to enable stable and efficient training of deep PINN models. It first transforms input coordinates x into a high-dimensional feature space using random Fourier features 
+
+Φ(x) = 
+
+ cos (Bx )
+
+sin (Bx )
+
+
+
+,where B ∈ Rm×d has entries sampled i.i.d. from N (0, s2) with user-specified s > 0. This embedding mitigates spectral bias in PINNs by improving the eigenfunction frequency of the Neural Tangent Kernel, enabling better learning of high-frequency components and multiscale features. The embedded coordinates are processed through two dense layers that act as gates U = σ (W1Φ(x) + b1) and V = σ (W2Φ(x) + b2), where σ is a point-wise activation function. This gating mechanism is essentially the same as in modified MLP. Let 
+
+x(1) = Φ(x) and x(l) be the input to the l-th block. Each block performs 
+
+f(l) = σ
+
+
+
+W(l) 
+
+> 1
+
+x(l) + b(l)
+
+> 1
+
+
+
+, z(l) 
+
+> 1
+
+= f(l) ⊙ U +
+
+
+
+1 − f(l)
+
+⊙ V,
+
+g(l) = σ
+
+
+
+W(l) 
+
+> 2
+
+z(l) 
+
+> 1
+
++ b(l)
+
+> 2
+
+
+
+, z(l) 
+
+> 2
+
+= g(l) ⊙ U +
+
+
+
+1 − g(l)
+
+⊙ V,
+
+h(l) = σ
+
+
+
+W(l) 
+
+> 3
+
+z(l) 
+
+> 2
+
++ b(l)
+
+> 3
+
+
+
+, x(l+1) = α(l)h(l) +
+
+
+
+1 − α(l)
+
+x(l).Each block comprises three dense layers with dual gating operations and an adaptive residual connection. The trainable α(l) parameters control block nonlinearity: α(l) = 0 yields an identity mapping, while α(l) = 1 produces fully nonlinear transformation. The final output of a PirateNet of L residual blocks is given by uθ = W(L+1)x(L). Following the design choices made by [37], we initialize α(l) = 0, making the initial output a linear combination of first-layer embeddings. This initialization strategy mitigates training difficulties in deep networks by starting with effectively shallow architecture and gradually increasing depth through learned α values. Additionally, the linear structure at initialization enables direct integration of prior solution data through least squares fitting min  
+
+> W
+
+∥WΦ − Y∥22,where Y represents available measurements. This approach provides an optimal initial guess based on various data sources, including experimental measurements, boundary conditions, or linearized PDE solutions. 
+
+C.2 Additional Details of Standard PDE Benchmarks Burgers equation. The 1D Burgers equation is defined as 
+
+ut + uu x = νuxx ,16 Table 3: Comparison of optimization methods showing preconditioner types, storage and computational complexity for an n × n weight matrix, where P is the parameter count and 
+
+N is the batch size of collocation points, and practical compatibility with mini-batches and scalability with large neural networks.                                                
+
+> METHOD (A PPROX .) P RECOND .STORAGE COMPUTATION MINI -BATCH DNN NATURAL GRADIENT F−1O(n4)min (O(PN 2),O(NP 2)) ××
+> BFGS H−1O(n2)O(n4)×√
+> L-BFGS H−1O(n2)O(n3)×√
+> SOAP H−1O(n2)O(n3)√√
+> SS-ESOAP τH−1O(n2)O(n3)√√
+> SHAMPOO H−1/2
+> ADA O n2O n3√√
+> MUON (GG ⊤)−1/2 O n2O n3√√
+
+where u represents the velocity field, and ν is the kinematic viscosity coefficient controlling the diffusion strength. Here we set (x, t) ∈ Ω = [ −1, 1 ] × [0, 1 ], with initial and boundary conditions u(x, 0 ) = − sin (πx)
+
+u(−1, t) = u(1, t) = 0, and viscosity parameter ν = 0.01/ π. Following [3], we enforce a hard constraint via Taylor expansion at the origin as U = −z + z3 + z4U1, for an odd function U1.
+
+2D Boussinesq equation. For the 2D Boussinesq equation on the half plane, in vorticity form with the self-similar ansatz, we get the following profile equations for (Ω, U1, U2, Φ, Ψ)
+
+as in [1]: 
+
+Ω +
+
+
+
+(1 + λ) ( y1, y2)T + ( U1, U2)T 
+
+· ∇ Ω = Φ
+
+ 2 + ∂y1 U1
+
+ Φ +
+
+
+
+(1 + λ) ( y1, y2)T + ( U1, U2)T 
+
+· ∇ Φ = −∂y1 U2Ψ
+
+ 2 + ∂y2 U2
+
+ Ψ +
+
+
+
+(1 + λ) ( y1, y2)T + ( U1, U2)T 
+
+· ∇ Ψ = −∂y2 U1Φ
+
+∂y1 U1 + ∂y2 U2 = 0, Ω = ∂y1 U2 − ∂y2 U1, ∂y1 Ψ = ∂y2 Φ,where (Ω, U1, Φ) are odd and (U2, Ψ) are even in y1 and we are in the half plane y2 ≥ 0. For the boundary conditions, we impose a non-penetration boundary condition U2 (y1, 0 ) = 0along with decaying weak asymptotics at the far field, with Dirichlet boundary conditions 
+
+Φ = Ψ = 0 and Neumann boundary conditions for the velocity field ∇ (U1, U2)T = 0. For the nondegeneracy condition, we adapt the approach proposed in [3] and impose 
+
+∂y1 Ω(0, 0 ) = −1 and use Taylor expansion to enforce a hard constrain to rule out the trivial solution U = 0 when using weak asymptotics. We enforce ∂1Ω(0, 0 ) = −1 and Ω is odd in z1 via a Taylor expansion as Ω = −z1 + z1z2Ω1 + z21Ω2, where Ω1, Ω2 are even and odd functions in z1 respectively. 
+
+Wave equation. We consider a one-dimensional wave equation in the domain Ω = [ 0, 1 ] ×
+
+[0, 1 ] taking the form 
+
+utt (x, t) − 4uxx (x, t) = 0, (x, t) ∈ (0, 1 ) × (0, 1 ),
+
+u(0, t) = u(1, t) = 0, t ∈ [0, 1 ],
+
+u(x, 0 ) = sin (πx) + 12 sin (4πx), x ∈ [0, 1 ],
+
+ut(x, 0 ) = 0, x ∈ [0, 1 ].where u represents the wave amplitude, and c is the wave propagation speed, determined by the medium’s physical properties. By d’Alembert’s formula, the solution u(x, t) is given by 
+
+u(x, t) = sin (πx) cos (2πt) + 12 sin (4πx) cos (8πt).17 0 20000 40000 60000 80000 100000   
+
+> Iterations
+> 10 4
+> 10 1
+> 10 2
+> 10 5
+> 10 8
+> 10 11
+> Total Loss (Log Scale)
+> PDE Loss (Wave)
+> SS-ESOAP (ours) SOAP Muon Adam Purifying Shampoo
+
+(a) Training loss convergence. 0.0 0.2 0.4 0.6 0.8 1.0 0.0 0.2 0.4 0.6 0.8 1.0 Prediction         
+
+> 0.0 0.2 0.4 0.6 0.8 1.0 0.0 0.2 0.4 0.6 0.8 1.0 Absolute Error
+> 123451e 6
+
+(b) Final prediction and absolute error field. 
+
+Figure 3: Wave Equation Benchmark. (a) PDE residual loss trajectories (log scale) comparing SS-ESOAP (red) against Adam, Muon, SOAP, and Purifying Shampoo over 100k iterations. SS-ESOAP achieves the lowest final loss, while Muon exhibits significant instability. (b) Visualization of the predicted solution field and the corresponding absolute error map at the final training step, demonstrating high-precision recovery of the dynamics with errors on the magnitude of 10 −6.0 20000 40000 60000 80000 100000      
+
+> Iterations
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> Total Loss (Log Scale)
+> PDE Loss (BURGERS)
+> SS-ESOAP (ours) SOAP Muon Adam Purifying Shampoo
+
+(a) Training loss convergence. 1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00 0.0 0.2 0.4 0.6 0.8 1.0 Prediction       
+
+> 1.0 0.5 0.0 0.5 1.0 0.0 0.2 0.4 0.6 0.8 1.0 Absolute Error
+> 0.000025 0.000050 0.000075 0.000100 0.000125 0.000150 0.000175 0.000200
+
+(b) Final prediction and absolute error field. 
+
+Figure 4: Burgers Equation Benchmark. (a) PDE residual loss trajectories (log scale). SS-ESOAP (red) demonstrates superior convergence speed and stability, reaching a final residual orders of magnitude lower than Adam and Muon. (b) Visualization of the predicted solution and absolute error map. The low error magnitude confirms the optimizer’s ability to accurately resolve the sharp shock interface characteristic of the inviscid limit. 
+
+Allen-Cahn equation. We investigate the one-dimensional Allen-Cahn equation with periodic boundary conditions 
+
+ut − 0.0001 uxx + 5u3 − 5u = 0, t ∈ [0, 1 ], x ∈ [−1, 1 ]
+
+u(0, x) = x2 cos (πx)
+
+u(t, −1) = u(t, 1 ), ux (t, −1) = ux (t, 1 )
+
+where u represents the order parameter (e.g., concentration difference between two phases), 
+
+ϵ controls the interfacial width, a is the reaction rate coefficient, and the term ( u − u3) drives the phase separation. 
+
+Korteweg-de Vries equation. The one-dimensional KdV equation is expressed as 
+
+ut + ηuu x + μ2uxxx = 0, t ∈ (0, 1 ), x ∈ (−1, 1 ),
+
+u(x, 0 ) = cos (πx),
+
+u(t, −1) = u(t, 1 ),where u represents the wave amplitude or water surface elevation, and η governs the strength of the nonlinearity, while μ controls the dispersion level. Under the KdV dynamics, this initial wave evolves into a series of solitary-type waves. Like in recent PINN opti-mization works, we adopt the classical parameters of the KdV equation, setting η = 1 and 
+
+μ = 0.022. 18 0 50000 100000 150000 200000 250000 300000      
+
+> Iterations
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> Total Loss (Log Scale)
+> PDE Loss (KDV)
+> SS-ESOAP (ours) SOAP Muon Adam Purifying Shampoo
+
+(a) Training loss convergence comparison. 0.0 0.2 0.4 0.6 0.8 1.0 1.00        
+
+> 0.75
+> 0.50
+> 0.25
+> 0.00 0.25 0.50 0.75 1.00 Prediction
+> 0.0 0.2 0.4 0.6 0.8 1.0 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00 0.25 0.50 0.75 1.00 Absolute Error
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5 2.0
+> 0.001 0.002 0.003 0.004 0.005 0.006 0.007
+
+(b) Final prediction and absolute error field. 
+
+Figure 5: Korteweg-de Vries (KdV) Equation Benchmark. (a) PDE residual loss trajectories (log scale). SS-ESOAP (red) maintains a steep linear convergence rate, reaching a final resid-ual of 10 −10 , significantly outperforming the baselines. (b) Visualization of the predicted soliton evolution and absolute error map. The minimal error indicates that the optimizer successfully balances the nonlinear convection and dispersive terms essential for soliton stability. 
+
+Gray-Scott equation. The system is described by the following coupled PDEs: 
+
+ut = ϵ1∆u + b1(1 − u) − c1uv 2, t ∈ (0, 2 ), (x, y) ∈ (−1, 1 )2,
+
+vt = ϵ2∆v − b2v + c2uv 2, t ∈ (0, 2 ), (x, y) ∈ (−1, 1 )2,With periodic boundary conditions, the initial conditions are 
+
+u0(x, y) = 1 − exp 
+
+
+
+−10 
+
+
+
+(x + 0.05 )2 + ( y + 0.02 )2 
+
+,
+
+v0(x, y) = 1 − exp 
+
+
+
+−10 
+
+
+
+(x − 0.05 )2 + ( y − 0.02 )2 
+
+.where u and v represent activator and inhibitor concentrations respectively, ε1 and ε2 are diffusion coefficients, and (b1, b2, c1, c2) control reaction kinetics. This system generates di-verse spatial patterns including spots and stripes. We set parameters ϵ1 = 0.2, ϵ2 = 0.1, b1 =
+
+40, b2 = 100, and c1 = c2 = 1, 000, which generates characteristic pattern formations. 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00      
+
+> Iterations 1e6 10 8
+> 10 6
+> 10 4
+> 10 2
+> 10 0
+> 10 2
+> Total Loss (Log Scale)
+> PDE Loss (GS)
+> SS-ESOAP (ours) SOAP Muon Adam Purifying Shampoo
+
+(a) GS equation 0 100000 200000 300000 400000 500000        
+
+> Iterations
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> Total Loss (Log Scale)
+> PDE Loss (GL)
+> SS-ESOAP (ours) SOAP Muon Adam Purifying Shampoo
+
+(b) GL equation. 
+
+Figure 6: Gray-Scott and Ginzburg-Landau equations. Training loss trajectories of Adam, Muon, SOAP, and SS-ESOAP across different network sizes, with MLP as training backbone. 
+
+Ginzburg-Landau equation. The complex Ginzburg-Landau equation in 2D takes the form 
+
+∂A
+
+∂t = ϵ∆A + μA − γA|A|2, t ∈ (0, 1 ), (x, y) ∈ (−1, 1 )2,with periodic boundary conditions, an initial condition 
+
+A0(x, y) = ( 10 y + 10 ix ) exp 
+
+
+
+−0.01 
+
+
+
+2500 x2 + 2500 y2 
+
+,19 Table 4: Matrix logistic regression loss trajectory. Mean ± standard error over random seeds. 
+
+Training steps Optimizer 300 600 900 1200 1500 
+
+Adam 1.21 ×10 −4 ±0.08 5.42 ×10 −6 ±0.05 2.15 ×10 −7 ±0.02 1.51 ×10 −7 ±0.01 1.12 ×10 −7 ±0.01 Muon 4.55 ×10 −2 ±0.09 1.12 ×10 −4 ±0.04 5.51 ×10 −6 ±0.01 3.24 ×10 −10 ±0.01 2.55 ×10 −13 ±0.01 SOAP 8.12 ×10 −3 ±0.05 1.24 ×10 −7 ±0.01 3.45 ×10 −10 ±0.01 8.52 ×10 −12 ±0.01 4.15 ×10 −13 ±0.01 P. Shampoo 7.55 ×10 −3 ±0.06 9.81 ×10 −7 ±0.01 2.15 ×10 −10 ±0.01 5.41 ×10 −12 ±0.01 2.22 ×10 −13 ±0.01 
+
+SS-ESOAP 1.25 ×10 −8 ±0.02 5.52 ×10 −14 ±0.01 8.21 ×10 −17 ±0.01 1.55 ×10 −17 ±0.01 4.32 ×10 −18 ±0.01 
+
+where A is the complex amplitude representing the envelope of oscillations, ϵ represents the diffusion coefficient, μ is the linear growth rate, and γ controls the nonlinear saturation. For this example, we set ϵ = 0.004, μ = 10 and γ = 10 + 15 i. By denoting A = u + iv , we can decompose the equation into real and imaginary components, resulting in the following system of PDEs, 
+
+∂u
+
+∂t = ϵ∆u + μ
+
+
+
+u − (u − 1.5 v)
+
+
+
+u2 + v2 
+
+,
+
+∂v
+
+∂t = ϵ∆v + μ
+
+
+
+v − (v + 1.5 u)
+
+
+
+u2 + v2 
+
+.
+
+Lid-driven Cavity. We study the incompressible Navier-Stokes equations in non-dimensional form for a 2D domain: 
+
+u · ∇ u + ∇p − 1
+
+Re ∆u = 0, (x, y) ∈ (0, 1 )2
+
+∇ · u = 0, (x, y) ∈ (0, 1 )2
+
+where u = ( u, v) represents the steady-state velocity field, p is the pressure field, and Re 
+
+is the Reynolds number which characterizes the ratio of inertial to viscous forces. This system models the equilibrium state of the flow, which is driven by the top boundary moving at a constant velocity while the other walls are stationary, leading to the formation of characteristic vortical structures whose complexity increases with the Reynolds number. To ensure continuity at the corner boundaries, we implement a smoothed top-lid boundary condition: 
+
+u(x, y) = 1 − cosh (C0(x − 0.5 )) 
+
+cosh (0.5 C0) , v(x, y) = 0where x ∈ [0, 1 ], y = 1, C0 = 50. For the other three walls, we enforce a no-slip boundary condition and obtain the velocity and pressure field corresponding to a Reynolds number of 5,000. 0.0 0.2 0.4 0.6 0.8 1.0      
+
+> Iterations 1e6 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> 10 3
+> 10 5
+> Total Loss (Log Scale)
+> PDE Loss (LDC)
+> SS-ESOAP (ours) SOAP Muon Adam Purifying Shampoo
+
+(a) LDC equation, width = 128. 0.0 0.2 0.4 0.6 0.8 1.0 0.0 0.2 0.4 0.6 0.8 1.0                    
+
+> Streamlines Pred
+> 0.0 0.2 0.4 0.6 0.8 1.0 0.0 0.2 0.4 0.6 0.8 1.0 Pressure Pred
+> 0.0 0.2 0.4 0.6 0.8 1.0 0.0 0.2 0.4 0.6 0.8 1.0 U Error
+> 0.0 0.2 0.4 0.6 0.8 1.0 0.0 0.2 0.4 0.6 0.8 1.0 V Error
+> 0.0005 0.0010 0.0015 0.0020 0.0025 0.0030 0.0035 0.0040
+> 0.00005 0.00010 0.00015 0.00020 0.00025 0.00030 0.00035 0.00040
+
+(b) LDC equation, width = 256. 
+
+Figure 7: Lid-driven Cavity equation. Training loss trajectories of Adam, Muon, SOAP, and SS-ESOAP across different network sizes. 
+
+C.3 Full Details of Matrix Optimization Tasks Quadratic Regression. We consider a matrix quadratic regression objective f (X) :=
+
+12 ∥AXB − C∥2F, where X ∈ Rm×n, A ∈ Rp×m, B ∈ Rn×q and C ∈ Rp×q. Then its gradi-ent is ∇ f (X) = A⊤(AXB − C)B⊤, its Hessian is ∇2 f (X) = ( BB ⊤) ⊗ (A⊤ A) ∈ Rmn ×mn .20 0 20000 40000 60000 80000 100000     
+
+> Training Epochs
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> Total Loss (Log Scale)
+> 2D Boussinesq
+> Adam SOAP Muon SS-ESOAP (ours) Purifying Shampoo
+
+(a) 2D Boussinesq 0 20000 40000 60000 80000 100000       
+
+> Iterations
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> Total Loss (Log Scale)
+> PDE Loss (BURGERS)
+> SS-ESOAP (ours) SOAP Muon Adam Purifying Shampoo
+
+(b) Burgers 0 100000 200000 300000 400000 500000        
+
+> Iterations
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> Total Loss (Log Scale)
+> PDE Loss (GL)
+> SS-ESOAP (ours) SOAP Muon Adam Purifying Shampoo
+
+(c) Ginzburg-Landau 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00       
+
+> Iterations 1e6 10 8
+> 10 6
+> 10 4
+> 10 2
+> 10 0
+> 10 2
+> Total Loss (Log Scale)
+> PDE Loss (GS)
+> SS-ESOAP (ours) SOAP Muon Adam Purifying Shampoo
+
+(d) Gray-Scott 0 50000 100000 150000 200000 250000 300000      
+
+> Iterations
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> Total Loss (Log Scale)
+> PDE Loss (KDV)
+> SS-ESOAP (ours) SOAP Muon Adam Purifying Shampoo
+
+(e) Korteweg-de Vries 0.0 0.2 0.4 0.6 0.8 1.0       
+
+> Iterations 1e6 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> 10 3
+> 10 5
+> Total Loss (Log Scale)
+> PDE Loss (LDC)
+> SS-ESOAP (ours) SOAP Muon Adam Purifying Shampoo
+
+(f) Lid-Driven Cavity 0 20000 40000 60000 80000 100000    
+
+> Iterations
+> 10 4
+> 10 1
+> 10 2
+> 10 5
+> 10 8
+> 10 11
+> Total Loss (Log Scale)
+> PDE Loss (Wave)
+> SS-ESOAP (ours) SOAP Muon Adam Purifying Shampoo
+
+(g) Wave 0 50000 100000 150000 200000 250000 300000      
+
+> Training Steps
+> 10 8
+> 10 6
+> 10 4
+> 10 2
+> 10 0
+> 10 2
+> Total Loss (Log Scale)
+> Allen-Cahn PINN Convergence
+> SOAP SS-SOAP (Ours) Muon Adam Purifying Shampoo
+
+(h) Allen-Cahn 
+
+Figure 8: Training Dynamics across PDE Benchmarks. We compare the residual loss trajectories (log scale) of SS-ESOAP (red) against baselines: Adam, Muon, standard SOAP, and Purifying SOAP. Across most stiff PDE tasks, SS-ESOAP achieves the lowest final residual, often improving upon the next best method by up to 1 to 2 orders of magnitude while exhibiting fewer loss spikes. The Hessian structure implies that ideal preconditioning isolates the residual condition num-ber κ(E) from the constant spectral skew of A and B. Unlike semi-orthogonal projections that discard curvature information from the residual E to enforce unit conditioning ( κ = 1), SS-ESOAP preserves this structural information. We set (m, n, p, q) = ( 500, 100, 1000, 250 )
+
+so that f is strongly convex. As shown in Figure 9a, this allows SS-ESOAP to mimic a Newton-like trajectory, resolving the low-rank structure significantly faster than Adam and standard SOAP. While Adam’s gradient condition number κ(∇ f (Xk)) grows unstably, SS-
+
+ESOAP maintains a bounded condition number throughout training. The residual condition number κ(Ek) correlates perfectly with the loss plateaus, validating our theoretical insight that conditioning on the residual spectrum is crucial for convergence in matrix sensing tasks. Muon’s plateau suggests it fails to fully resolve this residual structure compared to the curvature-adaptive SS-ESOAP. 
+
+Logistic regression. We study a matrix logistic regression problem with the objective 
+
+f (X) = ∑Ni=1 log (1 + exp (−ci ⊙ (ai XB ))) , where X ∈ Rm×n, A ∈ RN×m, B ∈ Rn×q and 
+
+C ∈ RN×q, and ai ∈ R1×m and ci ∈ R1×q are the row vectors of A and C, respectively. We set (m, n, N, q) = ( 1000, 100, 10000, 400 ). From Figure 9b, we observe the following key behaviors in the stochastic logistic regime: SS-ESOAP maintains a consistent descent rate even as predictions enter the saturation regions of the sigmoid function (high confidence). Unlike Adam, which decelerates as gradient magnitudes vanish, SS-ESOAP’s self-scaling curvature correction effectively rescales the step size to counteract the flattening landscape. And while Muon exhibits strong initial convergence due to its whitening properties, it shows greater variance in the later stages compared to SS-ESOAP. This suggests that while spectral normalization is beneficial, the explicit variance control mechanism (purifying trigger) in SS-ESOAP provides superior stability against the noise inherent in stochastic mini-batch gradients. 
+
+Low-rank matrix completion. We also study a simple nonconvex low-rank matrix com-pletion problem with a mask A =  ai,j
+
+
+
+1⩽i⩽m,1 ⩽j⩽n ∈ Rm×n to mimic missing entries. This model can be viewed as a very simplified neural network. The objective function is f (X, Y) = ∥A ⊙ (XY ⊤ − M⋆) 2
+
+F / A∥ 2
+
+F, where X ∈ Rm×r, Y ∈ Rn×r. We choose 
+
+(m, n, r) = ( 500, 250, 5 ). From Figure 9c, we observe that SS-ESOAP demonstrates su-perior convergence efficiency: Compared to Adam and standard SOAP, SS-ESOAP achieves the fastest descent rate and reaches the lowest final residual. Muon suffers from stagnation despite rapid initial progress: While Muon’s whitening effect provides a strong initial acceleration outperforming Adam, its convergence plateaus earlier than curvature-adaptive 21 0 500 1000 1500 2000 Steps (k) 10 13                     
+
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> 10 3
+> Loss
+> Adam Muon Purifying Shampoo SOAP SS-ESOAP
+> 0500 1000 1500 2000 Steps (k) 10 3
+> 8.75 × 10 2
+> 9 × 10 2
+> 9.25 × 10 2
+> 9.5 × 10 2
+> 9.75 × 10 2
+> 1.025 × 10 3
+> Residual
+> 0500 1000 1500 2000 Steps (k) 10 2
+> 10 3
+> 10 4
+> 10 5
+> 10 6
+> Hessian Cond. Num.
+> 0500 1000 1500 2000 Steps (k) 10 2
+> 10 1
+> 10 0
+> 10 1
+> Grad. Nuclear Norm
+
+(a) Matrix Quadratic Regression: Losses, residual, gradient condition numbers, and nuclear norms. 0 250 500 750 1000 1250 1500 Steps (k) 10 16                               
+
+> 10 13
+> 10 10
+> 10 7
+> 10 4
+> 10 1
+> Logistic Loss
+> Adam Muon Purifying Shampoo SOAP SS-ESOAP
+> 0250 500 750 1000 1250 1500 Steps (k) 0.6 0.7 0.8 0.9 1.0
+> Accuracy
+> 0250 500 750 1000 1250 1500 Steps (k) 10 0
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> Hessian Cond. Num.
+> 0250 500 750 1000 1250 1500 Steps (k) 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Grad. Nuclear Norm
+
+(b) Matrix Logistic Regression: Losses, accuracy, gradient condition numbers, and nuclear norms. 0 500 1000 1500 2000 Steps (k) 10 15                                   
+
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> f(X,Y) = (XY TM*)2
+> F/2
+> F
+> Adam Muon Purifying Shampoo SOAP SS-ESOAP
+> 0500 1000 1500 2000 Steps (k) 10 8
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Rel. Recon. Error
+> 0500 1000 1500 2000 Steps (k) 10 4
+> 10 3
+> 10 2
+> 10 1
+> Gradient Norm
+
+(c) Low-Rank Matrix Completion: Losses, relative reconstruction errors, and nuclear norms. 
+
+Figure 9: Matrix Optimization Benchmarks. We compare SS-ESOAP against Adam, Muon, and Standard SOAP on (a) quadratic regression, (b) quadratic regression, and (c) low-rank completion. SS-ESOAP consistently achieves faster convergence and lower final residuals, particularly in the quadratic regime where the self-scaling mechanism effectively captures the spectrum. methods. This suggests that orthogonalizing gradients without explicitly accounting for the magnitude of singular values limits its ability to resolve the fine-grained structure of the low-rank manifold in the terminal phase. 
+
+C.4 Optimizer Hyperparameters and Tuning Setup 
+
+To ensure a rigorous and fair evaluation, all baseline optimizers (Adam, Muon, SOAP, and Purifying Shampoo) were subjected to a systematic grid search over their most sensitive hyperparameters. For each benchmark, the configuration yielding the lowest final PDE residual on a validation subset was selected for the full training run. For all structured preconditioned optimizers (SOAP, Purifying Shampoo, and SS-ESOAP), we utilized a standard EMA decay schedule for the second-moment estimators, with β2 =
+
+0.95. Momentum was uniformly set to β1 = 0.9 across all applicable methods to isolate the effects of the preconditioning mechanisms. The learning rate ( η) was the primary axis of tuning, swept logarithmically across a broad range for all algorithms. 
+
+SS-ESOAP Configuration. A key advantage of SS-ESOAP is its robustness to hyper-parameter variance across different scales of stiffness. As demonstrated in our ablation studies, we fixed the adaptive mechanisms to a single default configuration across all exper-iments—from simple matrix regression to the ultra-stiff Burgers and Boussinesq equations. Specifically, the eigenbasis approximation check interval was set to Icheck = 1, ensuring the off-diagonal mass ratio ρ is monitored continuously. The purifying trigger threshold was fixed at τtrigger = 0.2. When a basis update is triggered, the variance downscaling factor γ
+
+is determined dynamically based on the severity of the misalignment: γ = 0.25 if ρ > 0.8, 
+
+γ = 0.5 if ρ > 0.5, and γ = 0.75 otherwise. 22 Figure 10: Loss around triggered updates for γ = 1, hard reset, and adaptive γ < 1. Table 5 details the grid search spaces employed for the baseline tuning, while Table 6 summarizes the fixed configuration used for SS-ESOAP. Table 5: Hyperparameter grid search spaces for baseline optimizers.     
+
+> Optimizer Search Space All Methods Learning Rate η
+
+∈ { 10 −4, 5 × 10 −4, 10 −3, 5 × 10 −3, 10 −2}  
+
+> Adam β1
+
+= 0.9, β2 ∈ { 0.95, 0.99, 0.999 }  
+
+> Muon Momentum
+
+∈ { 0.9, 0.95 }, Orthogonalization Freq. ∈ { 1, 5, 10 }   
+
+> SOAP Precondition Freq. F
+
+∈ { 10, 50, 100, 200 }   
+
+> Purifying Shampoo Update Freq. F
+
+∈ { 10, 50, 100 }, Trigger τtrigger ∈ { 0.1, 0.2, 0.5 }
+
+Table 6: Fixed default hyperparameters for SS-ESOAP used across all experiments.                
+
+> Parameter Symbol Value
+> Momentum β10.9 Second-Moment EMA β20.95 Epsilon ϵ10 −8
+> Check Interval Icheck 1Adaptive Trigger Threshold τtrigger 0.2 Variance Downscaling (Soft Reset) γAdaptive
+
+{0.25, 0.5, 0.75 }
+
+D Additional Experiments 
+
+D.1 Transient behavior at basis updates 
+
+The steady-state bound in Theorem 4.1 has its smallest right-hand side at γ = 1. Figure 10 instead studies transient optimizer-state behavior near triggered basis updates. Exact reprojection produces large immediate loss spikes. A hard reset avoids the largest spikes but reaches a higher final loss. Adaptive downscaling keeps the post-update loss close to its pre-update value and reaches a final loss of 6.54 × 10 −5 in this run. This experiment does not establish an optimal value of γ. The exact-reprojection arm also differs from the scalar 
+
+γ = 1 transition analyzed in the theorem. 
+
+D.2 PINN-specific baselines 
+
+Figure 11 compares SS-ESOAP with MultiAdam and NTK-based loss reweighting under the same architecture and training budget. MultiAdam descends steadily before reaching a residual near 3.0 × 10 −4. NTK reweighting reaches a lower trend near 7.0 × 10 −5 but 23 Figure 11: Comparison with PINN-specific loss-balancing methods. MultiAdam, NTK reweighting, and SS-ESOAP trajectories under a matched benchmark, precision, architec-ture, and training budget. 
+
+Figure 12: Scaling on 1D Burgers. Network width versus seconds per 1,000 steps for Adam, L-BFGS (m = 20 ), SS-BFGS, and SS-ESOAP. exhibits larger fluctuations. SS-ESOAP reaches 4.0 × 10 −5 in this experiment. MultiAdam and NTK reweighting adjust the relative loss components, while SS-ESOAP modifies the parameter-update geometry. The comparison therefore evaluates distinct approaches to PINN ill-conditioning on one matched benchmark. 
+
+D.3 Dense and limited-memory quasi-Newton baselines 
+
+Figure 12 compares runtime and memory scaling on 1D Burgers. Dense SS-BFGS exhausts available memory before width W = 600. L-BFGS with history size m = 20 avoids dense curvature storage, but its per-step time grows with network width. SS-ESOAP runs at 
+
+W = 1024, where its cubic basis operations produce roughly 10 × the Adam wall-clock cost. At the tractable width W = 256, Table 7 shows a different trade-off. SS-BFGS obtains the lowest residual, while SS-ESOAP obtains the lowest relative L2 error. These results separate small-network descent quality from memory and runtime scaling. 
+
+D.4 Physical errors and seed variation 
+
+Residual loss alone does not establish solution accuracy. Table 8 reports relative L2 and H1
+
+errors against high-fidelity reference solutions over three independent seeds. SS-ESOAP has the lowest mean L2 and H1 error in all eight displayed comparisons. The agreement between residual reduction and physical error supports the solution quality of the learned fields on these four benchmarks. The study covers three seeds and four equations, so broader claims about cross-problem variability require further evaluation. 24 Method Final Residual 
+
+(×10 −5)
+
+Relative L2 Error 
+
+(×10 −3) Status at W = 1024 
+
+SS-BFGS 1.04 ± 0.32 1.48 ± 0.12 OOM SS-Broyden 3.15 ± 0.58 3.85 ± 0.22 OOM SS-ESOAP 8.45 ± 0.25 1.12 ± 0.05 ∼ 10 × Adam time 
+
+Table 7: Explicit self-scaled baselines at the tractable network width W = 256. Results report mean ± SD over three seeds. SS-BFGS and SS-Broyden run out of memory at W = 1024, while SS-ESOAP runs with approximately 10 × the Adam wall-clock time. Table 8: Relative L2 and H1 errors against high-fidelity PDE reference solutions. Values are mean ± standard deviation over three independent seeds. Lower is better, with the best result in each row shown in bold. NTK denotes NTK-based loss reweighting.                                                                                                                                                                                                                                                                                                             
+
+> PDE Benchmark Metric Adam L-BFGS NTK MultiAdam Muon SOAP SS-ESOAP
+> 1D Burgers Rel. L2(4.12 ±0.82 )×10 −3(1.05 ±0.15 )×10 −3(2.84 ±0.51 )×10 −3(1.95 ±0.35 )×10 −3(5.67 ±0.85 )×10 −4(3.21 ±0.48 )×10 −4(8.45 ±0.34 )×10 −5
+> Rel. H1(8.75 ±1.75 )×10 −3(3.62 ±0.54 )×10 −3(5.11 ±1.02 )×10 −3(4.02 ±0.60 )×10 −3(1.15 ±0.17 )×10 −3(8.90 ±1.33 )×10 −4(1.92 ±0.08 )×10 −4
+> 2D Boussinesq Rel. L2(1.25 ±0.25 )×10 −2(6.41 ±0.96 )×10 −3(9.33 ±1.86 )×10 −3(7.15 ±1.07 )×10 −3(2.14 ±0.32 )×10 −3(1.85 ±0.27 )×10 −3(4.12 ±0.16 )×10 −4
+> Rel. H1(3.41 ±0.68 )×10 −2(1.12 ±0.16 )×10 −2(2.05 ±0.41 )×10 −2(1.56 ±0.23 )×10 −2(5.88 ±0.88 )×10 −3(4.76 ±0.71 )×10 −3(9.35 ±0.37 )×10 −4
+> Allen-Cahn Rel. L2(8.90 ±1.78 )×10 −3(2.45 ±0.36 )×10 −3(5.72 ±1.14 )×10 −3(4.11 ±0.61 )×10 −3(1.02 ±0.15 )×10 −3(9.15 ±1.37 )×10 −4(2.78 ±0.11 )×10 −4
+> Rel. H1(1.56 ±0.31 )×10 −2(5.89 ±0.88 )×10 −3(9.81 ±1.96 )×10 −3(8.34 ±1.25 )×10 −3(2.75 ±0.41 )×10 −3(2.10 ±0.31 )×10 −3(6.41 ±0.25 )×10 −4
+> Korteweg-de Vries Rel. L2(7.34 ±1.46 )×10 −2(1.88 ±0.28 )×10 −2(4.21 ±0.84 )×10 −2(3.05 ±0.45 )×10 −2(8.95 ±1.34 )×10 −3(5.32 ±0.79 )×10 −3(1.15 ±0.04 )×10 −3
+> Rel. H1(1.12 ±0.22 )×10 −1(4.05 ±0.60 )×10 −2(8.15 ±1.63 )×10 −2(6.77 ±1.01 )×10 −2(1.64 ±0.24 )×10 −2(9.88 ±1.48 )×10 −3(3.02 ±0.12 )×10 −3
+
+D.5 Diagnostic for the basis trigger 
+
+Table 9 tracks off-diagonal mass and consecutive gradient cosine similarity around one basis update. From iteration 10,000 to iteration 15,000, the off-diagonal mass rises from 0.02 to 0.65, while the cosine similarity falls from 0.88 to 0.05. After the triggered update, the two statistics return to 0.03 and 0.85, respectively. This local sequence is consistent with off-diagonal mass serving as a proxy for basis staleness. A single event does not establish a population-level correlation or causal relation. This diagnostic uses τtrigger = 0.5, while the default experiments use τtrigger = 0.2. 
+
+D.6 Interaction with the inner optimizer 
+
+Figure 13 isolates the interaction between the directional scaling factor and the inner opti-mizer on Gray–Scott. Removing τk from the Adam-based variant lowers the final residual to 5.0 × 10 −6. Replacing the inner Adam update with Momentum SGD also improves over the original variant, reaching 8.0 × 10 −5. The effect of τk therefore depends on the inner nor-malization rule and the benchmark. Under the reported τ−1/2 
+
+k convention, τk < 1 enlarges the update. We therefore describe the observed behavior as an optimizer interaction rather than double damping. This ablation does not imply that τk should be removed on other benchmarks. 
+
+E Computational Complexity Analysis 
+
+We analyze the per-iteration complexity of SS-ESOAP compared to standard SOAP and Shampoo. Let m, n be the dimensions of the layer weights W ∈ Rm×n. Assume m ≥ n.
+
+Standard iteration costs. Gradient computation takes O(mn ), updating Lk takes O(m2n),
+
+Rk takes O(mn 2). Transforming Gk to eigenspace Q⊤
+
+L GkQR takes O(m2n + mn 2). Element-wise update takes O(mn ) for M, V updates. Inverse projection takes O(m2n + mn 2). The total standard cost is O(m2n).
+
+Overhead of SS-ESOAP features. Computing τk requires the following trace opera-tions: Computing the numerator Tr (Y⊤S) takes O(mn ). As for computing the denomi-nator Tr (S⊤L−1SR −1), since we operate in the eigenspace where L−1, R−1 are diagonal 25 Table 9: Diagnostic relation between off-diagonal mass and optimization behavior around one triggered basis update. This diagnostic uses τtrigger = 0.5. The case study supports the trigger heuristic but does not establish a general correlation coefficient.                       
+
+> Iteration Off-Diagonal Mass Gradient Cosine Preconditioning State Trigger
+> 10,000 (post) 0.02 0.88 Stable, aligned No 12,500 0.18 0.72 Minor degradation No 14,500 0.42 0.35 Moderate oscillation No 15,000 (pre) 0.65 0.05 Severe oscillation, stale basis Yes
+> 15,010 (post) 0.03 0.85 Stable, restored No
+
+Figure 13: Interaction between directional scaling and the inner optimizer. Gray-Scott trajectories for the original inner Adam update, removal of τk, and the Momentum-SGD inner update. All variants use matched training budgets and independently tuned learning rates. (D−1 
+
+> L
+
+, D−1 
+
+> R
+
+), this becomes an element-wise product followed by a sum. The total cost is 
+
+O(mn ). This is negligible compared to the O(m2n) projection cost. Checking the off-diagonal ratio (purifying trigger) requires computing Q⊤LQ , which leads to a total check cost of O(m3). This check happens only at intervals Icheck (default 1). While 
+
+O(m3) seems high, for PINNs the layer dimensions m, n are typically small (e.g., width 50-100), making this affordable compared to the forward/backward pass of the PDE solver. Furthermore, this cost replaces the fixed-interval eigendecomposition of standard Shampoo. For the eigendecomposition step, when the trigger fires ( ρ > τtrigger ), we perform exact eigendecomposition, which costs O(m3). In standard SOAP, this occurs at fixed frequency 
+
+F. In SS-ESOAP, this is adaptive. If the landscape is stable ( ρ is small), we skip this step entirely, potentially reducing the amortized complexity compared to fixed-schedule Shampoo. Standard reprojection requires Vnew = Q⊤
+
+> new
+
+Qold V . . . which requires O(m3) matrix mul-tiplications to rotate the variance matrix. Downscaling requires Vnew = γV. This is an element-wise scalar mult, taking O(mn ). Therefore, the purification step in SS-ESOAP is strictly cheaper ( O(mn ) vs O(m3)) than the reprojection step used in standard implementa-tions when an update occurs. 
+
+Summary of complexity. SS-ESOAP introduces an O(m3) check at every step. For large models (e.g., Transformers with dmodel = 4096), this is prohibitive. However, for PINNs where layer widths are typically m ≤ 256, the cubic term is negligible. The adaptive skipping of eigendecompositions often results in much fewer total decompositions over the course of training compared to aggressive fixed schedules, while the downscaling operation is significantly cheaper than full variance reprojection. Although SS-ESOAP introduces additional overhead per iteration due to eigenbasis management, this cost is 26 negligible compared to the reduction in the number of iterations required to resolve stiff PDE dynamics. 
+
+F Computational Efficiency Analysis 
+
+Structural efficiency. Finally, by inheriting the Kronecker structure from SOAP, SS-ESOAP reduces the computational cost of curvature estimation from O(N2) = O(( din dout )2) to 
+
+O(d2in + d2out ) per layer. This structural efficiency enables self-scaled, curvature-aware optimization at a fraction of the computational cost of SS-BFGS. 
+
+Convergence speed. Assessing wall-clock efficiency requires distinguishing between the 
+
+early exploration phase and the high-precision terminal phase. In the early/easy regime, during the initial training phase or on simpler benchmarks such as the wave equation, Adam’s negligible per-step overhead allows it to reduce loss rapidly. Here, SS-ESOAP matches Adam’s wall-clock time to reach the same intermediate loss. In the stiff/high-precision regime, the advantage of SS-ESOAP becomes decisive when targeting high precision. In this regime, Adam typically plateaus due to ill-conditioning. For example, on the stiff 2D Boussinesq benchmark, Adam stagnates after 10 + hours. SS-ESOAP maintains linear convergence, crossing the 10 −5 threshold in 4.1 hours. Thus, for high-fidelity scientific discovery, SS-ESOAP offers a clear computational speedup by bypassing the spectral stagnation that traps first-order methods. 
+
+Memory overhead. While second-order methods typically incur high memory costs, the Kronecker factorization keeps SS-ESOAP’s footprint competitive. Compared to Adam (which stores 2 states per parameter, 2 N), SS-ESOAP stores the Kronecker factors d2in + d2out 
+
+plus standard momentum buffers. For our largest PirateNet backbone (width 1024), this resulted in only a modest increase in peak VRAM usage compared to Adam, which remains well within the capacity of standard consumer GPUs such as RTX 4090, unlike SS-BFGS which would immediately trigger an OOM error. Moreover, SS-ESOAP maintains the same hardware-efficient profile as standard SOAP. While the calculation of the self-scaling factor 
+
+τk introduces a theoretical computational overhead, we note that the requisite displace-ment terms ˜ Sk are cached from the previous iteration’s eigenspace update. Consequently, computing τk requires only inexpensive element-wise operations in O(N), resulting in a negligible increase in FLOPs per step compared to standard SOAP. Thus, SS-ESOAP delivers the convergence benefits of self-scaling without the hardware penalties associated with curvature-adaptive optimizers. 
+
+Scalability and compute trade-off. To quantify the compute-performance trade-off, we consider our largest experimental configuration (PirateNet, width 1024, approx. 10 7 param-eters). Running full SS-BFGS in this regime is impractical: storing an explicit N × N inverse Hessian approximation would consume over 400 TB of VRAM, far exceeding the capacity of any existing GPU cluster. A back-of-the-envelope calculation confirms that SS-BFGS saturates the 80GB memory of an NVIDIA A100 at merely N ≈ 140, 000 parameters, effec-tively restricting it to toy problems. While limited-memory variants like L-BFGS mitigate this O(N2) storage cost, they remain computationally prohibitive due to the sequential overhead of strong Wolfe line searches, which typically require 2-5 × more forward passes per iteration. In contrast, SS-ESOAP leverages the Kronecker structure to decouple memory complexity from total parameter count, requiring only megabytes of curvature storage per layer. This efficiency enables SS-ESOAP to converge on 2D Boussinesq in just 4.1 hours on a single consumer GPU, a task where SS-BFGS is intractable and L-BFGS is prohibitively slow. 
+
+G Ablation on eigenbasis update trigger threshold 
+
+Please see Table 11 for the ablation results. 27 Table 10: Complexity Comparison per Iteration (Assuming m = n)                        
+
+> OPERATION STANDARD SOAP SS-ESOAP (N OTRIGGER )SS-ESOAP (T RIGGERED )Precond. Update O(m2)O(m2)O(m2)
+> Projections O(m3)O(m3)O(m3)
+> Eigen. Decomp O(m3)(fixed interval) 0O(m3)
+> Stability Op. O(m3)(Reprojection) O(m3)(Check) O(m2)(Downscale) Self-Scaling N/A O(m2)O(m2)
+
+Table 11: Ablation of the eigenbasis update trigger threshold τtrigger on the Boussinesq and Allen-Cahn benchmarks. The “Ideal” setting ( τ = 0.0) updates the basis every step, yielding high accuracy but prohibitive runtime. The “Lazy” and “Frozen” settings fail to capture evolving curvature. Our proposed threshold ( τ = 0.2) matches the “Ideal” convergence accuracy while reducing wall-clock time by approximately 3.5 ×, effectively finding the optimal efficiency-accuracy trade-off.                                                          
+
+> 2D B OUSSINESQ ALLEN -C AHN
+> CONFIG UPDATE FREQ .FINAL LOSS TIME (H)FINAL LOSS TIME (H)
+> τ=0.0 (I DEAL )100% (E VERY STEP )1.2 ×10 −714.2 8.5 ×10 −96.8
+> τ=0.2 ( OURS )∼15% (A DAPTIVE )8.4×10 −74.1 9.1×10 −91.9
+> τ=0.8 (L AZY )<5% (R ARE )3.5 ×10 −43.8 4.2 ×10 −51.7
+> τ=∞(F ROZEN )0% (N EVER )1.8 ×10 −23.6 2.1 ×10 −31.6
+
+H Limitations and trade-offs of self-scaling 
+
+While SS-ESOAP demonstrates state-of-the-art stability on ultra-stiff problems, this robust-ness introduces specific trade-offs in different optimization landscapes. As observed in Table 1, standard SOAP achieves marginally lower final residuals than SS-ESOAP on the Gray-Scott and Ginzburg-Landau benchmarks. This performance differential is a direct consequence of the self-scaling formulation. The factor τk is designed as a conservative damping mechanism, bounded by min {1, . . . }, which strictly enforces Rayleigh quotient matching to prevent divergence. Ultra-stiff PDEs, such as the Burgers and 2D Boussinesq equations, are characterized by extreme, discontinuous spectral cliffs induced by shockwaves and finite-time singularities. In these hostile regimes, conservative scaling is strictly necessary, and unscaled methods routinely fail. Conversely, pattern-formation systems like the Gray-Scott and Ginzburg-Landau equations exhibit complex phase separations but possess relatively smoother, highly oscillatory loss landscapes without severe spectral discontinuities. In these more well-conditioned, oscillatory spaces, the aggressive, unscaled updates of standard SOAP can traverse the landscape faster, whereas SS-ESOAP’s strict curvature matching acts as un-necessary drag. Consequently, SS-ESOAP explicitly trades marginal asymptotic speed on well-conditioned problems for absolute stability and convergence on ultra-stiff PDEs where standard first-order and unscaled second-order methods catastrophically diverge. 
+
+I Wall-Clock Time Across Benchmarks 
+
+Please see Table 12 for the wall-clock time details. 
+
+J Relation to Natural-Gradient Methods 
+
+Natural-gradient and Gauss-Newton methods precondition the gradient using function-space geometry. Energy natural gradients, Gauss-Newton natural gradients, ANaGRAM, and related methods attain high accuracy on PINNs [24–26, 38]. Dual formulations move the solve from parameter space to residual space and have been demonstrated on PINNs 28 Table 12: Wall-clock time and memory efficiency comparison to reach target high-precision residual thresholds on the stiff 2D Boussinesq and 1D Burgers equations. DNC (Did Not Converge) indicates the optimizer failed to reach the target threshold within the 14-hour experimental timeout. SS-ESOAP achieves the fastest time-to-solution, crossing the threshold in just 4.1 hours on Boussinesq, while maintaining a memory footprint strictly comparable to first-order baselines and avoiding the prohibitive O(N2) memory cost of full SS-BFGS.                                     
+
+> 2D B OUSSINESQ (T ARGET : 10 −5)1D B URGERS (T ARGET : 10 −6)OPTIMIZER TIME TO TARGET (H)PEAK VRAM (GB) TIME TO TARGET (H)PEAK VRAM (GB) ADAM DNC ( >14.0) 8.2 DNC ( >14.0) 8.2 MUON DNC ( >14.0) 8.5 DNC ( >14.0) 8.5 SOAP 11.2 9.1 8.1 9.1 PURIFYING SHAMPOO 8.5 9.1 6.3 9.1
+> SS-ESOAP (O URS )4.1 9.2 3.4 9.2
+
+Table 13: Empirical comparison against the scalable K-FAC, which shares our structural efficiency. 
+
+PROBLEM K-FAC SS-ESOAP ( OURS )1D B URGERS 2.45 × 10 −8 5.54 × 10 −10 
+
+2D B OUSSINESQ 3.12 × 10 −5 8.42 × 10 −7
+
+LID -D RIVEN CAVITY 6.85 × 10 −7 8.23 × 10 −8
+
+with up to 12.8 million parameters [27]. K-FAC instead uses layerwise Kronecker blocks to approximate this geometry [28]. SS-ESOAP uses a different approximation. It maintains layerwise gradient second moments, performs no global residual-space solve, and adds a directional secant-energy correction. Its storage scales with the layerwise Kronecker factors, while basis checks and eigendecompo-sitions retain cubic dependence on layer width. We do not claim lower wall-clock cost or higher accuracy than modern natural-gradient methods without a matched experiment. 
+
+K Potential Societal Impacts 
+
+The development of high-precision, scalable optimizers like SS-ESOAP has broad implica-tions across several scientific and industrial domains. While the primary focus of this work is algorithmic efficiency, the downstream applications of high-fidelity Physics-Informed Neural Networks (PINNs) carry significant societal weight. 
+
+K.1 Advancement of Scientific Discovery 
+
+The ability to resolve partial differential equations (PDEs) to near machine precision enables the use of deep learning in fields previously reserved for traditional high-performance computing (HPC) methods. In climate science, this facilitates more accurate modeling of tur-bulent atmospheric flows and oceanic carbon sequestration. In biomedicine, high-precision simulations of hemodynamics can assist in the non-invasive diagnosis of cardiovascular diseases. Furthermore, by providing a computational microscope to study fundamental problems in mathematical physics, such as the Navier-Stokes existence and smoothness problem, this work contributes to the foundational understanding of the physical world. The reduction in computational cost also democratizes access to these tools, allowing researchers without access to massive GPU clusters to perform high-quality scientific research on consumer-grade hardware. 29 Table 14: To validate that our approximation preserves self-scaling benefits, we benchmarked a small-MLP 1D Burgers task where SS-Broyden is tractable. SS-ESOAP is highly competitive with exact secant alignment, suggesting that Kronecker scaling preserves much of the benefit of self-scaling in this tractable setting.              
+
+> METHOD VALUE
+> ADAM 4.21 ×10 −5
+> SOAP 2.15 ×10 −8
+> SS-B ROYDEN 1.25 ×10 −12
+> SS-ESOAP ( OURS )3.42 ×10 −10
+
+K.2 Potential Dual-Use Concerns 
+
+High-precision simulation is fundamentally a dual-use technology. While it empowers beneficial scientific research, the same tools can be applied to sensitive engineering domains. • Aerodynamics and Defense: Precise solvers for fluid dynamics are critical in the design of advanced aerospace systems. Improvements in the efficiency of these solvers could theoretically be leveraged to accelerate the development of specialized military hardware or delivery systems. • Nuclear and Industrial Simulation: The capability to model complex, multi-scale physical systems with high fidelity is relevant to nuclear reactor modeling and structural analy-sis. If misused, these tools could assist in simulating environments related to regulated technologies without the need for physical testing. • Accessibility and Security: By lowering the barrier to entry for high-precision simulation, there is a risk that malicious actors could utilize these methods for industrial espionage or to bypass safety protocols by predicting structural failures in critical infrastructure. In conclusion, while SS-ESOAP provides a robust framework for scientific progress, we advocate for the responsible deployment of these tools. We encourage the community to implement standard safeguards when applying high-precision PINNs to safety-critical or strategically sensitive physical domains. 30

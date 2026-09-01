@@ -1,0 +1,2478 @@
+Title: Sensitivity-Constrained Neural Operators for Data-Efficient Forward and Inverse Modeling of Partial Differential Equation Systems
+
+URL Source: https://arxiv.org/pdf/2608.29888v1
+
+Published Time: Tue, 01 Sep 2026 01:57:14 GMT
+
+Number of Pages: 62
+
+Markdown Content:
+# Sensitivity-Constrained Neural Operators for Data-Efficient Forward and Inverse Modeling of Partial Differential Equation Systems 
+
+Abdolmehdi Behroozi 1, Chaopeng Shen ∗1, Daniel Kifer 2, and Kathryn Lawson 11 Department of Civil and Environmental Engineering, Penn State University, University Park, PA 16802, USA 
+
+2 School of Electrical Engineering and Computer Science, Penn State University, University Park, PA 16802, USA 
+
+Abdolmehdi Behroozi: ORCID 0000-0002-7663-8727 Chaopeng Shen: ORCID 0000-0002-0685-1901 Daniel Kifer: ORCID 0000-0002-4611-7066 Kathryn Lawson: ORCID 0000-0003-0075-7911 
+
+Abstract 
+
+Neural operators provide fast surrogates for partial differential equation (PDE) solvers, but their reliability can degrade when the inputs are high-dimensional spatial fields and when the surrogate is used for inverse or repeated inference. The central limitation is that state-only training constrains solution values but does not directly constrain the learned input–output response of the operator. This work studies sensitivity-constrained neural operators (SC-NOs), which make each simulated trajectory more informative by augmenting standard neural-operator training with sampled solver-derived Jacobian supervision. The method matches selected sensitivities obtained from differentiable solvers or discrete adjoints, allowing full-field response information to be amortized across minibatch training without imposing the complete Jacobian at every update. We evaluate SC-NO on controlled advection–diffusion and RANS–Spalart–Allmaras benchmarks, empirical input-dimensionality scal-ing tests, long-horizon autoregressive rollout, and a shallow-water Tohoku tsunami source-inversion case. Across the reported settings, sensitivity supervision improves forward prediction and produces larger gains in gradient-based inverse reconstruction of distributed fields. The scaling experiments show that sampled Jacobian supervision improves the observed accuracy–cost tradeoff for high-dimensional gridded inputs, while ablations indicate that state values and Jacobian information provide complementary forms of supervision. In the tsunami case, a trained SC-FNO reconstructs a gridded seafloor deformation source from sparse early gauge observations and forecasts subsequent wave propagation within a near-real-time proof-of-concept workflow. These results support sampled sensitivity supervision as a practical strategy for improving neural PDE surrogates when forward accuracy, inverse stability, robustness, and computational cost must be considered together. 
+
+Keywords: sensitivity supervision, neural operators, high-dimensional PDEs, inverse problems, Jaco-bian supervision, scientific machine learning, time-critical inference 
+
+# 1 Introduction 
+
+High-fidelity partial differential equation (PDE) solvers are central to modern scientific and engi-neering prediction, including fluid mechanics, geophysical hazards, structural response, environmental transport, and subsurface flow. These solvers provide detailed representations of physical processes, but their computational cost remains a major barrier when rapid forward simulation, repeated inverse infer-ence, or uncertainty-aware prediction is required [LeVeque, 2002, Palais and Palais, 2009, Quarteroni, 
+
+> ∗
+
+Corresponding author: cshen@engr.psu.edu 
+
+1arXiv:2608.29888v1 [cs.LG] 30 Aug 2026 Sacco, and Saleri, 2010]. The difficulty is amplified when the governing inputs are high-dimensional spatial fields, such as heterogeneous material properties, geometries, bed topography, roughness maps, forcing fields, or source deformations. This computational bottleneck has motivated a broad class of reduced-order, data-driven, and surrogate modeling approaches that seek to approximate the input– output map of a high-fidelity solver at much lower evaluation cost. In this setting, the surrogate is trained to emulate the solution operator defined by the numerical PDE model, replacing repeated ex-pensive solver calls with fast learned predictions. However, inversions or learning-based workflows may still require thousands of model evaluations [Li, Kovachki, Azizzadenesheli, Liu, Bhattacharya, Stuart, and Anandkumar, 2021], and the number of degrees of freedom in the input can make purely empirical surrogate training increasingly data-intensive [Grady, Khan, Louboutin, Yin, Witte, Chandra, et al., 2023, Xiao, Gao, Liu, Duan, and Zhao, 2024]. Time-critical geophysical forecasting provides one important example of this broader challenge. In tsunami warning, flood forecasting, plume transport, and related applications, models must assimilate limited observations and produce forecasts within short decision windows. For tsunamis, real-time high-resolution modeling remains difficult [Reymond, Okal, H´ ebert, and Bourdet, 2012], so operational systems often rely on precomputed scenario databases and rapid scenario superposition [Gica, 2008, Fujita, No-mura, Moriguchi, Otake, LeVeque, and Terada, 2024]. Dynamic source-modeling approaches that embed fault slip within high-resolution elasticity solvers can better represent transient rupture effects [Vogl and LeVeque, 2017], but they remain computationally intensive. The 2011 Tohoku event also showed that early forecasts can underestimate wave heights when the source and propagation dynamics are not adequately resolved [Hoshiba and Ozaki, 2014, Ozaki, 2012]. These examples illustrate a general com-putational tension: high-fidelity PDE models are needed most in settings where repeated, rapid forward and inverse evaluations are hardest to afford. Neural operators offer a promising route for accelerating PDE surrogate modeling. Recent progress in artificial intelligence for scientific computing and differentiable physical modeling has created strong interest in fast surrogate models for PDE-governed systems [Zong and Tartakovsky, 2026]. Neural op-erators, including Fourier Neural Operators (FNOs) [Li et al., 2021], DeepONets [Lu, Jin, Pang, Zhang, and Karniadakis, 2021], Wavelet Neural Operators (WNOs) [Tripura and Chakraborty, 2023], and Con-volutional Neural Operators (CNOs) [Raonic, Molinaro, Rohner, Mishra, and de Bezenac, 2023], learn mappings between function spaces from numerical simulation data and can provide large acceleration rel-ative to traditional solvers [Kovachki, Li, Liu, Azizzadenesheli, Bhattacharya, Stuart, and Anandkumar, 2023, Wang, Tang, Zhai, Wan, and Yang, 2024, Qin, Lyu, Peng, Geng, Wang, Gao, Liu, and Wang, 2024]. These models have been used in applications including lithography [Yang, Li, Sastry, Mukhopadhyay, Anandkumar, Khailany, Singh, and Ren, 2022], weather forecasting [Kurth, Subramanian, Harrington, Pathak, Mardani, Hall, Miele, Kashinath, and Anandkumar, 2023], fluid mechanics [Han, Zhou, and Xiao, 2022], and subsurface CO 2 sequestration [Wen, Li, Long, Azizzadenesheli, Anandkumar, and Ben-son, 2023]. Despite this progress, standard neural operators remain vulnerable when the inputs are high-dimensional gridded fields. Purely data-driven training must infer how changes in distributed parameters, geometries, forcing fields, or initial conditions affect the output solution. Recent theoretical work has emphasized the parametric and data complexity of operator learning in such settings [Lanthaler and Stuart, 2025, Kovachki, Lanthaler, and Mhaskar, 2024]. In practice, this means that neural operators may require large training datasets, may degrade when gridded inputs change substantially, and may become unreliable in inverse problems where accurate gradients with respect to inputs are essential [Kovachki et al., 2023]. Thus, the relevant issue is not only whether a surrogate predicts solution values accurately on held-out samples, but whether it captures the input–output sensitivity structure needed for stable inference beyond the training distribution. A central failure mode of data-only neural operators is inaccurate sensitivity, even when forward pre-dictions appear acceptable. A surrogate may reproduce solution fields on the training distribution while learning incorrect local derivatives with respect to the input. These gradient errors can degrade robust-ness to input perturbations, worsen out-of-distribution behavior, amplify errors during autoregressive rollout, and mislead gradient-based inversion [Choi, Jin, and Lkhagvasuren, 2024, Behroozi, Shen, and Kifer, 2025]. Several approaches have incorporated additional physical or derivative information into sur-rogate training, including PDE-residual or physics-informed neural-operator losses [Li, Zheng, Kovachki, Jin, Chen, Liu, Azizzadenesheli, and Anandkumar, 2024], equivariant constraints [Han et al., 2022], 2Sobolev training [Czarnecki, Osindero, Jaderberg, Swirszcz, and Pascanu, 2017], Sensitivity-Constrained Fourier Neural Operators [Behroozi et al., 2025], derivative-enhanced DeepONets [Qiu, Bridges, and Chen, 2024], and derivative-informed neural operators [Cao, O’Leary-Roseberry, and Ghattas, 2025]. These methods show that derivative information can improve generalization, but many existing demon-strations remain focused on low-dimensional parameterizations or compressed representations. Full-field Jacobian supervision for gridded inputs remains difficult because the Jacobian can be extremely large and costly to impose directly during training. This work studies sensitivity-constrained neural operators (SC-NOs) for high-dimensional forward and inverse PDE inference. The key idea is to train neural operators not only to match PDE solution fields, but also to match selected entries of physics-derived Jacobians obtained from differentiable solvers or discrete adjoints. Rather than enforcing the full Jacobian at every optimization step, the method samples subsets of Jacobian entries and resamples them across minibatches, amortizing sensitivity supervision over the training process. This provides a practical mechanism for incorporating full-field sensitivity information without requiring the entire Jacobian tensor to be used in every update. The contribution is not a new neural operator architecture. Instead, the paper evaluates whether scalable sensitivity supervision improves the reliability of existing neural-operator families under high-dimensional gridded inputs. We first study controlled advection–diffusion and turbulent Navier–Stokes benchmarks to examine forward prediction, inverse reconstruction of distributed fields, sample efficiency, and accuracy–cost tradeoffs. We then analyze empirical scaling with input degrees of freedom, Jacobian sampling density, out-of-distribution behavior, and long-horizon rollout stability. Finally, we use a large-scale shallow-water tsunami source-inversion problem as a capstone application, where sparse early gauge observations are used to reconstruct a gridded seafloor deformation source and forecast subsequent wave propagation. The claims in this paper are empirical and computational rather than asymptotic. We do not claim that sensitivity supervision solves the curse of dimensionality in a formal sample-complexity sense. In-stead, the results show that sampled Jacobian supervision can substantially reduce the data burden and improve the observed accuracy–cost tradeoff for the high-dimensional PDE inference problems stud-ied here. The findings support sensitivity supervision as a practical mechanism for improving neural PDE surrogates in settings where forward accuracy, inverse stability, out-of-distribution robustness, and time-critical inference must be considered together. 
+
+# 2 Sensitivity-Constrained Neural Operators 
+
+This section defines the sensitivity-constrained neural operator (SC-NO) framework used throughout the paper. The objective is not to introduce a new neural-operator architecture, but to augment existing operator families with supervision on physically derived input–output sensitivities. In this work, the sensitivity information is obtained from differentiable numerical solvers or discrete adjoints and is imposed through sampled Jacobian entries during training. 
+
+2.1 Neural Operator Formulation 
+
+Let A denote a space of input functions and U a space of solution functions. For a PDE-governed system, the high-fidelity numerical solver defines a solution operator 
+
+G : A → U , u = G(a), (1) where a represents the problem input and u is the corresponding solution field. Depending on the bench-mark, a may include initial states, boundary or forcing information, spatially distributed coefficients, bed topography, or source deformation fields. We write the input generically as a = ( actx , p ), where 
+
+actx denotes any state or contextual information provided to the model, and p denotes the input field or parameter with respect to which sensitivities are supervised. A neural operator approximates G by a parameterized map 
+
+Gθ : A → U , ˆu = Gθ (a), (2) where θ denotes trainable parameters. In a standard neural-operator layer, a latent representation vℓ at 3layer ℓ is updated through a combination of nonlocal and local transformations, 
+
+vℓ+1 = σ
+
+
+
+K(ℓ) 
+
+> θ
+
+vℓ + W(ℓ) 
+
+> θ
+
+vℓ
+
+
+
+, (3) where K(ℓ) 
+
+> θ
+
+is a learned nonlocal operator, W(ℓ) 
+
+> θ
+
+is a local transformation, and σ is a nonlinear activation. Different choices of K(ℓ) 
+
+> θ
+
+recover different operator architectures, such as Fourier neural operators, wavelet neural operators, or branch–trunk operator models. The sensitivity-constrained formulation below is independent of this architectural choice and can be applied to any differentiable neural operator. 
+
+2.2 Sensitivity-Constrained Training Objective 
+
+Standard neural-operator training minimizes a state-prediction loss between the surrogate solution ˆ u
+
+and the reference solver solution u. For a dataset of N samples, 
+
+D =
+
+n 
+
+a(i), u (i), J (i)o Ni=1 
+
+, (4) where u(i) = G(a(i)) and the solver-derived Jacobian J(i) with respect to the supervised input p(i) is defined by 
+
+J(i) = ∂G(a(i))
+
+∂p (i) . (5) The state loss for minibatch B is 
+
+Lu(θ) = 1
+
+|B| 
+
+X
+
+> i∈B
+
+Gθ (a(i)) − u(i) 22 , (6) where |B| denotes the minibatch size and ∥ · ∥ 2 denotes the Euclidean norm over the discretized solution degrees of freedom. SC-NO augments this objective by matching the Jacobian of the neural operator to the Jacobian of the reference solver. The model Jacobian is 
+
+J(i) 
+
+> θ
+
+= ∂Gθ (a(i))
+
+∂p (i) . (7) The sensitivity-constrained objective combines the state-prediction loss and the Jacobian-matching loss. For clarity, it can first be written in the fixed-weight form 
+
+L(θ) = Lu(θ) + λLJ (θ), (8) where λ > 0 denotes the relative weight assigned to the Jacobian loss. In practice, however, we do not manually tune a fixed λ. Instead, we use learnable automatic loss weights inspired by uncertainty-based multi-task weighting [Kendall, Gal, and Cipolla, 2018]. For the loss components Lr , with r ∈ { u, J }, the optimized objective is 
+
+L(θ, σ) = X
+
+> r∈{ u,J }
+
+ 12σ2
+
+> r
+
+Lr (θ) + log(1 + σ2 
+
+> r
+
+)
+
+
+
+, (9) where σr are trainable scalar weighting parameters optimized jointly with the neural-operator parameters. The logarithmic term prevents the optimization from trivially increasing σr to suppress a loss component, while the inverse-variance term adaptively balances the state and Jacobian losses during training. The term LJ penalizes mismatch between selected entries of J(i) 
+
+> θ
+
+and J(i).In the experiments, p corresponds to the high-dimensional input field relevant to each task, such as a velocity field, initial condition, forcing field, or bed-topography/source-deformation field. The exact supervised quantity is specified for each benchmark in Section 3. A supporting analysis of this ob-jective is provided in Appendix A. The analysis explains how matching solver-derived sensitivities can constrain the learned input–output response of the neural operator. We use this analysis as mecha-4Lu   
+
+> LJ
+> Input Data Neural Operator Process State Prediction and Sensitivity Computation Loss Optimization
+
+Input field p 
+
+> Minimize
+
+θ*
+
+Initial States 
+
+> AD/discrete adjoint
+> Predicted States
+
+Figure 1: Overview of the sensitivity-constrained neural-operator framework. The input consists of contextual state information actx and a supervised input field or parameter p. A neural operator maps the input to predicted solution states               
+
+> bu(x, t, p ), where xand tdenote space and time when applicable. In addition to the state-prediction loss Lu, the framework computes model sensitivities Jθ=∂bu/∂p using automatic differentiation and matches them to solver-derived sensitivities obtained from automatic differentiation or discrete adjoints. The resulting Jacobian loss LJis combined with the state loss using learnable loss weights, encouraging the surrogate to match both solution values and input–output sensitivities.
+
+nistic support for the sensitivity-constrained objective, while empirical evidence for scaling behavior, robustness, and stability is evaluated in the results. In particular, the analysis shows that, under bound-edness and uniform-convergence assumptions, matching solver-derived sensitivities constrain the learned input–output derivatives of the neural operator. This provides a mechanism for improved generalization, more stable long-horizon rollout, and more reliable gradient-based inversion. We use this result as the-oretical support for the sensitivity-constrained objective, while empirical evidence for scaling behavior, robustness, and stability is evaluated separately in the results. This objective encourages the learned operator to match not only the solution values produced by the numerical solver, but also the local input–output response of the solver. This distinction is important for inverse problems and robustness tests, where optimization or distribution shifts can repeatedly evaluate the surrogate away from the training inputs. Figure 1 summarizes the SC-NO training pipeline. The method augments standard neural-operator training with Jacobian-level supervision from differentiable solvers or discrete adjoints. Rather than imposing the full Jacobian at every optimization step, SC-NO samples subsets of sensitivity entries during minibatch training. These subsets are resampled across iterations, allowing the model to receive sensitivity supervision over many input–output directions while keeping the per-step cost tractable. This design encourages the learned operator to match both the solver states and the local response of those states to high-dimensional input perturbations. 
+
+2.3 Scalable Jacobian Sampling and Amortized Supervision 
+
+For gridded PDE inputs, the full Jacobian can be extremely large. If the predicted solution has 
+
+Nu output degrees of freedom and the supervised input field has Np degrees of freedom, then the full Jacobian contains NuNp entries. Directly imposing all entries at every training step is usually impractical in memory and computation. We therefore use sampled Jacobian supervision. Let Ω i ⊂ { 1, . . . , N u} denote a randomly selected subset of output indices for sample i. In each minibatch, the sensitivity loss is formed only from the Jacobian rows associated with Ω i:
+
+LJ (θ) = 1
+
+|B| 
+
+X
+
+> i∈B
+
+1
+
+|Ωi| PΩi
+
+
+
+J(i) 
+
+> θ
+
+− J(i) 2 
+
+> F
+
+, (10) where PΩi extracts the sampled output rows and ∥ · ∥ F denotes the Frobenius norm. The sampled rows are resampled across minibatches and epochs. Under uniform sampling and the normalization in Eq. (10), this loss is an unbiased estimator of the corresponding full-row Jacobian loss. This sampling strategy amortizes sensitivity supervision across training. Each individual update uses only a small subset of the full Jacobian, but different portions of the Jacobian are seen over the full optimization trajectory. As a result, the model receives gradient-level supervision over many input– output directions without requiring the complete Jacobian tensor to be loaded or differentiated through at every step. This mechanism is the main practical difference between SC-NO and a direct full-Jacobian training objective. In the present experiments, the sampled sensitivities are evaluated at selected output states, typically at the final prediction time used for the sensitivity loss. This choice reduces the training burden and 5targets the accumulated response of the PDE solution to perturbations in the input field. A broader comparison of final-time, multi-time, and task-adaptive sensitivity sampling is left as a practical exten-sion. 
+
+2.4 Sensitivity Computation by Automatic Differentiation and Discrete Ad-joints 
+
+Two Jacobians are needed during SC-NO training: the model Jacobian Jθ and the solver-derived reference Jacobian J. The model Jacobian is computed by automatic differentiation through the neural operator. Since Gθ is differentiable with respect to its inputs, vector–Jacobian products or batched gradient calls can be used to compute the sampled rows of Jθ = ∂Gθ (a)/∂p . This computation is performed only for the sampled output entries used in Eq. (10), which keeps the per-update cost bounded by the sampling density. The reference Jacobian J is obtained from the numerical model. For simpler differentiable solvers, sensitivities can be computed by automatic differentiation through the discretized time-integration pro-cedure. This is the approach used for the advection–diffusion benchmark. For larger or more complex solvers, differentiating through the full forward trajectory can become memory-intensive. In those cases, we use discrete adjoints derived from the time-discretized numerical scheme. This approach is used for the RANS benchmark with Spalart–Allmaras closure and for the finite-volume shallow-water tsunami solver. Finite differences are not used for the high-dimensional sensitivity targets in this work. Although finite differences can be effective for a small number of scalar parameters, their cost scales with the number of input degrees of freedom and becomes impractical for gridded fields. Discrete adjoints avoid this dependence for each chosen output functional or block of output rows, making them more suitable for the high-dimensional settings considered here. The main text uses only this method-level description. PDE-specific solver equations, adjoint recursions, flux Jacobians, and implementation details are provided in the appendices. 
+
+2.5 Computational Complexity 
+
+The computational cost of SC-NO has three components: generating reference solution data, com-puting solver-derived sensitivities, and training the neural operator with the sampled Jacobian loss. Let 
+
+Cθ denote the cost of one forward/backward training step for the neural operator using only the state loss, Nu the number of output degrees of freedom, Np the number of supervised input degrees of free-dom, and m = |Ωi| the number of sampled output indices used for the Jacobian loss, with m ≪ Nu.A direct full-Jacobian loss would require forming or accessing O(NuNp) sensitivity entries per sample. In contrast, sampled Jacobian supervision uses only O(mN p) entries per sample in each update. The model-side differentiation cost similarly scales with the number of sampled output rows rather than the full output dimension. Thus, the sampling ratio m/N u controls the main training-time tradeoff between sensitivity coverage and computational overhead. Table 1 summarizes the symbolic cost scaling implied by the Jacobian dimensions and the sampled-row training objective. Here and in the table, O(·) denotes asymptotic scaling rather than measured runtime; empirical wall-clock costs are reported in Appendix H. Table 1: Symbolic cost comparison for state-only and sensitivity-constrained neural-operator training. 
+
+Component Full Jacobian supervision Sampled SC-NO supervision 
+
+State loss O(Cθ ) O(Cθ )Jacobian entries used per sample O(NuNp) O(mN p)Model Jacobian rows per update O(Nu) O(m)Sensitivity storage accessed per update O(NuNp) O(mN p)Finite-difference solver sensitivities O(Np) solver calls Not used Adjoint-based solver sensitivities Output-functional/block dependent Used for selected rows/blocks This complexity reduction does not make Jacobian supervision free. The sensitivity loss increases training time and memory relative to state-only training because it requires differentiating model outputs with respect to inputs and backpropagating the resulting loss through model parameters. In addition, 6solver-derived Jacobians must be generated or made accessible during data preparation. For this reason, all accuracy–cost comparisons in the paper account for total wall-clock cost, including data generation, Jacobian computation, and model training. 
+
+# 3 Experimental Design 
+
+This section defines the benchmark problems, model comparisons, evaluation tasks, metrics, and cost accounting used to assess sensitivity-constrained neural operators. The purpose is to state the experimen-tal protocol before interpreting the results. Controlled PDE benchmarks are used first to evaluate forward prediction, inverse reconstruction, data efficiency, and input-dimensionality effects under interpretable conditions. The large-scale shallow-water tsunami problem is then used later as a capstone application for sparse-observation source inversion and forecasting. Data generation and random-field sampling are described in Appendix B; PDE-specific numerical solvers and sensitivity calculations are provided in Appendices C, D, and E; metric definitions, hyperparameters, and computational cost breakdowns are reported in Appendices F, G, and H, respectively. 
+
+3.1 Benchmark PDEs and High-Dimensional Inputs 
+
+We evaluate the framework on three PDE classes with spatially distributed inputs. The first two benchmarks are controlled problems used to study high-dimensional gridded inputs, training sample size, and sensitivity supervision under interpretable conditions. The third benchmark applies the same framework to a larger Tohoku tsunami source-inversion and wave-propagation problem. Throughout this section, p denotes the input field or fields with respect to which the solver-derived Jacobian is matched in the SC-NO sensitivity loss. Full domain definitions, boundary and initial conditions, numerical solvers, random-field sampling procedures, and sensitivity calculations are provided in the benchmark appen-dices. Performance-metric definitions are provided in Appendix F. The supervised sensitivity targets are summarized in Table 2; these targets define the field p used in the Jacobian-matching loss for each benchmark. Table 2: Sensitivity targets used for SC-NO training in each benchmark. Here p denotes the input field or fields with respect to which the solver-derived Jacobian is matched in the sensitivity loss.                     
+
+> Benchmark Supervised input field(s) pJacobian source
+> PDE1 Initial concentration C0(x) and velocity field
+> u(x)Automatic differentiation through the differ-entiable advection–diffusion solver PDE2 Initial vorticity Ω0(x)and forcing field
+> f(x;α, β )Discrete adjoint of the time-discretized RANS–Spalart–Allmaras solver PDE3 Bed/source deformation field zb(x), equiva-lently ∆ zb(x) when zb0(x) is fixed Discrete adjoint of the finite-volume shallow-water solver
+
+PDE1: Advection–diffusion. The first benchmark models the transport of a concentration field 
+
+C(x, t ) under a spatially varying velocity field u(x): 
+
+∂C ∂t + ∇ ·  u(x)C = D∇2C. 
+
+Both the initial concentration C0(x) and the velocity field u(x) = [ ux(x), u y (x)] are sampled as spatially coherent random fields. This provides a controlled high-dimensional setting in which the governing dynamics remain relatively interpretable. For the neural-operator task, the model receives the initial solution context together with C0(x) and u(x), and predicts the remaining concentration trajectory over the forecast interval. The sensitivity loss supervises the Jacobian with respect to both C0(x) and u(x). Full problem setup, solver details, and the PDE-specific operator-learning formulation are provided in Appendix C. 7PDE2: RANS–Spalart–Allmaras. The second benchmark uses a vorticity–streamfunction formu-lation of the Navier–Stokes equations with Spalart–Allmaras closure. The governing system includes the Poisson relation 
+
+∇2Ψ = −Ωand the vorticity evolution equation 
+
+∂Ω
+
+∂t + ∂Ψ
+
+∂x 2
+
+∂Ω
+
+∂x 1
+
+− ∂Ψ
+
+∂x 1
+
+∂Ω
+
+∂x 2
+
+= ∇ · (ν + νt)∇Ω + f (x; α, β ).
+
+The high-dimensional inputs are the initial vorticity field Ω 0(x) and the spatially distributed forcing field f (x; α, β ). For the multi-step prediction task, the neural operator receives a short context of the state trajectory together with the forcing field and predicts the remaining trajectory. For the scaling experiments, the intrinsic resolution of Ω 0(x) is varied while the training grid is held fixed, allowing the effect of input dimensionality to be isolated from the numerical resolution of the learned solution field. For the rollout task, a one-step transition operator is trained and then applied autoregressively. The sensitivity loss supervises the Jacobian with respect to Ω 0(x) and f (x; α, β ). Full problem setup, solver details, adjoint sensitivity formulation, and operator-learning settings are provided in Appendix D. 
+
+PDE3: Tohoku tsunami benchmark via the shallow water equations. The third benchmark models the 2011 Tohoku tsunami using the two-dimensional shallow water equations with bathymetry, earthquake-induced seafloor deformation, and friction: 
+
+∂h ∂t + ∇ · (hu) = 0 ,∂(hu)
+
+∂t + ∇ · 
+
+
+
+hu ⊗ u + 12 gh 2I
+
+
+
+= −gh ∇zb + Friction .
+
+Here, h denotes water depth, u is the depth-averaged velocity, and zb(x) is the bed elevation. The benchmark simulates tsunami wave propagation over the Tohoku bathymetry following earthquake-induced seafloor deformation. The high-dimensional source input is represented through the bed-topography/deformation field 
+
+zb(x) = zb0(x) + ∆ zb(x),
+
+where zb0(x) is the fixed reference bathymetry and ∆ zb(x) is the earthquake-induced seafloor deformation. For the neural-operator task, the model receives the deformation field together with an initial water-stage context and predicts the subsequent water-stage evolution on the neural-operator grid. Since 
+
+zb0(x) is fixed, sensitivity with respect to zb(x) is equivalent to sensitivity with respect to ∆ zb(x). This benchmark is used as the capstone application for tsunami source inversion, forecasting, noise robustness, and spatial OOD evaluation. Full solver validation, Okada source construction, mesh-to-grid mapping, adjoint sensitivity calculation, and inversion details are provided in Appendix E. 
+
+3.2 Baselines and Sensitivity-Constrained Variants 
+
+We compare standard neural operators against their sensitivity-constrained counterparts. The base-line families are Fourier Neural Operators (FNO) [Li et al., 2021], Wavelet Neural Operators (WNO) [Tripura and Chakraborty, 2023], and DeepONet [Lu et al., 2021]. For each family, the sensitivity-constrained variant is trained with the same state-prediction objective as the corresponding baseline, augmented with a Jacobian-matching loss using solver-derived sensitivities. This gives the paired comparisons FNO ↔ SC-FNO , WNO ↔ SC-WNO , DeepONet ↔ SC-DeepONet .
+
+The main text emphasizes SC-FNO because FNO is the primary operator architecture used through-out the central scaling, robustness, and tsunami experiments. The WNO and DeepONet variants are retained as architectural controls to test whether the effect of sensitivity supervision is specific to one 8model family or persists across different operator parameterizations. Their detailed quantitative com-parisons are reported in the benchmark-specific appendices. These comparisons do not introduce a new neural-operator architecture. The architectural compo-nents remain those of the underlying baseline models. The experimental question is whether adding sampled Jacobian supervision improves data efficiency, inverse stability, OOD behavior, and rollout stability relative to state-only training under the same benchmark conditions. Model configurations, training settings, and hyperparameters for all baseline and sensitivity-constrained variants are reported in Appendix G. 
+
+3.3 Task Definitions and Evaluation Settings 
+
+We evaluate four task classes. 
+
+Forward prediction. In the forward setting, a model is trained to approximate the solution operator 
+
+Gθ : a(x, t, p ) 7 → u(x, t, p ),
+
+where the input a(x, t, p ) contains the available context states and the spatially distributed input field(s) 
+
+p(x). The model predicts the solution over the remaining time interval. This task evaluates direct surrogate accuracy under the training and test distributions. 
+
+Inverse reconstruction. In the inverse setting, a pretrained neural operator is treated as a differ-entiable surrogate inside an optimization loop. To avoid overloading notation, we denote the unknown inversion variable by q, which may be one of the supervised input fields or a lower-dimensional parame-terization of that field. The inverse problem is written as min  
+
+> q
+
+∥G θ (actx , q ) − utarget ∥22 .
+
+For the controlled benchmarks, this evaluates reconstruction of distributed input fields such as C0(x)or Ω 0(x). For the tsunami benchmark, the same principle is used in a sparse-observation setting to infer a seafloor deformation source from early gauge observations before forecasting the subsequent wave evolution. The full tsunami inversion workflow is described in Section 6. 
+
+Out-of-distribution evaluation. OOD evaluation is used to test whether learned operators remain reliable when the test inputs differ from those seen during training. In the tsunami benchmark, OOD cases are defined by earthquake epicenter configurations drawn from spatial regions disjoint from the training epicenter region. This task is important because inverse optimization and forecasting workflows can evaluate the surrogate in parts of input space that are not well represented by the training data. 
+
+Long-horizon autoregressive rollout. To assess temporal stability, we also evaluate a one-step transition model in the RANS benchmark. The model is trained to advance the state by one time step using teacher-forced snapshot pairs and is then applied recursively to generate a longer trajectory. This setting tests whether sensitivity supervision reduces error growth when the model repeatedly consumes its own predictions. 
+
+3.4 Computational Cost Accounting 
+
+Because sensitivity supervision introduces additional preprocessing and training overhead, we account for computational cost explicitly. Unless otherwise stated, the reported total cost is 
+
+Ctotal = Cdata + CJ + Ctrain , (11) where Cdata is the cost of generating reference solution data, CJ is the cost of computing or preparing solver-derived Jacobian information, and Ctrain is the neural-operator training cost. For state-only base-lines, CJ = 0. For sensitivity-constrained models, CJ is included in the reported wall-clock cost rather than treated as free information. 9pde1_pde2_forward 
+
+(a)  (b)  (c) 
+
+(d) Figure 2: Forward-prediction performance on the controlled PDE benchmarks. (a,b) Relative L2 error versus total computation time as the number of training samples increases for PDE1 and PDE2, respectively. (c,d) Relative L2 error at 1000 training samples across FNO, WNO, DeepONet, and their sensitivity-constrained variants for PDE1 and PDE2, respectively. 
+
+This accounting is used to interpret the accuracy–cost tradeoff. The cost breakdowns document the measured overhead of data generation, Jacobian preparation, and model training, while the corresponding results sections compare accuracy against total wall-clock cost. Equal-compute or same-wall-clock claims are made only where the results explicitly compare models at matched or interpolated total cost. Detailed computational cost breakdowns are provided in Appendix H. 
+
+# 4 Controlled PDE Benchmarks 
+
+We first evaluate SC-NO on two controlled benchmarks, PDE1 and PDE2. These cases serve as preliminary testbeds because they involve interpretable high-dimensional inputs, clearly defined forward and inverse tasks, and solver-derived Jacobians that can be used directly for sensitivity supervision. The goal of this section is to examine how Jacobian supervision affects neural-operator behavior in controlled scientific computing settings. We evaluate three aspects: forward prediction of time-dependent PDE states, inverse reconstruction of distributed input fields, and long-horizon autoregressive rollout for the RANS benchmark. Together, these experiments isolate the effect of sensitivity supervision before moving to empirical scaling analysis and the larger SWE tsunami application. 
+
+4.1 Forward Prediction with High-Dimensional Inputs 
+
+We first consider the forward operator-learning problem, where each model maps distributed input fields to the corresponding time-dependent PDE solution. The forward relative L2 error is reported for PDE1 and PDE2 in Figure 2a,b, respectively, as the training sample size and the corresponding computation time increase. In both PDE settings, the sensitivity-constrained models achieve lower prediction error than their state-only counterparts across the reported sample-size range. The improvement is most pronounced in the low-data regime and decreases as additional solution samples are added, which suggests that Jacobian supervision provides useful local response information when state supervision alone is insufficient. Figure 2c,d show that the benefit of sensitivity supervision is consistent across FNO, WNO, and Deep-ONet, indicating that the improvement is not limited to a single neural-operator architecture. Among these models, FNO shows the largest performance improvement after adding sensitivity supervision. This may be because FNO provides a strong global spectral representation for these gridded PDE benchmarks, making it particularly responsive to additional derivative information during training. Full numerical re-sults across all models and sample sizes are provided in Appendix Tables C.1 and D.1. These results show a bounded effect: sensitivity supervision improves forward accuracy and sample efficiency, especially with limited training data, but it does not replace state supervision. As the training set grows, unconstrained neural operators also improve, and the performance gap narrows. Thus, the main conclusion is that Jacobians provide useful additional training information for learning distributed-field solution operators in low-data regimes. Representative forward predictions are shown in Figure 3 for PDE1 and Figure 4 for PDE2. In the advection–diffusion case, SC-FNO better preserves the transported concentration struc-ture, while FNO introduces stronger smoothing. In the RANS–Spalart–Allmaras case, SC-FNO better maintains coherent vorticity patterns, whereas FNO exhibits more dissipative drift and spatial smearing over time. 10 Input Function a( x, t, p) 
+
+Output function u( x, t, p) Concentration Field C t
+
+C0 0.2 (sec)  0.5 (sec)  0.75 (sec)  1.0 (sec) 
+
+ux Ground Truth 
+
+uy SC-FNO Prediction 
+
+FNO Prediction Figure 3: PDE1 Sample Prediction. Representative forward prediction for PDE1 showing ground truth, SC-FNO, and FNO, trained on 1000 samples, at selected time snapshots. SC-FNO remains closely aligned with the ground truth and avoids the dissipative errors observed in FNO. 
+
+11 Input Function 
+
+a( x, t, p) 
+
+Output function u( x, t, p) 
+
+vorticity Field ω t
+
+Initial vorticity ω 0 5 (sec)  10 (sec)  15 (sec)  25 (sec) 
+
+Forcing F  Ground Truth 
+
+SC-FNO Prediction 
+
+FNO Prediction Figure 4: PDE2 Sample Prediction. Representative forward predictions for PDE2 comparing the ground truth, SC-FNO, and FNO, trained on 200 samples, at selected time snapshots. SC-FNO maintains close agreement with the ground truth, while FNO exhibits dissipative drift and progressively smeared structures over time. 
+
+12 pde1_pde2_inverse 
+
+(a)  (b)  (c) 
+
+(d) Figure 5: Inverse-reconstruction performance on the controlled PDE benchmarks. (a,b) Relative L2 error versus total computation time as the number of training samples increases for PDE1 and PDE2, respectively, where the reconstructed fields are C0 for PDE1 and ω0 for PDE2. (c,d) Relative L2 error at 1000 training samples across FNO, WNO, DeepONet, and their sensitivity-constrained variants for PDE1 and PDE2, respectively. 
+
+4.2 Inverse Reconstruction of Distributed Fields 
+
+We next evaluate inverse reconstruction, where a trained neural operator is embedded inside a gradient-based optimization loop to infer an unknown distributed input field from observed solution states. This task is more sensitive to the learned derivative structure of the surrogate than forward prediction. A neural operator may produce acceptable state predictions while still providing inaccurate gradients with respect to the input field; such gradient errors can directly degrade inverse recovery. Figure 5a reports the inverse relative L2 error for PDE1, where the unknown field is the initial concen-tration C0. Figure 5b reports the corresponding inverse error for PDE2, where the unknown field is the initial vorticity ω0. In both benchmarks, the sensitivity-constrained models produce lower reconstruc-tion errors than the state-only baselines across the reported training sample sizes and computational-cost range. The separation between constrained and unconstrained models is larger than in the forward task, which is consistent with the fact that inverse reconstruction depends directly on surrogate gradients. Figure 5c,d show that the inverse benefit of sensitivity supervision is consistent across FNO, WNO, and DeepONet. Among these architectures, FNO achieves the strongest inverse performance after adding sensitivity supervision. This result suggests that, for these gridded PDE benchmarks, FNO provides the most effective base architecture for exploiting the supervised sensitivity information. Full numerical results across all models and sample sizes are provided in Appendix Tables C.2 and D.2. The inverse results support a practical conclusion, not a theoretical one. Jacobian supervision does not make the inverse problems well posed; instead, it improves the gradients supplied by the learned surrogate during optimization. For high-dimensional unknown fields such as C0 and ω0, this leads to more accurate and more stable reconstructions in the reported experiments. Sample inverse reconstructions are shown in Figure 6 for PDE1 and Figure 7 for PDE2. 
+
+4.3 Long-Horizon Autoregressive Rollout 
+
+We next evaluate temporal stability using the RANS–Spalart–Allmaras benchmark. Long-horizon autoregressive rollout is a standard stress test for neural PDE surrogates, because models trained un-der teacher forcing can suffer from compounding error, exposure bias, and closed-loop instability when deployed recursively [McCabe, Harrington, Subramanian, and Brown, 2023, Lippe, Veeling, Perdikaris, Turner, and Brandstetter, 2023]. In this experiment, the neural operator is trained as a one-step tran-sition model: given the current state, it predicts the next state. During inference, the same learned transition is applied in closed loop by feeding each predicted state back as the input for the next step, thereby generating the full trajectory over the target horizon. This autoregressive deployment is more de-manding than direct multi-step prediction because the model no longer conditions only on ground-truth states; instead, it must remain stable under its own accumulated prediction errors. Figure 8 shows that sensitivity supervision reduces error growth during autoregressive rollout. The one-step operator is trained only over the first half of the trajectory, 0–12 .5 s, and is then applied recursively to predict the full horizon up to 25 s. In the trained range, both models follow the reference trajectory reasonably well, but their behavior separates in the projection range, 12 .5–25 s. The standard FNO develops larger phase and amplitude errors as the rollout proceeds, whereas SC-FNO remains closer to the reference trajectory over the same horizon. The cumulative error curves in Figure 8b show 13 Ground Truth FNO WNO DeepONet 
+
+SC-FNO SC-WNO SC-DeepONet Figure 6: Inversion of the initial concentration field for PDE1 (all models trained using 200 samples). Comparison of the true initial concentration field C0 (top-left) with the inferred fields produced by FNO, WNO, DeepONet, and their sensitivity-constrained counterparts (SC-FNO, SC-WNO, SC-DeepONet). Ground Truth FNO WNO DeepONet 
+
+SC-FNO SC-WNO SC-DeepONet 
+
+Figure 7: Inversion of the Initial Vorticity Field for PDE2 (all models trained using 200 samples). Comparison of the true initial vorticity field ω0 (top-left) with the inferred fields produced by FNO, WNO, DeepONet, and their sensitivity-constrained counterparts (SC-FNO, SC-WNO, SC-DeepONet). 
+
+14 (a)  (c) 
+
+> (b)
+
+Figure 8: Long-horizon autoregressive rollout on the RANS benchmark. (a) Representative vorticity time series comparing ground truth, FNO, and SC-FNO during autoregressive rollout. (b) Cumulative relative L2 error over the rollout horizon. (c) Rollout error comparison across FNO, WNO, DeepONet, and their sensitivity-constrained variants, all trained with 1000 samples. 
+
+that neither model eliminates error accumulation, but SC-FNO slows its growth substantially. Figure 8c summarizes the final rollout errors for models trained with 1000 samples. For FNO, sensitivity supervision reduces the final rollout error from 0 .276 to 0 .086, corresponding to an approximately 3 .2× reduction. Similar reductions are observed for WNO and DeepONet when their sensitivity-constrained variants are used. These cross-architecture results indicate that the rollout-stability benefit is not specific to the FNO backbone, but is associated with the added sensitivity supervision. Overall, the results show that sensitivity supervision improves not only one-shot prediction accuracy but also the empirical stability of repeated closed-loop surrogate evaluations beyond the training horizon. The reduced rollout error is consistent with improved local response behavior. In closed-loop predic-tion, each output becomes the next input, so the model is repeatedly evaluated on its own perturbed states rather than only on ground-truth trajectories. If the learned response to these perturbations is inaccurate, errors can accumulate as phase drift, amplitude bias, or excessive diffusion. Sensitivity supervision can reduce this effect by constraining selected surrogate derivatives in the supervised input directions. 
+
+# 5 Empirical Scaling with Input Dimension and Compute 
+
+The controlled benchmarks above show that sensitivity supervision improves both forward prediction and inverse reconstruction for distributed-field PDE inputs. The remaining question is whether this improvement is computationally worthwhile. In high-dimensional PDE surrogate learning, there are two natural ways to improve model performance: generate more PDE solution samples, or extract more information from each existing sample using solver-derived sensitivities. The first strategy increases the number of training trajectories, whereas the second reflects the central paradigm developed in this work: augmenting each trajectory with solver-derived Jacobian information that encodes dense local input– output response relationships. Both strategies can improve forward prediction and inverse reconstruction, as shown in Figures 2 and 5; the purpose of this section is to quantify their relative effectiveness and computational efficiency. We therefore evaluate which strategy provides the better accuracy–cost tradeoff in the reported experiments. Specifically, we examine how error changes as the input degrees of freedom, training sample size, total compute budget, and Jacobian supervision density are varied. All costs follow the accounting in Eq. (11), including reference data generation, solver-derived Jacobian preparation, and neural-operator training, as reported in Appendix H. 
+
+5.1 Scaling with Input Degrees of Freedom 
+
+We first isolate how the accuracy–cost behavior changes as the number of independent input degrees of freedom increases. Here, input degrees of freedom refer to the number of independent values used to generate the spatially varying input field, i.e., the intrinsic resolution of the initial vorticity field Ω 0(x)in the RANS benchmark. To isolate this factor, the RANS solution grid is fixed at 64 × 64, and only the intrinsic resolution of Ω 0(x) is varied. Specifically, Ω 0(x) is generated at 4 × 4, 16 × 16, and 64 × 64 resolutions, corresponding to 4 2, 16 2, and 64 2 independent input degrees of freedom, and each realization 15 (a)  (b) Figure 9: Empirical accuracy–cost scaling with input degrees of freedom. (a) Relative L2 error versus total compu-tational cost for FNO and SC-FNO as the intrinsic resolution of Ω 0 is varied. (b) Estimated total cost required to reach the target relative L2 error of 0 .075, obtained from the fitted curves in panel (a). Total cost includes data generation, Jacobian preparation where applicable, and model training. 
+
+is then upsampled to the common 64 × 64 grid before training. Thus, the neural-operator architecture, solution grid, and output representation remain fixed, while the intrinsic dimensionality of the input field changes. Figure 9a reports the relative L2 error as a function of total computational cost for FNO and SC-FNO. For each DOF level, models are trained with 100, 200, 500, and 1000 trajectories, and each point represents one trained model at one dataset size. Total cost includes the wall-clock time required to generate the corresponding PDE solution data, prepare solver-derived Jacobians for SC-FNO, and train the neural operator. Thus, larger datasets increase the cost for both models, while SC-FNO also includes Jacobian-related overhead. The fitted curves summarize the empirical error–cost trend for each input resolution and directly compare two strategies: reducing error by adding more trajectories, or reducing error by extracting more sensitivity information from each trajectory. For the standard FNO, adding more training trajectories improves accuracy, but the cost required to maintain a fixed error level increases as the intrinsic resolution of Ω 0 increases. This indicates that the data-only strategy becomes progressively more expensive as the input field contains more independent degrees of freedom. SC-FNO changes this tradeoff by augmenting each sample with solver-derived Jacobian information. These sensitivities provide local input–output response constraints, allowing the model to receive information about many perturbation directions of the distributed input field from each trajectory. Consequently, the SC-FNO error–cost curves remain lower and more stable across the tested input resolutions. Figure 9b summarizes panel 9a by extracting the estimated total cost required to reach a fixed target error, here a relative L2 error of 0 .075. This value is obtained by intersecting the fitted curves with the target-error line and reading the corresponding computational cost. For FNO, the required cost increases with the intrinsic resolution of Ω 0. For SC-FNO, the required cost remains lower over the tested range, indicating that the added cost of Jacobian supervision is outweighed by the accuracy gained from the additional sensitivity information. These results support a practical conclusion: in the reported RANS setting, the sensitivity-supervision strategy is more cost-effective than the data-only strategy for maintaining accuracy as input dimensional-ity increases. This should be interpreted as a finite-range empirical scaling observation, not as a universal complexity law. For the tested resolutions and training budgets, the additional cost of SC-FNO is justi-fied by the reduction in total cost required to reach the same target accuracy. 
+
+5.2 Jacobian Sampling and State-Resolution Ablation 
+
+The previous subsection shows that sensitivity supervision can reduce the total cost required to reach a fixed target error. We now test the mechanism behind this improvement by separating two information sources: state-value supervision and Jacobian supervision. The central question is whether sensitivity supervision is merely equivalent to providing denser solution data, or whether it supplies additional input–output information that state values alone do not contain. We first examine this question in Figure 10a. In this experiment, the spatial density of state super-16 (a)  (b) Figure 10: Effect of Jacobian supervision density and state-resolution density. (a) Relative L2 error versus spatial state-resolution usage under no, selected (16 × 16), and full (64 × 64) Jacobian supervision. (b) Relative L2 error versus Jacobian resolution usage. 
+
+vision is varied from no state data to the full 64 × 64 state field. For each state-resolution level, three training regimes are compared: no Jacobian supervision, selected Jacobian supervision using a 16 × 16 subset of final-time Jacobian locations, and full final-time Jacobian supervision using the 64 × 64 Jaco-bian locations. Thus, this panel is prepared by changing the amount of state information available to the model while separately controlling whether no, partial, or full sensitivity information is included. Figure 10a shows that denser state supervision improves all models, as expected. However, the models trained with Jacobian supervision remain below the no-Jacobian baseline across the tested state-resolution levels. This indicates that solver-derived sensitivities are not simply a substitute for more state observations. State data constrain the predicted solution values, whereas Jacobian supervision constrains how those solution values respond to perturbations in the distributed input field. The two sources of information are therefore complementary. This also explains why SC-FNO can be worth its additional cost. Preparing and using Jacobians introduces overhead, but the sensitivity loss provides dense response information that would otherwise require many additional state-only trajectories to approximate indirectly. In this sense, the Jacobian acts as a compact physics-informed supervisory signal: it teaches the model local input–output behavior around each trajectory, rather than only the trajectory outcome itself. The improved error at comparable state-resolution levels supports the claim that the added Jacobian cost provides useful information beyond ordinary solution samples. Figure 10b then addresses the implementation question of how much Jacobian supervision is needed. In this experiment, the state-data setting is fixed, and only the number of sampled final-time Jacobian locations included in the sensitivity loss is varied. The 0 × 0 point corresponds to the vanilla FNO with no sensitivity supervision. The remaining points progressively include denser Jacobian subsets, from 1 × 1 to the full 64 × 64 final-time Jacobian. The error decreases sharply when moving from no Jacobian supervision to sparse or intermediate Jacobian coverage, and then the improvement begins to saturate as the sampled Jacobian density in-creases. This shows that full Jacobian enforcement is not required to obtain a benefit, although denser Jacobian coverage provides additional improvement. Together, the two panels support the sampling strategy used in this work: sensitivity supervision supplies information that is complementary to state data, its additional cost is justified by the resulting error reduction in the tested setting, and partial Jacobian sampling provides a practical compromise between accuracy and computational overhead. 
+
+# 6 Near-Real-Time Inverse–Forward Inference for Tsunami Fore-casting 
+
+We now evaluate SC-NO in the Tohoku tsunami benchmark introduced in Section 3. This case serves as the capstone application because it combines high-dimensional gridded source inputs, sparse gauge ob-servations, nonlinear wave propagation, spatial extrapolation, and repeated surrogate evaluations during inversion. The goal is not to propose an operational warning system, but to test whether sensitivity-constrained neural operators can support a near-real-time proof of concept for sparse-observation source 17 reconstruction and subsequent tsunami forecasting. The source input is the earthquake-induced seafloor deformation field ∆ zb(x), generated from the Okada dislocation model using Tohoku-based fault-parameter ranges [Okada, 1992, Grilli, Harris, Ta-jalli Bakhsh, Masterlark, Kyriakopoulos, Kirby, and Shi, 2013]. Reference simulations are produced with a finite-volume shallow-water solver on an unstructured triangular mesh with 308 ,001 cells and 154 ,598 nodes over a 1000 km × 1000 km domain initialized from ETOPO 2022 bathymetry. Each simulation spans 3600 seconds and is stored in 51 snapshots. The high-resolution solution fields and adjoint-derived sensitivities are coarsened to a fixed 100 × 100 grid for neural-operator training and inference. The neural operator receives ∆ zb(x) and the available initial water-stage context, then predicts the subsequent tsunami evolution on the coarse grid. Sensitivity-constrained variants use the same state-prediction loss as their corresponding baseline operators, augmented with a sensitivity loss based on the Jacobian of the final water stage with respect to bed topography. Details of the case setup, solver validation, Okada source generation, mesh-to-grid mapping, and adjoint sensitivity calculation are provided in Appendix E. 
+
+6.1 Forward Operator Evaluation Under Known Source Inputs 
+
+We evaluate forward tsunami propagation under known seafloor deformation inputs. This experiment isolates the learned forward operator because the source deformation field is provided directly to the model, without introducing source-inversion error. The operators are trained using different numbers of tsunami scenarios, where each scenario corresponds to an earthquake-induced seafloor deformation field generated from the Okada fault model. Variability is introduced through both the fault parameters and the epicenter coordinates. We consider two forward-evaluation settings. In the in-distribution setting, the trained models are tested on unseen scenarios whose epicenter locations fall within the training epicenter region. In the out-of-distribution (OOD) setting, the models are tested on unseen scenarios whose epicenter locations lie outside the training region. This design separates interpolation over unseen source realizations from spatial extrapolation to source locations not represented during training. Appendix Figure E.3 illustrates the epicenter sampling strategy used to define the in-distribution and spatial OOD tsunami scenarios. We perform this comparison across FNO, WNO, and DeepONet, each evaluated with and without sensitivity supervision. Figures 11a and 11b report relative L2 error as a function of total computational cost for in-distribution and OOD tsunami events, respectively. Since larger training sets require greater data gen-eration and training cost, movement to the right in these panels corresponds primarily to increasing the number of training simulations. Consistent with the controlled benchmarks, increasing the training set generally reduces error for all models. However, adding sensitivity supervision shifts the error–cost curves downward in both evaluation settings, showing that SC models achieve lower forward error at comparable computational cost. Figure 11c compares the operator architectures at 1 ,000 training samples. Sensitivity-constrained variants reduce error for FNO, WNO, and DeepONet, indicating that the improvement is not limited to one operator backbone. The advantage remains visible under the OOD epicenter split, although all models have higher errors than in the in-distribution case. Figure 11d further evaluates inundation-region detection. SC-FNO reduces missed inundation relative to FNO in both settings, including the OOD case where the baseline model produces substantially more false negatives. Thus, sensitivity supervision improves known-source tsunami forecasting in both continuous wave-field prediction and threshold-based inundation capture. The OOD result should be interpreted specifically as improved robustness to the tested epicenter shift, not as unrestricted extrapolation to arbitrary rupture geometries. Figure 12 provides a representative example of the forward predictions. In Figure 12a, SC-FNO remains closer to the reference solution across the reported time snapshots, whereas the baseline FNO exhibits stronger dissipative drift and loss of wave-field structure. The difference is also visible at the marked gauge location: FNO misrepresents the timing and amplitude of later wave arrivals, while SC-FNO more closely follows the reference stage signal (Figure 12b). The pointwise error comparison in Figure 12c and the cumulative relative L2 error in Figure 12d show the same trend, with sensitivity supervision reducing forward-propagation error over the forecast window. 18 (a)  (b) 
+
+# (c)  (d) Figure 11: Forward tsunami prediction across training-set sizes and spatial epicenter shifts. (a) Relative L2 error versus total computational cost for in-distribution tsunami events, where epicenter locations fall within the training region. (b) Relative L2 error versus total computational cost for spatial out-of-distribution (OOD) events, where epicenter locations are shifted outside the training region. (c) Relative L2 error for FNO, WNO, DeepONet, and their sensitivity-constrained variants at 1 ,000 training samples, reported for both in-distribution and OOD events. (d) Inundation-classification confusion matrices for SC-FNO and FNO in both settings. 
+
+19 540 (sec)  1180 (sec)  1620 (sec)  2700 (sec) 
+
+Ground truth 
+
+SC-FNO 
+
+FNO 
+
+> Sample Point
+> Sample Point
+> Sample Point
+
+(a) 
+
+(b) 
+
+(c) 
+
+(d) Figure 12: Forward tsunami propagation under a known gridded seafloor deformation input. (a) Reference shallow-water solution and neural-operator predictions at selected times for one tsunami event. (b) Water-stage time series at the marked sample point. (c) Absolute stage error at the same point. (d) Cumulative relative L2 error over time. 
+
+20 6.2 Gradient-Based Source Inference from Sparse Observations 
+
+Forward tsunami prediction assumes that the source deformation is already known, but time-critical forecasting requires solving the inverse problem: the source must be inferred from sparse early obser-vations before the full wave field is available. In this setting, the unknown is the earthquake-induced seafloor deformation field, and the observational constraint is the water-stage history recorded at a sparse set of gauge locations over the first 30 min of the event. We therefore use the pretrained neural opera-tors as differentiable surrogates inside a gradient-based source-inference framework that reconstructs the deformation field and its associated Okada fault parameters from early-stage gauge observations. We use a three-stage inversion procedure to avoid relying only on unconstrained pixel-wise optimiza-tion of the deformation field. The procedure first performs a flexible field-space inversion, then projects the result into a compact Okada parameterization, and finally refines the Okada parameters through a differentiable decoder and neural-operator forecast model. Full implementation details and stage-wise optimization behavior are provided in Appendix E. In Stage 1, the gridded seafloor deformation field is treated as the optimization variable. Starting from an initial guess, the deformation field is updated by backpropagating the mismatch between predicted and observed gauge histories through the pretrained neural operator. This field-space step provides a flexible source estimate, but the problem is underconstrained by sparse, short-window observations and can produce artifacts because the optimization is performed directly on grid values without an explicit fault-geometry constraint. In Stage 2, the Stage 1 deformation estimate is mapped into a compact Okada source representation. A pretrained encoder maps the two-dimensional deformation field to a nine-dimensional parameter vector, 
+
+Eϕ : ∆ zb 7 → P ∈ R9,
+
+where P contains the epicenter coordinates, depth, length, width, strike, dip, rake, and slip. This step converts the flexible field-space estimate into an interpretable fault-parameter representation. In Stage 3, the Okada parameters are refined using differentiable feedback from the gauge misfit. A pretrained decoder maps P back to a deformation field, which is then propagated through the neural operator to predict gauge time series. The mismatch between predicted and observed gauge histories is backpropagated through the decoder and the neural operator, allowing all nine Okada parameters to be updated by gradient descent. This final stage keeps the reconstruction within the Okada source representation while retaining gradient feedback from the tsunami response. Figure 13 compares the inferred deformation fields after the three-stage inversion. The SC-FNO-based inversion recovers the main location, polarity, and large-scale geometry of the Okada deformation more accurately than the baseline FNO. The FNO inversion produces a weaker and more spatially diffuse source estimate, indicating that state-only training provides less reliable gradients for this source-inference problem. This behavior is consistent with the controlled inverse benchmarks: source inversion depends not only on forward prediction accuracy, but also on whether the learned surrogate provides useful derivatives with respect to high-dimensional inputs. This difference is expected from the role of the surrogate inside the inversion loop. In forward prediction, the model is evaluated mainly through its state error, but in source inversion, the optimizer depends on derivatives of the predicted gauge histories with respect to the unknown deformation field. The gauge observations are sparse and restricted to the early window, so many source fields can produce similar short-time responses. In this underconstrained setting, inaccurate surrogate sensitivities can steer gradient descent toward diffuse or weak deformation patterns that partially reduce the gauge loss but do not recover the correct source structure. Sensitivity supervision directly constrains the local response of the learned operator to perturbations in the deformation field, producing gradients that are better aligned with the shallow-water solver. This explains why SC-FNO gives a sharper and more localized Okada reconstruction, whereas the state-only FNO produces a more spatially diffuse estimate. The result is consistent with the controlled inverse benchmarks, where the main advantage of SC-NO appeared in gradient-based reconstruction rather than only in one-shot forward accuracy. 21 True Okada deformation  Inferred Okada deformation 
+
+SC-FNO  FNO Figure 13: Three-stage tsunami source inversion from sparse gauge observations. Ground-truth Okada deformation and inferred deformation fields obtained from SC-FNO and FNO after Stage 3 inversion. Red crosses indicate gauge locations used as observational constraints. 
+
+6.3 Forecast Reconstruction from Inferred Source Fields 
+
+After the three-stage inversion estimates the Okada deformation field, we propagate the inferred source through the trained neural operator to reconstruct the subsequent tsunami response. This evalu-ates the coupled inverse–forward workflow: the model is no longer given the true deformation field, but must forecast the event from a source recovered using sparse early gauge observations. The reconstructed gauge histories therefore, test both the quality of the inferred deformation and the stability of the learned forward operator under an estimated, rather than prescribed, source input. Figure 14 compares reconstructed gauge time series obtained from the SC-FNO- and FNO-inferred deformation fields. The aqua-shaded region denotes the first Tu = 30 min used for inversion, while the light-red region denotes the subsequent forecast window. Across the reported gauges, SC-FNO more closely reproduces the reference phase and amplitude after the observation window, including negative leading waves and later positive arrivals. The improvement is visible across a range of wave amplitudes, from minor responses below 0 .3 m to larger responses exceeding 1 m. In contrast, the FNO-based recon-struction often produces weaker or phase-shifted responses, indicating that its inferred deformation field is less effective as a source for downstream propagation. This result links the source-inversion behavior in Figure 13 to event-level reconstruction. The ad-vantage of SC-FNO is not only that it recovers a sharper deformation field; the recovered source also produces more accurate gauge histories over the unobserved forecast window. This behavior is consistent with the controlled inverse benchmarks, where sensitivity supervision improved gradient-based recovery of high-dimensional inputs. The difference between SC-FNO and FNO is expected because forecast reconstruction compounds two surrogate errors: the inverse-gradient error used to estimate the source and the forward-propagation error used to evolve that source. A state-only FNO may produce acceptable predictions when the true deformation is prescribed, but its learned Jacobian with respect to the deformation field is not explicitly constrained. During inversion, this can bias the optimization toward source fields that reduce the early gauge mismatch but do not preserve the correct spatial structure of the tsunami-generating deformation. Once propagated forward, these source errors appear as phase shifts, amplitude damping, or missing wave arrivals in the forecast window. Sensitivity supervision reduces this failure mode by aligning the neural-operator response to deformation perturbations with the adjoint-derived solver sensitivities, pro-ducing a source estimate that is both more localized and more dynamically consistent under subsequent propagation. The full three-stage inversion and forward reconstruction require approximately 4 .5 minutes on a single NVIDIA A100 GPU, involving thousands of neural-operator surrogate evaluations after offline training and data preparation. This timing reflects the inference-time cost of the proposed workflow, not the cost of generating the training simulations, computing adjoint sensitivities, or training the neural operators. The result, therefore, supports a near-real-time proof of concept for surrogate-assisted source inference and forecast reconstruction in this controlled Tohoku-based benchmark, but should not be 22 0.3 
+
+> 0.2
+> 0.1
+> 0.0 0.1 0.2
+> Stage (m)
+> Gauge at (800, 390) km
+> 0.2
+> 0.1
+> 0.0 0.1
+> Gauge at (950, 390) km
+> 1
+> 012
+> Gauge at (300, 290) km
+> 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0
+> Gauge at (500, 290) km
+> 0.75
+> 0.50
+> 0.25
+> 0.00 0.25 0.50
+> Gauge at (700, 290) km
+> 0.4
+> 0.2
+> 0.0 0.2
+> Stage (m)
+> Gauge at (900, 290) km
+> 0.5
+> 0.0 0.5
+> Gauge at (350, 190) km
+> 0.5
+> 0.0 0.5
+> Gauge at (550, 190) km
+> 0.5
+> 0.0 0.5
+> Gauge at (750, 190) km
+> 0.6
+> 0.4
+> 0.2
+> 0.0 0.2 0.4
+> Gauge at (950, 190) km
+> 0.00 0.05 0.10 0.15 0.20 0.25
+> Stage (m)
+> Gauge at (200, 90) km
+> 0.5
+> 0.0 0.5 1.0
+> Gauge at (400, 90) km
+> 0.50
+> 0.25
+> 0.00 0.25 0.50
+> Gauge at (600, 90) km
+> 0.4
+> 0.2
+> 0.0 0.2 0.4
+> Gauge at (800, 90) km
+> 0.6
+> 0.4
+> 0.2
+> 0.0 0.2
+> Gauge at (950, 90) km
+> 0.04
+> 0.02
+> 0.00 0.02 0.04
+> Stage (m)
+> Gauge at (250, 840) km
+> 0.02
+> 0.00 0.02
+> Gauge at (650, 840) km
+> 0.1
+> 0.0 0.1
+> Gauge at (250, 640) km
+> 0.10
+> 0.05
+> 0.00 0.05
+> Gauge at (650, 640) km
+> 0.5
+> 0.0 0.5 1.0
+> Gauge at (250, 440) km
+> 0900 1800 2700 3600
+> Time (s)
+> 0.2
+> 0.0 0.2
+> Stage (m)
+> Gauge at (650, 440) km
+> 0900 1800 2700 3600
+> Time (s)
+> 0.4
+> 0.2
+> 0.0 0.2 0.4
+> Gauge at (250, 240) km
+> 0900 1800 2700 3600
+> Time (s)
+> 1.0
+> 0.5
+> 0.0 0.5
+> Gauge at (650, 240) km
+> 0900 1800 2700 3600
+> Time (s)
+> 0.0 0.1 0.2
+> Gauge at (250, 140) km
+> 0900 1800 2700 3600
+> Time (s)
+> 0.50
+> 0.25
+> 0.00 0.25 0.50
+> Gauge at (650, 140) km
+
+True Pred SC-FNO Pred FNO Figure 14: Reconstructed tsunami gauge time series using the inferred Okada deformation. Comparison between the reference gauge histories (black), SC-FNO predictions (red dashed), and FNO predictions (blue dotted) at multiple gauge locations. The aqua-shaded regions denote the early portion of the event ( Tu = 30 min) used for inversion, while the light-red regions denote the subsequent forecast window predicted by the models. 
+
+interpreted as a complete operational warning system. Current tsunami forecasting systems commonly rely on precomputed scenario databases and rapid scenario selection or superposition [Titov, Gonzalez, Bernard, Eble, Mofjeld, Newman, and Venturato, 2005, Ishiwatari, 2012]. In contrast, the proposed workflow estimates an event-specific deformation field from early gauge observations and propagates the inferred source through a differentiable neural operator surrogate. The neural operators are evaluated on a fixed 100 × 100 grid obtained by coarsening high-resolution finite-volume simulations and adjoint sensitivities, balancing storage and computational cost against the need to preserve dominant tsunami propagation dynamics. Coarse predictions can then be mapped back to fine-scale fields using the physically aligned upscaling procedure described in Appendix E, which preserves consistency with the coarse mean depth while incorporating bed topography (Figure E.4). 
+
+6.4 Robustness of Source Inversion to Noisy Observations 
+
+Sparse gauge observations are rarely noise-free in practical sensing environments. Instrument error, preprocessing uncertainty, timing mismatch, and local unresolved dynamics can all perturb the water-stage history used by the inversion algorithm. Because the source estimate is obtained by differentiating through the neural operator, observational noise can be amplified through the inverse problem and can lead to unstable or biased deformation reconstructions. We therefore evaluate the robustness of the three-stage inversion workflow by adding synthetic noise to the early-window gauge observations used in the inversion objective. Figure 15 reports the effect of increasing observation noise on both the inferred source deformation and the reconstructed tsunami event. For the baseline FNO, the source-reconstruction error remains high across all noise levels and the R2 score stays near zero, indicating that the inversion does not recover a useful deformation field even when the observation noise is small. In contrast, SC-FNO maintains substantially lower relative L2 error and high R2 over low-to-moderate noise levels. As the noise level 23 0.00 0.05 0.10 0.15 0.20 
+
+Noise (%) 
+
+> 0.0 0.4 0.8 1.1
+> Relative  L2 Error
+
+(a)     
+
+> 0.00 0.05 0.10 0.15 0.20
+
+Noise (%) 
+
+> 0.25
+> 0.00 0.50 0.80 1.00
+> R2
+
+(b)    
+
+> Inverted Deformation Reconstructed Event SC-FNO FNO
+
+Figure 15: Robustness of tsunami source inversion and event reconstruction to noisy gauge observations. (a) Relative L2 error and (b) R2 score under increasing observation-noise levels. Solid lines denote metrics for the inverted source deformation, while dashed lines denote metrics for the reconstructed tsunami event. Circles indicate SC-FNO and squares indicate FNO. SC-FNO maintains lower source and event reconstruction error over the tested noise range, indicating improved robustness of the gradient-based inversion workflow to imperfect early-window gauge histories. 
+
+increases, the SC-FNO source estimate also degrades, but it remains more informative than the FNO-based inversion across the tested range. The same trend appears in the reconstructed-event metrics. Because the forecast is generated by propagating the inferred source through the learned operator, errors in the deformation estimate directly affect the downstream tsunami response. SC-FNO yields lower reconstructed-event error and higher R2,showing that its advantage is not limited to matching the source field visually. The learned sensitivities provide a more stable optimization landscape: perturbations in gauge observations are less likely to drive the inversion toward diffuse or dynamically inconsistent source fields. This is consistent with the role of sensitivity supervision as a Jacobian-level regularizer, aligning the neural-operator response to source perturbations with adjoint-derived solver sensitivities. These results should be interpreted as robustness to the tested synthetic observation-noise perturba-tions, not as a full uncertainty-quantification study. A complete operational setting would also require uncertainty in gauge availability, rupture geometry, bathymetry, boundary conditions, and nearshore physics. Nevertheless, the experiment shows that sensitivity-constrained training improves the condi-tioning of the sparse-source inversion problem under imperfect gauge histories. 
+
+# 7 Discussion 
+
+7.1 What Sensitivity Supervision Changes 
+
+The results suggest that sensitivity supervision changes the information available to the neural op-erator during training, rather than changing the underlying operator architecture. Standard neural operators are trained primarily from state pairs and must infer the local input–output response of the PDE solution operator indirectly from sampled trajectories. In contrast, SC-NO augments each trajec-tory with solver-derived Jacobian information, so that the learned surrogate is constrained not only to match solution values, but also to match selected directions of the local response of the numerical solver. This distinction explains the pattern observed across the revised results. In the controlled PDE bench-marks, sensitivity-constrained variants improve forward prediction, especially in lower-data regimes, but the performance gap narrows as more state data are added. This indicates that Jacobian information complements state supervision rather than replacing it. The empirical scaling experiments make the same point from a cost perspective: for the tested RANS settings, adding solver-derived sensitivities provides a more favorable accuracy–cost tradeoff than relying only on additional solution trajectories. The Jacobian-density ablation further shows that the benefit is not simply due to using more state val-ues; state supervision constrains the solution field, while Jacobian supervision constrains how that field changes under perturbations of the distributed input. The practical effect is therefore best described as an improvement in the observed data–compute tradeoff for the high-dimensional PDE surrogate tasks studied here. The evidence does not establish a universal scaling law or a formal resolution of the curse of dimensionality. Instead, it shows that 24 sampled Jacobian supervision can make each simulated trajectory more informative for learning gridded PDE solution operators, particularly when the downstream task depends on input perturbations, inverse optimization, or repeated surrogate evaluations. 
+
+7.2 Why Sensitivity Supervision Matters More for Inversion 
+
+The controlled benchmarks show that sensitivity supervision improves both forward prediction and inverse reconstruction, but the gap is larger in the inverse setting. This behavior is expected because the two tasks use the learned surrogate in different ways. Forward prediction primarily evaluates the value of the learned operator, ˆu = Gθ (actx , p ),
+
+where actx denotes the provided context and p denotes the supervised input field. In contrast, gradient-based inversion uses the surrogate as a differentiable map with respect to an unknown input variable. For an inverse variable q, the optimization problem has the form min  
+
+> q
+
+∥G θ (actx , q ) − utarget ∥22 .
+
+The update direction therefore depends on the surrogate derivative ∂Gθ /∂q , not only on the state error of Gθ .This distinction explains why a state-only neural operator can appear acceptable in forward prediction but perform poorly during inversion. A model may approximate solution fields reasonably well on held-out samples while still learning inaccurate derivatives with respect to the input field. During inverse reconstruction, the optimizer repeatedly evaluates the surrogate at intermediate estimates of q, including fields that may not lie on the training distribution. If the learned derivatives are misaligned with the solver response, the optimizer can reduce the surrogate loss while moving toward input fields that are physically or structurally inconsistent with the true source. The controlled inverse results support this interpretation. In PDE1 and PDE2, the reconstruction errors for C0 and ω0 show a larger separation between sensitivity-constrained and state-only models than the corresponding forward prediction errors. The same mechanism appears in the tsunami source-inversion case. There, the unknown source is a gridded seafloor deformation field inferred from sparse early gauge histories. The inverse problem is underconstrained because many deformation fields can partially explain the short observation window. In this setting, inaccurate surrogate sensitivities can steer the optimization toward diffuse or weak source estimates that match the early gauges but do not recover the source structure needed for subsequent forecasting. Sensitivity supervision targets this failure mode by aligning selected surrogate derivatives with solver-derived sensitivities. The resulting improvement should not be interpreted as proving that the inverse problems become well-posed. The evidence supports a narrower conclusion: for the reported high-dimensional field-reconstruction tasks, SC-NO provides more useful surrogate gradients for the tested optimization workflows, leading to more accurate reconstructions than state-only neural operators. This is why the benefit of sensitivity supervision is more pronounced in inverse reconstruction than in direct forward prediction. 
+
+7.3 Scope of Sensitivity-Constrained Operator Learning 
+
+The present results connect to a broader line of derivative-informed and physics-informed learning methods. Sobolev-type training [Czarnecki et al., 2017], PDE-residual constraints in physics-informed neural operators [Li et al., 2024], derivative-enhanced DeepONet [Qiu et al., 2024], derivative-informed neural operators [Cao et al., 2025], and sensitivity-constrained Fourier neural operators [Behroozi et al., 2025] have shown that derivative information can improve generalization when state observations alone are insufficient. The focus of SC-NO is the high-dimensional gridded-input regime, where the supervised input may itself be a spatial field with thousands of degrees of freedom and where the Jacobian must be sampled and amortized to remain computationally practical. The central distinction is that the sensitivity constraint is imposed at the operator level with respect to distributed input fields. In the benchmarks studied here, the supervised derivative is not a small set of 25 scalar parameter gradients, but a sampled Jacobian relating perturbations in fields such as C0(x), ω0(x), 
+
+f (x), or ∆ zb(x) to the predicted PDE response. This changes the role of derivative information from a local auxiliary regularizer to a scalable source of input–output response supervision. The sampled-Jacobian formulation makes this feasible by enforcing only subsets of the full sensitivity tensor at each update while resampling these constraints across training. This distinction is also reflected in the experimental design. The controlled PDE benchmarks show that sensitivity supervision improves both forward prediction and inverse reconstruction for distributed-field inputs. The empirical scaling study further separates state-resolution information from Jacobian information and shows that the two are complementary. The tsunami case then evaluates the same mechanism in a sparse-observation inverse–forward workflow, where the surrogate is repeatedly differen-tiated with respect to an unknown source field. These results position SC-NO as a practical sensitivity-supervision strategy for neural PDE surrogates whose downstream use requires reliable gradients, rather than only accurate one-shot state prediction. SC-NO is complementary to PDE-residual and physics-informed neural-operator losses. PDE-residual constraints evaluate whether a predicted state satisfies the governing equation, whereas the sensitivity loss constrains how the learned solution operator responds to perturbations of selected inputs. These two forms of physical information act on different aspects of the surrogate. In principle, they can be combined, but the present study isolates the effect of solver-derived Jacobian supervision on high-dimensional forward prediction, inverse reconstruction, rollout stability, and source-inference workflows. 
+
+7.4 Limitations and Practical Requirements 
+
+SC-NO requires access to solver-derived sensitivity information. In this work, these sensitivities are obtained through automatic differentiation for the advection–diffusion benchmark and through discrete adjoints for the RANS and shallow-water benchmarks. This requirement is reasonable in many scientific-computing settings where differentiable solvers or adjoint models are available, but it is still a practical constraint. Applying the method to a new PDE system requires either an existing sensitivity capability or additional effort to derive and implement one. The cost of sensitivity supervision is also not negligible. Although sampled Jacobian supervision avoids enforcing the full sensitivity tensor at every training step, the method still requires sensitivity generation, storage, or access to sampled Jacobian entries, and model-side differentiation with respect to the supervised inputs. For this reason, the relevant comparison is not state error alone, but accuracy as a function of total computational cost. The empirical results in Sections 4–5 indicate that this tradeoff is favorable for the tested benchmarks, particularly in low-data, high-dimensional, and inverse settings. However, the optimal sampling density and the net benefit of sensitivity supervision may depend on the solver, the adjoint cost, the output dimension, and the downstream task. The tsunami experiment should be viewed as a near-real-time inverse–forward proof of concept rather than a complete operational warning system. The workflow demonstrates that a trained sensitivity-constrained neural operator can support rapid source reconstruction from sparse early gauge observa-tions and subsequent wave forecasting in a controlled Tohoku-based benchmark. Operational deployment would require additional components, including broader treatment of source uncertainty, sensor avail-ability, bathymetric uncertainty, boundary-condition uncertainty, and integration with existing warning-system protocols. These requirements do not weaken the computational result, but they define the boundary between the present surrogate-inference study and a deployed forecasting system. Finally, the evidence in this paper is empirical over the tested PDE classes, resolutions, and train-ing budgets. The results show that sampled Jacobian supervision improves the observed data–compute tradeoff and inverse behavior in these settings, but they should not be interpreted as a universal com-plexity result. Establishing when sensitivity supervision remains beneficial across broader PDE classes, longer time horizons, and different adjoint implementations remains an important direction for future work. 
+
+7.5 Implications for Time-Critical PDE Inference 
+
+The broader implication of these results is that derivative-aligned neural operators can be useful when a PDE surrogate is not only queried once, but repeatedly used inside an inference or forecasting loop. This occurs in source inversion, data assimilation, uncertainty exploration, design optimization, and 26 long-horizon prediction. In these settings, state accuracy alone is often insufficient because the surrogate is evaluated under perturbations, intermediate optimization states, or autoregressive feedback. The tsunami case illustrates this point in a time-critical geophysical setting. The full inverse–forward workflow uses a trained neural operator to estimate a source deformation from early gauge observations and then forecast the later wave response. The reported runtime supports the feasibility of minute-scale surrogate-assisted inference after offline training and sensitivity generation. This should be interpreted as a pathway toward time-critical PDE inference rather than as a complete operational system. More generally, the results suggest that sensitivity supervision may be valuable in applications where high-fidelity solvers are too expensive for repeated online use, but where differentiable or adjoint informa-tion can be generated offline. Potential examples include flood inundation, storm surge, plume transport, subsurface flow, volcanic hazard modeling, and other PDE-governed systems requiring rapid inverse or uncertainty-aware prediction. The most defensible conclusion is that sampled Jacobian supervision im-proves the reliability of neural PDE surrogates in the tested high-dimensional settings, especially when the surrogate is used for gradient-based inversion or repeated closed-loop evaluation. 
+
+# 8 Conclusion 
+
+This work studied sensitivity-constrained neural operators for high-dimensional forward and inverse PDE inference. The proposed framework augments standard neural-operator training with sampled solver-derived Jacobian supervision, allowing the learned surrogate to match both solution values and selected input–output sensitivities. The method does not introduce a new neural-operator architecture; instead, it provides a training strategy for improving the reliability of existing differentiable operator models when the input is a distributed spatial field. Across the controlled advection–diffusion and RANS benchmarks, sensitivity supervision improved forward prediction and produced larger gains in gradient-based inverse reconstruction. The empirical scaling experiments further showed that, in the tested high-dimensional gridded-input setting, Jacobian supervision improved the observed accuracy–cost tradeoff relative to relying only on additional state tra-jectories. The rollout experiment and the tsunami source-inference workflow also indicate that sensitivity supervision is especially useful when the surrogate is used repeatedly, either in closed-loop prediction or inside an inverse optimization loop. The tsunami benchmark demonstrates a near-real-time inverse–forward proof of concept: a trained sensitivity-constrained neural operator can reconstruct a gridded seafloor deformation source from sparse early gauge observations and forecast the subsequent wave response within a minute-scale inference work-flow. This result should not be interpreted as a complete operational warning system, since operational deployment would require broader uncertainty treatment, sensor robustness, and validation across addi-tional events. Nevertheless, the results suggest that sampled Jacobian supervision is a practical mecha-nism for improving neural PDE surrogates in high-dimensional settings where forward accuracy, inverse stability, robustness, and computational cost must be considered together. 27 Supplementary Materials Appendices 
+
+The appendices provide supporting theoretical, methodological, numerical, and experimental details for the main manuscript. They are organized as follows: A. Theoretical justification for sensitivity-constrained training 
+
+• Neural operators 
+
+• Sensitivity-constrained neural operators (SC-NO) 
+
+• Assumptions, notation, cost functionals, improved generalization, long-term prediction stabil-ity, and inversion accuracy B. Data generation 
+
+• Input-function structure 
+
+• Dataset structure with true sensitivities 
+
+• Scaled Gaussian random fields for parameter generation C. PDE1: Advection–diffusion equation with spatially distributed velocity field 
+
+• Problem setup 
+
+• Numerical solver 
+
+• Neural-operator learning setup 
+
+• Additional results D. PDE2: Turbulent Navier–Stokes equations with Spalart–Allmaras closure 
+
+• Problem setup 
+
+• Numerical solver 
+
+• Neural-operator learning setup 
+
+• Adjoint-based sensitivities 
+
+• Additional results E. PDE3: 2D shallow water equations for the 2011 Tohoku tsunami 
+
+• Problem setup 
+
+• Okada deformation model 
+
+• Finite-volume solver 
+
+• Adjoint-based sensitivities 
+
+• Neural-operator learning 
+
+• Fine-to-coarse grid mapping 
+
+• Three-stage source inversion 
+
+• Additional results F. Performance metrics 
+
+G. Hyperparameters and settings 
+
+H. Computational cost analysis 
+
+28 A Supporting Analysis: Mechanisms of Sensitivity-Constrained Training 
+
+Neural Operators (NOs) provide a framework for learning mappings between infinite-dimensional function spaces, enabling resolution-invariant PDE approximations [Lu et al., 2021, Kovachki et al., 2023]. Unlike traditional solvers that discretize PDEs explicitly, NOs approximate a solution operator 
+
+G : U → V , where U represents the space of input functions (e.g., initial conditions, boundary condi-tions, parameters), and V denotes the space of solutions. Given an input function a(x, t, p ) ∈ U , which encapsulates problem-specific information, and an output solution u(x, t, p ) ∈ V , the operator mapping is: 
+
+u(x, t, p ) = G(a)( x, t, p ), (12) where x ∈ X are spatial coordinates, t ∈ [0 , T ] represents time, and p ∈ Rm denotes system parame-ters. Neural Operators parameterize G with learnable weights θ, forming Gθ :
+
+u(x, t, p ) = Gθ (a)( x, t, p ). (13) Unlike conventional neural networks, NOs operate on function spaces, allowing solutions to be trans-ferred across different resolutions. 
+
+Neural Operators 
+
+The architecture of a Neural Operator consists of iterative layers that update the latent representation 
+
+vt(x, t, p ) via: 
+
+vt+1 (x, t, p ) = σ (Kθ (vt)( x, t, p ) + Lθ (vt)( x, t, p )) , (14) where Kθ is a nonlocal integral operator, Lθ is a local transformation, and σ is a nonlinear activation function. The nonlocal operator is defined as: 
+
+Kθ (vt)( x, t, p ) = 
+
+Z
+
+> X
+
+Z T
+
+> 0
+
+Z
+
+> Rm
+
+Kθ (x, t, p ; y, s, q )vt(y, s, q ) dy ds dq, (15) where Kθ is a learnable kernel encoding interactions across space, time, and parameters. The local transformation follows: 
+
+Lθ (vt)( x, t, p ) = Wθ vt(x, t, p ) + bθ (x, t, p ). (16) Different parameterization strategies yield distinct NO architectures: - Fourier Neural Operators (FNOs) employ spectral transforms for efficiency, defining the integral operator in Fourier space: 
+
+F(Kθ (vt))( k, ω ) = Rθ (k, ω ) · F (vt)( k, ω ), (17) where F denotes the Fourier transform, and Rθ (k, ω ) is a learnable kernel truncated for high frequen-cies: 
+
+Rθ (k, ω ) = 0 for |k|, |ω| > k max . (18) 29 - Wavelet Neural Operators (WNOs) replace Fourier transforms with wavelet decompositions to capture localized structures across scales [Tripura and Chakraborty, 2023]. - DeepONets decompose the mapping into a trunk network (spatial-temporal encoding) and a branch network (parametric encoding) [Lu et al., 2021]: 
+
+Kθ (vt)( x, t, p ) = 
+
+> m
+
+X
+
+> i=1
+
+bi(p)τi(x, t ), (19) where bi(p) and τi(x, t ) are learned functions. After T iterations, the final output is projected onto the solution space: 
+
+u(x, t, p ) = Qθ (vT )( x, t, p ). (20) 
+
+Sensitivity-Constrained Neural Operators (SC-NO) 
+
+Standard NOs minimize a solution-based loss: 
+
+Lu = ℓu(ˆ u(x, t ; p), u (x, t ; p)) , (21) where ℓu measures prediction error. However, they do not explicitly account for how solutions change with respect to parameters p, which is crucial for generalization and inverse problems. To address this, we introduce a sensitivity regularization term: 
+
+LS = ℓs
+
+ ∂ ˆu(x, t ; p)
+
+∂p , ∂u (x, t ; p)
+
+∂p 
+
+
+
+, (22) where ∂ ˆu∂p is computed via automatic differentiation, and ∂u ∂p is derived from a high-fidelity solver. The final training objective balances both terms: 
+
+L = Lu + λL S , (23) where λ controls sensitivity enforcement. 
+
+Theoretical Justification 
+
+We provide a mathematical basis for why Sensitivity-Constrained Neural Operators (SC-NOs) out-perform standard training by incorporating sensitivity loss, improving generalization, long-term sta-bility, and inversion accuracy. We define the operator Gθ : U → V , which maps an input function 
+
+a(x) = ( u0(x), p (x)) to ˆ u(x, t ) = Gθ (a(x)), approximating the true solution u(x, t ). 
+
+Assumptions and Notation 
+
+We work in bounded domains: the parameter space Pparam ⊂ Rm and the spatio-temporal domain 
+
+X × [0 , T ]. We assume ˆ u is differentiable with respect to p. We use the Euclidean norm | · | on Rm and the corresponding induced operator norms. We assume the true solution u and its sensitivity ∂u ∂p are bounded by M and Mp respectively, for all ( x, t, p ). 
+
+|u(x, t ; p)| ≤ M, ∂u ∂p (x, t ; p) ≤ Mp. (24) Our core argument relies on standard (though strong) assumptions from learning theory: for an overparameterized, well-trained model θ∗ 
+
+> s
+
+, a small empirical loss implies a small uniform error bound. 30 Assumption 1 (Uniform Convergence of Gradients): We assume that a model θ∗ 
+
+> s
+
+trained to 
+
+Ls(θ∗ 
+
+> s
+
+) on n samples satisfies: sup 
+
+> x,t,p
+
+∂ ˆu∂p (x, t ; p; θ∗ 
+
+> s
+
+) − ∂u ∂p (x, t ; p) ≤ εs (25) where εs → 0 as Ls → 0 and n → ∞ .
+
+Assumption 2 (Uniform Convergence of Solutions): We assume a similar uniform bound εu for the solution itself: sup 
+
+> x,t,p
+
+|ˆu(x, t ; p; θ∗ 
+
+> s
+
+) − u(x, t ; p)| ≤ εu (26) where εu → 0 as Lu → 0 and n → ∞ .
+
+Cost Functionals 
+
+Training minimizes the following losses, where ∂u ∂p is computed on-the-fly via a differentiable solver or adjoint model: 
+
+Lu(θ) = 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+[ˆ u(xi, t i; pi; θ) − u(xi, t i; pi)] 2, (27) 
+
+Ls(θ) = 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+∂ ˆu∂p (xi, t i; pi; θ) − ∂u ∂p (xi, t i; pi)
+
+> 2
+
+, (28) 
+
+L(θ) = Lu(θ) + λL s(θ), λ > 0. (29) 
+
+Improved Generalization 
+
+Training with L(θ) acts as a powerful regularizer by explicitly constraining the model’s Lipschitz constant with respect to parameters. We define this constant as: 
+
+Llip (θ) = sup 
+
+> x,t,p
+
+∂ ˆu∂p (x, t ; p; θ) . (30) For the sensitivity-constrained model θ∗ 
+
+> s
+
+, we can rigorously bound its Lipschitz constant using Assumption 1 and the triangle inequality: 
+
+Llip (θ∗ 
+
+> s
+
+) = sup ∂u ∂p +
+
+ ∂ ˆu∂p − ∂u ∂p 
+
+
+
+≤ sup ∂u ∂p + sup ∂ ˆu∂p − ∂u ∂p 
+
+≤ Mp + εs. (31) By driving εs → 0, we force the model to inherit the (bounded) Lipschitz constant of the true physical system. This has a direct impact on generalization. For fixed ( x, t ), we define the hypothesis class 
+
+FSC = {p 7 → ˆu(x, t ; p; θ) : Llip (θ) ≤ Mp + εs}. On a bounded parameter domain, standard results imply that the empirical Rademacher complexity ˆRn(FSC ) of this class scales linearly with its Lipschitz constant, ˆRn(FSC ) ≲ (Mp + εs). This complexity is strictly lower than that of an unconstrained class 
+
+Fu that admits arbitrarily large Lipschitz constants. The standard generalization bound, 
+
+E[(ˆ u − u)2] ≤ Lu(θ) + 2 ˆRn(F) + ComplexityPenalty( δ, n ), (32) is therefore tighter for FSC , implying better performance on unseen parameters. 31 Long-Term Prediction Stability 
+
+This argument is most clearly made by setting the parameter p to be the initial condition u0. The sen-sitivity ∂u (t) 
+
+> ∂u 0
+
+is the fundamental solution operator , and its norm governs the growth of perturbations (i.e., the Lyapunov exponents). Assume the true physical system’s growth is bounded: 
+
+∂u (t)
+
+∂u 0
+
+≤ Ce αt (33) for some physical exponent α (which could be positive for a chaotic system, or negative for a stable one). A standard model θ∗
+
+> u
+
+, trained only on Lu, may learn an incorrect operator ∂ ˆu∂u 0 with a much larger exponent ˆ α ≫ α, leading to spurious amplification of small errors. The SC-NO, by minimizing Ls (with 
+
+p = u0), uses Assumption 1 to force its learned operator to be close to the true one: 
+
+∂ ˆu(t)
+
+∂u 0
+
+≤ ∂u (t)
+
+∂u 0
+
++ sup ∂ ˆu∂u 0
+
+− ∂u ∂u 0
+
+≤ Ce αt + εs. (34) This shows that the SC-NO reproduces the physical growth rates of perturbations up to O(εs) and does not introduce spurious instabilities beyond those present in the governing system. 
+
+Inversion Accuracy 
+
+In parameter inversion, we seek to find p∗ by minimizing a loss ℓ between our model ˆ u and an observation uobs . Let J(p) = ℓ(u(p), u obs ) be the ”true” (but intractable) loss landscape, and Jθ (p) = 
+
+ℓ(ˆ uθ (p), u obs ) be the surrogate landscape our optimizer actually sees. Gradient descent updates use the gradient of Jθ :
+
+pk+1 = pk − η∇pJθ (pk), where ∇pJθ = ∂ℓ ∂ ˆu · ∂ ˆu∂p . (35) The success of the inversion depends on the gradient error ∥∇ Jθ (p) − ∇ J(p)∥. If ℓ is smooth, this error is bounded by our assumed uniform errors: 
+
+∥∇ Jθ (p) − ∇ J(p)∥ ≤ C1εu + C2εs (36) for some constants C1, C 2.A standard model θ∗ 
+
+> u
+
+is only trained to minimize εu, leaving a large, uncontrolled gradient error C2εs.The optimizer is fed an inaccurate gradient. An SC-NO is explicitly trained to drive both εu → 0 and 
+
+εs → 0. We further assume that, in a neighborhood of p∗, the true objective J(p) is μ-strongly convex. Under this condition, standard perturbation results for gradient descent imply that optimization on Jθ
+
+converges to an O(εu + εs) neighborhood of the true optimum p∗. By minimizing εs, SC-NOs guarantee a high-fidelity gradient, ensuring a much more accurate and stable convergence. 32 B Data Generation 
+
+For a PDE defined over a spatial domain X = R2 with x = ( x1, x 2) ∈ X and time t ∈ [0 , T ], including nt discrete time steps of the solution over the interval [0 , T ], we generate training data for the Sensitivity-Constrained Neural Operator (SC-NO) to learn the mapping Gθ : U → V , where U is the space of input functions and V is the space of solutions, as described in the Methods section. Each data sample comprises an input function a(x, t, p ) ∈ U , the corresponding solution u(x, t, p ) = G(a)( x, t, p ) ∈ V , and the true Jacobian ∂u ∂p , computed from a high-fidelity solver, to support sensitivity-aware training. 
+
+Structure of the Input Function 
+
+The input function is defined as: 
+
+a(x, t, p ) =  ainit (x, t ), p (x), (37) where: 
+
+• ainit (x, t ) contains the initial time steps of the solution: 
+
+ainit (x, t ) =  u(x, t 1, p ), u (x, t 2, p ), . . . , u (x, t tu , p ), t ∈ [0 , t u], (38) representing tu steps of the state u(x, t, p ). 
+
+• p(x) is the spatially varying parameter field. The total simulation time is: 
+
+nt = tu + tG, (39) where tu is the number of initial time steps provided in ainit , and tG is the additional time steps predicted by Gθ .
+
+Dataset Structure with True Sensitivities 
+
+Each dataset sample is structured as: 
+
+a(x, t, p ), x, G(a)( x, t, p ), ∂G(a)
+
+∂p (x, t, p ), (40) where: 
+
+• a(x, t, p ) = ( ainit (x, t ), p (x)) is the input function in U.
+
+• x = ( x1, x 2), . . . , (xnx , x ny ) are spatial grid points over X .
+
+• G(a)( x, t, p ) = u(x, t, p ) is the true PDE solution over t ∈ [tu, n t]. 
+
+• ∂G(a) 
+
+> ∂p
+
+(x, t, p ) is the true Jacobian with respect to p(x), obtained from a high-fidelity solver. For each realization i, the input is: 
+
+a(i)(x, t, p ) = 
+
+"
+
+a(i)init (x1, x 2, t ) a(i)init (x2, x 3, t ) · · · a(i)init (xnx , x ny , t )
+
+p(i)(x1, x 2) p(i)(x2, x 3) · · · p(i)(xnx , x ny )
+
+#
+
+, nx × ny × tu, (41) and the output solution is: 
+
+G(a(i))( x, t, p ) = 
+
+
+
+u(i)(x1, x 2, t, p (x1, x 2)) 
+
+u(i)(x2, x 3, t, p (x2, x 3)) ...
+
+u(i)(xnx , x ny , t, p (xnx , x ny )) 
+
+ , nx × ny × tG. (42) 33 Since u(x, t, p ) evolves over space and time, its sensitivity to the spatially varying parameter p(x)is a matrix-valued function. To capture the cumulative effect of p(x) on the solution, we compute the Jacobian at the final time step t = T :
+
+∂G(a)
+
+∂p (x, T, p ) = 
+
+ 
+
+> ∂u ∂p
+
+(x1, x 2; x1, x 2) ∂u ∂p (x1, x 2; x2, x 3) · · · ∂u ∂p (x1, x 2; xnx , x ny ) 
+
+> ∂u ∂p
+
+(x2, x 3; x1, x 2) ∂u ∂p (x2, x 3; x2, x 3) · · · ∂u ∂p (x2, x 3; xnx , x ny )... ... . . . ... 
+
+> ∂u ∂p
+
+(xnx , x ny ; x1, x 2) ∂u ∂p (xnx , x ny ; x2, x 3) · · · ∂u ∂p (xnx , x ny ; xnx , x ny )
+
+
+
+, (nx×ny )×(nx×ny ).
+
+(43) Each entry ∂u ∂p (xi, x j ; xk, x l) quantifies the response of the solution at ( xi, x j ) at t = T to changes in 
+
+p(xk, x l), reflecting both local and nonlocal PDE-induced dependencies. By evaluating the Jacobian at t = T , we encapsulate the temporal propagation of sensitivity from t = 0 to T , as the final state 
+
+u(x, T, p ) integrates the system’s evolution. This approach aligns with SC-NO training, where Ls =
+
+ℓs
+
+ ∂ ˆu∂p , ∂u ∂p 
+
+
+
+enforces sensitivity accuracy, reducing computational cost by focusing on the final time step while preserving critical spatial-parametric relationships for optimization. 
+
+Scaled Gaussian Random Field for Parameter Generation 
+
+To generate spatially varying random parameters p(x) across the computational domain, we define a scaled and bounded Gaussian random field (GRF) as: 
+
+p(x) = T  Z(x); p min , pmax , σ, X , (44) where T is a transformation ensuring that p(x) is confined within the predefined range [p min , pmax ]. Specifically, the transformation is defined as: 
+
+T  Z(x) = p min + (p max − pmin ) ·
+
+tanh ( σZ (x)) − min  
+
+> y∈X
+
+tanh ( σZ (y)) max  
+
+> y∈X
+
+tanh ( σZ (y)) − min  
+
+> y∈X
+
+tanh ( σZ (y)) . (45) Here, Z(x) is a zero-mean Gaussian random field sampled as: 
+
+Z(x) ∼ N  0, (−∆ + 9 I)−2 , (46) where ∆ is the Laplacian operator, enforcing spatial smoothness and local correlation in p(x). The parameter σ is a scaling factor that modulates the range of fluctuations in the transformed field. The transformation T normalizes the GRF realization using the hyperbolic tangent function tanh( ·), en-suring smooth transitions and bounded outputs. The resulting field p(x) maintains spatial coherence while adhering to the predefined range, making it well-suited for parameterizing complex PDE systems. By employing this approach, we achieve a structured yet stochastic representation of spatially varying parameters, facilitating robust generalization in neural operator training. 34 C PDE1: Advection-Diffusion Equation with Spatially Distributed Velocity Field 
+
+Problem setup 
+
+We model the transport of a concentration field C(x, t ) in a two-dimensional spatial domain X =[0 , 1.0] × [0 , 1.0] over time t ∈ [0 , 1.0], governed by the advection-diffusion equation with a spatially varying velocity field. Defining x = ( x1, x 2) ∈ X , the system is: 
+
+∂C ∂t + ∇ ·  u(x)C = D∇2C, (47) where C(x, t ) is the concentration, u(x) = [ ux(x), u y (x)] is the velocity field with components ux(x) = 
+
+ux(x1, x 2) and uy (x) = uy (x1, x 2), and D = 0 .005 is the constant diffusion coefficient. Periodic boundary conditions are applied in both x1 and x2 directions. The initial condition C0(x) = C(x, 0) and velocity components ux(x) and uy (x) are sampled from Gaussian random fields (GRFs) with specified parameter ranges: 
+
+C0(x) ∼ GRF( pmin = −1.0, p max = 2 .0, σ = 2 , X ), (48) 
+
+ux(x), u y (x) ∼ GRF( pmin = −1.0, p max = 1 .0, σ = 2 , X ). (49) 
+
+Numerical Solver for the Advection-Diffusion Equation 
+
+To generate training data for neural operator learning, we implemented a differentiable numerical solver for the advection-diffusion equation using torchdiffeq , reformulating the system as an ordinary differential equation (ODE): 
+
+dU dt = RHS( x, t, p ), (50) where U = [ C] denotes the concentration field, and RHS( x, t, p ) encapsulates the advection ∇ · (uC) and diffusion ∇2C terms with p = u = [ ux, u y ] as the velocity field. Spatial discretization employs a finite difference method (FDM) on a 150 × 150 grid within X , downsampled to Sx = Sy = 50 divisions, using a second-order central difference scheme for the Laplacian and an upwind scheme for the advection term to ensure stability. Periodic boundary conditions are enforced via ghost cells to maintain flux continuity. Time integration leverages an explicit fourth-order Runge–Kutta (RK4) scheme with a step size of 10 −4,recording solutions at t = 0 .01 intervals over [0 , T = 1], yielding nt = 100 time steps. Implemented with gradient tracking in torchdiffeq , the solver computes the Jacobian ∂U ∂p with respect to the velocity parameters, supporting sensitivity-aware training in the SC-NO framework. 
+
+Neural Operator Learning for the Advection-Diffusion Equation 
+
+We apply neural operator learning to the advection-diffusion equation defined over a spatial domain 
+
+X = [0 , S x] × [0 , S y ] ⊂ R2 with x = ( x1, x 2) ∈ X and time t ∈ [0 , T = 1 .0], discretized into nt time steps. The spatially varying velocity field u(x) = [ ux(x), u y (x)] serves as the parameter p(x) within the input function a(x, t, p ) ∈ U , which also includes the first tu time steps of the solution u(x, t, p ). We train a neural operator Gθ in the SC-NO framework to predict the subsequent tG = nt − tu time steps, guided by the Jacobian ∂u ∂p , using the mapping: 
+
+Gθ : ( X × [0 , t u], p (x)) → u(x, t, p ), for ( x, t ) ∈ X × [tu, T ]. (51) This approach unifies the spatial-temporal input and parameter field to learn a solution operator spanning [tu, T ] across all PDE instances. 35 Additional results for PDE1 
+
+Table C.1: Comparison of Error Metrics Across Models Trained with Different Sample Sizes (Forward) Model 1000 Samples 500 Samples 200 Samples 100 Samples Rel. L2 MAE Rel. L2 MAE Rel. L2 MAE Rel. L2 MAE 
+
+FNO 5.1 × 10 −2 5.6 × 10 −3 1.7 × 10 −1 1.9 × 10 −2 8.5 × 10 −1 9.4 × 10 −2 1.4 × 10 0 1.5 × 10 −1
+
+WNO 6.2 × 10 −2 6.6 × 10 −3 2.0 × 10 −1 2.2 × 10 −2 9.8 × 10 −1 1.1 × 10 −1 1.6 × 10 0 1.8 × 10 −1
+
+DeepONet 6.2 × 10 −2 6.9 × 10 −3 2.1 × 10 −1 2.3 × 10 −2 1.0 × 10 0 1.1 × 10 −1 1.7 × 10 0 1.8 × 10 −1
+
+SC-FNO 2.6 × 10 −2 1.9 × 10 −3 5.5 × 10 −2 6.2 × 10 −3 1.2 × 10 −1 1.4 × 10 −2 1.8 × 10 −1 2.0 × 10 −2
+
+SC-WNO 2.8 × 10 −2 2.1 × 10 −3 6.0 × 10 −2 6.9 × 10 −3 1.4 × 10 −1 1.5 × 10 −2 2.0 × 10 −1 2.2 × 10 −2
+
+SC-DeepONet 3.2 × 10 −2 2.5 × 10 −3 7.5 × 10 −2 8.4 × 10 −3 1.6 × 10 −1 1.9 × 10 −2 2.4 × 10 −1 2.7 × 10 −2
+
+Table C.2: Comparison of Error Metrics Across Models Trained with Different Sample Sizes (Inverse) Model 1000 Samples 500 Samples 200 Samples 100 Samples Rel. L2 MAE Rel. L2 MAE Rel. L2 MAE Rel. L2 MAE 
+
+FNO 1.3 × 10 −1 6.2 × 10 −2 2.1 × 10 −1 1.0 × 10 −1 3.2 × 10 −1 1.5 × 10 −1 5.1 × 10 −1 2.4 × 10 −1
+
+WNO 1.6 × 10 −1 7.4 × 10 −2 2.5 × 10 −1 1.2 × 10 −1 3.8 × 10 −1 1.8 × 10 −1 6.1 × 10 −1 2.8 × 10 −1
+
+DeepONet 1.6 × 10 −1 7.6 × 10 −2 2.6 × 10 −1 1.2 × 10 −1 3.9 × 10 −1 1.8 × 10 −1 6.3 × 10 −1 2.9 × 10 −1
+
+SC-FNO 1.3 × 10 −2 6.2 × 10 −3 1.5 × 10 −2 7.1 × 10 −3 1.8 × 10 −2 8.2 × 10 −3 2.1 × 10 −2 1.0 × 10 −2
+
+SC-WNO 1.5 × 10 −2 6.9 × 10 −3 1.7 × 10 −2 8.0 × 10 −3 2.0 × 10 −2 9.2 × 10 −3 2.4 × 10 −2 1.1 × 10 −2
+
+SC-DeepONet 1.8 × 10 −2 8.4 × 10 −3 2.1 × 10 −2 9.7 × 10 −3 2.4 × 10 −2 1.1 × 10 −2 2.9 × 10 −2 1.4 × 10 −2
+
+36 D PDE2: Navier–Stokes Equations with Spalart–Allmaras Clo-sure 
+
+Problem setup 
+
+We simulate two-dimensional incompressible flows in the unit square domain X = [0 , 1] ×[0 , 1] over the time interval t ∈ [0 , T ] with T = 25. The governing equations are expressed in vorticity–stream function form, coupled with the one-equation Spalart–Allmaras (S-A) turbulence model. Let x = ( x1, x 2) ∈ X .The system reads: 
+
+∇2Ψ = −Ω, (52) 
+
+∂Ω
+
+∂t + ∂Ψ
+
+∂x 2
+
+∂Ω
+
+∂x 1
+
+− ∂Ψ
+
+∂x 1
+
+∂Ω
+
+∂x 2
+
+= ∇ · (ν + νt)∇Ω + f (x; α, β ), (53) 
+
+∂ ˜ν∂t + ∂Ψ
+
+∂x 2
+
+∂ ˜ν∂x 1
+
+− ∂Ψ
+
+∂x 1
+
+∂ ˜ν∂x 2
+
+= cb1 ˜S ˜ν + 1
+
+σ
+
+∇ ·  (ν + ˜ ν)∇˜ν + cb2(∇˜ν)2 − cw1fw
+
+ ˜νd
+
+2
+
+, (54) where Ψ denotes the stream function, Ω the vorticity, and the molecular viscosity is taken as ν ∈
+
+[0 .001 , 0.002], which corresponds to Reynolds numbers in the range 500–1000. The turbulent eddy viscosity is modeled as νt = ˜ ν f v1.
+
+fv1 = χ3
+
+χ3 + c3
+
+> v1
+
+, χ = ˜νν .
+
+The term f (x; α, β ) is a parametric body force, and d is the distance to the nearest wall. Physical boundary conditions are no-slip walls ( u = 0), implying Ψ = 0 and ∂Ψ/∂n = 0 on ∂X .Vorticity vanishes on walls via the initial mask m(x1, x 2) = sin( πx 1) sin( πx 2). The numerical solver uses zero wall boundary conditions in both directions for its finite difference discretization and fast Poisson solving. Physical wall conditions are enforced weakly through: 
+
+• Initial vorticity masking to ensure Ω 0 = 0 on wall-adjacent cells, 
+
+• Spectral projection of Ψ after each Poisson solve to satisfy Ψ = 0 on ∂X ,
+
+• Thom’s formula at each time step to enforce u = 0 on walls. The forward simulation uses a uniform fine grid of resolution 64 × 64. The initial modified eddy viscosity is sampled from a Gaussian random field (GRF): ˜ν0(x) ∼ GRF  pmin = −2.5 × 10 −4, p max = 2 .5 × 10 −4, σ = 1 , X .
+
+The initial vorticity Ω 0 is generated on a coarse grid of resolution Nc × Nc, where Nc = 2 n and 
+
+n ∈ { 2, 3, 4, 5, 6} (corresponding to Nc × Nc ∈ { 4 × 4, 8 × 8, 16 × 16 , 32 × 32 , 64 × 64 }). For a given n,the coarse field is Ωc
+
+> 0
+
+(x) = m(x1, x 2) · GRF  pmin = −2.5, p max = 2 .5, σ = 2 , X nc
+
+,
+
+upsampled to 64 ×64 via pixel-wise repetition by factor 2 6−n. This ensures zero vorticity on wall-adjacent fine-grid cells and introduces multiscale initial perturbations. The forcing is 
+
+f (x; α, β ) = 0 .1 sin  α(x1 + x2) + cos  β(x1 + x2) ,
+
+with α, β ∈ [0 , 3π] sampled uniformly. 37 Numerical Solver for the Turbulent Navier–Stokes Equations 
+
+The system is recast as an ODE: 
+
+dU
+
+dt = RHS( x, t ; p), U = [Ω , ˜ν],
+
+with Ψ recovered via a fast Poisson solver (e.g., a Sine Transform) under zero wall computational bound-ary conditions. Spatial discretization uses second-order central finite differences on uniform grids. Time integration uses the Fourth Order Runge-Kutta solver from torchdiffeq , storing solutions at ∆ t = 0 .1over [0 , 25 .0], yielding nt = 250 snapshots. The solver is fully differentiable, enabling adjoint-based gradients with respect to Ω 0 and the forcing term. 
+
+Neural Operator Learning for the Turbulent Navier–Stokes Equations 
+
+We employ neural operator learning to tackle the turbulent Navier–Stokes equations with the Spalart– Allmaras model over a spatial domain X and time t ∈ [0 , 25 .0], discretized into nt snapshots (here, 
+
+nt = 250 at ∆ t = 0 .1 s). The parametric, spatially varying forcing f (x; α, β ) acts as the parameter field 
+
+p(x) within the input function a(x, t, p ) ∈ U . The solution state is u(x, t, p ) = [Ψ( x, t ), Ω( x, t ), ˜ν(x, t )]. 
+
+(I) Sequential multi-step forecasting (context → full-horizon prediction). We train a neural operator Gθ within the SC-NO framework that consumes a short context of the trajectory together with the forcing field and predicts the remainder of the sequence in one shot. Concretely, the input consists of the initial segment of the solution field u(x, t, p ) over t ∈ [0 , t u] and the parameter field p(x) = f (x; α, β ): 
+
+Gθ :  u(x, t, p )
+
+> t∈[0 ,t u]
+
+, p (x) −→ u(x, t, p ), (x, t ) ∈ X × [tu, 25 .0] .
+
+The training loss aggregates the state error over all predicted times together with a sensitivity regularizer. This regime corresponds to the “sequential prediction” setting used in the main text. Additionally, to evaluate the model’s sensitivity to spatial resolution, we construct a family of simu-lations with multiresolution initial vorticity fields. Specifically, the base vorticity field Ω c
+
+> 0
+
+(x) is generated on coarse grids X nc with Nc = 2 n, n ∈ { 2, 3, 4, 5, 6}, and then upsampled to the working grid X for training. Each resolution level thus defines a distinct realization of the input sequence  u(x, t, p )
+
+> t∈[0 ,t u]
+
+,differing only in the spatial smoothness and detail of the initial vorticity Ω 0(x). The operator learns the mapping 
+
+Gθ :  u(x, t, p )
+
+> t∈[0 ,t u]
+
+, p (x) −→ u(x, t, p ), (x, t ) ∈ X × [tu, 25 .0] ,
+
+allowing us to systematically assess how prediction accuracy and learned sensitivities vary across different resolutions of the initial vorticity field. 
+
+(II) One-step transition with autoregressive rollout (rollout model). In this regime, we train a transition operator that advances the state by a single time step given the current state and the forcing field. During training, the operator is supervised on consecutive snapshot pairs using teacher forcing. Specifically, it learns the mapping 
+
+Fθ :  u(·, t, p ), p (x) −→ u(·, t + ∆ t, p ),
+
+with training pairs  u(·, t, p ), u (·, t + ∆ t, p ) drawn from the first 125 snapshots, corresponding to t ∈
+
+[0 , 12 .5] s. To improve robustness, the predicted states used during training are perturbed with controlled noise before being fed back as inputs, preventing the model from overfitting to perfectly clean trajectories. At inference time, the learned operator is applied recursively in an autoregressive manner to generate full trajectories. Starting from the initial condition u(·, 0, p ), we roll the model forward for 250 steps to cover the entire horizon [0 , 25 .0] s: ˆu(·, t + ∆ t, p ) = Fθ
+
+ ˆu(·, t, p ), p , t = 0 , ∆t, 2∆ t, . . . , 25 .0 − ∆t. 
+
+38 This formulation explicitly probes long-horizon stability and error accumulation: the model is trained only on short-range one-step transitions (0–12 .5 s) but evaluated on the full 0–25 s trajectory (250 snap-shots). 
+
+Adjoint-Based Sensitivity Computation for the Turbulent Navier–Stokes Equa-tions 
+
+To compute sensitivities of the final-time vorticity field Ω( x, T ) with respect to the initial vorticity Ω0(x) and the forcing f (x, t ; α, β ), we derive the continuous adjoint system. The adjoint method is a powerful technique for efficiently computing the sensitivity of a scalar objective functional, J, to a large number of input parameters or fields (such as initial conditions Ω 0 or forcing f ). Its primary advantage is that the computational cost of obtaining the gradient is independent of the number of input parameters. The method relies on constructing a Lagrangian, L, which augments the objective functional with the governing PDEs, enforced as constraints via Lagrange multipliers (the adjoint variables, e.g., λΩ, λ ˜ν ). By requiring the first variation of the Lagrangian ( δL) to be zero with respect to the state variables, a new set of linear PDEs—the adjoint equations —is derived. These adjoint equations are solved backward in time , starting from a terminal condition derived from the objective functional at t = T . The resulting adjoint field, λ(x, 0), at the initial time t = 0 (or integrated over time for forcing) provides the exact functional derivative (gradient) of J with respect to the parameters. This allows the gradient for all parameters to be computed from just one forward solve of the primal equations and one backward solve of the adjoint equations. 
+
+Cost Functional 
+
+The cost functional is the integrated final vorticity: 
+
+J =
+
+Z
+
+> X
+
+Ω( x, T ) dx. (55) 
+
+Lagrangian Formulation 
+
+The Lagrangian is 
+
+L =
+
+Z
+
+> X
+
+Ω( T ) dx
+
++
+
+Z T
+
+> 0
+
+Z
+
+> X
+
+λΩ
+
+ ∂Ω
+
+∂t + ( u · ∇ )Ω − ∇ ·  νeff (˜ ν)∇Ω − f
+
+
+
+dx dt 
+
++
+
+Z T
+
+> 0
+
+Z
+
+> X
+
+λ˜ν
+
+ ∂ ˜ν∂t + ( u · ∇ )˜ ν − 1
+
+σ ∇ ·  (ν + ˜ ν)∇˜ν − cb2
+
+σ (∇˜ν)2 − R(Ω , ˜ν)
+
+
+
+dx dt 
+
++
+
+Z T
+
+> 0
+
+Z
+
+> X
+
+λΨ
+
+∇2Ψ + Ω  dx dt, (56) where u = ∇⊥Ψ, νeff (˜ ν) = ν + ˜ νf v1(˜ ν), and 
+
+R(Ω , ˜ν) = cb1 ˜S ˜ν − cw1fw
+
+ ˜νd
+
+2
+
+.
+
+Adjoint Equations 
+
+The first variation δL = 0 with respect to (Ψ , Ω, ˜ν) yields the adjoint system. Integration by parts in space and time is performed. Boundary terms are eliminated using primal wall conditions. 
+
+Adjoint Poisson Equation (from δΨ): 
+
+∇2λΨ = −∇ ⊥ · (λΩ∇Ω) − ∇ ⊥ · (λ˜ν ∇˜ν). (57) 39 Adjoint Vorticity Equation (from δΩ): 
+
+− ∂λ Ω
+
+∂t = u · ∇ λΩ + ∇ ·  νeff ∇λΩ
+
+ + λΨ + λ˜ν
+
+∂R ∂Ω , (58) with 
+
+∂R ∂Ω = cb1 ˜ν ∂ ˜S∂Ω , ∂ ˜S∂Ω = sgn(Ω) (regularized as tanh( kΩ) in practice) .
+
+Adjoint Spalart–Allmaras Equation (from δ˜ν): 
+
+− ∂λ ˜ν
+
+∂t = u · ∇ λ˜ν + 1
+
+σ ∇ ·  (ν + ˜ ν)∇λ˜ν
+
+ − ∇ · 
+
+ 2cb2
+
+σ λ˜ν ∇˜ν
+
+
+
++ λ˜ν
+
+∂R ∂ ˜ν − ∂ν eff 
+
+∂ ˜ν (∇λΩ · ∇ Ω) . (59) 
+
+Adjoint Terminal and Boundary Conditions Terminal conditions (at t = T ): 
+
+λΩ(x, T ) = −1, (60) 
+
+λ˜ν (x, T ) = 0 . (61) 
+
+Boundary conditions (on ∂X , 0 ≤ t < T ): 
+
+• λΨ = 0 (from primal Ψ = 0), 
+
+• λ˜ν = 0 (from primal ˜ ν = 0), 
+
+• λΩ = 0 (from primal Ω = 0: δΩ = 0 on boundary =⇒ adjoint inherits Dirichlet). The adjoint system is solved backward in time from t = T to t = 0. 
+
+Sensitivity with Respect to Initial Vorticity Ω0
+
+From the time-boundary term at t = 0: 
+
+δJ δΩ0
+
+(x) = −λΩ(x, 0) (62) 
+
+Sensitivity with Respect to Forcing Field f
+
+From the explicit f term in the Lagrangian: 
+
+δJ δf (x, t ) = −λΩ(x, t ), δJ δf (x) = −
+
+Z T
+
+> 0
+
+λΩ(x, t ) dt (63) These sensitivities are exact in the continuous setting and provide the full gradient of the final vorticity field with respect to initial conditions and forcing. 40 Additional results for PDE2 
+
+Table D.1: Comparison of Error Metrics Across Models Trained with Different Sample Sizes (Forward) 
+
+Model 1000 Samples 500 Samples 200 Samples 100 Samples Rel. L2 MAE Rel. L2 MAE Rel. L2 MAE Rel. L2 MAE 
+
+FNO 6.9 × 10 −2 6.8 × 10 −3 1.9 × 10 −1 1.8 × 10 −2 5.7 × 10 −1 5.4 × 10 −2 1.3 × 10 0 1.3 × 10 −1
+
+WNO 7.5 × 10 −2 7.3 × 10 −3 2.0 × 10 −1 2.0 × 10 −2 6.0 × 10 −1 5.8 × 10 −2 1.4 × 10 0 1.4 × 10 −1
+
+DeepONet 8.1 × 10 −2 7.9 × 10 −3 2.2 × 10 −1 2.1 × 10 −2 6.6 × 10 −1 6.3 × 10 −2 1.5 × 10 0 1.5 × 10 −1
+
+SC-FNO 2.9 × 10 −2 2.2 × 10 −3 3.9 × 10 −2 7.4 × 10 −3 6.6 × 10 −2 1.3 × 10 −2 1.5 × 10 −1 3.0 × 10 −2
+
+SC-WNO 3.4 × 10 −2 2.3 × 10 −3 3.9 × 10 −2 7.6 × 10 −3 6.8 × 10 −2 1.3 × 10 −2 1.7 × 10 −1 3.1 × 10 −2
+
+SC-DeepONet 4.1 × 10 −2 2.9 × 10 −3 5.1 × 10 −2 9.7 × 10 −3 8.6 × 10 −2 1.7 × 10 −2 2.0 × 10 −1 3.9 × 10 −2
+
+Table D.2: Comparison of Error Metrics Across Models Trained with Different Sample Sizes (Inverse) PDE2 Model 1000 Samples 500 Samples 200 Samples 100 Samples Rel. L2 MAE Rel. L2 MAE Rel. L2 MAE Rel. L2 MAE 
+
+FNO 4.7 × 10 −1 5.0 × 10 −2 6.7 × 10 −1 7.2 × 10 −2 9.6 × 10 −1 1.0 × 10 −1 1.4 × 10 0 1.4 × 10 −1
+
+WNO 5.6 × 10 −1 5.9 × 10 −2 7.9 × 10 −1 8.4 × 10 −2 1.1 × 10 0 1.2 × 10 −1 1.6 × 10 0 1.7 × 10 −1
+
+DeepONet 5.8 × 10 −1 6.1 × 10 −2 8.0 × 10 −1 8.7 × 10 −2 1.2 × 10 0 1.2 × 10 −1 1.6 × 10 0 1.7 × 10 −1
+
+SC-FNO 6.1 × 10 −2 5.2 × 10 −3 6.8 × 10 −2 5.8 × 10 −3 8.0 × 10 −2 6.8 × 10 −3 9.6 × 10 −2 8.2 × 10 −3
+
+SC-WNO 6.8 × 10 −2 5.8 × 10 −3 7.6 × 10 −2 6.5 × 10 −3 9.0 × 10 −2 7.6 × 10 −3 1.1 × 10 −1 9.2 × 10 −3
+
+SC-DeepONet 8.3 × 10 −2 7.0 × 10 −3 9.3 × 10 −2 7.9 × 10 −3 1.1 × 10 −1 9.3 × 10 −3 1.3 × 10 −1 1.1 × 10 −2
+
+41 E PDE3: 2D Shallow Water Equations for the Tohoku 2011 Tsunami 
+
+Overview 
+
+We evaluate the feasibility of near-real-time large-scale tsunami inversion and forecasting using SC-NOs, governed by the hyperbolic Shallow Water equations, based on the 2011 Tohoku event. Variability arises from earthquake-induced seafloor deformation computed using the Okada model [Grilli et al., 2013] with different geometries and epicenter locations. We use noise-contaminated synthetic water-level observations at sea-buoy locations from the first 30 minutes as observations for the inverse source iden-tification, followed by forward forecasting. The inversion first estimates an initial guess of the seafloor deformation field, restricts it to the Okada representation, and then optimizes the Okada model pa-rameters via the pretrained neural operators (Methods). All neural operators (FNO and SC-FNO) are pretrained on high-resolution simulations from a observationally-validated finite-volume solver (Supple-mentary Figure E.2), coarsened to the NO grid resolutions. They receive deformation fields ∆ zb(x) and an initial water stage ( tu = 1) as inputs and predict the remaining tG = 50 time steps. We calculate the sensitivity (Jacobian) of the final water stage with respect to bed topography using adjoint-sensitivity analysis. 
+
+Problem setup 
+
+We solve the shallow water equations (SWE) with Manning friction over a two-dimensional ocean domain X = [0 , L ] × [0 , L ] and time t ∈ [0 , T ]. This formulation captures wave propagation, coastal inundation, and wet-dry dynamics. Given spatial coordinates x = ( x, y ) ∈ X , the governing SWE system is: 
+
+∂∂t 
+
+
+
+hmx
+
+my
+
+ + ∇ · 
+
+
+
+hu
+
+hu u + 12 g h 2 Ix
+
+hv u + 12 g h 2 Iy
+
+ =
+
+
+
+0
+
+− g h ∂z b 
+
+> ∂x
+
+−  friction x
+
+
+
+− g h ∂z b 
+
+> ∂y
+
+−  friction y
+
+ . (64) Here, h is the water depth, m = ( mx, m y ) = ( hu, hv ) is the depth-integrated momentum, u = ( u, v )is the velocity, and zb(x, y ) represents the bed elevation. The source terms include the bed slope and Manning friction: friction x = gn 2∥u∥ hu h7/3 , friction y = gn 2∥u∥ hv h7/3 . (65) To represent wet-dry dynamics, dry regions are modeled by setting h = 0 when the water depth falls below a threshold. no reflection boundary conditions are imposed in both x and y directions to simulate an open ocean. 
+
+Modeling Seafloor Deformation Using the Okada Dislocation Model 
+
+The Tohoku 2011 tsunami was triggered by an Mw 9.0 earthquake along the Japan Trench on March 11, 2011. To simulate this event, we investigate a 1000 km × 1000 km region as illustrated in Figure E.1, using real bathymetry data to define the pre-earthquake seabed topography zb0(x). This dataset, obtained from ETOPO 2022 at 30 Arc-Second resolution, provides an accurate baseline representation of the ocean floor before the earthquake. As shown in Figure E.1, Bathymetry of the Computational Domain for the 2011 Tohoku Tsunami simulations. Before the earthquake, the water surface is assumed to be at rest, with an undisturbed sea level and no initial flow: 
+
+h(x, 0) = 0 , u(x, 0) = 0 , v(x, 0) = 0 . (66) 42 0.0 0.2 0.4 0.6 0.8 1.0  
+
+> Longitude (m) 1e6 0.0 0.2 0.4 0.6 0.8 1.0
+> Latitude (m)
+> 1e6
+> 10500
+> 9000
+> 7500
+> 6000
+> 4500
+> 3000
+> 1500
+> 01500 3000 Seafloor Elevation (m)
+
+Figure E.1: Bathymetry and Topography of the Computational Domain for the 2011 Tohoku Tsunami Simulations 
+
+To model the seafloor deformation caused by the earthquake, we use the Okada displacement model [Okada, 1992], which provides an analytical solution for surface deformation due to fault slip in an elastic half-space. This model computes the coseismic displacement ∆ zb(x) based on key fault parameters that define the fault geometry and slip characteristics. The depth represents how deep the fault’s top edge is below the surface, while the length and width describe the along-strike and down-dip dimensions of the fault plane. The slip quantifies the magnitude of displacement along the fault, whereas the 
+
+strike specifies the fault’s orientation relative to north, measured in degrees. The dip represents the inclination angle of the fault plane relative to a horizontal surface, while the rake defines the direction of slip along the fault plane. Together, these parameters determine the vertical displacement field, shaping the seafloor uplift or subsidence that drives tsunami generation. The earthquake’s epicenter location is defined by its x-coordinate and y-coordinate , determining the origin of the deformation. Given these parameters, the Okada model computes the vertical displacement field ∆ zb(x), representing the seafloor uplift or subsidence that alters the initial seabed topography. This deformation is incorporated into the model as: 
+
+zb(x, 0) = zb0(x) + ∆ zb(x), (67) where zb0(x) represents the original seabed elevation before the earthquake, and ∆ zb(x) accounts for the vertical displacement caused by the seismic event. This sudden deformation of the seabed displaces the overlying water column, generating the initial tsunami wave. The resulting modification of the water depth is expressed as: 
+
+h(x, 0) = ∆ zb(x), u(x, 0) = 0 , v(x, 0) = 0 . (68) Thus, the initial tsunami wave is entirely defined by the seafloor deformation ∆ zb(x), while the ve-locity field remains zero, assuming no initial horizontal flow. In this framework, the distributed coseismic deformation ∆ zb(x) serves as the input parameter p, which varies spatially over the domain X .
+
+Finite Volume Method for Shallow Water Equations 
+
+We developed dTSUNAMI, a finite volume solver for the 2D shallow water equations (SWE), designed to efficiently handle tsunami propagation and inundation over complex bathymetry. The solver operates on an unstructured triangular mesh, ensuring mass conservation and allowing for local refinements in 43 regions of interest, such as coastal areas and tsunami impact zones. The governing equations are expressed in their integral form over a control volume Ω i:
+
+ddt 
+
+Z
+
+> Ωi
+
+U dΩ + 
+
+I
+
+> ∂Ωi
+
+F · n dS =
+
+Z
+
+> Ωi
+
+S dΩ, (69) where U = ( h, hu, hv )T is the conserved state vector, F is the flux tensor, n is the outward unit normal at each face, and S represents source terms. To enhance accuracy in tsunami simulations, we developed a robust mesh generation approach within dTSUNAMI, leveraging GMSH to create an unstructured triangular mesh with adaptive local refinement. Fluxes across cell faces are computed using a Riemann solver. We employ the HLLC (Harten-Lax-van Leer-Contact) scheme, which provides a balance between accuracy and robustness. The approximate Riemann solution at an interface is given by: 
+
+Fi+1 /2 =
+
+
+
+FL, if SL ≥ 0,
+
+F∗, if SL < 0 < S R,
+
+FR, if SR ≤ 0,
+
+(70) where SL and SR are the wave speeds estimated from the characteristic structure of the system. Time integration is performed using an adaptive second-order Heun’s method, an explicit two-stage Runge-Kutta scheme: 
+
+K1 = F(tn, Un), (71) 
+
+eUn = Un + ∆ tnK1, (72) 
+
+K2 = F(tn + ∆ tn, eUn), (73) 
+
+Un+1 = Un + ∆tn
+
+2 (K1 + K2). (74) The time step ∆ tn is adaptively chosen based on the Courant-Friedrichs-Lewy (CFL) condition. We validated dTSUNAMI against the 2011 Tohoku tsunami, triggered by the Mw 9.0 earthquake that occurred on March 11, 2011, at 05:46 UTC (14:46 JST), with its epicenter located at 37.490 ° N, 143.030 ° E. The computational domain employs an unstructured triangular mesh consisting of 308,001 cells and 154,598 nodes. Figure E.2 shows time series of the simulated free-surface elevation compared to measure-ments recorded at the North Miyagi offshore GPS wave gauge (station 803) of the NOWPHAS network. For reference, the same figure includes the results reported by Grilli et al. [Grilli et al., 2013] using the Boussinesq model FUNWAVE-TVD. The dTSUNAMI results exhibit very good agreement with both the observed data and the reference simulation, accurately capturing the arrival time, amplitude of the leading crest, and the subsequent wave train. This close match clearly demonstrates the validity and high accuracy of the solver for real-world large-scale tsunami propagation simulations. 44 0 900 1800 2700 3600 
+
+Time (s) 
+
+6
+
+3
+
+036  
+
+> Water stage (m)
+> Simulation Present work
+> Simulation Grilli et al. (2013)
+> Observation
+
+Figure E.2: Comparison of simulated free-surface elevation time series at North Miyagi offshore GPS wave gauge (station 803, NOWPHAS network) with recorded measurements during the 2011 Tohoku tsunami. 
+
+Adjoint-Based Sensitivity Computation 
+
+To quantify the sensitivity of the final water depth hN to variations in bed topography b, we employ the adjoint method. This approach efficiently computes gradients without requiring finite-difference perturbations, making it well-suited for high-dimensional tsunami simulations. 
+
+Adjoint System Formulation 
+
+The forward SWE system evolves as: 
+
+Un+1 = Un + ∆tn
+
+2 (Kn 
+
+> 1
+
++ Kn 
+
+> 2
+
+) , (75) where 
+
+Kn 
+
+> 1
+
+= F(Un, b), Kn 
+
+> 2
+
+= F( eUn, b), (76) and the final objective function is: 
+
+J = hN = PU N , (77) where P extracts water depth h from U.The Lagrangian function incorporates the constraints imposed by the forward dynamics: 
+
+L = J + 
+
+> N−1
+
+X
+
+> n=0
+
+
+
+λT 
+
+> 1,n
+
+(Kn 
+
+> 1
+
+− F(Un, b)) + λT
+
+> 2,n
+
+ eUn − Un − ∆tnKn
+
+> 1
+
+
+
++λT
+
+> 3,n
+
+
+
+Kn 
+
+> 2
+
+− F( eUn, b)
+
+
+
++ λT
+
+> 4,n
+
+
+
+Un+1 − Un − ∆tn
+
+2 (Kn 
+
+> 1
+
++ Kn 
+
+> 2
+
+)
+
+  
+
+. (78) 
+
+Backward Recursive Computation of Adjoint Variables 
+
+The adjoint system is solved by backward recursion, starting from the final time step. 
+
+Initialization at Final Time Step: 
+
+λ4,N −1 = −PT . (79) 
+
+Recursive Computation for n = N − 1, N − 2, . . . , 0:
+
+45 1. Compute adjoint correction for Kn 
+
+> 2
+
+:
+
+λ3,n = ∆tn
+
+2 λ4,n . (80) 2. Compute adjoint variable for the intermediate state eUn:
+
+λ2,n = λT
+
+> 3,n
+
+∂F
+
+∂U eUn
+
+. (81) 3. Compute adjoint correction for Kn 
+
+> 1
+
+:
+
+λ1,n = ∆ tnλ2,n + ∆tn
+
+2 λ4,n . (82) 4. Update adjoint state for the next iteration: 
+
+λ4,n −1 = λ1,n 
+
+∂F
+
+∂U Un
+
++ λ2,n + λ4,n . (83) The recursive computation of λ proceeds from the final time step N back to the initial time step 0. The pseudocode for efficient implementation of the recursion is presented in Algorithm 1. 
+
+Algorithm 1 Recursive Computation of λ 
+
+> 1:
+
+Input: 
+
+• Time steps ∆ tn
+
+• Jacobians ∂F  
+
+> ∂bUn
+
+, ∂F 
+
+> ∂beUn
+
+• Output matrix P 
+
+> 2:
+
+Initialize: 
+
+λ4,N −1 ← − PT 
+
+> 3:
+
+for n = N − 1, N − 2, . . . , 0 do  
+
+> 4:
+
+Step 1: Compute λ3,n 
+
+λ3,n ← ∆tn
+
+2 λ4,n  
+
+> 5:
+
+Step 2: Compute λ2,n 
+
+λ2,n ← λT
+
+> 3,n
+
+∂F
+
+∂U eUn 
+
+> 6:
+
+Step 3: Compute λ1,n 
+
+λ1,n ← ∆tnλ2,n + ∆tn
+
+2 λ4,n  
+
+> 7:
+
+Step 4: Update λ4,n −1
+
+λ4,n −1 ← λ1,n 
+
+∂F
+
+∂U Un
+
++ λ2,n + λ4,n  
+
+> 8:
+
+Step 5: Store Intermediate Values: 
+
+• Save λ1,n for sensitivity computation 
+
+• Save λ3,n for sensitivity computation  
+
+> 9:
+
+end for 
+
+46 The final sensitivity of the water depth at t = T with respect to bed topography is obtained as: 
+
+∂J ∂b = 
+
+> N−1
+
+X
+
+> n=0
+
+
+
+−λT
+
+> 1,n
+
+∂F
+
+∂b Un
+
+− λT
+
+> 3,n
+
+∂F
+
+∂b eUn
+
+
+
+. (84) Since J = hN = PU N , we obtain: 
+
+∂h N
+
+∂b = 
+
+> N−1
+
+X
+
+> n=0
+
+
+
+−λT
+
+> 1,n
+
+∂F
+
+∂b Un
+
+− λT
+
+> 3,n
+
+∂F
+
+∂b eUn
+
+
+
+. (85) This Jacobian ∂h N 
+
+> ∂b
+
+∈ RM ×M quantifies how changes in bed topography influence final water depth, crucial for tsunami inversion and forecasting. 
+
+Derivation of ∂F 
+
+> ∂U
+
+for FVM 
+
+To compute the adjoint sensitivity, we derive the local Jacobian ∂F 
+
+> ∂U
+
+for the finite volume discretization. Differentiating the numerical flux at a face shared between cells i and j:
+
+∂Ff
+
+∂Ui
+
+=
+
+
+
+u · n nx ny
+
+u(u · n) + ghn x 2un x un y
+
+v(u · n) + ghn y vn x 2vn y
+
+ . (86) For source terms including bed slope and friction: 
+
+∂Si
+
+∂Ui
+
+=
+
+
+
+0 0 0
+
+−g ∂b ∂x − cf u −cf |u| 0
+
+−g ∂b ∂y − cf v 0 −cf |u|
+
+ , (87) where cf = gn 2/h 4/3 is the friction coefficient. 
+
+Jacobian Assembly The full local Jacobian is assembled as: 
+
+∂Fi
+
+∂Ui
+
+= − 1
+
+Ai
+
+X 
+
+> f∈faces( i)
+
+lf
+
+∂Ff
+
+∂Ui
+
++ ∂Si
+
+∂Ui
+
+. (88) For neighboring cell interactions: 
+
+∂Fi
+
+∂Uj
+
+= 1
+
+Ai
+
+lf
+
+∂Ff
+
+∂Uj
+
+, j ∈ neighbors( i). (89) This formulation ensures consistency with the adjoint framework, capturing local sensitivities required for gradient-based inversion and optimization. 
+
+Derivation of ∂F 
+
+> ∂b
+
+for FVM 
+
+To compute the local sensitivity of the shallow water system to bed topography b, we differentiate the right-hand side function F.47 Flux Contributions The governing equations include: 
+
+∂F1
+
+∂b = 0 , (90) 
+
+∂F2
+
+∂b = −gh ∂b ∂x , (91) 
+
+∂F3
+
+∂b = −gh ∂b ∂y . (92) Only the momentum equations contain explicit b-dependence via the bed slope terms. For a domain with M cells, the Jacobian matrix is: 
+
+∂F
+
+∂b =
+
+
+
+0M ×M
+
+−gdiag( h) · diag( Sx)
+
+−gdiag( h) · diag( Sy )
+
+ ∈ R3M ×M . (93) In this formulation, the first M rows correspond to continuity equations with no explicit b-dependence. The middle and last M rows represent the effects of bed slope on x- and y-momentum equations, re-spectively. The diagonal form ensures each grid cell’s sensitivity is localized, aligning with the adjoint system. 
+
+Neural Operator Learning for the Shallow Water Equations 
+
+We employ neural operator learning to model tsunami dynamics governed by the shallow water equa-tions with Manning friction, applied to the 2011 Tohoku event setup. Variability across samples arises from earthquake-induced seafloor deformation, represented through the Okada dislocation framework. Okada fault parameters are sampled within the ranges reported in [Grilli et al., 2013], and random earthquake epicenters are assigned as illustrated in Supplementary Fig. E.3. To generate training data, we used the dTSUNAMI finite volume solver on an unstructured triangular mesh consisting of 308,001 cells and 154,598 nodes. Each simulation is run for 3600 seconds, storing 51 uniformly spaced snapshots. These high-resolution solutions and their Jacobians are subsequently coarsened to a 100 ×100 uniform grid for neural operator training. Within the SC-NO framework, the input function consists of the first tu = 5 time steps of the water stage field h(x, t ) together with the seafloor deformation ∆ zb(x) computed from the Okada model. The neural operator Gθ is then trained to predict the remaining tG = 46 time steps, guided by the Jacobian of the final water stage with respect to the bed topography, computed via the adjoint method (Supplementary Section E). Formally, the operator learning problem is defined as: 
+
+Gθ : ( X × [0 , t u], ∆zb(x)) → h(x, t, ∆zb), for ( x, t ) ∈ X × [tu, T ]. (94) To evaluate both interpolation and extrapolation performance, we consider two testing scenarios: (i) an in-training case, where earthquake epicenters fall within the range covered by the training set, and (ii) an out-of-training case, where epicenters lie outside this region (Supplementary Fig. E.3). This setup enables us to assess not only the accuracy of SC-NO within the training distribution but also its ability to generalize tsunami propagation to previously unseen earthquake configurations, serving as an out-of-distribution (OOD) evaluation. This approach integrates spatial-temporal input information with earthquake source parameters, enabling SC-NO to learn a solution operator that generalizes tsunami propagation and inundation across both in-training and out-of-distribution epicenter scenarios. 
+
+Mapping Between Fine Solver Mesh and Coarse Neural Operator Grid 
+
+For the shallow-water tsunami case (PDE3), neural operator training and inference are conducted on a fixed 100 ×100 uniform grid, while the governing dynamics are solved on a substantially finer unstructured mesh using the dTSUNAMI finite volume solver. This resolution disparity requires two complementary mappings: a coarsening operator that restricts high-resolution solutions to the learning grid, and an 48 0 500 1000 
+
+X (km) 
+
+0500 1000 
+
+> Y (km)
+
+(a) 
+
+0 500 1000 
+
+X (km) 
+
+(b) 
+
+Train samples Evaluation samples Test samples Figure E.3: Sampling strategy for PDE3 (tsunami scenario). (a) Training and evaluation samples are generated from random earthquake epicenters distributed across the central region of the domain. (b) Out-of-distribution (OOD) test samples are generated by shifting epicenters into a geographically distinct southern band, ensuring that all test events occur in a region not represented in the training or evaluation sets. 
+
+upscaling operator that reconstructs physically consistent fine-scale fields from coarse neural-operator predictions. 
+
+Coarsening of fine-scale solutions. Let d(x, t ) denote the fine-scale water depth field produced by the solver on the continuous domain X . We introduce a uniform partition {Ωij } of X corresponding to the 100 × 100 neural operator grid. Coarsening is performed via a cell-averaging operator, ¯dij (t) = 1
+
+|Ωij |
+
+Z
+
+> Ωij
+
+d(x, t ) dx, (95) yielding a coarse depth field ¯dij (t) that preserves the mean water depth within each cell. In practice, this corresponds to averaging solver values associated with fine mesh elements whose centroids lie within Ωij . This projection provides a physically consistent low-resolution representation suitable for neural operator learning while retaining the dominant large-scale dynamics. 
+
+Physically based upscaling from coarse to fine resolution. The inverse mapping from coarse mean depth to fine-scale depth is not uniquely defined: many fine configurations yield the same coarse average. To obtain a physically meaningful reconstruction, the upscaling is defined as a cell-wise hydro-static fill over the known fine bathymetry. Let {Ωij } denote the 100 × 100 coarse partition of the horizontal domain, and let {(xp, z b,p )}Np=1 be the fine solver nodes (or vertices), where xp ∈ R2 and zb,p = zb(xp) is the bed elevation. Each fine node is assigned to exactly one coarse cell via 
+
+c(p) = ( i, j ) s.t. xp ∈ Ωij , Pij = {p : c(p) = ( i, j )}, Nij = |P ij |. (96) The neural operator predicts the coarse mean depth ¯dij (t) on each cell. The reconstructed fine depth is defined pointwise by 
+
+dp(t) =  Hij (t) − zb,p 
+
+
+
+> +
+
+, p ∈ P ij , (a)+ := max( a, 0) , (97) where Hij (t) is a cell-wise water level (stage) chosen to satisfy the coarse mean-depth constraint in 
+
+discrete form: 1
+
+Nij 
+
+X
+
+> p∈P ij
+
+ Hij (t) − zb,p 
+
+ 
+
+> +
+
+= ¯dij (t). (98) 49 (a)  (b) Figure E.4: Comparison of depth upscaling methods. (a) Shallow-water regime (0–5th percentile of true depth). (b) Moderate-to-deep regime (5–100th percentile of true depth). 
+
+Equation (98) defines Hij (t) implicitly. The left-hand side is a continuous, non-decreasing function of 
+
+Hij (t), hence the solution exists and is unique whenever ¯dij (t) is attainable over the local bathymetric distribution {zb,p }p∈P ij . In practice, Hij (t) is obtained by bisection with brackets 
+
+Hlow  
+
+> ij
+
+= min 
+
+> p∈P ij
+
+zb,p , Hhigh  
+
+> ij
+
+= max 
+
+> p∈P ij
+
+zb,p + ¯dij (t) + ε, (99) and the cell is treated as dry whenever ¯dij (t) ≤ dmin , in which case dp(t) = 0 for all p ∈ P ij .Finally, to ensure that the reconstruction preserves the total water volume implied by the coarse prediction at each time t, an optional per-time-step global rescaling is applied. Let Aij = |Ωij | be the coarse cell area and approximate each node in Ω ij by an equal area weight Aij /N ij . Then the target and reconstructed volumes are 
+
+Vtarget (t) = X
+
+> i,j
+
+¯dij (t) Aij , Vrec (t) = X
+
+> i,j
+
+X
+
+> p∈P ij
+
+dp(t) Aij 
+
+Nij 
+
+, (100) and we set a scalar factor α(t) = Vtarget (t)/V rec (t) (when Vrec (t) > 0) and replace dp(t) ← α(t) dp(t). This upscaling is therefore non-negative, bathymetry-aware, and exactly consistent with the coarse mean-depth constraints by construction, while avoiding the unphysical shoreline behavior that can arise from purely geometric interpolation in shallow regions. A common alternative is to upsample coarse predictions using standard interpolation methods (e.g., nearest-neighbor or bilinear interpolation of depth or stage). Such approaches ignore bathymetric vari-ability and do not enforce physical constraints, often leading to spurious inundation over dry land and degraded accuracy in shallow regions. Figure E.4 illustrates a controlled comparison between a standard interpolation-based reconstruction and the proposed physically based upscaling procedure. Starting from a high-resolution reference solution obtained from the tsunami solver, the water depth field is first coarsened to the 100 × 100 uniform grid used by the neural operator. This coarse representation is then independently upscaled back to the original fine resolution using (i) a purely geometric interpolation scheme and (ii) the proposed bathtub-based reconstruction. The resulting reconstructed fields are compared against the original high-resolution solution. In shallow-water regions near the shoreline (0–5th percentile of true depth), interpolation-based re-construction fails to recover physically meaningful depths and exhibits poor agreement with the reference solution (Figure E.4a). This failure arises because interpolation does not account for local bathymetric structure and cannot enforce essential physical constraints such as non-negativity of depth or shoreline emergence. In contrast, the bathtub-based reconstruction explicitly incorporates the underlying bed ele-vation and enforces consistency with the coarse mean depth, yielding accurate recovery of shallow-water 50 states. In moderate-to-deep regions, both reconstruction approaches perform comparably well, indicating that simple interpolation is sufficient only away from the shoreline (Figure E.4b). These results demon-strate that physically informed upscaling is a necessary complement to coarse neural-operator predictions when reconstructing near-shore and inundation-relevant tsunami dynamics, while purely geometric in-terpolation is inadequate in depth regimes most critical for hazard assessment. Taken together, this comparison establishes the upscaling procedure as a reliable and physically consistent complement to the neural-operator framework. While SC-NO is trained and evaluated entirely on coarse-resolution fields, the proposed reconstruction enables faithful recovery of fine-scale depth distributions required for solver-level validation, visualization, and downstream hazard analysis. Importantly, this post-processing step operates independently of the learned operator and does not modify its predictions; instead, it provides a principled bridge between coarse neural-operator outputs and high-resolution physical fields, ensuring consistency with bathymetry and shallow-water physics. 
+
+Three-Stage Inversion Framework for Tsunami Source Reconstruction 
+
+Rapid and reliable estimation of tsunami sources is vital for the effectiveness of real-time early-warning systems. When a major undersea earthquake occurs, the resulting seafloor deformation initiates tsunami waves that can traverse ocean basins and reach coastal regions within minutes, demanding immediate and accurate source characterization. To meet this need, we introduce a data-driven, gradient-based inversion framework that integrates Neural Operators with Okada surrogate networks to recon-struct the earthquake-induced seafloor deformation and infer the corresponding fault parameters directly from early-stage tsunami gauge observations . These early observations, typically spanning the first 30 minutes after the event onset, contain limited yet highly informative signals that guide the inversion toward physically consistent, interpretable, and computationally efficient source reconstructions suitable for real-time forecasting. The framework combines the differentiability and efficiency of neural operators with the interpretability of Okada fault parameterization, enabling near–real-time source reconstruction with both accuracy and physical coherence. The inversion proceeds in three sequential stages, progres-sively transitioning from field-level reconstruction to interpretable parameter refinement (Figure E.5). 
+
+Stage 1 — Field-Space Inversion of Okada Deformation (Direct gradient-based optimization of the seafloor deformation field using early gauge observations.) 
+
+In the first stage, inversion is performed directly in the field domain to reconstruct the Okada deformation field—the vertical displacement of the seafloor responsible for tsunami initiation. Starting from an initial guess, the deformation field is iteratively updated through gradient descent to minimize the mean squared error between simulated and observed water-stage time series at selected gauge locations during the early event window ( Tu = 30 minutes). Forward simulations are produced by a pretrained Neural Operator—either the baseline FNO or the Sensitivity-Constrained FNO —which acts as a differentiable surrogate for the shallow water equations. This stage yields an initial deformation estimate that reproduces the observed signals but may contain 
+
+low-frequency artifacts or nonphysical features , since the optimization acts directly on spatial pixels without explicit parameter constraints. At the end of Stage 1, both models converge toward defor-mation fields that reproduce the early tsunami gauge observations with reasonable accuracy (Figure E.6). Although residual discrepancies remain in both reconstructions, the SC-FNO demonstrates faster con-vergence, smoother gradients, and more accurate localization of the primary rupture zone compared to the baseline FNO . The SC-FNO–inferred field better captures the overall geometry, polarity, and region of occurrence of the true Okada deformation, while the FNO result remains affected by high-frequency noise and scattered artifacts. 
+
+Stage 2 — Parameter Extraction via Okada Surrogate Encoder (Encoding the inferred defor-mation field into compact Okada fault parameters through a learned inverse mapping.) 
+
+To restore physical interpretability, the deformation field recovered in Stage 1, denoted as F ∈ RH×W ,is passed through a pretrained Okada Surrogate Encoder Eθ . This network performs the nonlinear mapping 
+
+Eθ : F → P ∈ R9,
+
+51 Loss computation 
+
+backward loss 
+
+> Gauges
+> Time series at gauges
+
+Main Neural Operatoor 
+
+Loss computation 
+
+> Gauges
+> Time series at gauges
+> Main Neural Operatoor
+> Optimazation objective
+
+Stage 1 – Field-Space Inversion of Okada Deformation 
+
+(Direct optimization of the seafloor deformation field using early gauge observations.) 
+
+Stage 3 – Parameter-Space Inversion and Refinement 
+
+(Starting from Stage-1 initialization, optimizing Okada parameters through differentiable decoding and gauge-driven loss feedback.) 
+
+Okada 
+
+Field deformation 
+
+> Decoder
+> Okada Surrogate
+> Optimazation objective
+
+backward loss 
+
+> Okada Field Deformation
+
+Stage 2 – Parameter Extraction via Okada Surrogate Encoder 
+
+(Encoding the inferred deformation field into physical fault parameters using the learned inverse model.) 
+
+Encoder Okada Surrogate Figure E.5: Three-stage tsunami inversion workflow. The framework integrates neural operator surrogates and Okada-based encoder–decoder networks for rapid and interpretable tsunami source reconstruction. Stage 1: Field-space inversion op-timizes the Okada deformation field using early tsunami gauge observations via neural operator surrogates (FNO or SC-FNO). 
+
+Stage 2: The inferred deformation is passed through a U-FNO–based Okada Surrogate Encoder that maps the 2D field to a nine-dimensional fault parameter vector P. Stage 3: A U-FNO Decoder reconstructs the deformation field from P, enabling parameter-space refinement through differentiable feedback and gauge-driven loss propagation. 
+
+52 ]0 200 400 600 800 1000 1200 1400 1600    
+
+> Iteration
+> 10 4
+> 10 3
+> 10 2
+> MSE Loss (log scale)  SC-FNO Loss FNO Loss
+> Initial Guess
+> 2
+> 1
+> 012
+> True Okada deformation
+> 2
+> 1
+> 012
+> Inferred Okada deformation (SC-FNO)
+> 2
+> 1
+> 012
+> Inferred Okada deformation (FNO)
+> 2
+> 1
+> 012
+
+Figure E.6: Field-space inversion of Okada deformation (Stage 1). Evolution of the mean squared error (MSE) loss during inversion using SC-FNO and FNO (top), and comparison of deformation fields (bottom). Red dots indicate the locations of tsunami gauges. 
+
+where P represents the compact vector of Okada fault parameters, including the fault epicenter coordi-nates ( x, y), depth, length, width, strike, dip, rake, and slip magnitude. 
+
+Stage 3 — Parameter-Space Inversion and Refinement via Decoder Okada Surrogate (Gradient-based optimization of Okada parameters using differentiable decoding and gauge-driven feedback.) 
+
+In the final stage, inversion operates in the parameter domain . The vector P obtained from Stage 2 serves as the initial guess for a new optimization loop. A pretrained Decoder Okada Surrogate maps 
+
+P back into its corresponding seafloor deformation field, providing a differentiable link between the parameters and simulated tsunami signals. At each iteration, the decoded deformation field is propagated through the main neural operator (FNO or SC-FNO) to generate gauge predictions. The resulting loss between predicted and observed signals is backpropagated through the full pipeline—decoder and forward model included—to update all nine Okada parameters simultaneously via gradient descent. This stage refines the parameter estimates within a physically meaningful subspace, producing deformation fields that are dynamically consistent with observed data. At the end of Stage 3, the inversion converges toward a stable and physically consistent solution (Figure E.7). While the baseline FNO fails to achieve meaningful refinement, the SC-FNO continues to reduce the residual mismatch between predicted and observed gauge signals, converging toward the true Okada deformation. The resulting field accurately recovers both the location and polarity of the rupture with minimal spatial artifacts, confirming that sensitivity-constrained learning enables effective parameter-space optimization and physically reliable reconstruction. With the final Okada deformation field inferred from Stage 3, the complete tsunami evolution can now be simulated through the trained neural operator model. By propagating the recovered deformation through the FNO and SC-FNO forward models, we reconstruct the full spatiotemporal dynamics of the event from the initial seafloor motion to the final coastal impact. Representative tsunami gauge time series are shown in Figure 14, demonstrating that while both models reproduce the overall wave-form trends, the SC-FNO achieves closer agreement with observed amplitudes and phases, maintaining stability and reducing residual errors throughout the simulation. 53 0 20 40 60 80 100 
+
+Iteration 
+
+10 2
+
+10 1
+
+> MSE Loss (log scale)
+
+SC-FNO Loss FNO Loss  
+
+> Initial Guess from Stage 2
+> True Okada deformation Inferred Okada deformation (SC-FNO)
+> Inferred Okada deformation (FNO)
+> 2
+> 1
+> 012
+> 2
+> 1
+> 012
+> 2
+> 1
+> 012
+> 2
+> 1
+> 012
+
+Figure E.7: Parameter-space inversion and refinement (Stage 3). Convergence of the mean squared error (MSE) loss during parameter-space optimization (top) and comparison of deformation fields (bottom). The optimization is initialized using parameters inferred from Stage 2 and refined through the differentiable Decoder Okada Surrogate. The sensitivity-constrained neural operator (SC-FNO) achieves faster convergence and higher reconstruction fidelity compared to the baseline FNO, closely reproducing the true Okada deformation. Red dots indicate tsunami gauge locations. 
+
+54 Additional results for PDE3 
+
+Table E.1: Comparison of Error Metrics Across Models Trained with Different Sample Sizes (in-training) PDE3 Model 1200 Samples 1000 Samples 700 Samples 200 Samples Rel. L2 MAE Rel. L2 MAE Rel. L2 MAE Rel. L2 MAE 
+
+FNO 7.1 × 10 −2 6.8 × 10 −2 8.9 × 10 −2 7.6 × 10 −2 1.12 × 10 −1 9.2 × 10 −2 5.9 × 10 −1 5.8 × 10 −1
+
+WNO 7.6 × 10 −2 7.3 × 10 −2 9.5 × 10 −2 8.1 × 10 −2 1.18 × 10 −1 9.9 × 10 −2 6.3 × 10 −1 6.2 × 10 −1
+
+DeepONet 8.2 × 10 −2 7.9 × 10 −2 1.01 × 10 −1 8.7 × 10 −2 1.25 × 10 −1 1.0 × 10 −1 6.7 × 10 −1 6.7 × 10 −1
+
+SC-FNO 1.1 × 10 −2 2.2 × 10 −2 2.8 × 10 −2 5.6 × 10 −2 6.2 × 10 −2 1.0 × 10 −1 1.3 × 10 −1 2.3 × 10 −1
+
+SC-WNO 1.2 × 10 −2 2.4 × 10 −2 3.0 × 10 −2 5.9 × 10 −2 6.5 × 10 −2 1.1 × 10 −1 1.4 × 10 −1 2.5 × 10 −1
+
+SC-DeepONet 1.5 × 10 −2 2.8 × 10 −2 3.6 × 10 −2 7.0 × 10 −2 7.1 × 10 −2 1.2 × 10 −1 1.6 × 10 −1 2.9 × 10 −1
+
+Table E.2: Comparison of Error Metrics Across Models Trained with Different Sample Sizes (out-of-training) PDE3 Model 1200 Samples 1000 Samples 700 Samples 200 Samples Rel. L2 MAE Rel. L2 MAE Rel. L2 MAE Rel. L2 MAE 
+
+FNO 1.3 × 10 −1 1.1 × 10 −1 1.6 × 10 −1 1.3 × 10 −1 1.9 × 10 −1 1.6 × 10 −1 7.5 × 10 −1 6.5 × 10 −1
+
+WNO 1.4 × 10 −1 1.2 × 10 −1 1.8 × 10 −1 1.4 × 10 −1 2.1 × 10 −1 1.7 × 10 −1 8.0 × 10 −1 6.9 × 10 −1
+
+DeepONet 1.5 × 10 −1 1.3 × 10 −1 1.9 × 10 −1 1.5 × 10 −1 2.3 × 10 −1 1.9 × 10 −1 8.5 × 10 −1 7.2 × 10 −1
+
+SC-FNO 3.5 × 10 −2 6.0 × 10 −2 5.0 × 10 −2 8.0 × 10 −2 8.0 × 10 −2 1.0 × 10 −1 2.5 × 10 −1 3.0 × 10 −1
+
+SC-WNO 3.8 × 10 −2 6.5 × 10 −2 5.3 × 10 −2 8.5 × 10 −2 8.5 × 10 −2 1.1 × 10 −1 2.7 × 10 −1 3.2 × 10 −1
+
+SC-DeepONet 4.2 × 10 −2 7.0 × 10 −2 5.7 × 10 −2 9.0 × 10 −2 9.5 × 10 −2 1.2 × 10 −1 3.0 × 10 −1 3.5 × 10 −1
+
+55 F Performance Metrics 
+
+We report relative L2 error and mean absolute error (MAE) as the main continuous field-error metrics. For N test samples, let bu(i) = Gθ (a(i)) denote the model prediction and u(i) the corresponding reference solution. The relative L2 error is computed as Rel . L 2 = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+bu(i) − u(i)
+
+> 2
+
+u(i) 2
+
+, (101) where the norm is computed over the evaluated spatial–temporal solution field. The MAE is computed as MAE = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+1
+
+Mi
+
+bu(i) − u(i) 
+
+> 1
+
+, (102) where Mi is the number of evaluated spatial–temporal degrees of freedom in sample i. This normalization makes the metric an average absolute error rather than a total absolute error. For inverse-source and tsunami reconstruction experiments, we additionally report the coefficient of determination, 
+
+R2 = 1 −
+
+P 
+
+> i
+
+bu(i) − u(i) 22
+
+P 
+
+> i
+
+u(i) − ¯u 22
+
+, (103) where ¯ u denotes the mean of the reference values over the evaluated samples and entries. Depending on the experiment, R2 is computed for the reconstructed input field, the predicted solution trajectory, or the tsunami source reconstruction. For tsunami-impact evaluation, we also use wet–dry classification metrics computed over the evaluated spatial cells. A cell is classified as dry if h < 0.01 m and wet if h ≥ 0.01 m. The false-negative ratio is defined as FNR = FN TP + FN , (104) where FN is the number of reference-wet cells predicted as dry, and TP is the number of reference-wet cells predicted as wet. Inundation accuracy is defined as Accuracy = TP + TN TP + TN + FP + FN , (105) where TN denotes reference-dry cells predicted as dry, and FP denotes reference-dry cells predicted as wet. 56 G Hyperparameters and Settings 
+
+All models were trained using the Adam optimizer with a batch size of 16, an initial learning rate of 0.001, a learning rate scheduler with a decay factor γ = 0 .95 applied every 100 epochs. The training was conducted over a spatiotemporal domain discretized into a nx × ny spatial grid. The total number of time steps nt is given by nt = tu + tG, where tu is the number of input time steps and tG is the number of predicted time steps. Model-specific hyperparameters are summarized in the tables below. Table G.1: FNO hyper-parameters for all PDEs Parameter PDE1 PDE2 PDE3 
+
+Fourier modes ( x, y, t ) (8, 8, 8) (8, 8, 8) (8, 8, 8) Width 20 20 20 Training epochs 500 500 1000 
+
+nx 50 64 100 
+
+ny 50 64 100 
+
+tu 1 1 1
+
+tG 99 29 50 
+
+nt 100 30 51 
+
+Table G.2: WNO hyper-parameters for all PDEs Parameter PDE1 PDE2 PDE3 
+
+Wavelet basis db6 db6 db6 Decomposition level 4 4 4Width 30 30 30 Number of wavelet layers 4 4 4Training epochs 500 500 1000 
+
+nx 50 64 100 
+
+ny 50 64 100 
+
+tu 1 1 1
+
+tG 99 29 50 
+
+nt 100 30 51 
+
+Table G.3: DeepONet hyper-parameters for all PDEs Parameter PDE1 PDE2 PDE3 
+
+Branch network layers [64, 128, 128, 128, 64] [64, 128, 128, 128, 64] [64, 128, 128, 128, 64] Trunk network layers [64, 128, 128, 128, 64] [64, 128, 128, 128, 64] [64, 128, 128, 128, 64] Training epochs 500 500 1000 
+
+nx 50 64 100 
+
+ny 50 64 100 
+
+tu 1 1 1
+
+tG 99 29 50 
+
+nt 100 30 51 
+
+57 H Computational Cost Analysis 
+
+This section quantifies the end-to-end computational cost associated with data generation and model training across all benchmark problems (PDE1–PDE3). For each model, we report the average wall-clock training time per epoch, the total training time over 500 epochs, and the preprocessing overhead, includ-ing sample generation and Jacobian computation where applicable. All experiments were conducted on an NVIDIA A100 (32 GB) GPU. Peak GPU memory was not used as a primary comparison metric; how-ever, all reported experiments fit within the 32 GB memory of a single NVIDIA A100 GPU. The results provide a direct comparison of computational efficiency between the baseline and sensitivity-constrained neural operators and quantify the additional overhead introduced by sensitivity supervision. Table H.1: Total Computational Cost Breakdown over 500 Epochs (PDE1) Model Samples Training Data Preparation Total Cost 
+
+Train/Epoch Total Train Sample Prep Jacobian Data Prep FNO 1000 16.8 8400.0 1200.0 0.0 1200.0 9600.0 
+
+500 8.4 4200.0 600.0 0.0 600.0 4800.0 
+
+200 3.36 1680.0 240.0 0.0 240.0 1920.0 
+
+100 1.68 840.0 120.0 0.0 120.0 960.0 
+
+WNO 1000 24.2 12100.0 1200.0 0.0 1200.0 13300.0 
+
+500 12.1 6050.0 600.0 0.0 600.0 6650.0 
+
+200 4.84 2420.0 240.0 0.0 240.0 2660.0 
+
+100 2.42 1210.0 120.0 0.0 120.0 1330.0 
+
+DeepONet 1000 20.4 10200.0 1200.0 0.0 1200.0 11400.0 
+
+500 10.2 5100.0 600.0 0.0 600.0 5700.0 
+
+200 4.08 2040.0 240.0 0.0 240.0 2280.0 
+
+100 2.04 1020.0 120.0 0.0 120.0 1140.0 
+
+SC-FNO 1000 27.6 13800.0 1200.0 420.0 1620.0 15420.0 
+
+500 13.8 6900.0 600.0 210.0 810.0 7710.0 
+
+200 5.52 2760.0 240.0 84.0 324.0 3084.0 
+
+100 2.76 1380.0 120.0 42.0 162.0 1542.0 
+
+SC-WNO 1000 32.4 16200.0 1200.0 420.0 1620.0 17820.0 
+
+500 16.2 8100.0 600.0 210.0 810.0 8910.0 
+
+200 6.48 3240.0 240.0 84.0 324.0 3564.0 
+
+100 3.24 1620.0 120.0 42.0 162.0 1782.0 
+
+SC-DeepONet 1000 28.2 14100.0 1200.0 420.0 1620.0 15720.0 
+
+500 14.1 7050.0 600.0 210.0 810.0 7860.0 
+
+200 5.64 2820.0 240.0 84.0 324.0 3144.0 
+
+100 2.82 1410.0 120.0 42.0 162.0 1572.0 
+
+Table H.2: Total Computational Cost Breakdown over 500 Epochs (PDE2) 
+
+Model Samples Training Data Preparation Total Cost 
+
+Train/Epoch Total Train Sample Prep Jacobian Data Prep FNO 1000 13.8 6888.0 3200.0 0.0 3200.0 10088.0 
+
+500 6.3 3150.0 1600.0 0.0 1600.0 4750.0 
+
+200 2.5 1260.0 640.0 0.0 640.0 1900.0 
+
+100 1.3 663.6 320.0 0.0 320.0 983.6 
+
+WNO 1000 17.7 8833.0 3200.0 0.0 3200.0 12033.0 
+
+500 8.8 4416.5 1600.0 0.0 1600.0 6016.5 
+
+200 4.1 2032.8 640.0 0.0 640.0 2672.8 
+
+100 1.9 955.9 320.0 0.0 320.0 1275.9 
+
+DeepONet 1000 18.0 8976.0 3200.0 0.0 3200.0 12176.0 
+
+500 8.6 4284.0 1600.0 0.0 1600.0 5884.0 
+
+200 3.1 1530.0 640.0 0.0 640.0 2170.0 
+
+100 1.7 826.2 320.0 0.0 320.0 1146.2 
+
+SC-FNO 1000 22.6 11316.0 3200.0 860.0 4060.0 15376.0 
+
+500 11.0 5520.0 1600.0 430.0 2030.0 7550.0 
+
+200 4.6 2318.4 640.0 172.0 812.0 3130.4 
+
+100 2.2 1117.8 320.0 86.0 406.0 1523.8 
+
+SC-WNO 1000 26.2 13122.0 3200.0 860.0 4060.0 17182.0 
+
+500 12.8 6399.0 1600.0 430.0 2030.0 8429.0 
+
+200 5.1 2559.6 640.0 172.0 812.0 3371.6 
+
+100 2.3 1150.2 320.0 86.0 406.0 1556.2 
+
+SC-DeepONet 1000 20.3 10152.0 3200.0 860.0 4060.0 14212.0 
+
+500 11.8 5922.0 1600.0 430.0 2030.0 7952.0 
+
+200 4.2 2115.0 640.0 172.0 812.0 2927.0 
+
+100 2.5 1254.9 320.0 86.0 406.0 1660.9 
+
+58 Table H.3: Total Computational Cost Breakdown over 500 Epochs (PDE3) 
+
+Model Samples Training Data Preparation Total Cost 
+
+Train/Epoch Total Train Sample Prep Jacobian Data Prep FNO 1200 19.0 9500.0 5760.0 0.0 5760.0 15260.0 
+
+1000 17.5 8750.0 4800.0 0.0 4800.0 13550.0 
+
+700 13.0 6500.0 3360.0 0.0 3360.0 9860.0 
+
+200 3.0 1500.0 960.0 0.0 960.0 2460.0 
+
+WNO 1200 24.0 12000.0 5760.0 0.0 5760.0 17760.0 
+
+1000 22.5 11250.0 4800.0 0.0 4800.0 16050.0 
+
+700 16.8 8400.0 3360.0 0.0 3360.0 11760.0 
+
+200 5.2 2600.0 960.0 0.0 960.0 3560.0 
+
+DeepONet 1200 24.5 12250.0 5760.0 0.0 5760.0 18010.0 
+
+1000 22.8 11400.0 4800.0 0.0 4800.0 16200.0 
+
+700 17.0 8500.0 3360.0 0.0 3360.0 11860.0 
+
+200 4.0 2000.0 960.0 0.0 960.0 2960.0 
+
+SC-FNO 1200 30.5 15250.0 5760.0 1536.0 7296.0 22546.0 
+
+1000 28.5 14250.0 4800.0 1280.0 6080.0 20330.0 
+
+700 21.0 10500.0 3360.0 896.0 4256.0 14756.0 
+
+200 5.8 2900.0 960.0 256.0 1216.0 4116.0 
+
+SC-WNO 1200 35.0 17500.0 5760.0 1536.0 7296.0 24796.0 
+
+1000 33.0 16500.0 4800.0 1280.0 6080.0 22580.0 
+
+700 24.5 12250.0 3360.0 896.0 4256.0 16506.0 
+
+200 6.4 3200.0 960.0 256.0 1216.0 4416.0 
+
+SC-DeepONet 1200 27.0 13500.0 5760.0 1536.0 7296.0 20796.0 
+
+1000 25.5 12750.0 4800.0 1280.0 6080.0 18830.0 
+
+700 19.5 9750.0 3360.0 896.0 4256.0 14006.0 
+
+200 5.3 2650.0 960.0 256.0 1216.0 3866.0 
+
+59 CRediT authorship contribution statement 
+
+Abdolmehdi Behroozi: Conceptualization, Methodology, Software, Formal analysis, Investigation, Data curation, Visualization, Writing – original draft. 
+
+Chaopeng Shen: Conceptualization, Methodology, Supervision, Project administration, Funding ac-quisition, Writing – review and editing. 
+
+Daniel Kifer: Methodology, Supervision, Writing – review and editing. 
+
+Kathryn Lawson: Methodology, Investigation, Writing – review and editing. 
+
+# References 
+
+Abdolmehdi Behroozi, Chaopeng Shen, and Daniel Kifer. Sensitivity-constrained fourier neural opera-tors for forward and inverse problems in parametric differential equations. In The Thirteenth Inter-national Conference on Learning Representations , 2025. URL https://openreview.net/forum?id= DPzQ5n3mNm .Lianghao Cao, Thomas O’Leary-Roseberry, and Omar Ghattas. Derivative-informed neural operator acceleration of geometric mcmc for infinite-dimensional bayesian inverse problems. Journal of Machine Learning Research , 26(78):1–68, 2025. Byoung-Ju Choi, Hong Sung Jin, and Bataa Lkhagvasuren. Applications of the fourier neural operator in a regional ocean modeling and prediction. Frontiers in Marine Science , 11:1383997, 2024. Wojciech M Czarnecki, Simon Osindero, Max Jaderberg, Grzegorz Swirszcz, and Razvan Pascanu. Sobolev training for neural networks. Advances in neural information processing systems , 30, 2017. Saneiki Fujita, Reika Nomura, Shuji Moriguchi, Yu Otake, Randall J LeVeque, and Kenjiro Terada. Scenario superposition method for real-time tsunami prediction using a bayesian approach. Journal of Geophysical Research: Oceans , 129(12):e2024JC021565, 2024. Edison Gica. Development of the forecast propagation database for noaa’s short-term inundation forecast for tsunamis (sift). 2008. Thomas J Grady, Ravi Khan, Mathias Louboutin, Ziyi Yin, Philipp A Witte, Ravi Chandra, et al. Model-parallel fourier neural operators as learned surrogates for large-scale parametric pdes. Computational Geosciences , 178:105402, 2023. doi: 10.1016/j.cageo.2023.105402. Stephan T Grilli, Jeffrey C Harris, Tayebeh S Tajalli Bakhsh, Timothy L Masterlark, Christodoulos Kyriakopoulos, James T Kirby, and Fengyan Shi. Numerical simulation of the 2011 tohoku tsunami based on a new transient fem co-seismic source: Comparison to far-and near-field observations. Pure and Applied Geophysics , 170(6):1333–1359, 2013. J Han, XH Zhou, and H Xiao. An equivariant neural operator for developing nonlocal tensorial consti-tutive models. arxiv,. doi: 10.48550. arXiv preprint arXiv.2201.01287 , 2022. M Hoshiba and T Ozaki. Earthquake early warning and tsunami warning of the japan meteorological agency, and their performance in the 2011 off the pacific coast of tohoku earthquake (9.0). In Early warning for geological disasters: Scientific methods and current practice , pages 1–28. Springer, Berlin, Heidelberg, 2014. Mikio Ishiwatari. Tsunami and earthquake warning systems. Knowledge note 2-5, cluster 2: Nonstructural measures, Global Facility for Disaster Reduction and Recovery (GFDRR), Washington, DC, 2012. URL https://www.gfdrr.org/sites/default/files/publication/ knowledge-note-japan-earthquake-2-5_0.pdf .Alex Kendall, Yarin Gal, and Roberto Cipolla. Multi-task learning using uncertainty to weigh losses for scene geometry and semantics. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 7482–7491, 2018. 60 Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to pdes. Journal of Machine Learning Research , 24(89):1–97, 2023. Nikola B Kovachki, Samuel Lanthaler, and Hrushikesh Mhaskar. Data complexity estimates for operator learning. arXiv preprint arXiv:2405.15992 , 2024. Thorsten Kurth, Shashank Subramanian, Peter Harrington, Jaideep Pathak, Morteza Mardani, David Hall, Andrea Miele, Karthik Kashinath, and Anima Anandkumar. Fourcastnet: Accelerating global high-resolution weather forecasting using adaptive fourier neural operators. In Proceedings of the platform for advanced scientific computing conference , pages 1–11, 2023. Samuel Lanthaler and Andrew M Stuart. The parametric complexity of operator learning. IMA Journal of Numerical Analysis , page draf028, 2025. Randall J LeVeque. Finite volume methods for hyperbolic problems , volume 31. Cambridge university press, Cambridge, UK, 2002. Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stu-art, and Anima Anandkumar. Fourier Neural Operator for Parametric Partial Differential Equations, May 2021. Zongyi Li, Hongkai Zheng, Nikola Kovachki, David Jin, Haoxuan Chen, Burigede Liu, Kamyar Azizzade-nesheli, and Anima Anandkumar. Physics-informed neural operator for learning partial differential equations. ACM/JMS Journal of Data Science , 1(3):1–27, 2024. Phillip Lippe, Bas Veeling, Paris Perdikaris, Richard Turner, and Johannes Brandstetter. Pde-refiner: Achieving accurate long rollouts with neural pde solvers. Advances in Neural Information Processing Systems , 36:67398–67433, 2023. Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature machine intelligence , 3(3):218–229, 2021. Michael McCabe, Peter Harrington, Shashank Subramanian, and Jed Brown. Towards stability of au-toregressive neural operators. arXiv preprint arXiv:2306.10619 , 2023. Yoshimitsu Okada. Internal deformation due to shear and tensile faults in a half-space. Bulletin of the seismological society of America , 82(2):1018–1040, 1992. T Ozaki. Jma’s tsunami warning for the 2011 great tohoku earthquake and tsunami warning improvement plan. j disaster res 7: 439–445, 2012. Richard S Palais and Robert Andrew Palais. Differential equations, mechanics, and computation , vol-ume 51. American Mathematical Soc., Providence, RI, 2009. Shaoxiang Qin, Fuyuan Lyu, Wenhui Peng, Dingyang Geng, Ju Wang, Naiping Gao, Xue Liu, and Liangzhu Leon Wang. Toward a better understanding of fourier neural operators: Analysis and improvement from a spectral perspective. arXiv e-prints , pages arXiv–2404, 2024. Yuan Qiu, Nolan Bridges, and Peng Chen. Derivative-enhanced deep operator network. Advances in Neural Information Processing Systems , 37:20945–20981, 2024. Alfio Quarteroni, Riccardo Sacco, and Fausto Saleri. Numerical mathematics , volume 37. Springer Science & Business Media, New York, 2010. Bogdan Raonic, Roberto Molinaro, Tobias Rohner, Siddhartha Mishra, and Emmanuel de Bezenac. Convolutional neural operators. In ICLR 2023 Workshop on Physics for Machine Learning , 2023. D. Reymond, E. A. Okal, H. H´ ebert, and M. Bourdet. Rapid forecast of tsunami wave heights from a database of pre-computed simulations, and application during the 2011 tohoku tsunami in french polynesia. Geophysical Research Letters , 39(11), 2012. doi: https://doi.org/10.1029/2012GL051640. URL https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2012GL051640 .61 Vasily V Titov, Frank I Gonzalez, EN Bernard, Marie C Eble, Harold O Mofjeld, Jean C Newman, and Angie J Venturato. Real-time tsunami forecasting: Challenges and solutions. Natural Hazards , 35(1): 35–41, 2005. Tapas Tripura and Souvik Chakraborty. Wavelet Neural Operator for solving parametric partial differ-ential equations in computational mechanics problems. Computer Methods in Applied Mechanics and Engineering , 404:115783, February 2023. ISSN 0045-7825. doi: 10.1016/j.cma.2022.115783. Christopher J Vogl and Randall J LeVeque. A high-resolution finite volume seismic model to generate seafloor deformation for tsunami modeling. Journal of Scientific Computing , 73(2):1204–1215, 2017. Xili Wang, Kejun Tang, Jiayu Zhai, Xiaoliang Wan, and Chao Yang. Deep adaptive sampling for surrogate modeling without labeled data. Journal of Scientific Computing , 101(3):1–33, 2024. Gege Wen, Zongyi Li, Qirui Long, Kamyar Azizzadenesheli, Anima Anandkumar, and Sally M Benson. Real-time high-resolution co 2 geological storage prediction using nested fourier neural operators. 
+
+Energy & Environmental Science , 16(4):1732–1741, 2023. Wang Xiao, Ting Gao, Kai Liu, Jinqiao Duan, and Meng Zhao. Fourier neural operator based fluid– structure interaction for predicting the vesicle dynamics. Physica D: Nonlinear Phenomena , 463: 134145, 2024. Haoyu Yang, Zongyi Li, Kumara Sastry, Saumyadip Mukhopadhyay, Anima Anandkumar, Brucek Khailany, Vivek Singh, and Haoxing Ren. Large scale mask optimization via convolutional fourier neural operator and litho-guided self training. arXiv preprint arXiv:2207.04056 , 2022. Yifei Zong and Alexandre M Tartakovsky. Mathematics of digital twins and transfer learning for systems governed by pde models. Computer Methods in Applied Mechanics and Engineering , 448:118450, 2026. 62
