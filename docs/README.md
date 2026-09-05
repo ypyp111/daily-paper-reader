@@ -6,71 +6,71 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-03
-- 运行时间：2026-09-03 23:07:15 UTC
+- 最新运行日期：2026-09-05
+- 运行时间：2026-09-05 22:25:30 UTC
 - 运行状态：成功
 - 本次总论文数：17
 - 精读区：6
 - 速读区：11
 
 ### 今日简报（AI）
-今日精读聚焦 AI for Science：17篇论文中，多模态智能体挖掘控制方程与物理信息KAN求解粘弹性流体并列9.0高分。最值得关注两方向：用多模态智能体“观察-假设-验证”自动发现偏微分方程，及用物理信息KAN攻克复杂流体建模。若想入门，建议优先精读这两篇，并留意速读中扩散模型求解PDE与多智能体假设生成的最新进展。
-- 详情：[/202609/03/README](/202609/03/README)
+今日精读6篇、速读11篇，共扫描17篇论文，聚焦AI求解偏微分方程与材料模拟两大方向。最值得关注：DiffPDE用掩码扩散语言模型直接求解PDE（9.0分），以及动态谱优化加速氧空位动力学模拟的PINN方法（9.0分）。若想快速跟进，可优先精读这两篇，其余可速读贝叶斯反问题与神经粘弹性标定的方法学改进。
+- 详情：[/202609/05/README](/202609/05/README)
 
 ### 精读区论文标签
-1. [See, Hypothesize, Validate: Multimodal Agentic Framework for Discovering Governing PDEs](/202609/03/2608.27869v1-see-hypothesize-validate-multimodal-agentic-framework-for-discovering-governing-pdes)  
+1. [DiffPDE: Masked Diffusion Language Models as PDE Solver](/202609/05/2608.30532v1-diffpde-masked-diffusion-language-models-as-pde-solver)  
    标签：评分：9.0/10、query:ai-pde
-   evidence：面向PDE发现的多模态多智能体假设验证框架
-2. [Physics-Informed Kolmogorov-Arnold networks for viscoelastic fluid equations](/202609/03/2608.29895v1-physics-informed-kolmogorov-arnold-networks-for-viscoelastic-fluid-equations)  
+   evidence：DiffPDE用掩码扩散语言模型定向修复PDE求解器代码，契合大模型求解PDE及算法自动发现主题
+2. [Physics-Informed Neural Network Surrogate for Oxygen Vacancy Dynamics in epitaxial $\mathrm{SrTiO_3}$ on Si memristors via Dynamic Spectral Optimization](/202609/05/2609.02966v1-physics-informed-neural-network-surrogate-for-oxygen-vacancy-dynamics-in-epitaxial-mathrmsrtio3-on-si-memristors-via-dynamic-spectral-optimization)  
    标签：评分：9.0/10、query:sci-ml-agent
-   evidence：提出物理信息Kolmogorov-Arnold网络求解粘弹性流体方程正问题，直接匹配物理信息神经网络求解PDE
-3. [ES-AHD: An Evolution Strategy Framework for Automatic Heuristic Design](/202609/03/2609.00023v1-es-ahd-an-evolution-strategy-framework-for-automatic-heuristic-design)  
+   evidence：级联PINN结合动态谱优化求解氧化忆阻器中漂移扩散PDE，直接对应物理信息神经网络求解偏微分方程需求。
+3. [Equation Recast for Canonical Operator Learning Across Parametric PDEs](/202609/05/2609.02982v1-equation-recast-for-canonical-operator-learning-across-parametric-pdes)  
    标签：评分：9.0/10、query:sci-ml-agent
-   evidence：将演化策略集成进大模型驱动的自动启发式设计，高度契合大模型引导的演化程序合成
-4. [Geometry-aware Latent Autoregressive Generative Model for PDEs in Complex Domains](/202609/03/2609.00297v1-geometry-aware-latent-autoregressive-generative-model-for-pdes-in-complex-domains)  
+   evidence：面向参数化PDE的神经算子代理学习与零样本跨参数预测
+4. [Learnable composition for neural operators](/202609/05/2609.03069v1-learnable-composition-for-neural-operators)  
    标签：评分：9.0/10、query:sci-ml-agent
-   evidence：面向复杂域PDE的几何感知潜变量自回归生成模型，直接用神经网络对PDE动力进行代理预测
-5. [Physics-informed Learning for Orbital Uncertainty Propagation with Error Bounds](/202609/03/2609.01881v1-physics-informed-learning-for-orbital-uncertainty-propagation-with-error-bounds)  
+   evidence：通过组合预训练神经操作符实现跨几何尺度的PDE代理建模
+5. [Computing high-order mixed derivatives in physics-informed neural networks using multi-index Bell polynomials](/202609/05/2609.03768v1-computing-high-order-mixed-derivatives-in-physics-informed-neural-networks-using-multi-index-bell-polynomials)  
    标签：评分：9.0/10、query:sci-ml-agent
-   evidence：用PINN求解福克-普朗克PDE，并给出误差界
-6. [A Computational Comparison of Fourier Spectral Differentiation and Spatial Automatic Differentiation in Periodic Physics-Informed Neural Networks](/202609/03/2609.02110v1-a-computational-comparison-of-fourier-spectral-differentiation-and-spatial-automatic-differentiation-in-periodic-physics-informed-neural-networks)  
-   标签：评分：9.0/10、query:sci-ml-agent
-   evidence：针对PINN中PDE残差微分方式的受控实验
+   evidence：面向高阶PDE的PINN高效计算混合导数的方法，属于PINN核心技术
+6. [See, Hypothesize, Validate: Multimodal Agentic Framework for Discovering Governing PDEs](/202609/05/2608.27869v1-see-hypothesize-validate-multimodal-agentic-framework-for-discovering-governing-pdes)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：提出多角色智能体协作的MAGE框架，以置信度受控的假设验证循环从数据中发现控制方程；正中AI for PDE主题
 
 ### 速读区论文标签
-1. [HypoForge: A Self-Improving Multi-Agent Framework for Automated Hypothesis Generation and Testing via Scientific Skill Learning](/202609/03/2608.25770v1-hypoforge-a-self-improving-multi-agent-framework-for-automated-hypothesis-generation-and-testing-via-scientific-skill-learning)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：经验引导的多智能体LLM框架，通过学习可复用科学技能实现假设生成与测试，贴合智能体科学发现与技能学习主题
-2. [Can LLM Agents Discover? Evaluating Creativity on ML Engineering Tasks](/202609/03/2608.30047v1-can-llm-agents-discover-evaluating-creativity-on-ml-engineering-tasks)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：评测LLM科研智能体在机器学习任务上的算法发现创造力，对应自主智能体与自动算法发现主题
-3. [DiffPDE: Masked Diffusion Language Models as PDE Solver](/202609/03/2608.30532v1-diffpde-masked-diffusion-language-models-as-pde-solver)  
-   标签：评分：8.0/10、query:ai-pde
-   evidence：用掩码扩散语言模型和强化学习修复PDE求解器代码
-4. [Learning the Geometry of Admissible Hypotheses through Inductive Bias in Training Distributions](/202609/03/2608.31028v1-learning-the-geometry-of-admissible-hypotheses-through-inductive-bias-in-training-distributions)  
+1. [Learning Informative Prior with Infinite-Dimensional Continuous Normalizing Flow for Bayesian Inverse Problem](/202609/05/2609.03343v1-learning-informative-prior-with-infinite-dimensional-continuous-normalizing-flow-for-bayesian-inverse-problem)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：属于面向PDE假设空间的科学机器学习方法，利用归纳偏置学习可容许PDE的连续潜表示
-5. [DeSyR: A Decoupled Symbolic Recovery Framework with PINN-Guided Structure Search and Physics-Informed Coefficient Refinement](/202609/03/2609.00530v1-desyr-a-decoupled-symbolic-recovery-framework-with-pinn-guided-structure-search-and-physics-informed-coefficient-refinement)  
+   evidence：面向PDE贝叶斯反问题的无穷维连续正则化流方法，属于科学机器学习
+2. [Calibration of neural viscoelastic models via full-field data](/202609/05/2609.03645v1-calibration-of-neural-viscoelastic-models-via-full-field-data)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：用物理信息神经网络引导结构搜索并进行物理信息系数精修，紧密关联PINN方法论
-6. [CARE-SAV: A Conditioning-Aware Random-Feature Framework for Energy-Stable Simulation of Gradient Flows](/202609/03/2608.25300v1-care-sav-a-conditioning-aware-random-feature-framework-for-energy-stable-simulation-of-gradient-flows)  
+   evidence：利用全场数据无监督标定物理增强神经网络粘弹性本构模型，属于典型的科学机器学习方法与应用。
+3. [Can LLM Agents Discover? Evaluating Creativity on ML Engineering Tasks](/202609/05/2608.30047v1-can-llm-agents-discover-evaluating-creativity-on-ml-engineering-tasks)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：用条件感知随机特征构造紧空间并推进梯度流PDE演化，属于面向偏微分方程的神经化代理模拟方法
-7. [Neural Symbollic Regression Using Deep Learning and Sparse Modelling](/202609/03/2609.01102v1-neural-symbollic-regression-using-deep-learning-and-sparse-modelling)  
+   evidence：评估多轮LLM研究智能体能否发现新颖且有用的算法，涉及LLM引导的自动算法发现
+4. [Agentic programs: an emerging form of scientific software in computational materials science](/202609/05/2609.00795v1-agentic-programs-an-emerging-form-of-scientific-software-in-computational-materials-science)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：提出结合LLM判断、确定性算法与任务级验证的智能体程序概念，并在材料建模案例中展示，面向自主科学软件
+5. [Aerodynamic Shape Design Space Exploration with Deep Latent Diffusion Model](/202609/05/2609.00812v1-aerodynamic-shape-design-space-exploration-with-deep-latent-diffusion-model)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：用深度学习与稀疏建模进行神经符号回归，自动发现科学表达式，属于科学机器学习方法
-8. [Learning Spectral-Like Mesh-Free Discretisations](/202609/03/2609.02833v1-learning-spectral-like-mesh-free-discretisations)  
+   evidence：深度潜空间扩散生成框架用于空气动力设计空间探索，并集成代理模型优化流程
+6. [Conditional Flow Matching for ML-Based Inverse Design Problems](/202609/05/2609.00863v1-conditional-flow-matching-for-ml-based-inverse-design-problems)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：用神经网络学习类谱无网格离散格式以改进PDE算子精度，属面向PDE求解的科学机器学习方法
-9. [AI Control Scientist: LLM-driven Agentic System for Automated Control Design](/202609/03/2608.26780v1-ai-control-scientist-llm-driven-agentic-system-for-automated-control-design)  
+   evidence：面向PDE约束逆设计问题的条件流匹配生成模型
+7. [Residual neural networks overcome the curse of dimensionality for semilinear heat equations](/202609/05/2609.03626v1-residual-neural-networks-overcome-the-curse-of-dimensionality-for-semilinear-heat-equations)  
+   标签：评分：7.0/10、query:sci-ml-agent
+   evidence：证明残差网络在半线性热方程解逼近中克服维数灾难
+8. [Learning neural controllers for nonlinear systems from data](/202609/05/2608.29303v1-learning-neural-controllers-for-nonlinear-systems-from-data)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：LLM智能体自动生成可执行控制代码并调优，类似自动化算法发现
-10. [Learning dynamically consistent flow reconstructions from limited observations](/202609/03/2608.30909v1-learning-dynamically-consistent-flow-reconstructions-from-limited-observations)  
+   evidence：面向科学机器学习的数据驱动神经控制与稳定性验证框架
+9. [SOVER: Formal Certification of Optimization Reformulations via LLM-Assisted SMT Verification](/202609/05/2609.00728v1-sover-formal-certification-of-optimization-reformulations-via-llm-assisted-smt-verification)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：利用动力学一致性标签自由训练流场重建网络
-11. [CUDA-Harness: Harnessing Agentic CUDA Kernel Generation and Optimization from Natural Language](/202609/03/2609.00058v1-cuda-harness-harnessing-agentic-cuda-kernel-generation-and-optimization-from-natural-language)  
+   evidence：提出LLM辅助SMT形式化验证框架，对优化重构进行认证，契合LLM引导科学算法流程的可执行验证需求。
+10. [HarnessEvolve: Learning from Reference Trajectories for Reliable Agent Self-Evolution](/202609/05/2609.00829v1-harnessevolve-learning-from-reference-trajectories-for-reliable-agent-self-evolution)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：LLM智能体流水线生成并验证CUDA内核，支持科学计算可执行程序合成
+   evidence：可可靠进化提示词、技能与工具的智能体框架，用于构建自主CFD/PDE科学工作流
+11. [HarnessDev: Can LLMs Create and Evolve Their Own Agent Harness?](/202609/05/2609.01437v1-harnessdev-can-llms-create-and-evolve-their-own-agent-harness)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：评测LLM智能体自建并演化执行harness的能力，为自主智能体技能积累提供基准
 
 
 <div class="dpr-home-promo-card">
