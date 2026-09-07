@@ -1,0 +1,225 @@
+Title: Dynamic Adaptation of the LLM Context for Generating Routines with Coupled Semantics
+
+URL Source: https://arxiv.org/pdf/2609.04570v1
+
+Published Time: Mon, 07 Sep 2026 00:19:42 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Dynamic Adaptation of the LLM Context for Generating Routines with Coupled Semantics 
+
+Gnaneswar Villuri, Hashmath Shaik, and Alex Doboli 
+
+Department of ECE, Stony Brook University, Stony Brook, NY, USA 
+
+gnaneswar.villuri@stonybrook.edu 
+
+Abstract. LLM-based code generation fails when correctness depends on execution-dependent coupling: the meaning of one routine is defined by the runtime behavior of another, a relationship that cannot be re-solved from textual descriptions alone. This limitation, which we call 
+
+static binding , is not confined to explicitly coupled problems; it appears to varying degrees whenever correctness depends on joint execution be-havior across components, from explicit cross-coupled optimizers to sub-tler joint constraints in packing, routing, and symbolic search. This pa-per proposes dynamic context adaptation , a sample-efficient validation-generation loop designed for this setting. A validation agent extracts structured diagnostic information from execution traces, providing gradient-like guidance to a generation agent that proposes multiple candidates per iteration. A knowledge graph derived from the problem description sup-plies semantic constraints to the generation agent. Simulated annealing selects among candidates to avoid greedy collapse. Our method outper-forms zero-shot, Reflexion, and OpenEvolve on seven of eight problems at both 300 and 600 evaluations ( p < 0.01 ), a regime where population-based search has not yet accumulated sufficient diversity to compete. No-tably, on the primary motivating problem (cross-coupled optimization), our method also achieves the best score at 1000 evaluations, consistent with the hypothesis that structured execution feedback is most beneficial when correctness depends on runtime coupling. Ablation results confirm that structured execution feedback is the primary driver. 
+
+Keywords: large language models · code generation · execution feed-back · simulated annealing · sample-efficient optimization 
+
+## 1 Introduction 
+
+Automated software generation using LLMs has become a prominent research topic [1–3], with tools, e.g., Cursor [4,5], offering substantial productivity gains [6, 7]. LLM-based code generation excels at scaffolding but misses execution-dependent patterns [8]. Evolutionary methods (like genetic programming [9], FunSearch [10], AlphaEvolve [11]) use mutation operators but require thousands of evaluations. Feedback-driven methods, i.e. CEGIS [12] and Reflexion [13], iterate from execu-tion outcomes, but Reflexion operates on a single trajectory without structured arXiv:2609.04570v1 [cs.SE] 3 Sep 2026 2 G. Villuri et al. 
+
+Table 1: Qualitative comparison of LLM-based code generation approaches.                           
+
+> Property Zero-shot Reflexion [13] AlphaEvolve [11] Ours
+> Iterative refinement 7333
+> Structured feedback 7773
+> Multi-candidate per iter. 7733
+> Non-greedy selection 7733
+> Semantic layer (KG) 7773
+
+diagnostic extraction or multi-candidate generation, and commits greedily to im-provements. Moreover, a persistent limitation remains: LLMs struggle when the correctness of one component depends on the runtime behavior of another, not just its textual description. We call this static binding : inter-component meaning dependencies can be resolved only by observing the execution patterns of the components. The code generation method proposed in this paper uses a validation-generation agent loop with a knowledge-graph (KG) intermediate layer and simulated an-nealing (SA) for candidate selection to generate multiple candidates per itera-tion, enabling broader exploration (see Section 4). To address the limitations of static binding, a dedicated validation agent extracts structured feedback from code execution traces rather than from free-form verbal reflection. SA balances exploration and exploitation instead of making greedy commitments, as in most current approaches. The central claim is sample efficiency : structured execu-tion feedback produces rapid, directed improvement before population-based diversity can accumulate. Our convergence curves locate the crossover with population-based search empirically at 600–800 evaluations; below that thresh-old our system outperforms all iterative baselines on seven of eight problems at both 300 and 600 evaluations ( p < 0.01 , Table 2, Figure 4). The crossover re-flects a complementary tradeoff between feedback-driven early convergence and population-based asymptotic exploration, not a failure of the feedback mecha-nism. This paper makes the following contributions: 1. It presents a formal taxonomy of meaning dependencies among software components, providing a precise characterization of the LLM static-binding limitation. Four related cases are discussed in Section 3. 2. It proposes a novel two-agent, KG-based system architecture for code syn-thesis (Section 4). 3. It provides empirical evidence of superior sample efficiency: our method out-performs all iterative baselines on seven of eight problems at both 300 and 600 evaluations ( p < 0.01 ), with the feedback-vs-diversity crossover located empirically at 600–800 evaluations (Section 6). 
+
+## 2 Motivation 
+
+The next two examples illustrate the same limitation: LLMs link concepts at generation time without interpreting their runtime semantics. Conceptually, this Dynamic Adaptation of LLM Context for Coupled Semantics 3
+
+resembles static parameter binding, e.g., formal parameters are bound to actu-als at compile time with no interpretation of runtime values. LLM attention is similarly fixed during training. However, when correctness depends on execution patterns (e.g., the robot actions in Example 1 and the coupled optimizers in Example 2), meaning must be discovered dynamically. 
+
+Example 1: Maze navigation : The problem requires devising a maze-navigation algorithm so that an autonomous robot collects the maximum number of items. An item can be collected only after its specific key is first collected, and thus keys must be reached before the items. The robot can execute seventeen specific actions, like moving one position to the left, right, up, and down if there is no obstacle (e.g., a wall), marking a place and storing its position in the memory, checking if a place has a marking, aggressively jumping over a number of spots until reaching an obstacle, retrieving a stored position from the memory, and loop instructions. A frontier commercial LLM was used to solve the problem. It correctly iden-tified the main components of the design, like the scanner routines to read the maze file and the navigation method, and the routine that implements the sev-enteen instructions. Prompting the LLM to explain its reasoning indicated that it used a backtracking algorithm, which attempts the four possible moves at each step (move left, right, up, and down), stores the current position of the robot in the memory, and backtracks if an impasse is reached, e.g., navigation cannot continue. However, the following issues were observed: (i) navigation in terms of the robot actions did not match the conceptual backtracking algorithm, (ii) the backtracking strategy was random, e.g., the robot backtracks after every 200 moves independently of the effectiveness of its search, and (iii) only seven of the robot actions were used, although the navigation could have benefited from other actions as well. 
+
+Example 2: Cross-coupled optimization . The second problem concerned resource allocation for managing disaster situations, e.g., a neighborhood power-grid outage. The goal was to optimize the number of patients treated by the neighborhood hospitals considering that each hospital has a number of surgical teams with different levels of expertise and efficiency and various energy storage options. In addition, the optimization goal had to be correlated with the way in which the companies that service the power grid repair the damages. The optimization goal (number of treated patients) is strongly coupled with two other optimization needs, i.e., the energy resources assigned to a surgical team (depending on its expertise and efficiency) and the sequence of addressing the damages depending on the available crews. The LLM could correctly generate code for all data management routines, including the description of grid damages, surgery teams, and hospital energy storage options. However, the four optimization algorithms were handled inde-pendently as the LLM did not understand that solving the problem requires coupling the four optimization methods, so that the decisions of each method are linked to the decisions of the other procedures. 4 G. Villuri et al. (g) O1: Energy distribution to surgical teams (O3) O2: Crew dispatch to repair power grid (O3) O3: Global optimization (O1, O2) Daux A B A B A B A BAction scanner Maze scanner Intelligence file Intelligence file generator Action interpreter (B) (A) (B) (A) (d) (c) (b) (a) (Action interpreter) (e) (C) (f) A B(A, C) C(B,D) 
+
+Fig. 1: Meaning dependencies among components: (a)-(d) the four cases; (e) Ex-ample 1; (f) Example 2; (g) general case with auxiliary aux .
+
+## 3 Problem Description 
+
+This work describes problem understanding as finding the LLM context that sup-ports the correct and efficient solving of the problem. Problem understanding includes interpreting functional requirements, performance requirements (e.g., execution time, memory, power/energy consumption), constraints on code orga-nization and data structures, required testing and edge cases, and future needs to maintain and modify the code [14]. The LLM contexts are found through prompting strategies, e.g. through adaptive sequences of prompts. The design and implementation of the system architecture involves the iden-tification of the related modules (components) and their functions, connecting the modules with each other, the identification of the algorithmic approaches for each component, the decomposition of complex functions into simpler steps, and finally the implementation of the simpler steps [15]. Finding the correct context for problem understanding and solving requires identifying the context layers that address the LLM limitations summarized in Section 2, including the static linking of the concepts and relations. The meaning (semantics) of the components of the architecture must be interpreted in the correct context, which sometimes involves the meaning of other components too, as was discussed for Example 1 (maze navigation). The meaning cannot always be reasoned out statically from the problem description. Instead, it can only be obtained after executing the component and observing its behavior. Figure 1 summarizes the four situations that occur when deciding the mean-ing of a component. They decide the procedure to identify the correct context: 1. The independent case : The meaning of a component is fully defined by its description and does not depend on other components. Figure 1(a) shows the component B providing inputs to component A, however, the meaning of the two routines do not depend on each other. Their only connection is through the data they share. This is the case of the two scanner routines in Example 1, as their meaning does not depend on another routine, and hence Dynamic Adaptation of LLM Context for Coupled Semantics 5
+
+are independent. The next equation gives a formal description: 
+
+M(A), M(B) ∦ M(R), ∀R (1) The equation states that the meaning ( M) of components A and B are independent of the meaning of any routine R of the description or solution. 2. Sender related to the receiver : As shown in Figure 1(b), the meaning of the component A (data sender/originator) depends on the semantics of the data receiver component B. This is the case of the maze navigation routine in Example 1, as the meaning of the generator, and thus its actions, depends on the robot actions. The next equation offers a formal description: 
+
+M(A) ∝ M (B); M(B) ∦ M(R), ∀R (2) The meaning of component A is related ( ∝) to the meaning of component 
+
+B, but the meaning of B is independent of the meaning of any routine R.3. Receiver related to the sender : Figure 1(c) depicts this case. The situation is similar to the previous case, but now the meaning of the data receiving component depends on the meaning of the data generating component. The next equation gives a formal description: 
+
+M(B) ∝ M (A); M(A) ∦ M(R), ∀R (3) 4. Cross-correlated sender and receiver : As shown in Figure 1(d), the meanings of the components A and B depend on each other. Hence: 
+
+M(B) ∝ M (A); M(A) ∝ M (B) (4) Figure 1(e) presents the meaning dependencies for Example 1 (maze navigator), and Figure 1(f) shows the meaning dependencies of the three optimization rou-tines in Example 2 (cross-coupled optimization). Finally, Figure 1(g) illustrates the general case for defining the meaning of routines. In addition to the four cases, the implementation might require other components, like the routine aux ,not mentioned in the description, but needed to bridge between components. Static linking of concepts (e.g., routines, variables, and actions) by an LLM implicitly assumes that the meanings of the concepts are independent (equa-tion (1)). However, it is not always the case. Assuming that M∗(A) and M∗(B)
+
+are independent meanings of routines A and B produced by an LLM, the goals of context finding are to transform (i) M∗(A) into M(A), such that M(A) ∝ M (B)
+
+for the second case, (ii) M∗(B) into M(B), such that M(B) ∝ M (A) for the third case, and (iii) M∗(A) into M(A) and M∗(B) into M(B), such that 
+
+M(A) ∝ M (B) and M(B) ∝ M (A) for the fourth case. The system architecture discussed in Section 4 starts with routine interpreta-tions and implementations that are considered to be independent. Then, routine transformations corresponding to cases 2-4 are handled by a loop that uses a validating agent and test vectors to convert the independent meaning M∗(R)
+
+of a routine R into its equivalent meaning M(R) ∝ M (S), which relates to the meaning of routine S.6 G. Villuri et al. 
+
+Fig. 2: Left: validation-generation pipeline. Right: SA selection with Metropolis acceptance and geometric cooling. 
+
+## 4 System Architecture 
+
+Figure 2 shows the overall pipeline. Starting from an LLM-generated codebase (e.g., stack.c , instructions.c , maze.c ), we isolate the optimization-sensitive component (e.g., actions.txt ) and place it inside an iterative refinement loop. At each iteration, a validation agent executes the current candidate to produce output logs, analyzes quantitative outcomes and qualitative execution trace pat-terns, and produces structured diagnostic feedback summarizing failure modes, missed opportunities, and constraint violations. A generation agent receives this feedback alongside the current incumbent candidate and KG-derived con-straints, and proposes k new candidates ( c1, c 2, . . . , c k). Each generation prompt includes: (i) a task summary from the problem description, (ii) the KG-derived action semantics and coupling constraints, (iii) the current incumbent, (iv) exe-cution traces and output logs, and (v) validation feedback distilled into action-able suggestions. An SA controller then selects one candidate to carry forward, and the loop repeats until a stopping criterion is reached. 
+
+Knowledge graph (KG). To make meaning dependencies explicit, we ex-tract a KG from the problem description via a two-step LLM prompt: first clus-tering text into structure, requirements, constraints, and artifacts; then extract-ing typed nodes (id , label , type , attributes ) and typed edges (implements, con-Dynamic Adaptation of LLM Context for Coupled Semantics 7 
+
+> (a) Maze navigation KG. (b) Cross-coupled optimization KG.
+
+Fig. 3: Knowledge graphs showing modules, requirements, and meaning depen-dencies. strains, depends_on, etc.) with hard/soft strength tags. The relevant subgraph is selected by dependency tracing from the optimization-sensitive node and inserted as structured JSON into each agent prompt, yielding Mtext → M KG → M code .
+
+SA selection. Let s1 be the current incumbent score; a new candidate with score s2 is accepted unconditionally if s2 > s 1, otherwise with probability 
+
+P = exp(( s2 − s1)/T ) compared to Uniform (0 , 1) . Temperature cools geomet-rically: T ← T × α, with T0 = 2 .5, α = 0 .85 , Tmin = 0 .01 (matching the ex-perimental parameters in Section 6). SA prevents collapse into locally adequate policies and allows bold structural changes that greedy selection cannot make. The cooling rate α = 0 .85 front-loads exploration in the first ∼30 iterations before structured feedback has accumulated sufficient signal; beyond that point, near-greedy selection is appropriate since the gradient-like feedback increasingly constrains the viable candidate space. 
+
+## 5 Problems and Cost Functions 
+
+We evaluate on eight problems. P1 and P2 are original problems introduced in Section 2, where coupled-semantics dependencies make LLM static binding a concrete, measurable limitation. P3–P8 are standard benchmarks included for direct comparison with prior work; their formulations follow the cited sources without modification. 
+
+P1: Maze navigation (Case 2 dependency). Three maze instances each award up to 10 points under key-precedence constraints, giving a theoretical maximum of 30 points total. The generation agent is constrained strictly to the 17-instruction ISA ( MOVE_* , MARK , CWL/R/F/B , PUSH/POP/PEEK/CLEAR , BJPI ,
+
+CJPI , BACKTRACK , RP n t ). The validation agent inspects per-maze execution logs for unproductive loops, wasted stack operations, and invalid token usage, 8 G. Villuri et al. 
+
+distilling findings into actionable suggestions. 
+
+Cmaze = ∑3 
+
+> i=1
+
+score i, score i ∈ [0 , 10] , Cmaze ∈ [0 , 30] (5) 
+
+P2: Cross-coupled optimization (Case 4 dependency). Joint optimization of power distribution to surgical teams and crew dispatch for grid repair. Weights 
+
+w1=0 .5, w 2=0 .3, w 3=0 .2 reflect clinical priority; Ccouple =1 .0 corresponds to base-line performance. The validation agent flags coupling violations (e.g., surgeries during active outages) and passes structured reports to the generation agent. 
+
+Ccouple = w1 ΦΦref + w2 Href  
+
+> H
+
++ w3 ΠΠref (6) 
+
+P3–P8: Standard benchmarks. Circle packing and function minimization are taken from the OpenEvolve benchmark suite [11, 16]. TSP tour minimiza-tion [17], signal processing filter design [18], online judge programming [8], and symbolic regression [9] follow standard formulations. All six use a normalized score in [0 , 1] ; cost functions maximize solution quality relative to the known optimum or a reference solution. Although not explicitly framed as coupled-semantics tasks, each exhibits latent execution-dependent coupling (e.g., circle packing radii are jointly constrained; TSP tour cost depends on the full se-quence), which is why structured execution feedback yields improvements even on these standard benchmarks. 
+
+## 6 Experiments 
+
+6.1 Setup 
+
+All experiments use Qwen/Qwen2.5-72B-Instruct served locally (temperature = 1.0, top-p = 1.0, max 8,192 tokens). This model was chosen because its training data predates the release of OpenEvolve, eliminating any risk of benchmark contam-ination from the OpenEvolve problem suite. We use SA parameters T0=2 .5,
+
+α=0 .85 , and Tmin =0 .01 . Runs extend to 333 iterations × 3 candidates ≈ 1000 evaluations per problem. Running a locally served open-weight model makes this tractable without API cost: seven of eight problems complete in under 20 min-utes (300 evaluations ≈ 5–8 minutes), fitting within a developer iteration cycle; circle packing is the outlier at ∼94 minutes due to a 600 s sandbox cap. Table 2 reports all methods at 1000 evaluations; Table 3 compares OpenEvolve and ours at 300, 600, and 1000 evaluations; Figure 4 shows the full trajectory. Each con-dition uses 10 random seeds; we report mean ± std. We use a paired Wilcoxon signed-rank test across seeds to assess statistical significance and report p-values alongside effect sizes. 
+
+Baselines: – Zero-shot : single direct prompt, no loop (budget-independent). 
+
+– Reflexion [13]: single-trajectory verbal RL, greedy acceptance, no KG. 
+
+– OpenEvolve [16]: open-source implementation of AlphaEvolve [11]. AlphaEvolve [11] ( ≈1.0004 on circle packing) is included as a quality ceiling only; it uses proprietary Gemini models with substantially greater compute and is not a controlled baseline. Dynamic Adaptation of LLM Context for Coupled Semantics 9
+
+Table 2: Results at 1000 evaluations (mean ± std, 10 seeds, Qwen2.5-72B). Bold: best per problem. Dep.: primary meaning-dependency case (ğ3); P1 and P2 have explicit coupled semantics (cases 2 and 4), while P3–P8 exhibit latent execution-dependent coupling (case 1 in primary structure). 
+
+Problem Type Dep. Zero-shot Reflexion OpenEvolve Ours 
+
+Maze Nav. Discrete plan. 2 11.7 23.1 ±2.3 28.3 ±1.8 27.1 ±1.2 
+
+Circle Pack. Comb. geo. 1 0.364 0.869 ±0.051 0.978 ±0.011 0.961 ±0.018 
+
+Func. Min. Cont. opt. 1 1.215 1.481 ±0.031 1.519 ±0.008 1.514 ±0.009 
+
+Cross-Coupled Multi-obj. opt. 4 0.511 0.603 ±0.027 0.681 ±0.028 0.694 ±0.019 
+
+TSP Comb. opt. 1 0.398 0.644 ±0.046 0.803 ±0.024 0.775 ±0.027 
+
+Signal Proc. Filter design 1 0.291 0.528 ±0.054 0.715 ±0.039 0.692 ±0.038 
+
+Online Judge Prog. synth. 1 0.238 0.496 ±0.058 0.702 ±0.041 0.679 ±0.031 
+
+Symbolic Reg. Func. disc. 1 0.324 0.584 ±0.050 0.781 ±0.032 0.757 ±0.024 
+
+Table 3: Convergence comparison: OpenEvolve (OE) vs. Ours at 300, 600, and 1000 evaluations (mean ± std, 10 seeds). Bold: best per problem at each budget. 
+
+300 evals 600 evals 1000 evals Problem OE Ours OE Ours OE Ours 
+
+Maze Nav. 19.2 ±3.1 25.8 ±1.4 23.3 ±2.5 26.8 ±1.3 28.3 ±1.8 27.1 ±1.2 
+
+Circle Pack. 0.903 ±0.035 0.952 ±0.024 0.937 ±0.025 0.959 ±0.020 0.978 ±0.011 0.961 ±0.018 
+
+Func. Min. 1.519 ±0.014 1.511 ±0.011 1.519 ±0.011 1.513 ±0.010 1.519 ±0.008 1.514 ±0.009 
+
+Cross-Coupled 0.563 ±0.042 0.654 ±0.021 0.621 ±0.035 0.665 ±0.020 0.681 ±0.028 0.694 ±0.019 
+
+TSP 0.701 ±0.036 0.761 ±0.033 0.747 ±0.030 0.772 ±0.029 0.803 ±0.024 0.775 ±0.027 
+
+Signal Proc. 0.541 ±0.055 0.678 ±0.044 0.619 ±0.047 0.689 ±0.041 0.715 ±0.039 0.692 ±0.038 
+
+Online Judge 0.478 ±0.058 0.664 ±0.037 0.579 ±0.049 0.675 ±0.034 0.702 ±0.041 0.679 ±0.031 
+
+Symbolic Reg. 0.639 ±0.049 0.743 ±0.028 0.703 ±0.041 0.754 ±0.025 0.781 ±0.032 0.757 ±0.024 
+
+6.2 Main Results 
+
+Table 2 shows the full-budget comparison. At 1000 evaluations OpenEvolve out-performs our method on seven of eight problems (significant on six, p < 0.05 ;function minimization: p = 0 .091 , d = 0 .29 ); the exception is cross-coupled op-timization (P2), where our method achieves the highest score ( 0.694 vs. 0.681 ,
+
+p = 0 .019 , d = 0 .52 ), consistent with the hypothesis that structured execu-tion feedback is most effective precisely when correctness depends on runtime coupling. Our method places second on the remaining seven, significantly out-performing Reflexion on all eight ( p < 0.001 on six; p ≤ 0.007 on the remaining two). Table 3 reveals the convergence dynamics: at 300 evaluations our method outperforms OpenEvolve on seven of eight problems (all p < 0.01 ; function min-imization is the exception, p = 0 .284 , where OpenEvolve converges within the first 100 evaluations), and this advantage holds at 600 evaluations on the same seven problems (all p < 0.01 ). The convergence curves in Figure 4 show the underlying mechanism: structured feedback drives steep early improvement that plateaus once the incumbent stabilizes, while OpenEvolve’s population requires a burn-in period but finds novel structural variations beyond the crossover ( ∼650 
+
+evaluations for circle packing, ∼710 for maze). The effect is most pronounced on multi-basin problems and least on smooth landscapes (function minimiza-10 G. Villuri et al. 0 200 400 600 800 1000      
+
+> Evaluations
+> 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0
+> Best score (running max)
+> crossover
+> Circle Packing
+> Zero-shot Reflexion OpenEvolve Ours
+> 0200 400 600 800 1000
+> Evaluations
+> 10 15 20 25 30
+> Best score (running max)
+> crossover
+> Maze Navigation
+> Zero-shot Reflexion OpenEvolve Ours Theoretical max (30)
+
+Fig. 4: Running maximum (best-so-far) score vs. evaluation count (mean ±1std, 10 seeds) for circle packing (left) and maze navigation (right). Our method outperforms OpenEvolve up to ∼650 evaluations (circle packing) and ∼710 eval-uations (maze navigation); OpenEvolve surpasses it at 1000 evaluations. Table 4: Ablation study at 300 evaluations (mean ± std, 10 seeds). Full system in bold. 
+
+Condition Maze Circle Func Min. Cross-Cpl. Full (Ours) 25.8 ±1.4 0.952 ±0.024 1.511 ±0.011 0.654 ±0.021 
+
+w/o Feedback 18.6 ±2.8 0.657 ±0.081 1.330 ±0.058 0.582 ±0.029 Greedy (no SA) 21.7 ±2.9 0.866 ±0.097 1.481 ±0.038 0.615 ±0.037 Random selection 14.4 ±4.1 0.533 ±0.152 1.209 ±0.131 0.536 ±0.051 w/o KG 21.9 ±2.1 0.895 ±0.058 1.481 ±0.029 0.628 ±0.033 
+
+tion). Reflexion plateaus well below both methods ( p < 0.001 ) due to its greedy single-trajectory search. 
+
+6.3 Ablation Study Structured feedback is the largest single contributor. Removing it causes the largest drop across all four problems ( −28% maze, −31% circle, −12% func-tion minimization, −11% cross-coupled; all p < 0.001 , d > 1.1). Without diag-nostic feedback the generation agent degrades to near-random candidate genera-tion; the “w/o Feedback” row approaches the “Random selection” lower bound. 
+
+SA selection matters most on high-variance discrete problems: replacing SA with greedy selection reduces maze navigation by −16% (p < 0.001 , d = 0 .89 )and circle packing by −9% (p = 0 .002 , d = 0 .71 ), while increasing standard de-viation across all conditions, reflecting premature convergence. On the smoother function minimization landscape the SA effect is smaller but still significant (p = 0 .018 , d = 0 .44 ). The KG provides a consistent but moderate gain ( −15% 
+
+maze, p = 0 .001 , d = 0 .78 ; −6% circle, p = 0 .014 , d = 0 .51 ), most beneficial when rich constraint structure would otherwise be underspecified in plain text. Dynamic Adaptation of LLM Context for Coupled Semantics 11 
+
+## 7 Discussion 
+
+7.1 Structured Feedback as Gradient Approximation 
+
+The validation agent’s structured output (e.g., “overlaps between circles 1 and 12,” “MOVE_D token is not in the ISA and was ignored”) provides directional guidance that is qualitatively analogous to gradients in continuous optimization: it identifies both the location and the cause of failure. A recurring pattern was a transition from local, per-component edits to globally coupled solutions: in circle packing, the breakthrough was treating all 26 circles as a jointly constrained sys-tem, a relationship only observable at execution time, precisely the static-binding failure our loop targets. This allows the generation agent to make focused, tar-geted corrections rather than undirected mutations. This gradient-like property explains why structured feedback dominates in the low-budget regime: rather than relying on population diversity to explore the search space, the generation agent receives focused directional signals that eliminate entire classes of failure before the next iteration, compressing what would otherwise require hundreds of undirected mutations into a handful of targeted corrections. 
+
+7.2 Limitations 
+
+The validation agent diagnoses surface-level symptoms without counterfactual reasoning; discrete action spaces exhibit high variance because single-token changes produce large behavioral shifts. Feedback scope is bounded by the test suite, so latent bugs outside the execution log escape detection. The single-incumbent de-sign limits diversity on multi-basin landscapes, where population-based methods have a structural advantage. 
+
+## 8 Conclusion 
+
+We proposed dynamic context adaptation : a validation-generation loop that grounds LLM code generation in execution feedback rather than static link-ing. The framework introduces a four-case taxonomy of meaning dependencies, a KG intermediate layer, and SA selection across multiple candidates per iter-ation. It outperforms all iterative baselines on seven of eight problems at both 300 and 600 evaluations, and achieves the best full-budget score on cross-coupled optimization (the primary motivating problem), where runtime coupling most di-rectly favors structured feedback. The crossover with population-based search at 600–800 evaluations reveals a complementary tradeoff. Ablation results confirm structured execution feedback as the primary driver, followed by SA selection and KG grounding. Future work includes extending the taxonomy to multi-hop dependency chains, maintaining a small population of incumbents to recover diversity on multi-basin landscapes, and combining structured trace feedback with formal verification or-acles. 12 G. Villuri et al. 
+
+## References 
+
+1. Y. Dong, X. Jiang, J. Qian, T. Wang, K. Zhang, Z. Jin, and G. Li, “A survey on code generation with LLM-based agents, arXiv preprint arXiv:2508.00083, Jul. 2025. 2. Z. Cui, M. Demirer, S. Jaffe, L. Musolff, S. Peng, and T. Salz, “The effects of generative AI on high skilled work: Evidence from three field experiments with software developers, SSRN, Working Paper 4945566, 2024. 3. V. Chen, A. Talwalkar, R. Brennan, and G. Neubig, “Code with me or for me? How increasing AI automation transforms developer workflows, arXiv preprint arXiv:2507.08149, 2025. 4. R. Krishnaswami, “Deliver 50% coding productivity with Cursor.AI, Journal of Information Systems Engineering and Management , vol. 10, no. 61s, pp. 384–393, 2025. 5. H. Jiang, Q. Liu, R. Li, S. Ye, and S. Wang, “CursorCore: Assist programming through aligning anything, arXiv preprint arXiv:2410.07002, 2024. 6. S. Peng, E. Kalliamvakou, P. Cihon, and M. Demirer, “The impact of AI on developer productivity: Evidence from GitHub Copilot, arXiv preprint arXiv:2302.06590, 2023. 7. R. Pandey, P. Singh, R. Wei, and S. Shankar, “Transforming software development: Evaluating the efficiency and challenges of GitHub Copilot in real-world projects, arXiv preprint arXiv:2406.17910, 2024. 8. C. E. Jimenez, J. Yang, A. Wettig, S. Yao, K. Pei, O. Press, and K. Narasimhan, “SWE-bench: Can language models resolve real-world GitHub issues? in Proc. ICLR, 2024. 9. J. R. Koza, “Genetic programming as a means for programming computers by natural selection, Statistics and Computing, vol. 4, no. 2, pp. 87–112, 1994. 10. B. Romera-Paredes, M. Barekatain, A. Novikov, M. Balog, M. P. Kumar, E. Dupont, F. J. R. Ruiz, J. Ellenberg, P. Wang, O. Fawzi, P. Kohli, and A. Fawzi, “Mathematical discoveries from program search with large language models, Na-ture, vol. 625, no. 7995, pp. 468–475, 2023. 11. A. Novikov, N. V˜ u, M. Eisenberger, E. Dupont, P.-S. Huang, A. Z. Wagner, S. Shirobokov, B. Kozlovskii, F. J. R. Ruiz, A. Mehrabian, M. P. Kumar, A. See, S. Chaudhuri, G. Holland, A. Davies, S. Nowozin, P. Kohli, and M. Balog, “Al-phaEvolve: A coding agent for scientific and algorithmic discovery, arXiv preprint arXiv:2506.13131, 2025. 12. A. Solar-Lezama, “Program synthesis by sketching, Ph.D. dissertation, UC Berke-ley, 2008. 13. N. Shinn, F. Cassano, A. Gopinath, K. Narasimhan, and S. Yao, “Reflexion: Lan-guage agents with verbal reinforcement learning, in Advances in Neural Information Processing Systems, vol. 36, pp. 8634–8652, 2023. 14. Roger S. Pressman and Bruce R. Maxim, Software Engineering: A Practitioners Approach , 8th ed., McGraw-Hill Education, 2014. 15. Ian Sommerville, Software Engineering , 10th ed., Pearson Education, 2016. 16. OpenEvolve Contributors, “OpenEvolve: Open-source implementation of evolu-tionary code optimization, GitHub repository, 2025. 17. K. Helsgaun, “An effective implementation of the Lin–Kernighan traveling sales-man heuristic, European Journal of Operational Research, vol. 126, no. 1, pp. 106–130, 2000. 18. A. V. Oppenheim and R. W. Schafer, Discrete-Time Signal Processing , 2nd ed., Prentice Hall, 1999.
