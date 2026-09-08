@@ -6,58 +6,51 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-07
-- 运行时间：2026-09-07 23:18:53 UTC
+- 最新运行日期：2026-09-08
+- 运行时间：2026-09-08 22:57:56 UTC
 - 运行状态：成功
-- 本次总论文数：12
-- 精读区：5
-- 速读区：7
+- 本次总论文数：9
+- 精读区：3
+- 速读区：6
 
 ### 今日简报（AI）
-今日共读12篇论文，精读5篇，其中DiffPDE与能量基磁化动力学算子均获9.0高分。  
-最值得关注：DiffPDE用掩码扩散语言模型求解偏微分方程，以及能量基守恒-耗散潜在神经演化算子对磁化动力学的建模。  
-建议优先阅读DiffPDE，理解扩散模型如何作为通用PDE求解器，或可启发你对AI4Science的认知。
-- 详情：[/202609/07/README](/202609/07/README)
+今日9篇论文聚焦AI求解与智能体验证，精读重点在扩散模型求解PDE及大模型联合进化路由启发式组件。
+
+最值得关注：DiffPDE以掩码扩散语言模型直接求解偏微分方程，LLM路由优化实现耦合组件协同进化，均获8分高评价。
+
+建议普通读者优先浏览速读中的Schwarz智能体验证与HarnessEvolve自进化方法，理解AI可靠性与持续学习趋势。
+- 详情：[/202609/08/README](/202609/08/README)
 
 ### 精读区论文标签
-1. [DiffPDE: Masked Diffusion Language Models as PDE Solver](/202609/07/2608.30532v1-diffpde-masked-diffusion-language-models-as-pde-solver)  
-   标签：评分：9.0/10、query:ai-pde
-   evidence：基于掩码扩散语言模型生成与修复PDE求解器代码，直接推进LLM驱动的PDE求解
-2. [An Energy-Based Conservative-Dissipative Latent Neural Evolution Operator for Magnetization Dynamics](/202609/07/2609.04530v1-an-energy-based-conservative-dissipative-latent-neural-evolution-operator-for-magnetization-dynamics)  
-   标签：评分：9.0/10、query:sci-ml-agent
-   evidence：针对磁化动力学的Landau-Lifshitz-Gilbert PDE提出能量结构约束的潜空间神经代理
-3. [Data-Driven Learning of Unknown Nonlinear Differential Equations Using Functional Analysis](/202609/07/2609.04329v1-data-driven-learning-of-unknown-nonlinear-differential-equations-using-functional-analysis)  
+1. [DiffPDE: Masked Diffusion Language Models as PDE Solver](/202609/08/2608.30532v1-diffpde-masked-diffusion-language-models-as-pde-solver)  
+   标签：评分：8.0/10、query:ai-pde
+   evidence：用离散扩散语言模型生成并修复PDE求解器代码，贴合AI生成PDE算法与算法自动发现的主题。
+2. [LLM-Driven Joint Evolution of Coupled Heuristics Components for Routing Optimization](/202609/08/2609.02353v1-llm-driven-joint-evolution-of-coupled-heuristics-components-for-routing-optimization)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：面向非线性微分方程数据驱动发现的科学机器学习方法
-4. [Disentangling Attention in Deep Operator Learning: A Controlled Study of Data-Driven and Physics-Informed Architectures](/202609/07/2609.04407v1-disentangling-attention-in-deep-operator-learning-a-controlled-study-of-data-driven-and-physics-informed-architectures)  
+   evidence：LLM驱动路由优化中相互耦合启发式组件的联合演化，属于LLM引导演化程序/算法合成
+3. [Neural operators approximate strongly continuous convex monotone semigroups](/202609/08/2609.02727v1-neural-operators-approximate-strongly-continuous-convex-monotone-semigroups)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：系统比较多种注意力DeepONet变体在数据驱动与物理信息训练下的精度，属于PDE神经代理建模
-5. [A simple shallow neural network for emulating the solution to singularly perturbed problems](/202609/07/2609.05180v1-a-simple-shallow-neural-network-for-emulating-the-solution-to-singularly-perturbed-problems)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：用浅层神经网络拟合奇异摄动边值问题，训练采用残差或能量极小化，与PINN风格一致
+   evidence：神经算子逼近演化方程与动力系统的半群解算子
 
 ### 速读区论文标签
-1. [Dynamic Adaptation of the LLM Context for Generating Routines with Coupled Semantics](/202609/07/2609.04570v1-dynamic-adaptation-of-the-llm-context-for-generating-routines-with-coupled-semantics)  
+1. [Schwarz: Solver-Aware Agentic Program Verification](/202609/08/2608.30803v1-schwarz-solver-aware-agentic-program-verification)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：用验证代理从执行轨迹中提取诊断信息并动态调整LLM上下文，支撑可执行验证下的代码生成
-2. [Solution-space heterogeneity shapes federated learning dynamics across partial differential equations](/202609/07/2609.05012v1-solution-space-heterogeneity-shapes-federated-learning-dynamics-across-partial-differential-equations)  
-   标签：评分：7.0/10、query:sci-ml-agent
-   evidence：面向PDE神经代理联邦训练的解空间异质性协议
-3. [TROVE: Adaptive Agent Skill Orchestration via Trace-Grounded Route Validation and Editing](/202609/07/2609.05019v1-trove-adaptive-agent-skill-orchestration-via-trace-grounded-route-validation-and-editing)  
+   evidence：求解器感知的智能体程序验证，将SMT证明失败转为可修复局部任务
+2. [HarnessEvolve: Learning from Reference Trajectories for Reliable Agent Self-Evolution](/202609/08/2609.00829v1-harnessevolve-learning-from-reference-trajectories-for-reliable-agent-self-evolution)  
    标签：评分：7.0/10、query:ai-pde
-   evidence：面向智能体的轨迹级技能蒸馏、运行时路线验证与局部再规划，可用于科学计算智能体技能编排
-4. [Agentic programs: an emerging form of scientific software in computational materials science](/202609/07/2609.00795v1-agentic-programs-an-emerging-form-of-scientific-software-in-computational-materials-science)  
+   evidence：智能体通过参考轨迹自主进化其prompt、技能、工具等执行组件，契合智能体技能主题
+3. [SMILE: Bridging Continuous Optimization and Discrete Symbolic Recovery](/202609/08/2609.04639v1-smile-bridging-continuous-optimization-and-discrete-symbolic-recovery)  
+   标签：评分：7.0/10、query:sci-ml-agent
+   evidence：面向科学机器学习的符号回归框架，融合连续优化与离散符号恢复
+4. [AgentFactory: Towards Automated Agentic System Design and Optimization](/202609/08/2609.01045v1-agentfactory-towards-automated-agentic-system-design-and-optimization)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：带任务验证的LLM智能体程序，可迁移至Agentic CFD工作流
-5. [HarnessEvolve: Learning from Reference Trajectories for Reliable Agent Self-Evolution](/202609/07/2609.00829v1-harnessevolve-learning-from-reference-trajectories-for-reliable-agent-self-evolution)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：智能体harness的自进化学习涉及技能与执行逻辑优化，与科学计算中的agent技能习得和自主科学智能体相关
-6. [AgentFactory: Towards Automated Agentic System Design and Optimization](/202609/07/2609.01045v1-agentfactory-towards-automated-agentic-system-design-and-optimization)  
+   evidence：提出自动联合优化智能体系统中基础模型和工作流结构的通用框架，可用于自动构建计算流体力学或物理信息神经网络设计等科学智能体流程。
+5. [Semantics-Guided Automatic Tensorization for Multiobjective Evolutionary Algorithms: A Multi-Agent Framework](/202609/08/2609.02387v1-semantics-guided-automatic-tensorization-for-multiobjective-evolutionary-algorithms-a-multi-agent-framework)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：自动联合优化基础模型与Agent工作流结构且支持多目标约束，可迁移到Agent驱动的CFD/PDE流程设计
-7. [Harness Engineering in LLM Tool Use via Agent-Native Reusable Tool Primitives](/202609/07/2609.01736v1-harness-engineering-in-llm-tool-use-via-agent-native-reusable-tool-primitives)  
+   evidence：多智能体语义引导地把顺序进化算法代码改写成张量化形式，与LLM引导演化算法合成和智能体代码生成主题有方法关联。
+6. [A Verifier-Guided Explainable Reasoning Framework with Gold-Anchored QLoRA, Task-Aware Mixture-of-Experts, and Group-Relative RLVR](/202609/08/2609.05221v1-a-verifier-guided-explainable-reasoning-framework-with-gold-anchored-qlora-task-aware-mixture-of-experts-and-group-relative-rlvr)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：提升LLM智能体工具调用稳健性，为Agent驱动的CFD与科学仿真流程提供基础设施
+   evidence：验证器引导的可解释LLM推理，以符号求解器给出物理问题的可执行验证反馈
 
 
 <div class="dpr-home-promo-card">
