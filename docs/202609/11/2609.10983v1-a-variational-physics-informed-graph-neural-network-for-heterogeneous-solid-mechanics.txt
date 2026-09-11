@@ -1,0 +1,936 @@
+Title: A variational physics-informed graph neural network for heterogeneous solid mechanics
+
+URL Source: https://arxiv.org/pdf/2609.10983v1
+
+Published Time: Fri, 11 Sep 2026 00:35:20 GMT
+
+Number of Pages: 37
+
+Markdown Content:
+# A variational physics-informed graph neural network for heterogeneous solid mechanics 
+
+Aashay Rajan Yadav a, Amiya Prakash Das a, ∗, Ratna Kumar Annabattula a, ∗
+
+> aMechanics of Materials Lab, Department of Mechanical Engineering, Indian Institute of Technology Madras, Chennai, 600036, Tamil Nadu, India
+
+Abstract 
+
+Stress localization in heterogeneous solids is governed by the bimaterial interface, where the displacement field remains C0-continuous, while in-plane stresses jump due to the stiffness mismatch. Coordinate-based physics-informed neural networks (PINNs) represent this jump via a prescribed regularization width or a weighted interface penalty, making their accuracy sensitive to how phase-contrast changes are handled. This work presents a variational, label-free physics-informed graph neural network (PI-GNN) in which the het-erogeneity is carried by the discretization rather than by the trial field. The solver operates on a conforming adaptive mesh graph, assigns constitutive behavior per element, and min-imizes the discrete total potential energy as a single unweighted objective in which only first derivatives appear. The discrete energy on piecewise-linear elements coincides with the finite element (FE) Ritz functional. Dirichlet conditions are enforced by construction, with no penalty term, no interface weight, and no prescribed transition width. Using one fixed architecture, optimizer, and loss across small-strain elasticity and finite-strain Neo-Hookean hyperelasticity in two and three dimensions, the von Mises error remains below 3.58% across a stiffness-contrast sweep spanning ( Einc /E mat ∈ [10 −2, 10 2]), where a strong-form PINN degrades to 5 .58%, and its displacement error reaches 7 .66% against 0 .49% for the PI-GNN. A trained network halves the ( σxx ) error of an energy-based PINN (5.01% versus 10.94%). Training cost exceeds a single FE solve by more than an order of magni-tude, so the construction is a variationally consistent, penalty-free interface representation for parametric surrogates and inverse identification rather than a replacement for a one-off FE analysis. 
+
+Keywords: Heterogeneous materials; Neo-Hookean materials; Deep energy method; Variational methods; Physics-informed neural networks; Graph neural networks 
+
+1. Introduction 
+
+Material heterogeneity arising from inclusions, voids, and bonded interfaces governs stress localization and failure nucleation, so accurate prediction of localized fields is central to material design. The representational difficulty lies at the bimaterial interface: the dis-placement field is C0-continuous, and traction is continuous, whereas in-plane stresses jump across the stiffness mismatch. Smoothing that jump misrepresents the stress gradi-ents that govern damage nucleation [Henkes et al., 2022]. The finite element method (FEM) addresses this structurally by assigning material properties to elements on a conforming mesh. Data-driven surrogates address this problem space for constitutive learning [Kirchdoer-fer and Ortiz, 2016], stress recovery [Go et al., 2025], and composite homogenization [Mau-rizi et al., 2022, Xia et al., 2025]. Graph neural networks (GNNs) are mesh-native: the FE      
+
+> ∗Corresponding author
+> Email addresses: apdas@connect.ust.hk (Amiya Prakash Das), ratna@iitm.ac.in (Ratna Kumar Annabattula)
+> Preprint September 11, 2026 arXiv:2609.10983v1 [math.NA] 10 Sep 2026
+
+mesh becomes a graph whose message-passing layers propagate information along nodal connectivity [Sanchez-Gonzalez et al., 2020, Zhao et al., 2024], enabling learnable physics engines for deformation and crack propagation [Zhou and Feng, 2024, Wang et al., 2025]. Supervised training, however, requires large FE datasets, so the labeling burden is reas-signed rather than removed. Physics-informed neural networks (PINNs) eliminate labels by enforcing governing equations directly [Raissi et al., 2019, Haghighat et al., 2021, Cuomo et al., 2022, Henkes et al., 2022, Hu et al., 2024, Ren and Lyu, 2024], but carry two costs: a multi-objective loss requiring ad hoc balancing and noisy second derivatives at steep stress gradients [Bai et al., 2023]. The deep energy method (DEM) removes both by minimizing the total potential energy as a single scalar objective with only first derivatives [Samaniego et al., 2020, Nguyen-Thanh et al., 2020, Fuhg and Bouklas, 2022, Huang and Peng, 2024]. Neither the residual nor the energy formulation addresses the representational bias of the coordinate-based MLP (Multi-Layer Perceptron) used as the trial field. A single smooth network cannot reproduce a stress jump, so the contrast is regularized through a prescribed transition width [Henkes et al., 2022]. Domain decomposition assigns separate networks per phase, but compatibility and traction matching re-enter as penalty terms [Jagtap and Karniadakis, 2020, Jagtap et al., 2020, Sarma et al., 2024]. Alternative trial spaces—hp-VPINNs [Kharazmi et al., 2021], mixed-form PINNs [Rezaei et al., 2022, Ren and Lyu, 2024]—still interpolate from a global coordinate map with no information about where phases meet. Evaluating the loss on an FE discretization [Zhang et al., 2025, Xiong et al., 2025, Wu et al., 2026, Rezaei et al., 2025] lets the mesh carry geometry and material as-signment, but the trial field remains a dense coordinate-to-value map in which neighboring nodes exchange nothing during the forward pass. GNNs close this gap by moving the discretization into the architecture. When the trial field is parametrized on the mesh graph, each message-passing step updates a nodal state based on its neighbors. Hence, a stiffness contrast between adjacent elements is visible during the forward pass, not only in the assembled objective. Existing energy-based graph solvers remain single-phase: Gao et al. [2022] and He et al. [2023] minimize variational or energy functionals on mesh graphs under small and finite strain, respectively; Dalton et al. [2023] scales to three-dimensional (3D) geometry with anisotropic hyperelasticity; and further applications address thermal simulation [W¨ urth et al., 2024], phase-field frac-ture [Feng and Zhou, 2025], laminated shells [Hu et al., 2026], and elastohydrodynamic lubrication [Brumand-Poor et al., 2025]. The most direct two-phase graph work [Gue-vara Garban et al., 2025] trains on FE stress labels with equilibrium as a weighted penalty. Label-free two-phase solvers remain coordinate-based [Henkes et al., 2022, Sarma et al., 2024, Rezaei et al., 2022], representing the interface through a penalty or transition width. What has not been reported is a variational graph solver, trained without labels, in which material heterogeneity is carried by the discretization itself—with no interface penalty and no transition width—under a single construction covering linear elasticity and finite-strain hyperelasticity. This paper presents a physics-informed graph neural network (PI-GNN) that operates on a conforming mesh graph and minimizes the discrete total potential energy. Constitutive behavior is assigned per element, so the bimaterial interface emerges from the stiffness contrast between adjacent elements exactly as in FEM. Because the discrete energy on 
+
+P1 elements coincides with the FE Ritz functional, the converged FE field is the exact minimizer of the training objective; FEM is therefore the benchmark, with training and inference costs reported separately. The main contributions are: 
+
+• Heterogeneity carried by the discretization. A single unweighted energy func-tional is minimized across phases with no interface penalty or transition width. Across a sweep Einc /E mat ∈ [10 −2, 10 2] with all settings frozen, the von Mises error stays below 3.58% and displacement error below 0.5%; a strong-form PINN with fixed transition width reaches 5.58% and 7.66% (Section 3.2.2). 2• Isolation of the message-passing contribution. At a fixed training budget, message passing lowers the error by 19-43% across a mesh sweep, with the margin widening as the mesh coarsens. At convergence, both variants settle on a similar loss, proving that message passing is a faster approach to the shared Ritz minimizer (Section 3.2.3). 
+
+• Benchmarking on a shared unseen mesh. The PI-GNN roughly halves the σxx 
+
+error of an energy-based PINN (5.01% versus 10.94%; 7.57% versus 15.08%), with errors measuring transfer to an unseen discretization (Sections 3.2.1 and 3.2.2). 
+
+• Robustness under one fixed model. All verification and application exam-ples—smooth and re-entrant inclusions, combined loading, and 3D torsion—use iden-tical architecture, hyperparameters, and loss, with displacement L2 errors below 1.5% in both 2D and 3D (Sections 3 and 4). The remainder of the paper is organized as: Section 2 sets out the kinematics, constitu-tive relations, and variational GNN formulation. Section 3 reports verification and isolates the message-passing effect. Section 4 applies the framework to re-entrant inclusions, and 3D torsion; Section 5 closes with findings and future directions. 
+
+2. Preliminaries: Kinematics and PI-GNN Formulation 
+
+This section presents the theoretical framework and formulation of the PI-GNN solver. We first describe the governing equations and constitutive relations, followed by the variational principle of minimum potential energy, which serves as the physical basis for the solver. Fi-nally, we describe the graph-based discretization, neural network architecture, and training scheme in Section 2.2. 
+
+2.1. Governing equations and material models 
+
+The body occupies a domain Ω with boundary ∂Ω = Γ u ∪ Γt, along which the displace-ment (Γ u) and traction (Γ t) boundary conditions are prescribed, respectively. Given the displacement field u, the kinematic quantities are: 
+
+F = I + ∇u, J = det F, ε = 12
+
+
+
+∇u + ∇u⊤
+
+, C = F⊤F, I1 = tr( C), (1) where F and C are the deformation gradient and right Cauchy-Green tensor, respectively. For a linear elastic (LE) material under the small-strain assumption, the strain-energy density Ψ reads: ΨLE (ε) = λ
+
+2 (tr ε)2 + μ (ε : ε), (2) whereas for a finite strain hyperelastic material, we use the Neo-Hookean (NH) material model, ΨNH (F) = μ
+
+2 (I1 − 3) − μ ln J + λ
+
+2 (ln J)2. (3) The Lam´ e parameters related to the Young’s modulus ( E) and Poisson’s ratio ( ν) as 
+
+μ = E
+
+2(1 + ν) , λ = Eν 
+
+(1 + ν)(1 − 2ν) , (4) governs the 3D and plane strain problems. The plane stress condition eliminates the out-of-plane stress. At finite strain, this is imposed through ∂ΨNH /∂ F33 = 0. And at small strain, the corresponding energy uses the reduced Lam´ e parameter ¯λ = Eν/ (1 − ν2). Both Equations (2) and (3) are used, but a given boundary value problem (BVP) em-ploys one constitutive family throughout. The linear elastic energy for the small-strain examples of Section 3, and the Neo-Hookean energy for both phases in the finite-strain 3examples of Section 4. Within each family, the material parameters are piecewise constant, (Emat , ν mat ) ∈ Ωmat and ( Einc , ν inc ) ∈ Ωinc . The total potential energy is given as: Π[ u] = 
+
+Z
+
+> Ω
+
+Ψ dΩ −
+
+Z
+
+> Ω
+
+b · u dΩ −
+
+Z
+
+> Γt
+
+t · u dΓ , (5) with body force b and prescribed traction t on the boundary Γ t.The principle of minimum potential energy states that the equilibrium displacement is the admissible field that minimizes Π (Equation (5)): 
+
+u∗ = arg min  
+
+> u∈U
+
+Π[ u], U = {u : u = uD on Γ u}, (6) since the stationarity condition δΠ = 0 is the weak form of ∇ · σ + b = 0 together with the natural boundary condition σ · n = t on Γ t. The DEM framework proposed by Samaniego et al. [2020] uses Equation (6) directly as a training objective. The displacement is approx-imated by the output uθ of a neural network with parameters θ. The functional is reduced to an ordinary function Π( θ) = Π[ uθ] minimized over θ with no reference solution required. The essential condition uθ = uD on Γ u is not satisfied automatically by the network and is enforced either by construction or through a penalty term. In contrast, the traction condition on Γ t is recovered naturally by the energy minimization. 
+
+2.2. PI-GNN solver formulation 
+
+The PI-GNN workflow is designed to solve BVPs on complex, heterogeneous domains with-out requiring labeled training data. Figure 1 illustrates the overall computational pipeline, which proceeds in a structured sequence: given a physical domain, we first generate an adaptive mesh and construct a graph representation G (Section 2.2.1). We then pass spa-tial coordinates and material labels through a message-passing GNN to compute node-wise displacements (Section 2.2.2). Using the displacements, we compute element-wise strains and evaluate the constitutive relations to assemble the discrete potential energy Π (Sec-tion 2.2.3). Finally, the GNN parameters θ are optimized by minimizing the energy. 
+
+2.2.1. Adaptive mesh generation and graph construction 
+
+The PI-GNN operates on a graph G = ( V, E) built from a spatially adaptive mesh of col-location points, refined where the fields are discontinuous—at the outer boundary or at material interfaces—coarsened through the quiescent bulk. Mesh generation proceeds in three stages: an adaptive size field determines the local node spacing, collocation points are placed at that spacing, and a Delaunay triangulation turns the points into a mesh graph with per-element material labels. A single geometric primitive, the signed distance ϕ(x), which is negative inside the inclusion, positive in the matrix, and zero on the interface, is used. The point-in-phase tests, boundary sampling, and the size field are all derived from 
+
+ϕ, such that the same pipeline is used for any circular (or re-entrant) inclusion and reduces to null when the inclusion interior is left unfilled. 
+
+Adaptive size field: The field ρ(x) defines the local nodal spacing, with finer resolution prescribed geometric features and progressively coarser resolution away from them. For a feature k of characteristic length ℓk, let dk = |ϕk(x)| denote the distance from x to its boundary. The spacing is prescribed as: 
+
+ρk(x) = min  ρmin ,k + g d k, ρ max 
+
+, (7) where ρmin ,k is proportional to ℓk specifies the minimum spacing at the feature boundary, 
+
+g controls the rate of the coarsening, and ρmax denotes the far field spacing. The distance-based grading provides a gradual transition from fine to coarse resolution while avoiding an abrupt change over a prescribed refinement width. In contrast to a fixed-width refinement band, the transition width adapts to the prescribed spacing contrast and continues until 4Input Vector Encoder Message Passing Layers Decoder Output Vector 
+
+> Strain & Stress Tensor
+
+𝑥௜ 
+
+𝑦௜ 
+
+𝑚௜ 
+
+χ௜ 
+
+𝑢௜ 
+
+𝑣௜                       
+
+> Strain Tensor
+> ε௘= ½(
+> ∇u + (
+> ∇u)ᵀ)
+> Stress Tensor
+> σ௘=C௘ :ε௘
+> Internal Energy
+> Π୧୬୲ = ∫Ω ψ( ε௘) dΩ ψ = ½ σ௘:ε௘
+> External Energy
+> Πୣ୶୲ = ∫Γ t̄·u dΓ
+> Π = Π୧୬୲ −Πୣ୶୲
+> Adam Optimiser
+> Loss Components Loss Function
+> Optimising Network
+> Optimize 𝜃, 𝑏 to get min 𝛱 ௨,୴
+> neuron neighbouring node target node
+> Feature vector for each node i
+> ∀e
+> ∈ 𝒯
+> ℝ⁶⁴ → ℝ⁶⁴ L = 4 ℝ⁴ → ℝ⁶⁴ ℝ⁶⁴ → ℝ²
+> ∀i
+> ∈𝒱
+
+Figure 1: Overview of the PI-GNN solver. The mesh is a graph: each node i ∈ V 
+
+carries the feature vector fi = [ ˆXi, ˆYi, m i, χ i]T (Equation (9)), which the encoder lifts to a 64-dimensional embedding. The L = 4 message-passing layers (see Figure 3) exchange embeddings along mesh edges. Element strains εe and stresses σe (linear elastic formulation shown here for simplicity) are assembled over the element set T into the potential energy Π = Π int − Πext . The Π is minimized over θ using an Adam optimizer with no labeled data. 
+
+ρmax is reached. The parameter g can, therefore, be selected to control the sharpness of the resolution transition or determined from the desired near-field refinement extent. When multiple features are present, the most restrictive local spacing is retained, 
+
+ρ(x) = min  
+
+> k
+
+ρk(x), (8) ensuring that each feature remains adequately resolved, including in regions where neigh-boring holes or inclusions interact. A representative spacing field is shown in Figure 2. 
+
+Collocation point assignment: The geometric boundaries are discretized before the inner domains are filled. Nodes are placed along each external boundary and inclusion in-terface according to the local spacing ρ, with their positions determined by arc length. This process provides an approximately uniform distribution along smooth boundary segments while increasing the nodal density in regions of high curvatures, including re-entrant tips. The boundary and interface nodes are then fixed and treated as an exclusion region. The matrix and inclusion domains are independently filled using variable-radius Poisson-disc sampling. Pre-seeding the boundaries allows the interior sampling to automatically obtain the required clearance from all geometric interfaces. For each region, the procedure is as follows: 1. Seeding. The fixed boundary and interface nodes are inserted into a background search grid, and the region is seeded with one accepted interior point; each inclusion is seeded separately such that none is left empty. 2. Candidate generation. For a random active point, candidate points are drawn in the annulus region between one and two local spacings, with random orientation. 5Figure 2: Adaptive collocation size field ρ(x): finest at the interface boundary ( ρmin ) and grading outward to the uniform far-field spacing ( ρmax ). 3. Acceptance. A candidate point is accepted if it lies within the intended phase and is sufficiently separated from every existing node. The required separation is taken as the smaller of the local spacing at the candidate point and at the existing node. If this condition is satisfied for all existing nodes, the candidate point is added to the active set. 4. Termination. An active point is considered retired once it yields no admissible candidates, and sampling ceases when the active set is empty, indicating that the region has reached the specified density. 
+
+Triangulation and material graph: The complete point set, including the outer bound-ary, interfaces, and interiors, is triangulated using the Delaunay criterion [Virtanen et al., 2020]. The resulting nodes form the graph vertices V, while pairs of nodes sharing a triangle edge are connected by directed edges in E. Each edge carries a fixed geometric attribute based on the relative positions of its endpoints, [∆ xij , ∆yij , ∥∆xij ∥]T in 2D, with the same definition extended to d = 3. These attributes are computed once from the mesh and are not trained. Each node is assigned a phase label; inclusion if ϕk ≤ 0 for any feature k, including nodes on the feature boundary, and matrix otherwise. Elements are then classified according to the phases of their vertices as all-matrix, all-inclusion, or interface elements when their vertices span both labels. Because the mesh conforms to the phase interfaces, an interface element does not physically contain both materials; rather, the mixed vertex labels arise from the convention used to assign interface nodes. Such interface elements are assigned the matrix properties, consistent with the underlying conforming FE discretization and the prescribed nodal phase convention, rather than as an approximation of the material interface. For a perforated plate, the same construction is used with the hole left unfilled and the remaining domain treated as a single matrix phase. The hole boundary is refined to the same field size. 62.2.2. Graph neural network architecture 
+
+The GNN solver operates on the graph representation G using an Encoder-Processor-Decoder architecture [Dalton et al., 2022, 2023]. The encoder maps the nodal features and spatial coordinates to latent representations, which are subsequently updated through local message passing to capture neighborhood interactions. The decoder then maps the processed latent representations to nodal displacements, with the prescribed boundary con-ditions enforced exactly. 1. Encoder : Each node i ∈ V is assigned a normalized feature vector: 
+
+fi =  ˆXi, ˆYi, m i, χ i
+
+T ∈ R4, (9) where ˆXi, ˆYi are normalized spatial coordinates, mi ∈ { 0, 1} is the material-phase la-bel, and χi ∈ { 0, 1} indicates whether the node i lies on the matrix–inclusion interface. For the 2D formulation shown here; the node feature vector is [ ˆXi, m i, χ i]T ∈ Rd+2 ,where d = 2; the same construction extends directly to 3D with ( d = 3). The decoder subsequently outputs the displacement vector ˜ ui ∈ Rd. A shared linear layer maps the node features to a 64-dimensional latent space: 
+
+h(0)  
+
+> i
+
+= ReLU( Wenc fi + benc ) , (10) where Wenc and benc are trainable parameters, and ReLU( ·) is the rectified linear unit. 2. Processor : Information is propagated across the mesh using L = 4 message-passing layers (see Figure 3). At each layer ℓ = 1 , . . . , L, node embeddings h(ℓ−1)  
+
+> i
+
+are updated via localized messages from incoming neighbors j ∈ N (i): 
+
+m(ℓ) 
+
+> j→i
+
+= ReLU 
+
+
+
+W(ℓ)msg 
+
+h(ℓ−1)  
+
+> i
+
+∥ h(ℓ−1)  
+
+> j
+
+− h(ℓ−1)  
+
+> i
+
+∥ eij 
+
+ + b(ℓ)msg 
+
+
+
+, (11) 
+
+h(ℓ) 
+
+> i
+
+= ReLU 
+
+
+
+W(ℓ)upd 
+
+h(ℓ−1)  
+
+> i
+
+∥ m(ℓ)
+
+> i
+
+ + b(ℓ)upd 
+
+
+
+, (12) where m(ℓ) 
+
+> i
+
+= 1 
+
+> |N (i)|
+
+P  
+
+> j∈N (i)
+
+m(ℓ) 
+
+> j→i
+
+is the mean-aggregated message, ∥ represents vec-tor concatenation, and W(ℓ), b(ℓ) are layer-specific trainable weights and biases. The message in Equation (11) combines three quantities: the receiver state h(ℓ−1)  
+
+> i
+
+, the neighbor–receiver difference h(ℓ−1)  
+
+> j
+
+− h(ℓ−1)  
+
+> i
+
+, and the edge geometry eij . The state difference emphasizes local contrast between neighboring nodes, which is particularly relevant near bimaterial interfaces where material properties change across adjacent elements. The edge attribute provides the relative direction and length of the connec-tion, allowing the same message function to operate on edges with different geometries in an unstructured mesh. Because these edge features are computed directly from the mesh, the same learned message function can also be applied when the network is evaluated on an unseen discretization. Figure 3 illustrates the message construction, aggregation, and node update for a single layer ℓ.3. Decoder and Boundary Enforcement : The final latent embeddings h(L) 
+
+> i
+
+are de-coded to unconstrained nodal displacements via a linear layer: ˜ui = Wdec h(L) 
+
+> i
+
++ bdec , ˜ui ∈ R2, (13) where Wdec and bdec are trainable decoder parameters. Dirichlet boundary conditions are enforced exactly by applying a multiplicative binary mask to the unconstrained predictions: 
+
+ui = qi ⊙ ˜ui + ( 1 − qi) ⊙ uD,i , (14) 7where qi ∈ { 0, 1}2 is the boundary mask indicating free (1) or prescribed (0) displace-ment components, uD,i is the prescribed Dirichlet value, and ⊙ denotes element-wise multiplication. This hard enforcement guarantees exact constraint satisfaction at every epoch without penalty terms in the loss. Message-passing layer  (ℓ) (Processor: 4 layers) 
+
+h₁
+
+h₂
+
+h₃
+
+h₄            
+
+> Neighbor node
+> embeddings (𝒉 𝒋
+> ℓ− 1)
+> Message
+> functions
+> mⱼ→ᵢ⁽ℓ⁾
+> Mean aggregate
+> message (𝐦 𝒊
+> ℓ)
+> i
+> Updated target
+> node embedding
+> 𝒉 𝒊
+> ℓ
+> This becomes input
+> to layer ℓ+1
+> [𝒉 i
+> ℓ− 1|| 𝒉 𝒋
+> ℓ− 1- 𝒉 i
+> ℓ− 1|| 𝒆 ij ]
+> Target node embedding (𝒉 𝒊
+> ℓ− 1)
+
+W_msg ⁽ℓ⁾ 
+
+W_msg ⁽ℓ⁾ 
+
+W_msg ⁽ℓ⁾ 
+
+W_msg ⁽ℓ⁾ 
+
+W_upd ℓ   
+
+> [𝒉 𝒊
+> ℓ−1 || 𝒎 𝒊
+> ℓ]
+
+ℝ128  → ℝ64 
+
+ℝ131  → ℝ64 
+
+Figure 3: Message-passing layer ( ℓ) of the processor ( L = 4 layers, Equations (11) and (12)). On each edge ( j → i) the receiver embedding, the neighbor-minus-receiver dif-ference, and the edge attribute are concatenated, ([ h(ℓ−1)  
+
+> i
+
+∥ h(ℓ−1)  
+
+> j
+
+− h(ℓ−1)  
+
+> i
+
+∥ eij ] ∈ R131 ), and mapped by shared weights ( W(ℓ)msg ) to ( m(ℓ) 
+
+> j→i
+
+∈ R64 ); the four boxes are one weight set reused edge-wise. The neighborhood mean ( m(ℓ) 
+
+> i
+
+) is concatenated with ( h(ℓ−1)  
+
+> i
+
+) and mapped by ( W(ℓ)upd ) to ( h(ℓ) 
+
+> i
+
+). 
+
+2.2.3. Discrete potential energy assembly 
+
+Using the conforming mesh, the continuous total potential energy functional is discretized over the computational domain. With continuous piecewise-linear ( P1) elements the defor-mation gradient F and strain ε are constant within each constant-strain triangles (CSTs) in 2D and constant-strain tetrahedra in 3D. For piecewise-constant material properties, the internal-energy density is, therefore, constant within each element, making single-point quadrature sufficient and exact for the internal energy. The domain integrals consequently reduce to algebraic sums over elements and boundary facets. Assuming no body forces, the discretized potential energy Π( uθ) is assembled as: Π( uθ) = 
+
+> Ne
+
+X
+
+> e=1
+
+Ψe Ve −
+
+> Nf
+
+X 
+
+> f=1
+
+tf · u f Sf , (15) where Ve is the element e area in 2D (or volume in 3D), Ψ e is the strain-energy density calculated from the predicted nodal displacements uθ (using the linear elastic/hyperelastic model). Sf denotes the edge length in 2D (or facet area in 3D) of facet f on the traction boundary Γ t, and tf denotes the prescribed traction vector on that facet. For spatially varying traction, tf is evaluated as the facet-average traction. Similarly, u f denotes the predicted displacement averaged over the nodes of the facet. For a facet-wise constant trac-tion and P1 interpolation, single-point quadrature on each facet computes the external work 8exactly. Under the uniaxial tension condition shown in Figure 4, the contribution reduces to t u fx Sf , where u fx is the mean longitudinal displacement of the facet nodes. For linear elastic P1 elements with global displacement vector u, the discrete internal strain energy evaluates to PNe 
+
+> e=1
+
+ΨeVe = 12 uTKu , where K is the standard assembled FE stiffness matrix, and the external work evaluates to FT
+
+> ext
+
+u. The discrete functional Π( uθ) = 12 uTKu − FT
+
+> ext
+
+u
+
+therefore coincides identically with the FE Ritz functional, and the converged FE displace-ment field is the exact minimizer of the discrete training loss. The network parameters θ
+
+are then optimized by minimizing this discrete potential energy as the sole training objec-tive (Equation (16)). No PDE-residual term or boundary penalty terms are required; the essential boundary conditions are enforced hard-coded in the output layer. 
+
+L(θ) = Π( uθ). (16) 
+
+3. Numerical Verification and Reference Solver 
+
+This section details the verification suite and benchmarks the PI-GNN framework against numerical and analytical references. We first describe the standard displacement-based FE reference model, which serves as the verification baseline solver (Section 3.1). We then define the error metrics and present three verification problems (Section 3.2). 
+
+3.1. Finite element reference model 
+
+The predictions of the PI-GNN are benchmarked against a standard displacement-based FE model implemented in FEniCSx [Baratta et al., 2023]. The solvers share the same mesh, per-phase material assignment, and boundary data, and use identical Lam´ e parameters: the shear modulus μ throughout, with the dilatational constant taken as ¯λ for the plane stress plates and as λ for the 3D example. The comparison, therefore, isolates the numerical ap-proximation introduced by the neural network from any modeling discrepancy. Converged to solver tolerance, the FE field serves as the high-fidelity benchmark throughout. Each example shares the equilibrium problem 
+
+∇· σ = 0 in Ω , (17) closed by the kinematics and per-phase constitutive laws and the boundary condition u = ¯ u
+
+on Γ u and σ·n = t on Γ t. The discontinuous moduli ( E, ν )( x) or the Lam´ e parameters enter the element integrals directly. Because the mesh conforms to Γ int , the perfect-bond inter-face conditions are satisfied automatically, without penalty or Lagrange-multiplier terms. Figure 4 shows the representative configuration used in the verification suite; a plate under uniaxial tension, for which the prescribed boundary conditions are: 
+
+ux = 0 on the left edge , u = 0 at point (0 , L ),
+
+σ · n = ( T, 0) ⊤ on the right edge . (18) The corner constraint eliminates the remaining rigid-body mode, while all other edges are traction-free. For the linear elastic example, the displacement is interpolated with continuous piecewise-linear ( P1) Lagrange elements, and the weak form reads 
+
+Z
+
+> Ω
+
+σ(uh) : ε(v) dΩ = 
+
+Z
+
+> Γt
+
+t · v dΓ , (19) where σ(uh) is the stress conjugate to Ψ LE . The spatially varying μ(x) and ¯λ(x) enter the bilinear form directly, requiring no modification of the formulation for homogeneous or composite domains. The resulting linear system is solved using a direct LU factorization with MUMPS [Amestoy et al., 2001]. Element stresses are subsequently recovered from uh
+
+using the same constitutive relation. 9Traction free:                         
+
+> 𝑡 𝑥 =n𝑥 ·σ𝑥𝑥 +n𝑦 ·σ𝑥𝑦 =0
+> 𝑡 𝑦 =n𝑦 ·σ𝑦𝑦 +n𝑥 ·σ𝑥𝑦 =0
+> u⁺ = u⁻, t⁺ = t⁻
+> Emat ,νmat
+> σ𝑦𝑦 = 0, σ 𝑥𝑦 = 0 σ𝑦𝑦 = 0, σ 𝑥𝑦 = 0
+> σ𝑦𝑦 = 0, σ 𝑥𝑦 = 0 σ𝑦𝑦 = 0, σ 𝑥𝑦 = 0
+> x
+> y
+> Einc ,νinc
+> σ𝑥𝑥 = T
+> σ𝑦𝑦 = 0
+> σ𝑥𝑦 = 0
+> σ𝑥𝑥 = T
+> σ𝑦𝑦 = 0
+> σ𝑥𝑦 = 0
+> (0 , 0)
+> (0 , L)
+> Hinge
+
+Figure 4: Boundary conditions of the representative uniaxial tension configuration, ap-plied identically in the FE reference model and in the PI-GNN. For the hyperelastic example, the mesh, element type, and boundary treatment are retained, while the constitutive model is replaced by the Neo-Hookean energy Ψ NH , ren-dering the problem nonlinear. A total-Lagrangian formulation is adopted with respect to the reference configuration. The discrete equilibrium is obtained from the stationarity of the total potential energy, whose first variation defines the residual: 
+
+R(uh; v) = 
+
+Z
+
+> Ω
+
+P : ∇v dΩ −
+
+Z
+
+> Γt
+
+t · v dΓ = 0 ∀ v ∈ V 0, (20) where P = ∂ΨNH /∂ F is the first Piola-Kirchhoff stress and V0 is the space of admissible variations vanishing on Γ u. The nonlinear system is solved using Newton-Raphson iteration with the consistent tangent ∂R/∂ uh assembled by automatic differentiation of the residual. The prescribed nominal traction t on the reference boundary is applied incrementally in equal load steps to facilitate convergence at finite strain, with the direct LU solver reused at each iteration. The Cauchy stress used for comparison is subsequently recovered by push-forward, 
+
+σ = J−1PF ⊤, P = FS , S = μ I − C−1 + λ3D ln J C−1, (21) where S denotes the second Piola-Kirchhoff stress. In linear elastic or hyperelastic regimes, the FE reference solution and the PI-GNN use the same mesh, per-element material assignment, and essential and natural boundary conditions. The comparison, therefore, isolates the discrepancy between the converged FE solution and its neural approximation without introducing discrepancies due to geometry, discretization, material assignment, or loading. 
+
+3.2. Verification problems and error metrics 
+
+The framework is verified across two problem classes: the first investigates perforated plates with single- and three-hole configurations that introduce stress concentrations. The second investigates a material interface with a stiffness mismatch. These numerical examples probe the recovery of smooth elastic fields, sharp stress gradients, and heterogeneous response across an interface. Where a closed-form solution is available, it is used as the reference; otherwise, the neural predictions are compared with the converged FE solution evaluated on the same 
+
+mesh. This common discretization removes differences in mesh resolution and geometry 10 representation from the comparison, such that the reported error isolates the neural ap-proximation relative to the FE reference. Body forces are neglected throughout both the FE and neural network formulations, with b = 0 in Equation (5). Let α denote a scalar field such as a displacement component ux, u y, a stress component 
+
+σxx , σ yy , σ xy , or the von Mises stress σvM . Let αFEM and αPI-GNN denote the FE reference and PI-GNN predictions, respectively, evaluated at the same nodes. Accuracy is quantified using three complementary measures: the global relative L2 error, the pointwise relative error err α, and the coefficient of determination R2. The global agreement between the two solutions is quantified using an element-area-weighted relative L2 error for each field: 
+
+L2 
+
+> α
+
+=
+
+rX 
+
+> e
+
+Ae
+
+ αe 
+
+> PI-GNN
+
+− αe
+
+> FEM
+
+2
+
+rX 
+
+> e
+
+Ae
+
+ αe
+
+> FEM
+
+2 × 100 % , (22) where Ae is the area of element e and αe the field value on that element, so that the metric weights each region by its geometric measure and is independent of mesh non-uniformity. The signed pointwise relative error at node i is evaluated as: err α(xi) = αPI-GNN (xi) − αFEM (xi)
+
+|αFEM (xi)| × 100 % . (23) The sign of err α distinguishes over-prediction (+) from under-prediction ( −). To avoid the artificial amplification of the relative error in Equation (23) near zero-crossings and constrained boundaries, nodes satisfying |αFEM (xi)| < δ max j |αFEM (xj )| are excluded, with a relative threshold of δ = 10 −2. The spatial distribution of err α is summarized by its median, which indicates systematic bias toward over- or under-prediction while remaining less sensitive to isolated outliers. The coefficient of determination measures the reference field variance captured by the prediction, 
+
+R2 
+
+> α
+
+= 1 −
+
+X
+
+> i
+
+ αFEM (xi) − αPI-GNN (xi)2
+
+X
+
+> i
+
+ αFEM (xi) − αFEM 
+
+2 , (24) where αFEM is the mean of the reference field. For the heterogeneous examples, R2 
+
+> α
+
+is additionally evaluated separately in near-field and far-field regions. A node is classified as near-field if its distance to the boundary of any inclusion is less than or equal to twice the corresponding inclusion radius; all remaining nodes are classified as far-field. This partition separates the accuracy in regions containing steep gradients near material interfaces from that in the comparatively smooth bulk. 
+
+3.2.1. Single and multiple holes 
+
+The first verification example considers square plates with circular holes, providing a bench-mark for localized stress concentrations. Three configurations of increasing geometric com-plexity are used to assess the PI-GNN. The smallest single-hole example first verifies the PI-GNN and the FE reference against the closed-form Kirsch solution, for which the finite plate approximates the infinite-plate idealization well ( a = 1 mm, plate-to-diameter ratio of 10). The two remaining configurations, consisting of a larger single hole ( r = 4 mm) and an asymmetric three-hole plate, additionally provide a comparison with the energy-based PINN [Li et al., 2021]. For neural comparisons, the solvers are trained using independent samples from the domain and subsequently evaluated, without further optimization, with a single forward pass on a common FE mesh that is not used during training. The converged FE solution on this mesh serves as the reference. The PI-GNN versus PINN comparison is designed to isolate the effect of the displacement-11 field representation as far as possible. Both models minimize the same functional, Π = 
+
+U − Wext , using Adam with a constant learning rate of η = 1 × 10 −3 and a fixed budget of 30 ,000 epochs, without problem-specific tuning. The PINN contains approximately 21 ,000 trainable parameters, compared with approximately 17 ,000 for the PI-GNN L4H32 , pro-viding comparable network capacities and avoiding an advantage to the PI-GNN from a larger parameter count. The PI-GNN represents the displacement as a discrete nodal field and evaluates the energy element-wise on the mesh. In contrast, the PINN represents a continuous coordinate-based field and evaluates the energy by Monte Carlo integration over collocation points [Li et al., 2021]. Thus, both methods are compared under the same vari-ational objective and optimization budget, while their spatial representations and energy discretizations remain distinct. 
+
+Analytical benchmark: The plate occupies Ω = [ −l/ 2, l/ 2] 2 \ B a(0) with side length l =20 mm and hole radius a = 1 mm. The resulting plate-to-diameter ratio, l/ 2a = 10, provides a finite approximation to the infinite-plate assumption underlying the Kirsch solution. The material is linear elastic steel ( E = 210 GPa, ν = 0 .3) under plane stress. A uniform tensile traction T = 1 MPa is applied on the right edge, with the Dirichlet conditions on the left edge (see Figure 4). The near-field region is defined as the annulus extending from the hole boundary to an outer radius 2 a.Figure 5a compares the longitudinal stress σxx of the FE reference solution (left) and the PI-GNN prediction (right). The PI-GNN reproduces the characteristic Kirsch distribution; 
+
+σxx reaches ≈ 3T at the hole crown ( θ = ±π/ 2). At the horizontal margins ( θ = 0 , π ), the pressure becomes compressive with a value ≈ − T , and approaches the far-field value T
+
+away from the hole. Figure 5b traces σxx along the transverse line of symmetry x = 0. The PI-GNN closely follows both the FE reference and the analytical Kirsch solution, recovering the maximum stress-concentration factor of 3 at the hole boundary and its decay toward the far-field value. The field-wise metrics in Table 1 shows good agreement, with the load-carrying fields ux and σxx achieving R2 = 0 .99 both globally and in the near-field. The mesh convergence study for this case is shown in Section Appendix A. 
+
+# →↑ xy
+
+Figure 5: Thin plate with a single hole; a = 1 mm, plate-to-diameter ratio 10. (a) Longitudinal stress σxx from the FE reference solution (left) and the PI-GNN prediction (right). (b) σxx along the transverse line of symmetry x = 0 from the PI-GNN, the FE reference, and the analytical Kirsch solution, showing the decay of the stress-concentration factor from 3 at the hole boundary to unity in the far field. 12 Table 1: Comparison of the field-wise error for the thin plate with a single-hole ( a = 1 mm): PI-GNN against the FE reference.                 
+
+> R2
+> Field L2
+> α(%) Global Near-field
+> ux0.5700 0.9998 0.9992
+> uy0.5700 0.9996 0.9989
+> σxx 0.9397 0.9963 0.9964
+> σvM 0.8879 0.9963 0.9964
+
+Single hole ( r = 4 mm ): The problem is posed on the full plate (side 20 mm), containing a central hole of radius r = 4 mm and subjected to the roller-and-pin conditions shown in Figure 4. This differs from the quarter-domain formulation with symmetry conditions used in the original benchmark [Li et al., 2021]. The PI-GNN is trained on its own conform-ing mesh, refined around the hole, containing 4368 nodes and 8221 elements. In contrast, the PINN is trained using 10 ,000 collocation points, which are resampled every 500 epochs via near-field densification. Both are then evaluated on a common FE mesh with 1865 nodes and 3420 elements, which is not used during training. The PI-GNN is evaluated by a forward pass on the mesh graph, while the PINN is evaluated by querying its coordinate network at the mesh nodes. The displacement magnitude ( || u|| ) and longitudinal stress ( σxx ) fields exhibit good qualitative agreement, with all three solvers accurately resolving the characteristic crown stress concentration of approximately 3 T and its decay into the surrounding plate (see Figure 6). Quantitatively, the PI-GNN provides better agreement with the FE reference than the PINN, achieving a global R2 = 0 .99 compared with 0.96 for the PINN. The same trend is observed in the near-field, where the PI-GNN and PINN achieve R2 = 0 .99 and 0.97, respectively, indicating that the additional near-field sampling of the PINN does not substantially improve its accuracy in the stress-concentration region (see Table 2). The relative-error distributions further distinguish the two models. The PI-GNN errors are narrowly distributed around zero, with a median of −0.41% and a standard deviation of 5.24%, whereas the PINN exhibits a positive bias, with a median of +5 .07%, and a broader distribution with a standard deviation of 9 .69% (Figure 8c). 
+
+Three-hole configuration: To test the resolution of interacting stress fields, an asym-metric three-hole configuration is considered in which closely spaced holes of different radii generate overlapping stress concentrations. The square plate (side l = 20 mm) contains three circular holes of radii r1 = 1 mm, r2 = 2 mm, and r3 = 3 mm centered at (8 , 14), (12 , 12), and (8 , 7), respectively. The material, loading, and boundary conditions are iden-tical to the single-hole example. The PI-GNN is trained on its own conforming mesh refined around the three holes, containing 4455 nodes and 8394 elements, while the PINN is trained using 25 ,000 collocation points resampled every 500 epochs. Both models are subsequently evaluated on a common unseen FE mesh containing 3158 nodes and 5837 elements, with the converged FE solution on this mesh serving as the reference. The σxx fields are compared in Figure 7. The close spacing between the holes concen-trates the load within the narrow ligaments separating adjacent holes, with the peak σxx 
+
+reaching ≈ 5T at the upper edge of the largest hole. Both neural solvers reproduce the overall stress pattern qualitatively, but the quantitative metrics distinguish their accuracy (Table 2). The PI-GNN achieves R2 ≈ 0.96 both globally and in the near-field, compared with ≈ 0.94 for the PINN, while its relative L2 
+
+> σxx
+
+error is approximately half that of PINN (7 .57% versus 15 .08%). The err σxx distribution (Figure 8d) show a similar trend to the single-hole example: the PI-GNN remains centered (median −0.68%, standard deviation of 7.87%), whereas the PINN exhibits a larger negative bias and broader distribution, with a median of −6.76% and standard deviation of 11 .53%. Notably, the sign of the PINN bias 13 changes between the two geometries, from positive in the single-hole example to negative in the three-hole example, whereas the PI-GNN remains close to unbiased in both examples. These results are consistent with the limitation reported by Li et al. [2021], who noted that although the energy-based model qualitatively captures the global stress distribution, its local prediction error remains appreciable in regions surrounding stress concentrations. 
+
+Figure 6: Discretizations and field predictions for the single-hole plate ( r = 4 mm). Top row: (a) Shared FE evaluation mesh (1865 nodes, 3420 elements). (b) Collocation points for the PINN energy estimate, sampled with near-field densification (10 ,000 points, resam-pled every 500 epochs) [Li et al., 2021]. (c) PI-GNN training mesh (4368 nodes, 8221 elements). The neural solvers are trained on (b) and (c), then evaluated on (a). Middle row: Displacement magnitude ( ∥u∥) fields evaluated on the FE reference mesh. (d) FE reference solution, (e) energy-based PINN prediction [re-implemented from Li et al., 2021], and (f) PI-GNN prediction. Bottom row: Longitudinal stress ( σxx ) fields evaluated on the FE reference mesh. (g) FE reference solution, (h) energy-based PINN prediction, and (i) PI-GNN prediction. 14 Figure 7: Top row: Displacement magnitude ( ∥u∥). Bottom row: longitudinal stress 
+
+σxx for the asymmetric three-hole configuration [Li et al., 2021]. The peak σxx ≈ 5T
+
+develops in the ligament above the largest hole. (a) FE reference solution ( FEniCSx ). (b) Energy-based PINN prediction, [re-implemented here Li et al., 2021]. (c) PI-GNN prediction. 
+
+Table 2: Longitudinal stress ( σxx ) error metrics for the PINN and PI-GNN predictions against the FE reference on the unseen evaluation mesh, for the single-hole ( r = 4 mm) and three-hole configuration. The err σxx distribution is summarized by its median and standard deviation across nodes that carry more than 20% of the peak stress.                             
+
+> Single hole Three holes Metric PINN PI-GNN PINN PI-GNN
+> L2
+> σxx (%) 10 .9425 5.0128 15 .0781 7.5738
+> R2(global) 0.9686 0.9918 0.9384 0.9600
+> R2(near-field) 0.9715 0.9919 0.9419 0.9593 Std. dev. (%) 9.6903 5.2359 11 .5258 7.8710 Median signed rel. error (%) 5.0698 −0.4116 −6.7578 −0.6793
+
+Across the three configurations, the PI-GNN reproduces the analytical Kirsch solution for the single-hole example and achieves accuracy comparable to or higher than the PINN across the perforated-plate benchmarks, with the largest differences observed in the near-field regions surrounding the holes. The PI-GNN also maintains a median pointwise error close to zero across the considered configurations, whereas the PINN exhibits geometry-dependent bias. Both comparisons are performed under discretization transfer, with each model trained on its own sampling of the domain and evaluated on a separate unseen FE mesh using the same architecture and training settings. The PI-GNN is, therefore, evaluated by a forward pass on an unseen mesh graph. In contrast, the coordinate-based PINN is evaluated by querying its learned continuous map at new coordinates. The sharper near-field accuracy observed for the PI-GNN is consistent with its mesh-based energy for-mulation, in which the internal energy is evaluated element-wise using exact element areas rather than estimated through Monte Carlo collocation [Li et al., 2021]. 15 Figure 8: Spatial density of the element-wise error (err ∥u∥ and err σxx ) for the PINN and PI-GNN predictions against the FE reference, where the dashed vertical lines are the median error for the respective solver. (a) & (c) Single hole ( r = 4 mm). (b) & (d) Asymmetric three-hole configuration. Nodes carrying less than 20% of the peak stress are excluded to focus the comparison on the failure-relevant region. 
+
+3.2.2. Two-phase composite 
+
+The perforated plate benchmarks isolate geometric stress concentrations in a homogeneous material. Heterogeneous material systems introduce an additional challenge because the material properties are discontinuous across the interface. For a perfectly bonded bimaterial interface, the displacement field remains C0-continuous and the traction is continuous, whereas the in-plane stress components exhibit finite discontinuities across the interface. An energy-based continuum micromechanics PINN is evaluated on the same two-phase benchmark to compare its accuracy with the proposed graph-based solver and to establish a reference error level for heterogeneous material systems [Henkes et al., 2022]. The benchmark consists of a square plate Ω = [0 , l ]2 with l = 2 mm, containing a circular inclusion, Ω inc = Ba(xc), of radius a = 0 .4 mm centered at xc = (1 , 1) mm, with the surrounding matrix occupying Ω mat = Ω \ Ωinc . Both phases have νmat = νinc = 0 .4, while Emat = 1500 MPa and Einc = 10 000 MPa, yielding a stiffness contrast of 6.67. Auniform tensile traction of T = 0 .025 MPa is applied to the right edge, with the remaining boundaries subjected to the roller-and-pin constraints. The geometry, material properties, and loading are identical to those of the reference study. Unlike the deep-energy baseline, which shares the variational formulation of the PI-GNN, the reference model is a strong-form, mixed-variable PINN that predicts ( ux, u y, σ xx ,σyy , σ xy ). Equilibrium and constitutive consistency are enforced through collocated resid-16 uals rather than a single energy functional. The implementation follows the code released by Henkes et al. [2022], retaining the published architecture and training settings: four hidden layers of 64 neurons with tanh activations and LeCun-uniform initialization, a uni-form 128 × 128 collocation grid, and 5000 BFGS iterations, yielding a final training loss of 3.41 × 10 −6. Material heterogeneity is represented through the hyperbolic-tangent regular-ization of the Lam´ e parameters across a transition band of width δ = 0 .01. With further model related details in Section Appendix C. The PI-GNN uses the same architecture and hyperparameters from the previous ver-ification example and is trained for 50 ,000 epochs using Adam with η = 10 −3. The two models, therefore, use different optimization formulations: a strong-form residual mini-mization with BFGS for the reference PINN and discrete energy minimization with Adam 
+
+for the PI-GNN. The only modification to the released PINN implementation concerns the post-processing. Rather than evaluating the trained network on the 128 × 128 collocation grid used during training, the network is evaluated at an independent set of points, allowing both neural models and the FE reference to be compared on a common discretization (3034 nodes and 5944 elements), which is not used during training. The mesh conforms to the material interface, with 252 nodes on the interface. This interface-conforming discretiza-tion permits the stress field to take distinct values on either side of the interface while retaining the required displacement continuity across the perfectly bonded interface. The PI-GNN, therefore, represents the material discontinuity explicitly through the conforming mesh topology, without introducing a smoothing or regularization layer at the interface. Figure 9 compares the ∥u∥ and σxx fields. Both models reproduce the characteristic load-transfer mechanism of a stiff inclusion embedded in a compliant matrix: the inclusion carries a large fraction of the applied load, resulting in elevated σxx within the inclusion and stress shielding in the surrounding matrix. The quantitative comparison shows comparable accuracy for the two models (see Tables 3 and 4). The relative L2 error in the displacement field is below 1% for both methods, with 0 .86% for the PINN and 0 .17% for the PI-GNN. For σxx , the corresponding errors are 3 .02% and 3 .78%, respectively, while the von Mises stress errors are 2 .57% and 1 .85%. All predicted fields achieve R2 ≥ 0.95 globally and within the near-field region. The transverse normal and shear stresses exhibit larger relative L2 errors, ranging from 15% to 28% for both models. These components carry little of the load under uniaxial tension; consequently, their larger relative errors primarily result from normalization by a small reference-field norm, while the corresponding absolute errors remain small (see Section 3.3). Overall, neither model exhibits a consistent accuracy advantage. This benchmark demonstrates that the proposed PI-GNN, without architecture or hyperparameter tuning, achieves accuracy comparable to that of a PINN specifically developed for heterogeneous continuum micromechanics. Two differences nevertheless emerge in the distribution of the errors. The first concerns the near-field region. Restricting the evaluation to the 2668 nodes located within twice the inclusion radius of the interface, the PI-GNN exhibits improved R2 values for the displacement components, σxx , and σvM , whereas the PINN shows a slight reduction in 
+
+R2 for all fields except σxy . The signed errors show a similar trend: the PI-GNN remains centered near 0 .0% for ux, σxx , and σvM , whereas the PINN exhibits biases of −0.86% for 
+
+ux. Although these differences are small, they indicate a modest advantage for the PI-GNN in resolving the fields near the material interface. The second difference concerns the interface’s representation. Owing to the conforming mesh, the PI-GNN captures the stress discontinuity across Γ int directly through mate-rial assignment of adjacent elements. In contrast, the coordinate-based PINN represents the material interface through a hyperbolic-tangent transition band of width δ = 0 .01, producing a more diffuse transition in the predicted stress contours (see Figure 9). The corresponding pointwise error distributions are shown in Figure 10. 17 Figure 9: Discretizations and field predictions for the circular inclusion. Top row: (a) Shared FE evaluation mesh (3034 nodes, 5944 elements). (b) The uniform point cloud of 128 × 128 grid on which the PINN of Henkes et al. [2022] is trained. (c) PI-GNN training mesh (3762 nodes, 7316 elements). The neural solvers are trained on (b) and (c), then evaluated on (a). Middle row: Displacement magnitude ( ∥u∥) fields evaluated on the FE reference mesh. (d) FE reference solution, (e) energy-based PINN prediction [Henkes et al., 2022], and (f) PI-GNN prediction. Bottom row: Longitudinal stress ( σxx ) fields evaluated on the FE reference mesh. (g) FE reference solution, (h) PINN prediction, and (i) PI-GNN prediction. 18 Figure 10: Spatial density of the element-wise relative error for the PINN and PI-GNN predictions against their respective FE references for the circular inclusion. (a) err || u|| .(b) err σxx . Nodes carrying less than 20% of the peak reference value are excluded, follow-ing Equation (23). 
+
+Table 3: L2 errors for the PINN and the PI-GNN, each against the FE solution, on the common evaluation mesh of the circular inclusion. 
+
+Relative Error L2 
+
+> α
+
+(%) Field PINN PI-GNN 
+
+|| u|| 0.8622 0.1699 
+
+σxx 3.0223 3.7801 
+
+σyy 19 .7799 27 .4440 
+
+σxy 16 .9558 14 .5477 
+
+σvM 2.5672 1.8468 
+
+Table 4: Field-wise R2 scores and median signed relative errors. The near-field comprises the 2668 nodes within twice the inclusion radius of the interface. 
+
+PINN PI-GNN 
+
+R2 Median Error R2 Median Error Field Global Near-field (%) Global Near-field (%) 
+
+ux 0.9989 0.9962 −0.8570 0.9978 0.9999 0.1521 
+
+uy 0.9988 0.9960 0.9318 0.9947 0.9999 −0.0951 
+
+σxx 0.9820 0.9811 0.0921 0.9750 0.9855 0.1459 
+
+σyy 0.9740 0.9729 −0.4006 0.9582 0.9571 1.5097 
+
+σxy 0.9731 0.9743 −0.4342 0.9884 0.9882 0.0066 
+
+σvM 0.9796 0.9773 0.8186 0.9838 0.9929 −0.0294 
+
+Accuracy under increasing stiffness contrast: The PINN and PI-GNN compari-son with the FE reference solution described above considers a single stiffness contrast, 
+
+Einc /E mat = 6 .67. To assess the robustness of both solvers to increasing material contrast, we repeat the comparison across twenty-five logarithmically spaced contrasts spanning 
+
+Einc /E mat ∈ [10 −2, 10 2], placed reciprocally symmetrically about unit contrast, varying only Einc . The matrix modulus, both Poisson’s ratios, geometry, applied traction, evalu-ation mesh, and all architectural and optimization settings are kept fixed. In particular, 19 the PINN retains its transition width δ = 0 .01, 128 × 128 collocation grid, and BFGS it-eration budget, with no problem-specific retuning. For each stiffness contrast, the solvers are trained from three independent weight initializations and evaluated on the same mesh using the area-weighted relative L2 (Equation (22)). 1/100 1/10 1     
+
+> Stiffness ratio Einc /Emat
+> 0510 15 20
+> L 2
+> σvM  (%)
+> PINN mean PI-GNN mean
+> (a) 110 100
+> Stiffness ratio Einc /Emat
+> 0246810
+> L 2
+> σvM  (%)
+> PINN mean PI-GNN mean (b)
+
+Figure 11: L2 
+
+> σvM
+
+error against the FE reference as a function of the stiffness contrast, for the strong-form PINN [Henkes et al., 2022] and the PI-GNN. Twenty-five logarithmically spaced contrasts spanning Einc /E mat ∈ [10 −2, 10 2], placed reciprocally symmetrically about unit contrast. Solid and dashed lines denote PINN and PI-GNN, respectively. The lines show the mean across three random seeds, and the shaded regions show the seed-level range. The solvers are evaluated on an interface-conforming mesh (3034 nodes, 5944 elements) that is not used in PI-GNN training, and the area-weighted metric is used. (a) is the soft-inclusion branch and (b) the stiff branch. The two solvers exhibit comparable accuracy for stiffness contrasts below approximately 2, with σvM errors near 2 .3% (see Figure 11). The errors begin to separate beyond a contrast of approximately 3: the PINN error increases linearly with log( Einc /E mat ), reaching 5 .58% at a contrast of 100, whereas the PI-GNN remains below 3 .58%. The same trend is reflected in R2, with the PINN decreasing from a maximum of 0 .983 to 0 .878, while the PI-GNN remains near 0 .976. The displacement error shows an even stronger separation, reaching 3.10% for the stiff-inclusion example and 7 .66% for the soft-inclusion example at a contrast of 100, compared with 0 .20% and 0 .49%, respectively, for the PI-GNN. The PI-GNN is largely insensitive to whether the inclusion is stiffer or softer, whereas the PINN degradation is associated with the fixed interface regularization width δ = 0 .01. A contrast-dependent choice of δ could reduce this degradation, but would introduce an additional problem-specific parameter. The comparison, therefore, does not claim superi-ority over an optimally tuned strong-form PINN. It rather demonstrates that the PI-GNN maintains a single configuration across the full contrast range without requiring an interface parameter to be adjusted. At a contrast of 100, the PINN error is 1.56 times the PI-GNN error for σvM . Repeating the evaluation on the PI-GNN training mesh gives 3 .07%, com-pared with 3 .58% on the held-out mesh, indicating that the observed trend is not sensitive to the choice of evaluation mesh. At the reference contrast of 6 .67, the two solvers achieve comparable accuracy at similar computational cost, despite using different optimization strategies. The PI-GNN completes 50 ,000 Adam epochs in 2497 s, compared with 1200 s for the PINN after 5000 BFGS iterations on the same hardware. Thus, first-order optimization of the discrete potential energy achieves accuracy comparable to that of quasi-Newton optimization of the strong-form residuals on this benchmark. The memory requirements of BFGS also increase with the number of trainable parameters, which can become an important consideration for larger 3D 20 and finite-strain problems. More importantly, the PI-GNN achieves this accuracy without problem-specific tuning. Geometry is introduced exclusively through the conforming mesh, while material heterogeneity enters through element-wise material properties. In contrast, coordinate-based PINNs require an appropriate collocation strategy and, for sharp material interfaces, a suitable interface regularization width. 
+
+3.2.3. Isolating the effect of message passing 
+
+The comparisons above demonstrate an advantage over the collocation-based energy PINN of Li et al. [2021] and, at high stiffness contrast, over the strong-form PINN of Henkes et al. [2022]. However, these comparisons do not isolate whether the observed advantage arises from the element-wise energy discretization or from message passing on the graph. To separate these effects, we construct a mesh-based PINN by modifying the existing PI-GNN while keeping its architecture and parameter count unchanged. Specifically, the neighborhood N (i) in Equation (11) is restricted to the node itself, eliminating information exchange between neighboring nodes. The resulting model, therefore, minimizes the same FE Ritz functional on the conforming mesh. Still, the mesh topology enters only through the assembly of the energy and does not influence the nodal trial field through message passing. This provides a direct comparison between mesh-based energy minimization with and without graph-based neighborhood interactions. Two sweeps are performed on the two-phase inclusion problem. The first varies the mesh element size over nine values h ∈ [0 .01 , 0.05] at a fixed stiffness contrast; the second varies the contrast over seven values Einc /E mat ∈ [10 −2, 10 2] on a fixed mesh. Each configuration is trained from 3 random seeds (initializations). The models use a reduced setting for this study 17 ,250 parameters (32 hidden neurons and 4 layers) and 5000 Adam epochs at 
+
+η = 10 −3. The smaller network size and limited training budget assess the convergence speed of the mesh-based PINN and PI-GNN models. At this fixed budget, the PI-GNN consistently achieves the lower von Mises error in both the mesh sweep and the stiffness-ratio sweep. Two trends indicate where the gain originates. The accuracy gain due to message passing increases as the mesh coarsens, from a 19% error drop at h = 0 .01 to 43% at 
+
+h = 0 .05 (see Figure 12a & b). With ( L = 4 ) message-passing layers, a node aggregates over a graph neighborhood spanning four element widths, so a single forward pass covers a larger fraction of the inclusion when the mesh is coarse; as (h) decreases, the same four layers span a shorter physical distance and the margin narrows, although it remains at (19%) on the finest mesh. The second trend is the stiffness contrast dependence (Figure 12c & d). Here, the unit ratio refers to a homogeneous body, with no interface; both models yield errors near 0 .3%, and the gap closes. Away from the unit contrast, the gain in error due to message passing increases in displacement and stress fields. At this budget, the gain is therefore largest where the neighborhood exchange carries the most information, namely, across the material interface. Message passing incurs training time that is 1 .2 to 2 .2 times that of the ablated model at the same parameter count, because each epoch evaluates a message on every edge. The models exhibit increasing error as h decreases, which reflects the fixed optimization budget rather than a loss of consistency. In the reduced setting (17,250 trainable param-eters and 5000 Adam epochs), the optimization budget is held fixed while the number of nodal unknowns increases with mesh refinement. Consequently, the finer meshes require optimization over larger discrete systems and are less fully converged within the prescribed epoch budget. At the same time, mesh refinement yields a more accurate discrete approxi-mation of the continuum solution, making the remaining optimization error more apparent when measured against the refined reference solution. Thus, Figure 12a reflects the opti-mization progress and convergence rate under a fixed computational budget, rather than the accuracy of fully converged models. A representative run with 30,000 epochs is provided in Appendix C.2. 21 0.01 0.015 0.02 0.025 0.035 0.05  
+
+> Mesh element size h
+> 246810
+> L 2
+> σvM  (%)
+> PI-GNN mean PINN mean
+
+(a) 0.01 0.015 0.02 0.025 0.035 0.05   
+
+> Mesh element size h
+> -10 010 20 30 40 50
+> Error reduction vs. PINN (%)
+
+(b) 0.01 0.1 1 10 100  
+
+> Stiffness ratio Einc /Emat
+> 0246810 12 14
+> L 2
+> σvM  (%)
+> PI-GNN mean PINN mean
+
+(c) 0.01 0.1 1 10 100   
+
+> Stiffness ratio Einc /Emat
+> 0123456
+> L 2
+> u (%)
+> PI-GNN mean PINN mean
+
+(d) 
+
+Figure 12: Effect of message passing at a fixed parameter count. The mesh-based PINN is the PI-GNN with N (i) restricted to the node itself. (a) L2 
+
+> σvM
+
+against the FE reference over the mesh sweep, and (b) the corresponding error reduction; h decreases to the right. (c) L2 
+
+> σvM
+
+over the stiffness-contrast sweep, and (d) L2u over the stiffness-contrast sweep ; the dashed vertical line marks the homogeneous limit Einc /E mat = 1. Lines show the mean across three random seeds, and shaded regions show the seed-level range. 
+
+3.3. Verification summary 
+
+The verification suite demonstrates that a single PI-GNN architecture can accurately repro-duce smooth elastic fields, localized stress concentrations, multi-feature stress interactions, and discontinuous constitutive responses at heterogeneous interfaces, without requiring labeled data and per-case tuning. Table 5 summarizes the nodes and elements of the eval-uation mesh, training configurations, and loss metrics for each example. The benchmark problems demonstrate that the proposed PI-GNN, without architecture or hyperparameter tuning, achieves accuracy comparable to that of a FEM/PINN. For the linear elastic problems, the internal strain energy U and external work Wext 
+
+satisfy Clapeyron’s theorem (2 U = Wext ) at equilibrium. Consequently, the total potential energy Π = U − Wext = −U , and the converged solution is expected to satisfy Π /W ext =
+
+−0.5. The convergence history is monitored to verify stabilization at this ratio. The converged PI-GNN energy is compared with the FE value using the relative difference (Π PI-GNN − ΠFEM )/|ΠFEM |.22 Table 5: Summary of evaluation mesh configuration, training, and metrics across the verification examples. Training mesh FE evaluation mesh Problem Nodes Elements Nodes Elements Epochs η Π/W ext err Π
+
+Single-hole 4368 8221 1865 3420 30,000 0.001 -0.49 +0.40 Three-hole 4455 8394 3158 5837 30,000 0.001 -0.50 +1.97 Inclusion 3762 7316 3034 5944 50,000 0.001 -0.50 +0.13 
+
+Remark: In each example, the non-dominant stress components, such as σyy and σxy under uniaxial tension, carry a small fraction of the load and consequently exhibit larger relative 
+
+L2 errors, even though the dominant stress component and σvM are closely reproduced. This difference is primarily a consequence of the component-wise normalization in Equation (22), where L2 
+
+> α
+
+is divided by the norm of the corresponding reference component. Thus, for components of small magnitude, even a small absolute error can result in a comparatively large relative error. The nodal exclusion in Equation (23) does not alter this normalization, since it is applied independently to each stress component. The small magnitude of these errors is further supported by the close recovery of the von Mises stress, which differs from the reference by at most 1.85%. An error in a non-dominant component comparable in magnitude to the dominant stress would generally produce a substantially larger deviation in the resulting von Mises field and is therefore inconsistent with the observed agreement. The coefficients of determination for these com-ponents also remain above 0.95, although R2 provides limited independent evidence in this setting (see Table 4). For components with means close to zero, the normalization in 
+
+R2 and the relative L2 error are governed by quantities of similar magnitude, making the two measures strongly related. For components that are identically zero by construction, such as the in-plane normal stresses under pure torsion, the reference variance vanishes, and R2 is consequently not informative. The same normalization argument applies to the non-dominant components in the remaining examples. 
+
+4. Numerical applications 
+
+This section applies the verified framework to three challenging problems for which no closed-form solution exists. In each example, a converged FE solution computed on the same conforming mesh serves as the reference, so the reported errors quantify only the approximation introduced by the PI-GNN. The applications extend the verification bench-marks in three complementary directions. The first considers re-entrant inclusions to assess the resolution of stress concentrations induced by concave corners. The second and third investigate a 3D reinforced cube and rod subjected to torsion, respectively. All problems are trained using the same network architecture and hyperparameters similar to Section 3, with a constant learning rate of η = 1 × 10 −3 for 100,000 epochs. The training and evaluation are performed on the same conforming mesh. 
+
+4.1. Material Discontinuities 
+
+A material discontinuity is introduced by embedding a stiff inclusion within a compliant matrix to assess the PI-GNN to resolve heterogeneous constitutive behavior across bonded material interfaces. The geometry and material properties are adopted from Kamali et al. [2023]. Following the reference study, the surrounding matrix consists of a 10% w/v PVA hydrogel ( Emat = 1500 Pa, νmat = 0 .45), while the inclusion is a stiffer 15% w/v PVA hydrogel ( Einc = 5000 Pa, νinc = 0 .35), resulting in a stiffness contrast of Einc /E mat ≈ 3.33. Both phases, matrix and inclusion, are modeled as Neo-Hookean solids. 23 4.1.1. Re-entrant inclusion 
+
+The circular inclusion example is extended to a non-convex inclusion geometry to evaluate the PI-GNN to resolve the steep stress gradients introduced by re-entrant corners. Unlike the smooth circular interface, the reversal of interface curvature at the re-entrant lobes produces localized stress concentrations that are challenging to capture. The geometry consists of a square hydrogel layer of side l = 2 mm containing a five-lobed re-entrant inclu-sion positioned slightly off the plate center, eliminating symmetry about both coordinate axes. The same Dirichlet boundary conditions are imposed, together with a uniform tensile traction of T = 50 Pa applied to the right edge. The conforming FE mesh consists of 5088 nodes and 9966 linear triangular elements, with local refinement along the re-entrant inter-face. The union of the refined regions defines the near-field domain used for the localized error analysis. Figure 13 presents the stiffer inclusion carries the elevated stress, reaching ≈ 100 Pa along the lobes aligned with the loading direction. In contrast, the matrix immediately above and below the inclusion is shielded and relaxes toward 40 Pa. The PI-GNN reproduces the position and magnitude of every lobe, including the steep gradients at the concave notches between adjacent lobes. (a)   
+
+> (b) (c)
+> (d) (e)
+
+Figure 13: Stiff re-entrant inclusion in a soft hydrogel layer. (a) Reference configuration showing a conforming graph. (b) Deformed FEM configuration showing || u|| ; (c) Deformed PI-GNN prediction showing || u|| ; (d) Deformed FEM configuration showing σxx . (e) De-formed PI-GNN prediction showing σxx . Both stress panels use the same color scale in Pa. The deformed configurations are scaled by a factor of 5. The displacement components achieve R2 ≥ 0.99 globally and in the near field, indicat-ing that the irregular interface does not degrade the displacement solution (Table 6). The signed median errors for ux and uy are −0.7161% and +0 .6681%, indicating no apprecia-ble bias in either component. The dominant stress σxx and the von Mises stress achieve 
+
+R2 ≥ 0.98, with near-field values marginally exceeding their global counterparts, indicating consistently accurate recovery of the primary load-carrying fields. 24 Table 6: Error metrics comparing the PI-GNN predictions with FEM reference for re-entrant inclusion.                       
+
+> R2
+> Field L2
+> α(%) Median err α(%) Global Near-field
+> ux0.7108 −0.7161 0.9956 0.9994
+> uy0.6211 0.6681 0.9971 0.9993
+> σxx 2.7457 −0.4408 0.9831 0.9908
+> σvM 2.2346 −0.2898 0.9852 0.9935
+
+The error-density plots show how the residuals are distributed across the domain (Fig-ure 14). The displacement magnitude error is unimodal and tightly concentrated, with its median near err || u|| ≈ − 0.3% and most of the probability mass between −1.0% and +0 .3% (see Figure 14a). The bias is therefore negligible and marginally negative. The von Mises error is centered near err σvM ≈ − 0.3%, with a roughly symmetric core inside 
+
+±3% (see Figure 14b). Further, the displacement field is recovered with R2 > 0.99, and the stress concentrations at the concave notches are resolved without a local penalty, since the near-field R2 exceeds the global value for every field. The error metrics indicate that the PI-GNN framework handles circular and re-entrant inclusions without bias, and that accuracy does not deteriorate at the interface, where the gradients are steepest. 
+
+Figure 14: Relative error densities comparing PI-GNN and the FEM reference for the re-entrant inclusion. (a) Displacement magnitude. (b) von Mises Stress. 
+
+4.1.2. Re-entrant inclusion with combined normal-shear loading 
+
+The re-entrant inclusion problem is subjected to combined normal and shear loading, unlike the uniaxial example, where loading is carried entirely by the longitudinal normal stress, the applied traction T = 100 Pa is now inclined at 45 ◦ to the x-axis. The resulting loading produces equal normal and transverse traction components, resulting in a coupled normal-shear stress state. To ensure static equilibrium, the left boundary is fully clamped ( ux =
+
+uy = 0) instead of being supported by a roller with a single corner pin. The transverse component of the applied traction introduces a net vertical force and bending moment that cannot be balanced by the roller constraint, making a fully fixed boundary essential for a well-posed problem (see Figure 15a). Figure 15b & c compare the reference and PI-GNN predictions of the σxx field on the deformed configuration, which exhibits both rigid-body rotation and finite stretch. In contrast to the pure tension, the inclined traction acting against the clamped boundary yields a bending response. The transverse component of the applied load generates a bending moment at the fixed edge, causing σxx to vary from compression in the upper 25 region (approximately −200 Pa) to tension in the lower region (approximately 400 Pa), superposed on the axial tensile stress. As in the pure-tension example, the stiff re-entrant inclusion attracts load into the lobes aligned with the resultant traction, while the concave notches between adjacent lobes continue to exhibit the steepest stress gradients. (a)   
+
+> (b) (c)
+> (d) (e)
+
+Figure 15: Stiff re-entrant inclusion in a soft hydrogel layer under normal-shear loading. The stress fields are shown using the same scaled colormap. (a) Reference configuration showing conforming graph and updated boundary conditions. (b) Deformed FEM config-uration showing || u|| ; (c) Deformed PI-GNN prediction showing || u|| ; (d) Deformed FEM configuration showing σxx . (e) Deformed PI-GNN prediction showing σxx . Both stress panels use the same color scale in Pa. The deformed configurations are scaled by a factor of 5. The quantitative error metrics are summarized in Table 7. The displacement field is recovered with good accuracy, with ux and uy achieving R2 > 0.99 globally and in the near-field region. Thus, neither the inclined loading nor the fully clamped boundary adversely affects the displacement prediction. The stress metrics provide a more demanding assess-ment. Under the uniaxial loading, the shear stress σxy was a low-magnitude component. Rotating the applied traction to 45 ◦ promotes σxy to a primary load-carrying stress, yield-ing a relative error of L2 
+
+> α
+
+= 6 .3%, while maintaining R2 > 0.97 for all stress components. The relative error of the dominant stress σxx increases from 2 .8% to 6 .8%, reflecting the transition from a predominantly tensile field to one containing both tensile and compressive regions. Nevertheless, its coefficient of determination remains high ( R2 ≥ 0.99). Compared to the uniaxial example, the σvM exhibits a moderate increase in relative error, from 2 .2% to 4 .9%, consistent with its positive-definite nature. Overall, the stress fields are recovered with high fidelity despite the increased complexity of the multiaxial stress state. Figure 16 shows the pointwise error distributions, providing further insights. The displacement-magnitude error exhibits a narrow distribution with a median of approx-imately −0.5%, indicating a small systematic underprediction of the displacement magni-tude (see Figure 16a). In contrast, the relative error of the σvM is centered close to zero (median ≈ − 0.8%), with most values confined within ±6% (see Figure 16b). These distri-butions indicate that the displacement and stress predictions remain essentially unbiased under combined loading. 26 Table 7: Error metrics comparing the PI-GNN predictions and FEM reference for re-entrant inclusion with normal-shear loading.                           
+
+> R2
+> Field L2
+> α(%) Median err α(%) Global Near-field
+> ux1.3539 −2.7129 0.9967 0.9997
+> uy0.5690 −0.4687 0.9940 0.9998
+> σxx 6.8704 −5.9344 0.9907 0.9905
+> σxy 6.2773 −1.6033 0.9776 0.9736
+> σvM 4.8927 −0.8019 0.9776 0.9784
+
+Figure 16: Relative error densities comparing PI-GNN and the FEM reference for the normal-shear loaded re-entrant inclusion. (a) Displacement magnitude. (b) von Mises Stress. 
+
+4.2. Composite cube under torsion 
+
+We further consider a 3D composite cube under torsion to assess the generalizability of the proposed GNN and energy-based formulation beyond 2D problems. In this example, the geometry consists of a rubber cube (side 20 mm) containing a concentric nylon core of square cross-section, 8 mm on a side, extending over the full 20 mm length along the z-axis. The rubber matrix has shear and bulk moduli μmat = 7 .41 MPa and κmat = 22 .22 MPa, corresponding to νmat ≈ 0.35. The nylon core is assigned Einc = 2000 MPa and νinc = 0 .3, giving a stiffness ratio of Einc /E mat ≈ 100. The face z = zmin is fully fixed, u = 0, while the opposite face z = zmax is subjected to the torsional traction t = τ0(−y, x, 0), producing a pure twisting moment about the cube axis. For τ0 = 0 .15 MPa, the resulting torque is 4000 N mm. The conforming mesh contains 9261 nodes and 48000 tetrahedral elements. The d-dimensional architecture is instantiated with the feature vector fi = [ ˆXi, ˆYi, ˆZi, m i, χ i]T ∈
+
+R5 and decoder output ˜ ui ∈ R3. The Dirichlet mask is applied component-wise on the fixed face. The discrete energy is assembled element-wise over the tetrahedra, using the element volume Ve for the internal energy and integrating the torsional traction over the triangular facets of the loaded face, with facet area Sf . Here, a uniform grid whose nodes align with the nylon core’s faces is used, in contrast to the adaptive mesh used in previous examples. Figure 17 compares the deformed configurations for the PI-GNN and reference solver. The fixed face holds the cube in place while the loaded face rotates about the z-axis. The 
+
+∥u∥ grows from near zero at the center of each cross-section toward the corners, reaching 
+
+≈ 4 mm at the free-face corners (see Figure 17c & d). The PI-GNN twist field (Figure 17d) is visually indistinguishable from the FEM reference (Figure 17c). The absolute error of 27 displacement magnitude e∥u∥ mapped onto the cube faces stays below ≈ 0.05 mm over most of the volume with ≈ 0.1 mm near the corners (see Figure 17b). The stiffness contrast between the nylon core and the surrounding rubber results in a distinct local error pattern. 
+
+Figure 17: Hyperelastic composite cube under torsion. (a) Reference configuration with the applied torque. (b) Absolute displacement error ( e∥u∥) between the reference FE solu-tion and the PI-GNN prediction, mapped onto the cube faces. (c) Deformed configuration obtained from the FE displacement field ( u). (d) Deformed configuration from the PI-GNN prediction. Both deformed configurations are shown on the same 1:1 scale, with dimensions in mm. Table 8 summarizes the error statistics for the torsion problem, indicating that the solution is resolved with accuracy comparable to the 2D inclusion examples. The in-plane displacements ux and uy, which dominate the twist, and the axial component uz , tied to warping, reach R2 ≥ 0.99. The stress field is shear-dominated, as expected under torsion: the two load-carrying shear components σxz , σyz , and invariant σvM reach R2 ≥ 0.99, all with signed median errors below 0 .5%. 
+
+Table 8: Summary of error statistics for the composite cube.                      
+
+> Field L2
+> α(%) Median err α(%) R2(global)
+> ux0.7651 0.2147 0.9999
+> uy0.8413 0.2990 0.9999
+> σxz 4.2821 0.2281 0.9993
+> σyz 4.2545 0.2269 0.9993
+> σvM 3.1946 0.4636 0.9995
+
+The error-density plots are consistent with these statistics (see Figure 18). The err ∥u∥
+
+(a) is unimodal with its median near −2.5%, so the network slightly under-predicts the twist amplitude. The von Mises error is broader and roughly symmetric about a small negative median ( ≈ − 0.5%), with most of the probability mass inside ±4% (see Figure 18b). The spread is wider than the ±2% core seen for the re-entrant inclusion, reflecting the noisier 28 Figure 18: Comparing 3D PI-GNN against the FEM reference using err f density. (a) Displacement magnitude. (b) von Mises Stress. stress recovery from a denser 3D graph (refer section 4.1). The dominant shear stresses and the von Mises invariant are all recovered with R2 > 0.99, and the twist field matches the reference to within a couple of percentage points. 
+
+4.3. Composite rod with a re-entrant inclusion under torsion 
+
+The final example combines a re-entrant material interface and a fully 3D torsional stress state, on an unstructured mesh with a curved, traction-free lateral boundary. The geometry is a circular rod of radius R = 1 mm and height H = 2 mm ( H/ 2R = 1), containing a concentric five-lobed re-entrant inclusion extending over the full height of the rod. The phases are modeled as compressible Neo-Hookean solids using the same material properties as the hydrogel example. Reusing the material pair isolates the effects of 3D torsion and curved geometry while keeping the constitutive contrast fixed. The bottom face z = 0 is fully clamped, u = 0, while the top face z = H is subjected to a torque Mz = 0 .25 μN m (see Figure 19a). The torque is chosen to produce finite deformation, with a mean twist exceeding 20 ◦, and the lateral surface is traction-free. The conforming mesh contains 38430 nodes and 214260 tetrahedra, generated by ex-truding an adaptively refined cross-sectional triangulation containing 1830 nodes and 3571 triangles through 20 layers. The network architecture is identical to that used for the cube under torsion, with fi ∈ R5 and ˜ ui ∈ R3. The Dirichlet mask is applied component-wise on the clamped face, and the total energy is assembled element-wise over the tetrahedra, with the applied traction integrated over the triangular facets of the loaded face. This example combines two aspects that have not previously been tested simultaneously. First, the unstructured graph is substantially denser than the cube’s, with 4 .1 times as many nodes and 4 .5 times as many elements, providing a test of message passing on a locally refined 3D graph. Second, the applied load places the response well beyond the small-strain regime: the loaded face rotates by 26 .05 ◦, while the rim shear is γ = ϕR/H = 0 .227, approximately an order of magnitude larger than the 0 .02-0 .05 range for which the linear torsion solution remains applicable. Consequently, the observed warping and second-order axial stresses represent genuine finite-strain effects rather than corrections within the small-strain approximation. Figure 19c & d compare the reference and predicted von Mises stress fields on the deformed configuration. The stiff inclusion attracts load, with σvM reaching approximately 360 Pa along the lobe flanks, while the inclusion core remains at approximately 100 Pa owing to its proximity to the twist axis and correspondingly low shear. The matrix between the lobe tips and the free surface sustains intermediate stresses of approximately 230 Pa. The PI-GNN captures the overall stress distribution, including the lobe peaks and steep gradients near the concave notches, with slightly smoother gradients in the surrounding 29 Figure 19: Hyperelastic composite rod with a five-lobed re-entrant inclusion under torsion. (a) Reference configuration showing the stiff inclusion (dark red) embedded in the compliant matrix (blue), with torque applied about the rod axis at z = H and the face z = 0 clamped. (b) Absolute error in the von Mises stress, eσvM = |σPI-GNN vM − σFEM vM |, between the PI-GNN prediction and the FE reference. (c) Deformed FE configuration and (d) corresponding PI-GNN prediction, both showing σvM . Panels (c) and (d) use the same stress scale, while panel (b) uses an independent error scale. Stresses are reported in Pa, and the deformed configurations are shown at a 1:1 scale. matrix. The absolute error remains below 10 Pa at 85% of the nodes, corresponding to approximately 3% of the peak stress, and reaches a maximum of 37 .9 Pa in localized regions near the lobe tips and re-entrant notches (see Figure 19b). The global deformation is similarly well reproduced: the mean twist of the loaded face is 25 .876 ◦, compared with 26 .051 ◦ for the reference, corresponding to an error of 0 .7%, while the peak displacement magnitude is 0 .4714 mm, compared with 0 .4745 mm. Table 9 summarizes the error statistics. The displacement magnitude is recovered with 
+
+L2 
+
+> ∥u∥
+
+= 0 .83%, while the in-plane components have errors of 0 .75% and 0 .93%, with R2 ≥
+
+0.999 for both. Thus, the curved free surface and re-entrant interface have little effect on the predicted twist response. The load-carrying shear component σθz has L2 
+
+> α
+
+= 5 .33%, 
+
+R2 = 0 .978, and a median signed error of −0.41%. The von Mises stress shows similar accuracy, with L2 
+
+> α
+
+= 5 .00% and R2 = 0 .980. Restricting the evaluation to the interface region yields essentially the same R2 values as the global evaluation, indicating that the near-interface region does not substantially reduce correlation. 30 Table 9: Summary of error statistics for the composite rod under torsion. The L2 
+
+> α
+
+val-ues are volume-weighted, except for ux and uy, which are evaluated nodally; the volume-weighted L2 error of the displacement vector is 0 .8305%.                       
+
+> R2
+> Field L2
+> α(%) Median err α(%) Global Near-field
+> ux0.7482 −0.4203 0.9999 0.9999
+> uy0.9258 1.1214 0.9999 0.9999
+> σθz 5.3262 −0.4147 0.9777 0.9777
+> σvM 5.0012 −0.5091 0.9804 0.9805
+
+The energy balance provides an independent check unavailable from pointwise metrics. The converged PI-GNN attains a total potential energy of Π = −5.978 × 10 −2 kPa mm 3
+
+against −6.022 × 10 −2 kPa mm 3 for the FE reference field evaluated with the same discrete functional, a relative difference of +0 .72% within just 30,000 epochs. The prediction, therefore, approaches the reference minimum from above, as required by the principle of minimum potential energy. The model uses the same architecture and learning rate as the preceding examples. It takes 37 237 s to train for 30,000 epochs on a single thread of 
+
+Intel Xeon(R) Gold 5220R . Subsequently, returns the full field in a single forward pass in 12 .42 s, against 672 .35 s for the FEniCSx Newton–Raphson solve. While the training time for PIGNN is ≈ 55 times FEM solve, the inference time is ≈ 0.02 times FEM solve, which shows this method is a promising candidate for parametric surrogate models where multiple inferences need to be made from a single trained model. 
+
+5. Summary and Outlook 
+
+We presented a variational, label-free physics-informed graph neural network (PI-GNN) for two-phase heterogeneous solids under small-strain linear elasticity and finite-strain Neo-Hookean hyperelasticity in 2D and 3D. The solver minimizes the discrete total potential energy on a conforming mesh graph as a single scalar objective, with material heterogeneity carried at the element level. The interface emerges from the stiffness contrast between neighboring elements exactly as in FEM, with no penalty term and no prescribed transition width. The discrete energy on P1 elements coincides with the FE Ritz functional, and the converged FE field is the exact minimizer of the training loss. Because ∇u is recovered from the P1 element shape functions rather than by autograd, the trial field carries no C1
+
+requirement—the constraint that obliges coordinate-based energy methods to adopt tanh or sinusoidal activations—a ReLU network is admissible here. Three sets of results establish the practical content of this construction. First, sweeping the stiffness contrast over Einc /E mat ∈ [10 −2, 10 2] with all settings frozen, the PI-GNN von Mises error remains below 3.58% while a strong-form PINN with fixed transition width reaches 5.58%; the PI-GNN error depends on the magnitude of the contrast but not its sign, whereas the PINN accuracy depends on both. Second, the PI-GNN roughly halves the 
+
+σxx error of an energy-based PINN on the perforated-plate benchmarks under discretization transfer [Li et al., 2021]. Third, ablating message passing while preserving the Ritz objective isolates what the graph contributes: at a fixed reduced training budget, the full model attains a 19-43% (increasing with element size) lower error across a mesh sweep, making it a faster-converging model. The ablated version of our model reaches the minima of the loss function only with sufficient training budget, as discussed in (Appendix C.2). Message passing, therefore, accelerates the approach to the shared Ritz minimizer rather than lowering it, and the advantage that persists at convergence is especially for the near-interface displacement field. The principal limitation is that the framework remains a per-instance solver: each new BVP requires separate training. The accuracy is bounded by the P1 Ritz minimizer, and 31 the message-passing advantage narrows under strong mesh refinement and lenient training budgets. As shown in Section 4.3, the training time exceeds a single FE solve by 55 times. However, when we compare only the inference times, the PIGNN delivers the full field in a single forward pass, 50 times faster than a FEniCSx Newton-Raphson solve. These times are case-specific, and the speed-up of inference depends mainly on the number of elements in the graph. Another systematic feature recurs throughout the suite: stresses are recovered with lower accuracy than displacements because they are determined post hoc via element-wise constitutive evaluation. Future work will upscale the solver to a parametric surrogate trained on families of geometry, loading, and material variations [Rezaei et al., 2022, Maurizi et al., 2022], a set-ting in which the unsupervised energy objective eliminates the FE dataset that data-driven surrogates require. The graph architecture also extends to elastoplasticity [Niu et al., 2023] and anisotropic hyperelasticity [Abueidda et al., 2021], and the self-supervised loss is well-suited to inverse problems such as parameter identification and elasticity imaging [Kamali et al., 2023]. 
+
+Data availability 
+
+The data and source code required to reproduce the results presented in this study will be openly available at https://github.com/aashay-y/Variational-PIGNN-composites. The repository contains the implementation, input files, and documentation necessary to repro-duce the numerical experiments and figures reported in this work. 
+
+Conflict of Interest 
+
+The authors declare no conflicts of interest. 
+
+Appendix A. Mesh Convergence study for Kirsch verification 
+
+Since the peak boundary stress from a P1 (constant-strain) triangulation is mesh-dependent, we performed a native FEM mesh-convergence study before adopting the FEM fields as the verification benchmark. The benchmark is the classical single-hole problem: a 20 × 20 plane stress plate ( E = 210 GPa, ν = 0 .3) with one central circular hole of radius r = 1, subjected to uniform traction σ0 = 1 MPa on the right edge (see Section 3.2.1). For a linear elastic problem, the stress concentration factor (SCF) is independent of E
+
+and the load magnitude; the peak stress σxx equals the SCF. We refined the characteristic element size at the hole boundary, hhole = 2 πr/ (number of hole-boundary facets), from 0 .03 to 0 .15, while holding the far-field grading fixed, such that only the near-hole resolution is varied. The SCF is taken as the seed-averaged nodal peak σxx /σ 0 value. Here we used the same area-weighted cell →nodal projection as used in the analytical/FEM/PI-GNN comparison pipeline. As the unstructured Poisson-disk places interior nodes randomly, each element size is meshed with five independent random number generator seeds and reported as mean ± one standard deviation. The per-size scatter collapses from ∼ 0.07–0 .11 ( hhole ≥
+
+0.10) to 0 .018–0 .039 ( hhole ≤ 0.09), confirming the fine meshes are stable. In Figure A.1, the SCF increases from 2 .88 (at hhole = 0 .15) to plateau at ≈ 3.04, consistent with the Kirsch infinite-plate value of 3 .000 and the Heywood finite-width estimate of 3 .032 ( d/W = 0 .1). Every mesh with hhole ≤ 0.09 falls inside the acceptance band (3 .0 ± 2%), while coarser meshes are under-resolved and fall low. The independent Kirsch check is also satisfied σyy → − 1 at the hole side, and the peak 
+
+σxx is located on the hole boundary at the crown. For the PI-GNN training mesh, with 
+
+hhole ≈ 0.025 and 3577 nodes, the computed SCF is 3.04, which lies within the prescribed acceptance band. This confirms that the FE reference solution used for verification is sufficiently mesh-converged with respect to the SCF. 32 0.02 0.04 0.06 0.08 0.10 0.12 0.14 0.16 
+
+# Element size at hole boundary, hhole 
+
+2.6 2.8 3.0 3.2 3.4 
+
+> Stress concentration factor,  σxx /σ0
+
+3.048 3.037 3.052 3.031 3.006 3.051 3.019 2.939 2.897 2.875 Acceptance band: 3.0 ± 2% Kirsch (infinite plate) = 3.000 Heywood (finite width) = 3.032 FEM peak σxx 
+
+Within 2% Outside 2% ±1 σ (5 seeds) Figure A.1: Mesh convergence of the SCF for the single-hole verification example (plane stress linear elasticity; r = 1, plate = 20, ν = 0 .3, gross traction σ0 = 1 MPa). Markers show the seed-averaged FEM peak nodal σxx /σ 0 vs. the element size at the hole boundary hhole 
+
+(coarse → fine). The error bars denote the first standard deviation over five independent mesh seeds. The shaded region is the 3 .0 ± 2% acceptance band [2 .94 , 3.06]; green circles lie inside the band (acceptable), and red crosses fall outside it. Horizontal lines denote the Kirsch infinite-plate solution (3 .0, dashed) and the Heywood finite-width value (3 .032, dotted). The SCF converges into the band for hhole ≤ 0.09, plateauing at ≈ 3.04. 
+
+Appendix B. Architecture Ablation Study 
+
+An architecture ablation study is conducted to quantify the trade-off between prediction accuracy and model complexity for the proposed PI-GNN model. The ablation study is performed on a stiff re-entrant inclusion, while keeping all other training settings fixed, including the learning rate, number of training epochs, material properties, dataset, and random seed (see Section 4.1). Only the network architecture is varied by changing the number of message-passing layers and the width of the hidden neurons. Each architecture is evaluated using two competing objectives: (i) the area-weighted 
+
+L2 of the von Mises stress field, which measures prediction accuracy, and (ii) the number of trainable parameters, which serves as a measure of model complexity. Figure B.2 shows the resulting architectures and the corresponding Pareto front. The Pareto front identifies ar-chitectures for which no further reduction in prediction error is possible without increasing model complexity. Based on this trade-off, the configuration L4H64 is selected for all ap-plication examples, as it provides a favorable balance between accuracy and computational cost. 
+
+Appendix C. Stiffness-contrast sweep 
+
+The sweep in Section 3.2.2 considers twenty-five logarithmically spaced stiffness contrasts spanning Einc /E mat ∈ [10 −2, 10 2] (with twelve contrasts on either side of the unit-contrast homogeneous limit), obtained by varying Einc while keeping Emat = 1500 MPa, νmat =33 0 100000 200000 300000 400000 
+
+# Trainable parameters 
+
+0510 15 20 25 
+
+> vM  rel.  L 2 error (%)
+> L4H64
+> Ablation runs Pareto front
+
+Figure B.2: Trade-off between model complexity (trainable parameters) and area-weighted L2 for the PI-GNN architecture sweep. Blue markers denote the evaluated config-urations, the solid curve represents the Pareto front, and the selected architecture ( L4H64 )is labeled with a red star. 
+
+νinc = 0 .4, the geometry, and the applied traction T = 0 .025 MPa fixed. The PINN uses four hidden layers of 64 neurons with tanh activations, a 128 × 128 collocation grid, a transition width δ = 0 .01, and 5000 BFGS iterations. The PI-GNN uses the L4H64 
+
+configuration, trained for 50 ,000 Adam epochs at η = 10 −3 (see Appendix B). Both solvers are trained from three independent random initializations at each contrast. The sweep, therefore, compares the two methods under fixed configurations rather than isolating the effect of any individual hyperparameter. Both solvers are evaluated using the same implementation on a common held-out mesh with 3034 nodes and 5944 elements, which is also used for the FE reference solution. Although the PINN is trained without a mesh, its coordinate network is evaluated at the nodes of this mesh, allowing the element areas to be used consistently for both methods in Equation (22). This area weighting is important because the element areas vary by a factor of 168, with the smallest elements concentrated near the material interface, where the errors are also largest. For the PI-GNN at a contrast of 100, removing the area weights increases the reported relative L2 error from 3 .58% to 7 .96%. The weighting, therefore, materially affects the reported error, making its consistent use for both methods essential for a meaningful comparison. 
+
+Appendix C.1. The unit contrast limit 
+
+For unit contrast Einc /E mat = 1, the PINN error is 0 .002%, compared with 0 .598% for the PI-GNN. This exceptionally small PINN error is specific to the homogeneous case and follows from its trial-function construction: the prescribed background field already coincides with the exact uniform stress solution, leaving only a vanishing correction for the network to learn. The PI-GNN has no analogous prescribed stress field and must recover the equilibrium state by minimizing the discrete potential energy. Thus, this isolated result does not indicate a general advantage in accuracy for the PINN and is not representative of heterogeneous cases. The residual PI-GNN error is primarily due to incomplete optimization rather than to spatial discretization. For all three seeds, the stored network solutions have higher discrete 34 energy than the FE solution, confirming that the discrete minimizer has not been reached. The corresponding element-wise error fields are essentially uncorrelated (correlation co-efficient = 0 .013, 0 .013, and 0 .026), further indicating optimization noise rather than a systematic spatial error. Consistent with this interpretation, reducing the learning rate to 10 −4 and selecting the lowest-energy checkpoint reduces the error from 0 .598% to 0 .368%. The residual error also exhibits small-scale roughness in the predicted displacement field. A local least-squares plane fit, which preserves linear fields exactly, reduces the von Mises error by 33–44% after one pass and by 71% after eight passes, while leaving the FE solution unchanged. This confirms that part of the residual originates from optimization-induced displacement roughness. Such smoothing is appropriate only for this homogeneous case, where the exact solution is linear, and it would not preserve the genuine gradients and stress discontinuities that arise at material interfaces. Therefore, the exceptionally small PINN error at unit contrast and its increasing error with stiffness contrast arise from distinct mechanisms rather than a single monotonic difference in solver accuracy. 
+
+Appendix C.2. Comparison of converged solutions 
+
+The Section 3.2.3 uses a fixed reduced budget of 5000 epochs since the objective was to compare the convergence speed and not the converged solutions. Since the models minimize the same functional, they can be compared directly once the optimization has converged. Here the same reduced model setting ( L4H32 , 17,250 parameters, η = 10 −3) but trained to 30,000 Adam epochs. The mesh is similar; fixed interface-conforming mesh (3034 nodes, 5944 elements) and for a fixed contrast Einc /E mat = 10. 0 1 2 3Epoch ×10 4
+
+# −6.0
+
+# −5.8
+
+# −5.6Loss 
+
+×10 −7
+
+## mesh-based PINN PIGNN 
+
+Figure C.3: the total potential Π descends faster for PI-GNN in the first ∼3000 epochs. It reaches a Π value that the mesh-based PINN only attains near 30,000 epochs. The ablated model curve then slowly closes the gap. The converged energies are Π = −5.885 × 10 −7 (PI-GNN, epoch 29,997) and Π = 
+
+−5.869 ×10 −7 (mesh-based PINN, epoch 29,818). The FE reference Π FEM = −5.889 ×10 −7
+
+MPa mm 2. Therefore, we can consider that the models reach the minima after sufficient epochs, but PIGNN converges faster. Comparing error metrics for converged fields we get, L2 
+
+> σvM
+
+= 4 .60% versus 4 .64% so the advantage seen at 5000 epochs has closed. Displacement retains a gap of L2u = 0 .239% versus 0 .709% while the interface band 0 .250% versus 0 .837% and near-field R2 
+
+> ux
+
+= 0 .9997 versus 0 .9985. 35 References 
+
+A. Henkes, H. Wessels, R. Mahnken, Physics informed neural networks for continuum micromechanics, Computer Methods in Applied Mechanics and Engineering 393 (2022) 114790. T. Kirchdoerfer, M. Ortiz, Data-driven computational mechanics, Computer Methods in Applied Mechanics and Engineering 301 (2016) 338–360. M.-S. Go, H.-K. Noh, J. H. Lim, Real-time full-field inference of displacement and stress from sparse local measurements using physics-informed neural networks, Mechanical Systems and Signal Processing 224 (2025) 112009. M. Maurizi, C. Gao, F. Berto, Predicting stress, strain and deformation fields in materials and structures with graph neural networks, Scientific Reports 12 (2022) 21834. F. Xia, G. Shi, Z. Gao, J. Li, S. Xu, D. Ruan, Predicting deformation and stress-strain behaviour of lattice truss structures under compression using dual graph neural network, Composite Structures (2025) 119557. A. Sanchez-Gonzalez, J. Godwin, T. Pfaff, R. Ying, J. Leskovec, P. Battaglia, Learning to simulate physical systems with graph networks, in: International Conference on Machine Learning, PMLR, 2020, pp. 8459–8468. Y. Zhao, H. Li, H. Zhou, H. R. Attar, T. Pfaff, N. Li, A review of graph neural network applications in mechanics-related domains, Artificial Intelligence Review 57 (2024) 315. X.-P. Zhou, K. Feng, MPNN based graph networks as learnable physics engines for deformation and crack propagation in solid mechanics, International Journal of Solids and Structures 291 (2024) 112695. H. Wang, F. Rhiana, A. Shi, Z. Lu, M. Li, T. Wang, T. H. Nguyen, A. Lin, Physics-informed graph neural networks: Predicting the composite mechanical behavior of clay-infilled concrete structures with morphed honeycomb configurations, Engineering Structures 343 (2025) 121267. M. Raissi, P. Perdikaris, G. E. Karniadakis, Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations, Journal of Computational Physics 378 (2019) 686–707. E. Haghighat, M. Raissi, A. Moure, H. Gomez, R. Juanes, A physics-informed deep learning framework for inversion and surrogate modeling in solid mechanics, Computer Methods in Applied Mechanics and Engineering 379 (2021) 113741. S. Cuomo, V. S. Di Cola, F. Giampaolo, G. Rozza, M. Raissi, F. Piccialli, Scientific machine learning through physics–informed neural networks: Where we are and what’s next, Journal of Scientific Computing 92 (2022) 88. H. Hu, L. Qi, X. Chao, Physics-informed neural networks (pinn) for computational solid mechanics: Nu-merical frameworks and applications, Thin-Walled Structures 205 (2024) 112495. X. Ren, X. Lyu, Mixed form based physics-informed neural networks for performance evaluation of two-phase random materials, Engineering Applications of Artificial Intelligence 127 (2024) 107250. J. Bai, T. Rabczuk, A. Gupta, L. Alzubaidi, Y. Gu, A physics-informed neural network technique based on a modified loss function for computational 2d and 3d solid mechanics, Computational Mechanics 71 (2023) 543–562. E. Samaniego, C. Anitescu, S. Goswami, V. M. Nguyen-Thanh, H. Guo, K. Hamdia, X. Zhuang, T. Rabczuk, An energy approach to the solution of partial differential equations in computational mechanics via machine learning: Concepts, implementation and applications, Computer Methods in Applied Mechanics and Engineering 362 (2020) 112790. V. M. Nguyen-Thanh, X. Zhuang, T. Rabczuk, A deep energy method for finite deformation hyperelasticity, European Journal of Mechanics-A/Solids 80 (2020) 103874. J. N. Fuhg, N. Bouklas, The mixed deep energy method for resolving concentration features in finite strain hyperelasticity, Journal of Computational Physics 451 (2022) 110839. Z.-M. Huang, L.-X. Peng, Geometrically nonlinear bending analysis of laminated thin plates based on classical laminated plate theory and deep energy method, Composite Structures 344 (2024) 118314. A. D. Jagtap, G. E. Karniadakis, Extended physics-informed neural networks (xpinns): A generalized space-time domain decomposition based deep learning framework for nonlinear partial differential equations, Communications in Computational Physics 28 (2020). A. D. Jagtap, E. Kharazmi, G. E. Karniadakis, Conservative physics-informed neural networks on discrete domains for conservation laws: Applications to forward and inverse problems, Computer Methods in Applied Mechanics and Engineering 365 (2020) 113028. A. K. Sarma, S. Roy, C. Annavarapu, P. Roy, S. Jagannathan, Interface pinns (i-pinns): A physics-informed neural networks framework for interface problems, Computer Methods in Applied Mechanics and Engineering 429 (2024) 117135. E. Kharazmi, Z. Zhang, G. E. Karniadakis, hp-vpinns: Variational physics-informed neural networks with domain decomposition, Computer Methods in Applied Mechanics and Engineering 374 (2021) 113547. S. Rezaei, A. Harandi, A. Moeineddin, B.-X. Xu, S. Reese, A mixed formulation for physics-informed neural networks as a potential solver for engineering problems in heterogeneous domains: Comparison with finite element method, Computer Methods in Applied Mechanics and Engineering 401 (2022) 115616. N. Zhang, K. Xu, Z.-Y. Yin, K.-Q. Li, Y.-F. Jin, Finite element-integrated neural network framework for elastic and elastoplastic solids, Computer Methods in Applied Mechanics and Engineering 433 (2025) 117474. W. Xiong, X. Long, S. P. A. Bordas, C. Jiang, The deep finite element method: A deep learning framework 
+
+36 integrating the physics-informed neural networks with the finite element method, Computer Methods in Applied Mechanics and Engineering 436 (2025) 117681. C. Wu, C. Liu, Y. Guo, X. Guo, DFENN: A penalty-free variational framework coupling finite elements and neural networks via interface condensation, Journal of the Mechanics and Physics of Solids 215 (2026) 106703. S. Rezaei, R. Najian Asl, S. Faroughi, M. Asgharzadeh, A. Harandi, R. Najafi Koopas, G. Laschet, S. Reese, M. Apel, A finite operator learning technique for mapping the elastic properties of microstructures to their mechanical deformations, International Journal for Numerical Methods in Engineering 126 (2025) e7637. H. Gao, M. J. Zahr, J.-X. Wang, Physics-informed graph neural galerkin networks: A unified framework for solving pde-governed forward and inverse problems, Computer Methods in Applied Mechanics and Engineering 390 (2022) 114502. J. He, D. Abueidda, S. Koric, I. Jasiuk, On the use of graph neural networks and shape-function-based gradient computation in the deep energy method, International Journal for Numerical Methods in Engineering 124 (2023) 864–879. D. Dalton, D. Husmeier, H. Gao, Physics-informed graph neural network emulation of soft-tissue mechanics, Computer Methods in Applied Mechanics and Engineering 417 (2023) 116351. T. W¨ urth, N. Freymuth, C. Zimmerling, G. Neumann, L. K¨ arger, Physics-informed MeshGraphNets (PI-MGNs): Neural finite element solvers for non-stationary and nonlinear simulations on arbitrary meshes, Computer Methods in Applied Mechanics and Engineering 429 (2024) 117102. B. Feng, X.-P. Zhou, The novel physics-enhanced graph neural network for phase-field fracture modelling, Computer Methods in Applied Mechanics and Engineering 446 (2025) 118284. Y. Hu, K. Fan, X. Li, J. Luo, J. Cui, Z. Huang, Physics-informed graph neural network for the thermoelastic post-buckling optimization of laminated composite shells, Computer Methods in Applied Mechanics and Engineering 449 (2026) 118593. F. Brumand-Poor, M. Trautmann, K. Schmitz, Advancing deformation calculation: a physics-informed deep graph learning framework for hyperelastic materials, Advanced Modeling and Simulation in Engineering Sciences 12 (2025) 20. M. R. Guevara Garban, Y. Chemisky, M. Cl´ ement, ´E. Pruli´ ere, Physics-informed graph neural networks to reconstruct local fields considering finite strain hyperelasticity, International Journal for Numerical Methods in Engineering 126 (2025) e70193. P. Virtanen, R. Gommers, T. E. Oliphant, M. Haberland, T. Reddy, D. Cournapeau, E. Burovski, P. Pe-terson, W. Weckesser, J. Bright, et al., Scipy 1.0: fundamental algorithms for scientific computing in python, Nature Methods 17 (2020) 261–272. D. Dalton, H. Gao, D. Husmeier, Emulation of cardiac mechanics using graph neural networks, Computer Methods in Applied Mechanics and Engineering 401 (2022) 115645. I. A. Baratta, J. P. Dean, J. S. Dokken, M. Habera, J. Hale, C. N. Richardson, M. E. Rognes, M. W. Scroggs, N. Sime, G. N. Wells, Dolfinx: the next generation fenics problem solving environment (2023). P. R. Amestoy, I. S. Duff, J.-Y. L’Excellent, J. Koster, A fully asynchronous multifrontal solver using distributed dynamic scheduling, SIAM Journal on Matrix Analysis and Applications 23 (2001) 15–41. W. Li, M. Z. Bazant, J. Zhu, A physics-guided neural network framework for elastic plates: Comparison of governing equations-based and energy-based approaches, Computer Methods in Applied Mechanics and Engineering 383 (2021) 113933. A. Kamali, M. Sarabian, K. Laksari, Elasticity imaging using physics-informed neural networks: Spatial discovery of elastic modulus and poisson’s ratio, Acta Biomaterialia 155 (2023) 400–409. S. Niu, E. Zhang, Y. Bazilevs, V. Srivastava, Modeling finite-strain plasticity using physics-informed neural network and assessment of the network performance, Journal of the Mechanics and Physics of Solids 172 (2023) 105177. D. W. Abueidda, Q. Lu, S. Koric, Meshless physics-informed deep learning method for three-dimensional solid mechanics, International Journal for Numerical Methods in Engineering 122 (2021) 7182–7201. 
+
+37
