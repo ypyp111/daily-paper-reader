@@ -6,50 +6,24 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-11
-- 运行时间：2026-09-11 22:14:11 UTC
+- 最新运行日期：2026-09-12
+- 运行时间：2026-09-12 21:53:07 UTC
 - 运行状态：成功
-- 本次总论文数：9
+- 本次总论文数：1
 - 精读区：0
-- 速读区：9
+- 速读区：1
 
 ### 今日简报（AI）
-- 今日共生成 9 篇推荐（精读 0 篇，速读 9 篇）
-- 速读：《Learning Metamaterial Eigenmodes with Wavelet-Encoded Fourier Neural Operators》（7.0/10）, 《Stable Singularity of the Euler Equations on $\mathbb{R}^3$》（7.0/10）, 《A variational physics-informed graph neural network for heterogeneous solid mechanics》（7.0/10）
-- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202609/11/README](/202609/11/README)
+今日速读1篇，聚焦用LLM实现科学工作流自主端到端编排的《Avatar》（6.0/10）。该方向看点在于让大模型接管科学流程的调度与执行，减少人工干预，但6.0分说明仍处早期探索。普通读者可先把它当作"AI自动化科研流程"的入门样本，关注后续是否有更强验证的工作跟进。
+- 详情：[/202609/12/README](/202609/12/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Learning Metamaterial Eigenmodes with Wavelet-Encoded Fourier Neural Operators](/202609/11/2609.08102v1-learning-metamaterial-eigenmodes-with-wavelet-encoded-fourier-neural-operators)  
-   标签：评分：7.0/10、query:sci-ml-agent
-   evidence：神经算子代理模型求解PDE本征值问题（小波编码FNO）
-2. [Stable Singularity of the Euler Equations on $\mathbb{R}^3$](/202609/11/2609.10867v1-stable-singularity-of-the-euler-equations-on-mathbbr3)  
-   标签：评分：7.0/10、query:sci-ml-agent
-   evidence：用PINN与自相似假设求解Euler方程
-3. [A variational physics-informed graph neural network for heterogeneous solid mechanics](/202609/11/2609.10983v1-a-variational-physics-informed-graph-neural-network-for-heterogeneous-solid-mechanics)  
-   标签：评分：7.0/10、query:sci-ml-agent
-   evidence：面向固体力学PDE求解的物理信息图神经网络变体
-4. [Agentic ML Exploration (A-MLE) for Ads Ranking](/202609/11/2609.08248v1-agentic-ml-exploration-a-mle-for-ads-ranking)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：自主LLM智能体系统自动探索机器学习技术
-5. [A Fully Dual Domain Decomposition Method for Extreme Learning Machines Using GenEO Spectral Coarse Spaces](/202609/11/2609.08630v1-a-fully-dual-domain-decomposition-method-for-extreme-learning-machines-using-geneo-spectral-coarse-spaces)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：用域分解的极限学习机求解偏微分方程
-6. [Avatar: Toward Autonomous End-to-End Orchestration of Scientific Workflows using LLMs](/202609/11/2609.10509v1-avatar-toward-autonomous-end-to-end-orchestration-of-scientific-workflows-using-llms)  
+1. [Avatar: Toward Autonomous End-to-End Orchestration of Scientific Workflows using LLMs](/202609/12/2609.10509v1-avatar-toward-autonomous-end-to-end-orchestration-of-scientific-workflows-using-llms)  
    标签：评分：6.0/10、query:ai-pde
-   evidence：大语言模型智能体用于科学工作流自主编排
-7. [Deep operator learning for efficient sampling from invariant measures of stochastic differential equations](/202609/11/2609.11376v1-deep-operator-learning-for-efficient-sampling-from-invariant-measures-of-stochastic-differential-equations)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向微分方程的算子学习代理模型
-8. [COBRA-Skills: Contextual Bandit-Guided Evolution for Agent Skill Optimization](/202609/11/2609.11682v1-cobra-skills-contextual-bandit-guided-evolution-for-agent-skill-optimization)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：基于演化与赌博机的LLM智能体技能优化
-9. [CoRA-NAS: Coarse Ranking and Anchor-Residual Refinement for Neural Architecture Search](/202609/11/2609.11884v1-cora-nas-coarse-ranking-and-anchor-residual-refinement-for-neural-architecture-search)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：两阶段神经架构搜索与低成本排序精炼
+   evidence：面向科学工作流自主编排的LLM智能体架构，契合科学发现智能体方向
 
 
 <div class="dpr-home-promo-card">

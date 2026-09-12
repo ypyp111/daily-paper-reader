@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-12 <!--dpr-date:20260912-->
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/12/2609.10509v1-avatar-toward-autonomous-end-to-end-orchestration-of-scientific-workflows-using-llms" data-sidebar-item="{&quot;title&quot;: &quot;Avatar: Toward Autonomous End-to-End Orchestration of Scientific Workflows using LLMs&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.10509v1-avatar-toward-autonomous-end-to-end-orchestration-of-scientific-workflows-using-llms&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;ai-pde&quot;}], &quot;evidence&quot;: &quot;面向科学工作流自主编排的LLM智能体架构，契合科学发现智能体方向&quot;}">Avatar: Toward Autonomous End-to-End Orchestration of Scientific Workflows using LLMs</a>
   * 2026-09-11 <!--dpr-date:20260911-->
     * 速读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/11/2609.08102v1-learning-metamaterial-eigenmodes-with-wavelet-encoded-fourier-neural-operators" data-sidebar-item="{&quot;title&quot;: &quot;Learning Metamaterial Eigenmodes with Wavelet-Encoded Fourier Neural Operators&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.08102v1-learning-metamaterial-eigenmodes-with-wavelet-encoded-fourier-neural-operators&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sci-ml-agent&quot;}], &quot;evidence&quot;: &quot;神经算子代理模型求解PDE本征值问题（小波编码FNO）&quot;}">Learning Metamaterial Eigenmodes with Wavelet-Encoded Fourier Neural Operators</a>
