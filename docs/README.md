@@ -6,43 +6,44 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-13
-- 运行时间：2026-09-13 21:27:08 UTC
+- 最新运行日期：2026-09-14
+- 运行时间：2026-09-14 22:11:13 UTC
 - 运行状态：成功
-- 本次总论文数：6
-- 精读区：0
+- 本次总论文数：7
+- 精读区：1
 - 速读区：6
 
 ### 今日简报（AI）
-今日日报6篇全为速读、精读0篇，已展示3篇覆盖钝体流图代理建模、多智能体LLM工作流与湍流降阶建模。
-
-最值得先看的是7.0分的《ONE CYLinder》，它给出非定常钝体流图代理建模基准；其次可关注多智能体LLM推理时图工程与POD-Autoencoder湍流降阶。
-
-普通读者建议从ONE CYLinder入手，先弄清图代理模型能替代哪些流体仿真，再按兴趣跟进LLM工作流或降阶建模方向。
-- 详情：[/202609/13/README](/202609/13/README)
+- 今日共生成 7 篇推荐（精读 1 篇，速读 6 篇）
+- 精读：《T-GADE: Thermodynamical Generative-AI-Driven Evolution of LLM Artifacts》（8.0/10）
+- 速读：《Avatar: Toward Autonomous End-to-End Orchestration of Scientific Workflows using LLMs》（7.0/10）, 《COBRA-Skills: Contextual Bandit-Guided Evolution for Agent Skill Optimization》（7.0/10）, 《PDE-constrained inverse problems at the $\sqrt{n}$ rate via debiased physics-informed neural networks》（7.0/10）
+- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
+- 详情：[/202609/14/README](/202609/14/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [T-GADE: Thermodynamical Generative-AI-Driven Evolution of LLM Artifacts](/202609/14/2609.12286v1-t-gade-thermodynamical-generative-ai-driven-evolution-of-llm-artifacts)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：基于LLM的演化搜索生成结构化代码工件
 
 ### 速读区论文标签
-1. [ONE CYLinder: A Benchmark for Graph-Based Surrogate Modeling of Unsteady Bluff-Body Flows](/202609/13/2609.08947v1-one-cylinder-a-benchmark-for-graph-based-surrogate-modeling-of-unsteady-bluff-body-flows)  
+1. [Avatar: Toward Autonomous End-to-End Orchestration of Scientific Workflows using LLMs](/202609/14/2609.10509v1-avatar-toward-autonomous-end-to-end-orchestration-of-scientific-workflows-using-llms)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：面向非结构网格CFD图基代理建模的基准
-2. [Inference-Time Graph Engineering for Multi-Agent LLM Workflows](/202609/13/2609.05774v1-inference-time-graph-engineering-for-multi-agent-llm-workflows)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：通过任务条件时序通信图实现多智能体大模型编排
-3. [A Hybrid POD-Autoencoder Framework for Reduced Order Modeling of Turbulent Flow via Strategic Field Decomposition](/202609/13/2609.06992v1-a-hybrid-pod-autoencoder-framework-for-reduced-order-modeling-of-turbulent-flow-via-strategic-field-decomposition)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：湍流神经降阶代理模型
-4. [Benchmarking Agentic HLS Design Tasks With HLS-Eval](/202609/13/2609.09526v1-benchmarking-agentic-hls-design-tasks-with-hls-eval)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：具备工具调用、编译器自验证与迭代改进的智能体基准
-5. [Avatar: Toward Autonomous End-to-End Orchestration of Scientific Workflows using LLMs](/202609/13/2609.10509v1-avatar-toward-autonomous-end-to-end-orchestration-of-scientific-workflows-using-llms)  
-   标签：评分：6.0/10、query:sci-ml-agent
    evidence：LLM智能体自主编排科学工作流
-6. [The Art of Closed-Formula Defaults: Search-Free Code Generation for Tensor Operators](/202609/13/2609.10937v1-the-art-of-closed-formula-defaults-search-free-code-generation-for-tensor-operators)  
+2. [COBRA-Skills: Contextual Bandit-Guided Evolution for Agent Skill Optimization](/202609/14/2609.11682v1-cobra-skills-contextual-bandit-guided-evolution-for-agent-skill-optimization)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：通过进化搜索优化智能体技能，契合Agent skills主题
+3. [PDE-constrained inverse problems at the $\sqrt{n}$ rate via debiased physics-informed neural networks](/202609/14/2609.12301v1-pde-constrained-inverse-problems-at-the-sqrtn-rate-via-debiased-physics-informed-neural-networks)  
+   标签：评分：7.0/10、query:sci-ml-agent
+   evidence：PINN求解PDE反问题
+4. [Overview of the NLPCC 2026 Shared Task 11: Agent-Based Experiment Reproduction from Scientific Papers](/202609/14/2609.11117v1-overview-of-the-nlpcc-2026-shared-task-11-agent-based-experiment-reproduction-from-scientific-papers)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：基于智能体的实验复现基准与过程级验证
+5. [Ecdysis: Efficient and Effective Training of Runtime Harnesses for LLM Agents](/202609/14/2609.11677v1-ecdysis-efficient-and-effective-training-of-runtime-harnesses-for-llm-agents)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向张量算子的智能体搜索与自动代码生成
+   evidence：LLM智能体运行时框架的演化与训练
+6. [RiPPLE: Cross-Space Performance Prediction from Early Training for Neural Architecture Search](/202609/14/2609.12418v1-ripple-cross-space-performance-prediction-from-early-training-for-neural-architecture-search)  
+   标签：评分：6.0/10、query:sci-ml-agent
+   evidence：基于早期训练性能预测的神经架构搜索
 
 
 <div class="dpr-home-promo-card">
