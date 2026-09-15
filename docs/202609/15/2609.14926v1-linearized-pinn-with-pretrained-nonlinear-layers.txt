@@ -1,0 +1,1293 @@
+Title: Linearized PINN with pretrained nonlinear layers
+
+URL Source: https://arxiv.org/pdf/2609.14926v1
+
+Published Time: Tue, 15 Sep 2026 02:12:41 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# LINEARIZED PINN WITH PRETRAINED NONLINEAR LAYERS 
+
+Wenhao Chen 
+
+Civil and Environmental Engineering Department University of Illinois Urbana-Champaign Urbana, IL 61801, USA 
+
+wenhaoc3@illinois.edu 
+
+Alexandre Tartakovsky 
+
+Civil and Environmental Engineering Department University of Illinois Urbana-Champaign Urbana, IL 61801, USA Pacific Northwest National Laboratory Richland, WA 99352, USA 
+
+amt1998@illinois.edu 
+
+September 15, 2026 
+
+## ABSTRACT 
+
+We propose a Linearized Physics-Informed Neural Network (lPINN), a reduced-order neural basis method for solving forward and inverse partial differential equations. During an offline stage, lPINN learns operator-compatible, continuous neural basis functions from an ensemble of numerical solutions. These functions are pretrained using a dataset consisting of PDE solutions and their derivatives. The learned basis functions are differentiable through automatic differentiation, enabling physics-based inference. For each new problem instance, the basis functions are frozen, and the solution is determined by minimizing the governing-equation residual, together with applicable initial, boundary, regularization, and observational terms. This formulation differs from direct surrogate and operator-learning approaches because the training dataset determines the basis functions in the offline step, whereas the instance-specific solution is obtained by enforcing the governing physics online. For linear differential operators, the online lPINN problem reduces to regularized linear least squares. For nonlinear operators, it remains nonlinear but is restricted to the low-dimensional basis coefficients. In inverse problems, the reduced coefficients and unknown physical parameters are estimated jointly from physics residuals and sparse observations. Compared to vanilla PINN, pretraining basis functions amounts to estimating parameters in (nonlinear) hidden layers in an offline step and learning parameters in the last (linear) layer in the online step. We evaluate lPINN on forward and inverse problems for the advection–diffusion equation, Burgers’ equation, and the nonlinear pendulum equation. The experiments compare derivative-matching and residual-based basis pretraining and demonstrate compatibility with Fourier feature networks for oscillatory solutions. Compared with vanilla PINNs, lPINN achieves lower solution and parameter errors in the reported test cases while reducing online inference times from about one order of magnitude to more than three orders of magnitude, with the largest gains generally observed when residual or measurement data are limited. Cross-resolution tests further show that the learned continuous representation can be evaluated on finer meshes without retraining and with nearly unchanged accuracy. These results demonstrate that lPINN can provide an effective alternative to PINN when the offline cost can be amortized over many forward or inverse queries. 
+
+## 1 Introduction 
+
+Physics-informed neural networks (PINNs) provide a flexible framework for forward and inverse problems governed by differential equations by representing the unknown state with a coordinate-based neural network and incorporating governing equations, initial and boundary conditions, and available observations into the training objective [1, 2]. In forward problems, the network parameters are optimized to obtain a continuous approximation of the PDE solution that satisfies the prescribed physical constraints. In inverse problems, unknown physical parameters are included among the optimization variables and estimated jointly with the state from physics constraints and observational data [3, 4]. This formulation has enabled applications in fluid and solid mechanics, transport, parameter identification, and constitutive-arXiv:2609.14926v1 [math.AP] 14 Sep 2026 A PREPRINT - S EPTEMBER 15, 2026 model discovery. However, its flexibility comes at a substantial computational cost. Conventional PINN training estimates all network parameters for each problem instance, producing a high-dimensional, nonconvex, and often poorly conditioned optimization problem. Convergence can depend strongly on initialization, loss weighting, and sampling, and the network may fail to resolve physically important features. These difficulties are particularly pronounced for stiff, advection-dominated, oscillatory, and multiscale systems [5]. The PINN computational burden becomes more consequential in problems requiring multiple PDE solves, which limits PINN’s applicability in uncertainty quantification, sensitivity analysis, optimization, and time-critical prediction. A variety of techniques have been introduced to improve the optimization and representation properties of PINNs. Quasi-Newton and related methods can increase the stability and accuracy of training for nonlinear and stiff problems [6]. Adaptive weighting and preconditioning strategies seek to balance physical, boundary, initial, and observational terms in the objective [7]. Fourier features and spectral architectures improve the representation of oscillatory or high-frequency components and can mitigate the spectral bias of standard multilayer perceptrons [8, 9]. Although these developments can improve single-instance training, they do not remove the need to optimize a large nonlinear representation for every new problem. The present work addresses this repeated-optimization bottleneck by combining ideas from reduced-order modeling, differentiable neural fields, and physics-informed coefficient inference. We propose lPINN as a neural reduced-order method for problems requiring solving multiple forward and inverse PDE problems. During the offline stage, an ensemble of numerical solutions is decomposed into a mean field and fluctuations. Coordinate-based neural networks approximate the mean and a shared collection of basis functions for reduced-order representation of the fluctuations. The basis functions may be pretrained by matching states and operator-relevant derivatives or by augmenting state reconstruction with governing-equation, initial-condition, and boundary-condition residuals. During the online stage, the coefficients are determined by minimizing the governing-equation residual together with applicable initial, boundary, regularization, and observational terms. Because the basis functions are differentiable, this inference is performed within the standard PINN framework: automatic differentiation supplies the derivatives of each basis function, while optimization is confined to the coefficients of the last layer. For linear differential operators and linear constraints, the online problem is regularized linear least squares under the usual rank or positive-regularization conditions. For nonlinear operators, it is a reduced-dimensional nonlinear least-squares problem. In inverse problems, the reduced coefficients and unknown physical parameters are estimated jointly. Standard reduced-order methods are built on the offline–online paradigm for parametrized differential equations. In an offline stage, high-fidelity snapshots are used to construct a low-dimensional space of basis functions, commonly through proper orthogonal decomposition; in the online stage, the state is approximated in this space, and its reduced coordinates are determined from a projected governing model [10, 11]. This decomposition can yield substantial savings when the offline cost is amortized over many PDE solves for different parameter queries. Standard bases are nevertheless tied to the spatial or space–time discretization on which the snapshot vectors and reduced operators are defined. Derivatives are inherited from the full-order discretization, and transferring the basis to a different mesh or evaluating the state at arbitrary coordinates generally requires interpolation, reconstruction, or a new discretization. The lPINN method retains the offline–online structure but replaces a discrete snapshot basis with a coordinate-dependent neural basis. The resulting basis functions are continuous and differentiable with respect to space and time through automatic differentiation. Differential operators can therefore be applied directly to the basis functions at arbitrary collocation points, and the reduced coefficients can be estimated using the same strong-form, differentiable residual machinery used by PINNs. Residual-minimizing reduced-order methods determine reduced coefficients by minimizing a governing-equation residual. Examples include least-squares Petrov–Galerkin methods and the physics-informed Karhunen–Loève expan-sion (PICKLE) method [12, 13, 14, 15]. Space–time extensions, including space–time LSPG and dynamic PICKLE (dPICKLE), construct a low-dimensional representation of the complete trajectory and minimize the residual jointly over space and time [16, 17]. This reduces both spatial and temporal dimensions and avoids evolving a spatial reduced-order model through every full-order time step. In these methods, however, the basis functions, residual operators, and reduced solution are generally defined on the spatial or space–time discretization used to construct the model. lPINN adopts a related residual-minimization strategy but represents the space–time basis functions by coordinate-dependent neural networks. Each basis function depends jointly on the spatial and temporal coordinates, and a single coefficient vector represents the complete trajectory. Because the basis functions are continuous and differentiable through automatic differentiation, the differential-equation residual can be evaluated at arbitrary collocation points, independently of the offline snapshot mesh. This enables cross-resolution evaluation and permits the online collocation set to differ from, and potentially be finer than, the discretization used to generate the training ensemble. For linear differential operators, the online lPINN problem reduces to regularized linear least squares. For nonlinear operators, it remains nonlinear but is restricted to the reduced coefficients and, in inverse problems, the unknown physical parameters. This flexibility requires offline neural-basis training and, as in other snapshot-based methods, depends on the representativeness of the training ensemble. 2A PREPRINT - S EPTEMBER 15, 2026 The continuous trial space connects lPINN to neural fields, also called implicit neural representations. Neural fields map coordinates to physical or geometric quantities and provide continuous, differentiable representations that can be queried independently of the training discretization [18]. Recent continuous reduced-order modeling methods use neural fields to represent solution manifolds and evolve low-dimensional latent states, thereby removing the direct dependence of conventional ROM bases on a particular mesh [19]. Physics-informed conditional neural-field ROMs have further incorporated differential-equation residuals through automatic differentiation and have considered exact treatment of initial and boundary conditions [20]. The lPINN method shares the use of coordinate-based differentiable representations, but its reduced coordinates have a different role. Rather than learning a nonlinear decoder driven by a latent dynamical model, lPINN uses the last hidden-layer features as a linear neural trial basis and determines the instance-specific coefficient vector directly from the governing residual and available observations. This construction preserves a transparent reduced expansion, gives a linear online solve whenever the differential operator and constraints are linear, and naturally supports joint state and parameter estimation without requiring a separately learned latent evolution law or parameter-to-latent map. A second closely related class comprises extreme-learning and random-feature physics-informed methods. Physics-informed extreme learning machines freeze randomly generated hidden-layer parameters and determine output weights from physics and boundary constraints, leading to rapid linear solves for linear differential equations [21, 22]. Random-feature methods similarly approximate the solution in a prescribed random nonlinear feature space and estimate the coefficients by collocation and least squares [23]. These approaches demonstrate the computational advantage of restricting training to linear output weights. Their feature spaces, however, are generally random or problem-independent and may require many features, multiscale constructions, domain decomposition, or careful rescaling to represent a parameterized solution family. In lPINN, the nonlinear features are not random. They are learned offline from an ensemble of solutions and can be trained to reproduce not only the states but also the derivatives or residual quantities required by the governing operator. The learned features therefore form an operator-compatible reduced basis adapted to the solution manifold. Online inference retains the efficiency of output-layer optimization while using a feature space informed by both the solution ensemble and, when desired, the governing physics. Transfer-learning PINNs also reuse representations across related differential equations. Standard transfer learning initializes a new PINN from parameters trained on a related problem and then fine-tunes some or all network layers. Of particular relevance is the one-shot approach of Desai et al. [24], which freezes the hidden layers of a bundle-trained PINN and adapts the final linear layer for new linear ordinary and partial differential equations. That work establishes that final-layer adaptation can convert a linear forward problem into a linear least-squares solve. lPINN builds on the general efficiency principle of frozen nonlinear features but differs in its objective and scope. Its offline representation is explicitly constructed as a mean-plus-fluctuation reduced basis from numerical solution ensembles, with derivative-matching or residual-based objectives designed to make the basis compatible with the target operator. Its online formulation covers nonlinear forward problems, for which only the reduced coefficients are optimized, and inverse problems, for which coefficients and unknown physical parameters are estimated jointly from physics and sparse data. Consequently, lPINN is better viewed as a physics-corrected neural reduced-basis method than as conventional parameter fine-tuning. Neural operators take a different route to amortizing PDE solution cost. DeepONet learns an operator through branch and trunk networks, while the Fourier neural operator learns mappings between function spaces using integral-kernel layers parameterized in Fourier space [25, 26]. Once trained, these methods directly map coefficients, source terms, initial conditions, or boundary data to a solution field and can evaluate new instances without solving a problem-specific optimization. Physics-informed operator-learning methods, including physics-informed DeepONets and physics-informed neural operators, incorporate governing-equation residuals into operator training to reduce data requirements and improve physical consistency [27, 28]. lPINN differs from both purely data-driven and physics-informed neural operators because it does not learn the complete input-to-solution map. The offline data are used to learn a trial space, not a direct predictor of the final state or its reduced coordinates. For each new instance, the coefficients are recomputed by enforcing that instance’s governing equation, conditions, and observations. This online physical correction can adapt the prediction to the particular query and incorporate sparse measurements without retraining a global operator. It also avoids constructing an explicit encoding of every possible parameter, source, initial condition, or boundary function. The trade-off is that lPINN requires a small online solve, whereas a neural operator usually provides a single feed-forward prediction. The lPINN formulation provides several methodological advantages. First, it combines the dimensional reduction and offline–online amortization of reduced-basis methods with a continuous neural representation that can be evaluated and differentiated at arbitrary coordinates. Second, it performs problem-specific residual minimization, unlike surrogates, so the numerical snapshots define the admissible trial space without completely determining the solution at a new query. Third, operator-compatible pretraining can concentrate representational capacity on the states and derivatives that control the online residual, in contrast to random-feature methods. Fourth, the linear dependence on the last-layer 3A PREPRINT - S EPTEMBER 15, 2026 coefficients yields a convex online problem for linear operators and substantially reduces the dimension of nonlinear forward and inverse optimization. Fifth, observations can be incorporated directly into the reduced physics objective, allowing state and parameter inference in a unified formulation. These benefits come with the standard limitations of snapshot-based model reduction: the offline ensemble must adequately cover the anticipated solution manifold, and the offline simulation and basis-training costs must be amortized over sufficiently many queries. The principal contributions of this work are as follows: 1. We develop operator-compatible continuous neural basis functions learned from numerical solution ensembles. The coordinate-dependent basis functions are differentiable through automatic differentiation and can be pretrained using state and derivative information or state data augmented by PDE residuals. 2. We formulate forward prediction as residual-based coefficient inference within the pretrained basis function space. The online problem reduces to regularized linear least squares for linear operators and to reduced-dimensional nonlinear least squares for nonlinear operators, avoiding repeated optimization of the full nonlinear network. 3. We extend the reduced formulation to inverse problems by jointly estimating the basis function coefficients and unknown physical parameters from the PDE residuals and sparse observations. 4. We demonstrate compatibility with representation-enhancing architectures, including Fourier features for os-cillatory solutions, and investigate derivative-matching and residual-based strategies for constructing operator-compatible neural basis functions. The numerical experiments consider forward and inverse problems for the advection–diffusion equation, Burgers’ equation, and the nonlinear pendulum equation. The numerical study evaluates the central hypothesis of this work: that neural representation learning can be separated from problem-specific physics inference so repeated forward and inverse problems can be solved without optimizing the full nonlinear network for each new instance. We therefore use vanilla PINNs as the primary baseline in the following experiments. We also provide a comparison with a residual-minimizing ROM [17]. A systematic comparison with classical projection-based and nonlinear ROMs is outside the scope of the present work and is reserved for future study. The experiments examine predictive accuracy, parameter estimation, online computational cost, sensitivity to residual and measurement sampling, the effects of basis dimension and regularization, and transfer of the learned continuous representation across evaluation resolutions. 
+
+## 2 Methods 
+
+2.1 Vanilla Physics-Informed Neural Network (PINN) 
+
+Consider a PDE of the form 
+
+L(h(x, t ); y) = 0 , x ∈ Ω, t ∈ (0 , T ], (1) subject to the initial conditions 
+
+h(x, 0) = h0(x), ∂h/∂t (x, 0) = h1(x) x ∈ Ω, (2) and the boundary condition 
+
+B(h(x, t )) = g(x, t ), x ∈ Γ, t ∈ (0 , T ], (3) where L is a known differential operator, Ω is the spatial domain with boundary Γ = ∂Ω, T is the time horizon, h(x, t )
+
+is the solution, y denotes the physical parameter(s) of the system, h0(x) and h1(x) are the zero and first order initial conditions, B is the boundary operator, and g(x, t ) is the prescribed boundary data. In the PINN framework, the solution h(x, t ) is approximated by a neural network ˆh(x, t ; θ) with trainable parameters θ.In forward problems, the physical parameter y is known, and the network parameters are determined by minimizing a residual least-squares loss function: 
+
+θ∗ = arg min 
+
+> θ
+
+1
+
+Nres 
+
+> Nres
+
+X
+
+> i=1
+
+h
+
+L(ˆh(xri , t ri ; θ); y)
+
+i2
+
++ λBC 
+
+NBC 
+
+> NBC
+
+X
+
+> j=1
+
+h
+
+B(ˆh(xBC  
+
+> j
+
+, t BC  
+
+> j
+
+; θ)) − g(xBC  
+
+> j
+
+, t BC  
+
+> j
+
+)
+
+i2
+
++ λIC ,0
+
+NIC 
+
+> NIC
+
+X
+
+> k=1
+
+hˆh(xIC  
+
+> k
+
+, 0; θ) − h0(xIC  
+
+> k
+
+)
+
+i2
+
++ λIC ,1
+
+NIC 
+
+> NIC
+
+X
+
+> k=1
+
+"
+
+∂ˆh(xIC  
+
+> k
+
+, 0; θ)
+
+∂t − h1(xIC  
+
+> k
+
+)
+
+#2
+
++ λ∥θ∥22
+
+!
+
+, (4) 4A PREPRINT - S EPTEMBER 15, 2026 where λBC , λIC ,0, and λIC ,1 are weights associated with the boundary and initial condition terms, respectively; λ is the L2 regularization weight; and Nres , NBC , and NIC denote the numbers of collocation points in the interior, boundary, and initial domains, respectively. In inverse problems, y is treated as an additional trainable variable and is estimated together with θ using both physics constraints and measurements of h, {(Xsi , T si , h si )}Nm
+
+> i=1
+
+, where Xsi and T si denote the space and time coordinates of the measurements and hsi are the measured values. The inverse PINN formulation is given by 
+
+(θ∗, y ∗) = arg min 
+
+> θ,y
+
+1
+
+Nres 
+
+> Nres
+
+X
+
+> i=1
+
+h
+
+L(ˆh(xri , t ri ; θ); y)
+
+i2
+
++ λBC 
+
+NBC 
+
+> NBC
+
+X
+
+> j=1
+
+h
+
+B(ˆh(xBC  
+
+> j
+
+, t BC  
+
+> j
+
+; θ)) − g(xBC  
+
+> j
+
+, t BC  
+
+> j
+
+)
+
+i2
+
++ λIC ,0
+
+NIC 
+
+> NIC
+
+X
+
+> k=1
+
+hˆh(xIC  
+
+> k
+
+, 0; θ) − h0(xIC  
+
+> k
+
+)
+
+i2
+
++ λIC ,1
+
+NIC 
+
+> NIC
+
+X
+
+> k=1
+
+"
+
+∂ˆh(xIC  
+
+> k
+
+; θ)
+
+∂t − h1(xIC  
+
+> k
+
+)
+
+#2
+
++ λdata 
+
+Nm
+
+> Nm
+
+X
+
+> i=1
+
+hˆh(Xsi , T si ; θ) − hsi
+
+i2
+
++ λ∥θ∥22
+
+!
+
+, (5) where the second-to-last term represents the data mismatch between the network prediction and the measurement data. The optimization problems in Egs. (4) and (5) are nonlinear least-squares problems in the neural network parameters. As the number of trainable parameters increases, the optimization may become severely ill-conditioned, leading to slow convergence and reduced robustness, especially for stiff and nonlinear PDEs. 
+
+2.2 Linearized Physics-Informed Neural Network (lPINN) 
+
+Our objective is to simplify the training of PINNs by pretraining some of the DNN’s parameters using an ensemble of PDE solutions that we refer to as the training dataset: 
+
+Dtrain =
+
+n
+
+(g(i), y (i), h (i)0 , h (i)1 ) 7 → h(i)oNtrain 
+
+> i=1
+
+,
+
+where each sample consists of different instances of the PDE parameters, initial, and boundary conditions, and the corresponding PDE solution vector h obtained on a mesh with Nx spatial nodes and Nt time steps. We start by decomposing the PDE solutions into the sample mean ¯h(x, t ) and fluctuations h′(x, t ),
+
+h(x, t ) = ¯h(x, t ) + h′(x, t ). (6) Both ¯h(x, t ) and h′(x, t ) are approximated by DNNs. The fluctuation field is approximated by the DNN 
+
+h′(x, t ) ≈ ˆh′(x, t ; θ) = N N (z; θ), (7) where z = [ x, t ]T denotes the input vector and θ is the collection of trainable network parameters. For generality, we consider a fully connected network with N hidden layers, 
+
+N N (z; θ) = ρN +1 
+
+
+
+ρN (ρN −1(· · · ρ1(z))) 
+
+
+
+, (8) where each layer is defined by 
+
+zi+1 = ρi(Wizi + bi), i = 1 , . . . , N, (9) with z1 = z. Here, Wi and bi are the weights and biases of layer i, respectively, and ρi is the activation function. In this work, we use the hyperbolic tangent activation function for the hidden layers and the identity function for the output layer. Thus, the full parameter set is 
+
+θ = ( W1: N +1 , b1: N +1 ).
+
+Because of the choice of activation functions, the network is nonlinear with respect to the hidden-layer parameters 
+
+˜θ = ( W1: N , b1: N ),
+
+and linear with respect to the output layer parameters WN +1 and bN +1 . We denote the size of the last hidden layer by 
+
+Nη and note that the output layer has a single output for a scalar state variable. Then, WN +1 is the Nη -dimensional 5A PREPRINT - S EPTEMBER 15, 2026 vector and bN +1 is a scalar. Because we use the DNN to model fluctuations around the mean, we set bN +1 = 0 . Finally, we can express fluctuations as 
+
+ˆh′(z; θ) = ˆh′(z; ˜θ, WN +1 ) = WN +1 · ψ(z; ˜θ), (10) where ψ = [ ψ1, ..., ψ Nη ]T and ψi(z; ˜θ) is the output of ith neuron of the last hidden layer. Eq (10) provides an expansion of h′(x, t ) in terms of the product of space-time-dependent parametric basis functions 
+
+ψi(x, t ; ˜θ) and coefficients WN +1 . Because ψi(x, t ; ˜θ) are defined by the DNN layers, we refer to them as neural basis functions. As in finite element, POD-ROM, and other reduced-order methods, we assume that the solution manifold can be approximated by a set of basis functions that are independent of the PDE parameters, initial conditions, and boundary conditions. The effect of PDE parameters, initial, and boundary conditions on the solution is captured by WN +1 .In standard PINN, ˜θ and WN +1 are learned jointly by minimizing the PDE residuals, which results in a highly nonlinear least-squares minimization problem. The key idea of lPINN is to learn the basis functions, i.e., to estimate ˜θ, from a training dataset {y(i) → h(i)}Ntrain 
+
+> i=1
+
+during an “offline” stage, and only estimate WN +1 “online” by minimizing the PDE residuals. In the training dataset, 
+
+y(i) are the samples of the parameters from the desired range and h(i) are the corresponding solutions obtained (in general) numerically on the mesh with Ne elements or grid points. The mean field is approximated by another DNN that is also trained offline: 
+
+¯h(x, t ) ≈ ˆ¯h(x, t ; γ) = N N (z; γ), (11) where γ is a collection of trainable parameters. The DNN ˆ¯h(x, t ; γ) is trained using the sample mean values: 
+
+¯h ≈ 1
+
+Ntrain 
+
+> Ntrain
+
+X
+
+> i=1
+
+h(i). (12) We would like ˆ¯h(x, t ; γ) and ˆh′(x, t ; θ) to provide an accurate approximation of not just h(x, t ; γ) but also all its derivatives present in the governing equation. Assume, for generality, that L contains first and second space and time derivatives. Then, we supplement the ¯h data with its derivatives ∂t ¯h, ∂x ¯h, ∂xx ¯h, and ∂tt ¯h. These derivatives can be computed numerically from ¯h on the same space-time mesh that was used to compute ¯h.Then, γ can be obtained by solving an optimization problem, which minimizes the mismatch between ˆ¯h(z; γ), ¯h, and their derivatives: 
+
+γ∗ = arg min 
+
+> γ
+
+h
+
+∥ˆ¯h(γ) − ¯h∥22+λ1∥∂t ˆ¯h(γ) − ∂t ¯h∥22
+
++ λ2∥∂x ˆ¯h(γ) − ∂x ¯h∥22+λ3∥∂xx ˆ¯h(γ) − ∂xx ¯h∥22
+
++ λ4∥∂tt ˆ¯h(γ) − ∂tt ¯h∥22+λ∥γ∥22
+
+i
+
+.
+
+(13) where ˆ¯h(γ), ∂t ˆ¯h(γ), ∂x ˆ¯h(γ), ∂xx ˆ¯h(γ), and ∂tt ˆ¯h(γ) are the vectors of the ˆ¯h(x, t ; γ) values evaluated on the space-time mesh, as well as the derivatives of ˆ¯h(x, t ; γ) evaluated on the same mesh. The weights λ1, λ2, λ3, λ4 and λ are used to balance different terms and are selected through a grid search. Similarly, ˜θ is estimated from the dataset {h′(i), ∂ th′(i), ∂ tt h′(i), ∂ xh′(i), ∂ xx h′(i)}Ntrain  
+
+> i=1
+
+, where h′(i) = h(i) − h.The coefficients {W (i) 
+
+> N+1
+
+}Ntrain  
+
+> i=1
+
+are found by solving the minimization problem: 
+
+˜θ∗, {W (i) 
+
+> N+1
+
+}Ntrain  
+
+> i=1
+
+= arg min   
+
+> ˜θ,
+> {W(i)
+> N+1 }Ntrain
+> i=1
+> Ntrain
+
+X
+
+> i=1
+
+h
+
+∥ˆh′(i)( ˜θ, W (i) 
+
+> N+1
+
+) − h′(i)∥22+λ1∥∂t ˆh′(i)( ˜θ, W (i) 
+
+> N+1
+
+) − ∂th′(i)∥22
+
++ λ2∥∂x ˆh′(i)( ˜θ, W (i) 
+
+> N+1
+
+) − ∂xh′(i)∥22+λ3∥∂xx ˆh′(i)( ˜θ, W (i) 
+
+> N+1
+
+) − ∂xx h′(i)∥22
+
++ λ4∥∂tt ˆh′(i)( ˜θ, W (i) 
+
+> N+1
+
+) − ∂tt h′(i)∥22
+
+i
+
++ λ ∥ ˜θ∥22+
+
+> Ntrain
+
+X
+
+> i=1
+
+∥W(i) 
+
+> N+1
+
+∥22
+
+!
+
+(14) 6A PREPRINT - S EPTEMBER 15, 2026 where ˆh′(i)( ˜θ, W (i) 
+
+> N+1
+
+) is the vector of ˆh′(z; ˜θ, W (i) 
+
+> N+1
+
+) predictions evaluated on the space-time mesh Nx × Nt and 
+
+∂t ˆh′(i), ∂tt ˆh′(i), ∂x ˆh′(i), and ∂xx ˆh′(i) are the vectors of the derivatives of ˆh′(z; ˜θ, W (i) 
+
+> N+1
+
+) evaluated on the same mesh. The estimation of ˜θ from Eq (14) also requires estimating {W (i) 
+
+> N+1
+
+}Ntrain  
+
+> i=1
+
+, the parameters WN +1 specific to each sample in the training dataset, even though these parameters are not part of the pretrained DNN network. Evaluating derivatives of the solution incurs additional computational cost. Although this cost is substantially smaller than the cost of generating the solution ensemble, it can still increase offline training time and storage requirements and should therefore be avoided when possible. We find that for some PDE types, γ and ˜θ can be evaluated jointly using the samples {h(i)}Ntrain  
+
+> i=1
+
+and PDE residual constraints as 
+
+γ∗, ˜θ∗,
+
+n
+
+W ∗(i) 
+
+> N+1
+
+oNtrain 
+
+> i=1
+
+= arg min    
+
+> γ,˜θ,
+> {W(i)
+> N+1 }Ntrain
+> i=1
+> Ntrain
+
+X
+
+> i=1
+
+h
+
+∥ˆ¯h(γ) − ¯h∥22+∥ˆh′(i)( ˜θ, W (i) 
+
+> N+1
+
+) − h′(i)∥22
+
+i
+
++ λf ∥R(i)(γ, ˜θ, W (i) 
+
+> N+1
+
+)∥22+λIC ,0∥R(i)IC ,0(γ, ˜θ, W (i) 
+
+> N+1
+
+)∥22+λIC ,1∥R(i)IC ,1(γ, ˜θ, W (i) 
+
+> N+1
+
+)∥22
+
++ λBC ∥R(i)BC (γ, ˜θ, W (i) 
+
+> N+1
+
+)∥22
+
+i
+
++ λ ∥γ∥22+∥ ˜θ∥22+
+
+> Ntrain
+
+X
+
+> i=1
+
+∥W(i) 
+
+> N+1
+
+∥22
+
+!
+
+(15) where the residual operators are defined as 
+
+R(x, t ; y; γ, ˜θ, WN +1 ) = L
+
+ˆ¯h(x, t ; γ) + ˆh′(x, t ; ˜θ, WN +1 ); y
+
+
+
+, (16) 
+
+RBC (x, t ; g; γ, ˜θ, WN +1 ) = B
+
+ˆ¯h(x, t ; γ) + ˆh′(x, t ; ˜θ, WN +1 )
+
+
+
+− g(x, t ), (17) 
+
+RIC ,0(x; h0; γ, ˜θ, WN +1 ) = ˆ¯h(x, 0; γ) + ˆh′(x, 0; ˜θ, WN +1 ) − h0(x), (18) and 
+
+RIC ,1(x; h0; γ, ˜θ, WN +1 ) = ∂ˆ¯h(x, 0; γ)
+
+∂t + ∂ˆh′(x, 0; ˜θ, WN +1 )
+
+∂t − h1(x). (19) Here, R(i) is the vector with components R(x, t ; y(i); γ, ˜θ, W (i) 
+
+> N+1
+
+) evaluated at randomly sampled residual collocation points on the space-time domain; R(i)IC ,0 and R(i)IC ,1 are the vector with components RIC ,0(x; h(i)0 ; γ, ˜θ, W (i) 
+
+> N+1
+
+) and 
+
+RIC ,1(x; h(i)1 ; γ, ˜θ, W (i) 
+
+> N+1
+
+), respectively, evaluated on the space domain at t = 0 ; R(i)BC is the vector with components 
+
+RBC (x, t ; g(i); γ, ˜θ, W (i) 
+
+> N+1
+
+) evaluated on the time domain on the boundary; and y(i), g(i), h(i)0 , h(i)1 are components of the Dtrain training dataset. After the offline pretraining stage, the PDE solution for any y, g, and h0 is obtained by estimating WN +1 from the minimization problem 
+
+W∗  
+
+> N+1
+
+= arg min  
+
+> WN+1
+
+h
+
+|| R(y; γ∗, ˜θ∗, WN +1 )∥22+λBC ∥RBC (g; γ∗, ˜θ∗, WN +1 )∥22 (20) 
+
++ λIC ,0∥RIC ,0(h0; γ∗, ˜θ∗, WN +1 )∥22+λIC ,1∥RIC ,1(h1; γ∗, ˜θ∗, WN +1 )∥22+λ∥WN +1 ∥22
+
+i
+
+,
+
+where γ∗ and ˜θ∗ are obtained at the offline pretraining. The basis functions approximately satisfy the initial and boundary conditions. However, our numerical results show that adding the initial and boundary condition penalty terms, i.e., setting λBC > 0, λIC ,0 > 0, λIC ,1 > 0 in general, yields more accurate solutions. Alternatively, we can use the Galerkin projection method to estimate WN +1 as a solution of the equation 
+
+ΨTr R
+
+
+
+y; γ∗, ˜θ∗, W∗ 
+
+> N+1
+
+
+
+= 0, (21) where Ψr ∈ RNres ×Nη is the matrix of pretrained neural basis functions evaluated at the residual points, whose ith row is ψ(zi; ˜θ∗)T . In our numerical experiments, the Galerkin formulation produced errors similar to those obtained by residual least-square lPINN formulation in Eq (20). We therefore use the residual least-squares lPINN formulation in the results reported below. 7A PREPRINT - S EPTEMBER 15, 2026 In lPINN, the term “linearized” refers to the linear dependence of the functional representation on WN +1 , the parameter vector estimated in the PINN-like online stage. It does not imply linearizing the governing differential operator. If L
+
+and B are linear operators, then Eq. (20) is a regularized linear least-squares problem. It admits a unique solution when the augmented least-squares matrix has full column rank or when strictly positive quadratic regularization makes the objective strictly convex. For nonlinear operators, the reduced problem remains nonlinear, but it is still low-dimensional and can be solved iteratively using standard nonlinear least-squares methods. The inverse PDE problem is formulated in lPINN similarly to the PINN method. Consider an inverse problem in which one or more of the parameters y, g, h0, and h1 are unknown and must be inferred from the observations u∗ = [ u∗ 
+
+> j
+
+]Nm
+
+> j=1
+
+of h at locations xd = [ xj ]Nm 
+
+> j=1
+
+and time instances td = [ tj ]Nm
+
+> j=1
+
+. The parameters can be estimated jointly with WN +1 at the online stage as the solution of the minimization problem: 
+
+ W ∗ 
+
+> N+1
+
+, y ∗, g ∗, h ∗
+
+> 0
+
+ = arg min  
+
+> WN+1 , y,g,h 0
+
+h
+
+∥R(y; WN +1 )∥22+λBC ∥RBC (g; WN +1 )∥22+λIC ,0∥RIC ,0(h0, WN +1 , y )∥22
+
++ λIC ,1∥RIC ,1(h1, WN +1 , y )∥22+λ∥WN +1 ∥22+λdata ˆhd(WN +1 ) − h∗ 22
+
+i
+
+,
+
+(22) where L2 regularization is used on the WN +1 parameters, and hd(WN +1 ) in the data term is the vector with components ˆ¯h(xi, t i; γ∗) + ˆh′(xi, t i; ˜θ∗, WN +1 ). Because the basis functions approximately satisfy the initial and boundary conditions, we find that in this loss function, λBC , λIC ,0 and λIC ,1 can be set to zero without incurring significant errors in the inverse solution. The weighting coefficients in the loss function, including λ and λdata , can be estimated as in PINN. In this work, we use a grid search method to select the optimal combination of the weighting coefficients. The schematic representation of the lPINN method for forward and inverse problems is shown in Figure 1. 
+
+Figure 1: The schematic representation of the lPINN method. All parameters in the mean DNN and the parameters associated with the fluctuation DNN layers are estimated offline using the training dataset. The remaining fluctuation-DNN parameters in the last layer are determined for the specified parameters using the physics-informed loss. A key consequence of the neural representation is that the mesh used to generate the offline solution ensemble and the collocation sets used during offline and online training are decoupled. Once the mean function ˆh(z, γ∗) and basis functions ψ(z; ˜θ∗) have been learned, both ˆh(z; WN +1 ) = ˆh(z, γ∗) + ψ(z; ˜θ∗) · WN +1 together with the derivatives required by the differential operator, can be evaluated at arbitrary coordinates z through automatic differentiation. Consequently, a basis learned from a solution ensemble generated on a coarse mesh can be used to represent and evaluate 8A PREPRINT - S EPTEMBER 15, 2026 the solution at a finer resolution without retraining. The results presented below indicate that this cross-resolution accuracy does not require a large number of residual points during online inference because only a relatively small number of reduced coefficients is estimated. Instead, the attainable accuracy is governed primarily by the quality of the pretrained mean and basis functions. Within the range investigated here, this representation accuracy can be improved by increasing the number of solution samples in the offline training ensemble. Increasing the number of residual points during residual-based offline pretraining can also improve the learned representation, although we observed a smaller improvement than that obtained by increasing the number of training samples. We define lPINN superresolution as the ability of an lPINN trained on a coarse-resolution ensemble to produce predictions that are more accurate than numerical solutions computed on finer meshes when both are evaluated against the same high-fidelity reference solution. 
+
+## 3 Numerical Examples 
+
+Unless otherwise stated, all reported solution and parameter errors are computed from the arithmetic-mean prediction or parameter estimate over 10 independent runs, and the reported computational times denote the average online training time per run. In the comparison studies, the PINN network and the mean and fluctuation networks used in lPINN have the same size and architecture, including the same number of hidden layers, the same width in each hidden layer, and the same activation functions. Thus, each individual network used in lPINN is matched in size and architecture to the PINN network. The exception is a comparison in Section 3.3 where PINN and lPINN use different Fourier frequency scales. 
+
+3.1 Advection Diffusion Equation 
+
+We first evaluate the proposed lPINN framework on the one-dimensional advection–diffusion equation 
+
+∂u ∂t + V ∂u ∂x = D ∂2u∂x 2 , (23) subject to the initial condition 
+
+u(x, 0) = 0 , (24) and the boundary conditions 
+
+u(0 , t ) = u0, (25) where u0 = 1 , and 
+
+∂u ∂x x=L
+
+= 0 . (26) In the forward problem, the goal is to predict the solution for V ∈ [Vmin , V max ] and D ∈ [Dmin , D max ]. In the inverse problem, the goal is to infer V and D from sparse measurements of u(x, t ).For t ≪ LV , the solution of this equation can be approximated by the Ogata–Banks formula, 
+
+u(x, t ) = u0
+
+2
+
+
+
+erfc 
+
+ x − V t 
+
+2√Dt 
+
+
+
++ exp 
+
+ V x D
+
+
+
+erfc 
+
+ x + V t 
+
+2√Dt 
+
+ 
+
+. (27) To construct the training dataset, we treat V and D as independent uniformly distributed random variables defined on the intervals V ∈ [Vmin , V max ] and D ∈ [Dmin , D max ], respectively. Next, we generate Ntrain samples of V and D
+
+from these distributions. For each sample of V and D, the Ogata-Banks solution is evaluated on a uniform Nx × Nt
+
+mesh with nodes (xi, t k) excluding t = 0 , where x1 = 0 , xNx = L, t1 = T / (Nt − 1) , and tNt = T . The sample mean is then estimated as 
+
+¯u(xi, t k) = 1
+
+Ntrain 
+
+> Ntrain
+
+X
+
+> n=1
+
+u(n)(xi, t k), (28) and the fluctuation field is defined by 
+
+u′(x, t ) = u(x, t ) − ¯u(x, t ). (29) In all ADE experiments, we set L = 86 , T = 200 . The training dataset contains Ntrain = 500 realizations generated from 
+
+V ∈ [0 .6V ∗, 1.4V ∗], D ∈ [0 .6D∗, 1.4D∗],
+
+9A PREPRINT - S EPTEMBER 15, 2026 where V ∗ = 0 .213 and D∗ = 0 .061 yielding the Peclet number Pe = V ∗LD∗ = 300 . The trained model is tested at 
+
+V ref = 1 .2V ∗, Dref = 0 .7D∗,
+
+which corresponds to Pe = 514 . The test case is intentionally selected away from the center of the training ranges. Also, the ADE solutions for Pe ≫ 1 are challenging to obtain with standard numerical methods. Therefore, the problem considered provides a rigorous test for lPINN. The accuracy of lPINN and other methods for ADE is estimated using the dimensionless relative root-mean-square errors (rRMSEs) for the predicted solution u and, for the inverse problem, the estimated parameters V and D. The relative errors are defined as 
+
+rRMSE u = u − uref 
+
+> 2
+
+u0
+
+√Nu
+
+, rRMSE V = V − V ref 
+
+|V ref | , rRMSE D = D − Dref 
+
+|Dref | ,
+
+where Nu is the number of grid points where the numerical solutions are compared to the reference solution uref 
+
+(generally, Nu = Ng ), where Ng denotes the number of grid points on the mesh used to evaluate the solution, and 
+
+u0 = 1 is the maximum value of the reference solution achieved at x = 0 . The dimensionless rRMSEs for the PDE residual R, initial condition, and boundary conditions are defined as 
+
+rRMSE R = Lu0V
+
+∥R∥2
+
+√Nres 
+
+, rRMSE IC = uIC − uref IC 2
+
+u0
+
+√NIC 
+
+,
+
+and 
+
+rRMSE BC = u(x = 0) − uref (x = 0) 2
+
+u0
+
+pNBC ,0
+
++ Lu0
+
+∥∂xu(x = L)∥2
+
+pNBC ,L 
+
+,
+
+where NIC is the number of residual points at t = 0 (excluding the point (x, t ) = (0 , 0) ), NBC ,0 is the number of residual points over the time domain on the x = 0 boundary, and NBC ,L is the number of residual points on the x = L
+
+boundary. In lPINN, the mean and fluctuation networks are pretrained using the Adam optimizer. The online training for the forward ADE problem, i.e., solving the minimization problem (20), is a linear least-squares problem which we solve using the linear least-squares solver numpy.linalg.lstsq. The inverse ADE minimization problem is nonlinear and is solved using the L-BFGS method. The number of residual points is set to Nres = 10 Nη . Inverse solutions are obtained with Nm = 40 measurements of u.We compared the derivative-matching (Eqs. (13) and (14)) and residual-based (Eq. (15)) offline pretraining methods. For residual-based offline pretraining, we split the Nx × (Nt − 1) = 870 grid points into 10 batches at each epoch. For each batch, solution values of Ntrain = 500 realizations at 87 grid points are used for training, together with Nres = 435 
+
+residual points, NIC = 435 initial condition collocation points, and NBC = 435 boundary condition collocation points randomly resampled for each batch. For derivative-matching offline pretraining, the same 870 grid points are split into 10 batches, and for each batch, the solution and derivative values at the corresponding 87 grid points are used for training, together with NIC = 435 and NBC = NBC ,0 + NBC ,L = 435 randomly resampled initial condition and boundary condition collocation points. The number of neural basis functions is set to Nη = 50 . The performance of the models in terms of rRMSE of forward and inverse solutions is given in Table 1. The lPINN forward solution error is a combination of the approximation error and residual least-squares error. The former measures how well the pretrained DNNs approximate the PDE solution. The latter measures how accurately the residual least-squares formulation estimates WN +1 . To compute the approximation error, we estimate WN +1 by least-squares fitting the pretrained DNNs to the reference PDE solution. The residual-based pretraining gives a slightly smaller approximation error, 3.94 × 10 −4,compared with 4.44 × 10 −4 for the derivative-matching pretraining. Another related metric is the value of the PDE residual yielded by the pretrained DNN with WN +1 obtained from the least-squares fitting to the reference PDE solution. The RMSE of the residuals (relative to the zero-residual value produced by the reference solution) is smaller for residual-based pretraining ( 3.60 × 10 −2) than in the derivative-matching pretraining ( 4.36 × 10 −2). However, the residual-based pretraining gives a much smaller lPINN forward solution error, 1.45 × 10 −3 versus 9.38 × 10 −3 in the derivative-matching pretraining. In the inverse problem, residual-based pretraining gives better accuracy for the solution 
+
+u and velocity V , while derivative-matching pretraining gives a smaller error for the diffusion coefficient D. Since we seek the best overall performance and, in particular, accurate forward prediction, we conclude that residual-based pretraining is the better strategy for the considered ADE problem, and use it in the remaining numerical examples of this section. 10 A PREPRINT - S EPTEMBER 15, 2026 Table 1: ADE comparison between residual-based pretraining and derivative-matching pretraining. The smaller value in each row is shown in bold. Case / Metric Residual-based Derivative-matching Approximation error: rRMSE 3.94 × 10 −4 4.44 × 10 −4
+
+Residual: rRMSE 3.60 × 10 −2 4.36 × 10 −2
+
+Forward: rRMSE u 1.45 × 10 −3 9.38 × 10 −3
+
+Inverse: rRMSE u 3.90 × 10 −3 2.01 × 10 −2
+
+Inverse: rRMSE V 4.13 × 10 −3 1.22 × 10 −2
+
+Inverse: rRMSE D 1.07 × 10 −1 6.23 × 10 −2
+
+Figure 2 plots the relative approximation error, the residual error, and the relative errors in the forward and inverse lPINN solutions as functions of Nη , the number of neurons in the last hidden layers. The approximation error decreases as Nη increases. The residual error stays nearly constant for Nη < 50 and then increases with Nη . It should be noted that in the described experiment, the number of residual points in the offline step is fixed, which can cause the increase in the residual error with increasing Nη .The lPINN forward solution error increases with Nη when the regularization coefficient λ in Eq. (20) is set to zero. For the considered linear ADE, Eq. (20) yields a linear least-square problem that can be written as A · WN +1 = b, where 
+
+A is a Nres × Nη matrix and b is a Nres vector. The unregularized least-squares solution is unique when A has full column rank, equivalently when AT A is nonsingular. Regularization, i.e., setting λ > 0, can provide uniqueness and improve numerical stability when the system is rank deficient or ill-conditioned. We select λ for each Nη through a grid search. We do not observe a decrease in the lPINN rRMSE for Nη > 30 because the residual rRMSE increases with 
+
+Nη . We show in Section 3.4 that the pretraining accuracy can be improved by increasing the size of the training dataset or, as stated earlier, using more residual points at the offline step. For the inverse problem, the relative errors in the estimated u, V , and D are weakly dependent on Nη . The overall best performance is achieved for Nη = 50 , the value we use in the remaining numerical experiments of this section. 
+
+Figure 2: ADE problem: Left: Approximation error of the pretrained fluctuation network and the corresponding residual error. Middle: Relative error of the lPINN forward prediction. Right: Relative errors of the lPINN inverse prediction for the solution u and the inferred parameters V and D. Ntrain = 500 . The lPINN error for Nη = 50 ,
+
+Nres = 500 in this test is not directly comparable with the lPINN error for Nη = 50 , Nres = 500 in the following forward problem as in that problem we use a shared λ = 10 −4 across Nres .In the remainder of this section, we compare lPINN with vanilla PINN and PICKLE ROM. 
+
+3.1.1 Comparison with PINN 
+
+We first consider the forward problem. Figure 3 compares the PINN and lPINN predictions against the reference solution at t = 20 .7 and 200 .0 s using Nres = 500 residual points. The lPINN solution is visibly closer to the reference and achieves an rRMSE of 0.0015 , whereas PINN yields an rRMSE of 0.0104 . The computational cost is also significantly reduced: lPINN requires 0.2 s, while PINN requires 631 .2 s. All PINN and lPINN computations are performed on the same workstation using an NVIDIA RTX A6000 GPU with 48 GB of memory. 11 A PREPRINT - S EPTEMBER 15, 2026 
+
+Figure 3: ADE forward problem: (a) Comparison of the PINN and lPINN predictions with the reference solution at 
+
+t = 20 .7 s, and 200 .0 s. (b) Pointwise standard deviation at the Nx = 30 grid points on the same mesh at t = 20 .7 s, and 200 .0 s. Nres = 500 , Nη = 50 , Ntrain = 500 .We next examine the sensitivity of lPINN and PINN errors to the number of residual points. Figure 4(a) shows that lPINN rRMSEs are consistently lower than PINN’s. Both lPINN and PINN errors decrease with increasing Nres , and reach an asymptotic value at Nres = 500 .
+
+Figure 4: ADE forward problem: (a) rRMSE (u) as a function of the number of residual points Nres , where u is the mean of 10 PINN or lPINN solutions. (b) Relative root-mean-square error (rRMSE) of residual, initial condition, and boundary condition error as a function of the number of residual points Nres . Nη = 50 , Ntrain = 500 .Next, we compare PINN and lPINN inverse solutions for the parameters V and D and the state u obtained with 
+
+Nm = 40 measurements of u. Figure 5 shows estimated u and the reference u at times t = 20 .7 and 200 .0 s. The lPINN prediction achieves an rRMSE of 0.0039 , compared with 0.0509 for PINN. The V and D parameters found with lPINN have rRMSE values of 0.0041 and 0.1074 , respectively. PINN yields V with an rRMSE of 0.0290 and D with an rRMSE of 0.8513 . The inference time is reduced from 350 .6 s for PINN to 19 .2 s for lPINN. 12 A PREPRINT - S EPTEMBER 15, 2026 
+
+Figure 5: ADE inverse problem: Comparison of the PINN and lPINN estimations of u(x, t ) with the reference solution at t = 20 .7 s, and 200 .0 s. Nres = 500 , Nm = 40 , Nη = 50 , Ntrain = 500 .Figure 6 shows the rRMSEs in the lPINN and PINN inverse solutions as functions of Nm. The errors are reported for the estimated V , D, and u. For all three variables, lPINN generally outperforms PINN, with the largest advantage occurring for smaller Nm. This behavior matters in practical inverse problems, where observations are often limited and expensive to obtain. 
+
+Figure 6: ADE inverse problem: Relative root-mean-square error (rRMSE) of the inferred velocity V , dispersion coefficient D, and predicted solution u as functions of the number of measurement points Nm. Nres = 500 , Nη = 50 ,
+
+Ntrain = 500 .
+
+3.1.2 Comparison with the dPICKLE ROM method. 
+
+Here, we compare the forward lPINN and dPICKLE solutions. The dPICKLE ROM method [17] is based on space– time-dependent Karhunen–Loève expansions (KLEs) of the state variable u:
+
+u(a) = ¯ u + Φa, (30) where u is the solution vector, ¯u is the training dataset mean, Φ is the matrix of eigenvectors scaled with the square root of the corresponding eigenvalues, and a is the vector of coefficients. These coefficients can be estimated using 13 A PREPRINT - S EPTEMBER 15, 2026 projection, or, as in PINN and lPINN methods, by minimizing the L2 norm of the PDE residuals: 
+
+a∗ = arg min  
+
+> a
+
+|| R(a)|| 22 (31) where R(a) is the vector of residuals. In dPICKLE, as in most ROM methods, all quantities, including ¯u, Φ, R, and, ultimately, the solution u are computed on the space-time mesh as the one used in the training dataset generation. In [17], the spatial and temporal derivatives entering R are evaluated using a finite difference discretization. For a fair comparison, we use the same number of samples to compute ¯u and Φ as in the lPINN solution. Also, the dimensionality of a is set the same as that of WN +1 . The residual points in the lPINN solution are chosen to coincide with the grid points where dPICKLE residuals are evaluated. The forward solutions are compared for the parameter values 
+
+V = 1 .2V ∗, D = 0 .7D∗.
+
+Figure 7 compares the lPINN and dPICKLE predictions with the reference solution at t = 20 .7 and 200 .0 s. The lPINN prediction is in closer agreement with the reference solution and achieves an rRMSE of 0.0013 , whereas dPICKLE yields an rRMSE of 0.0470 . However, dPICKLE has a lower computational cost: lPINN requires only 0.26 s versus 
+
+0.01 s for dPICKLE. The lPINN runtime is longer because it takes more time to compute derivatives via automatic differentiation than numerically in dPICKLE. 
+
+Figure 7: ADE forward problem: Comparison of the lPINN and dPICKLE predictions with the reference solution at 
+
+t = 20 .7 s and 200 .0 s. Here, Nres = 784 , Nη = 50 , and Ntrain = 500 .
+
+3.2 Burgers’ equation 
+
+In this section, we consider the one-dimensional Burgers’ equation, 
+
+∂u ∂t + u ∂u ∂x = ν ∂2u∂x 2 , (32) subject to the initial condition 
+
+u(x, 0) = − sin( πx ), (33) and the boundary conditions 
+
+u(−1, t ) = u(1 , t ) = 0 . (34) The forward lPINN model is pretrained to solve the Burgers’ equation on the time domain (0 , 1] for ν ∈  0.1 
+
+> π
+
+, 0.5
+
+> π
+
+. We construct the training dataset using the Cole-Hopf analytical solution of the Burgers’ equation, 
+
+u(x, t ) = 
+
+Z ∞−∞ 
+
+− sin( π(x − ξ)) exp 
+
+
+
+− cos( π(x − ξ)) 2πν 
+
+
+
+exp 
+
+
+
+− ξ2
+
+4νt 
+
+
+
+dξ 
+
+Z ∞−∞ 
+
+exp 
+
+
+
+− cos( π(x − ξ)) 2πν 
+
+
+
+exp 
+
+
+
+− ξ2
+
+4νt 
+
+
+
+dξ . (35) 14 A PREPRINT - S EPTEMBER 15, 2026 We uniformly draw Ntrain = 500 samples of ν from the specified interval. For each ν sample, the Cole-Hopf solution is evaluated on an Nx × Nt mesh with Nx = 30 and Nt = 30 . The temporal grid is uniform, and the spatial grid is center-clustered over [−1, 1] . The center-clustered spatial grid points are defined as, 
+
+si = −1 + 2iNx − 1 , xi = sign( si)
+
+
+
+1 − tanh( σ(1 − | si|)) tanh( σ)
+
+
+
+, i = 0 , . . . , N x − 1.
+
+where clustering strength is set to σ = 2 .The pretrained forward lPINN model is then tested for 
+
+νref = 0.1
+
+π ,
+
+using the same mesh. The inverse problem is solved for ν and u given sparse measurements of u.The rRMSEs in the predicted solution u evaluated on the Nx × Nt mesh and, for the inverse problem, estimated viscosity ν are defined as 
+
+rRMSE u = u − uref 
+
+> 2
+
+u0
+
+√Nu
+
+, rRMSE ν = ν − νref 
+
+|νref | .
+
+where Nu = Nx × Nt, uref is the reference solution evaluated on the Nx × Nt mesh, and u0 = u(x = − 12 , t = 0) is the maximum of the initial condition. The dimensionless rRMSEs for the PDE residual, initial condition, and boundary condition are defined as 
+
+rRMSE R = Lu20
+
+∥R∥2
+
+√Nres 
+
+, rRMSE IC = uIC − uref IC 2
+
+u0
+
+√NIC 
+
+,
+
+and 
+
+rRMSE BC = u(x = −1) − uref (x = −1) 2
+
+u0
+
+pNBC ,−1
+
++ u(x = 1) − uref (x = 1) 2
+
+u0
+
+pNBC ,1
+
+.
+
+Figure 8 plots the relative approximation error, the residual of the approximated solution, and the relative errors in the forward and inverse lPINN solutions as functions of Nη . The number of residual points is set to Nres = 10 Nη .The inverse solution is obtained using Nm = 50 measurements. The DNNs are pretrained using residual-based loss functions. This choice is justified by the comparison study summarized in Table 2. The approximation errors of the pretrained DNNs and the residual RMSE are weakly dependent on the considered Nη values. The smallest rRMSE of the forward lPINN solution is obtained for Nη = 20 . In the inverse problem, the errors in both the estimated u and ν
+
+are smallest at Nη = 50 . Accordingly, in the remaining examples of this section, we set Nη = 20 for forward problems and Nη = 50 for the inverse problems. 
+
+Figure 8: Burgers’ equation: Left: Approximation error of the pretrained fluctuation network and the corresponding residual error. Middle: Relative error of the lPINN forward prediction. Right: Relative errors of the lPINN inverse prediction for the solution u and the inferred parameter ν. Here, Ntrain = 500 .Next, we compare derivative-matching pretraining with residual-based pretraining. For residual-based offline pretraining, we split the Nx × Nt = 900 solution-grid points into 10 batches at each epoch. For each batch, the solution values of all Ntrain = 500 realizations at 90 grid points are used for training, together with Nres = 90 residual points, NIC = 90 
+
+initial condition collocation points, and NBC = 90 boundary condition collocation points are randomly resampled for each batch. For derivative-matching offline pretraining, the same 900 solution-grid points are split into 10 batches, and 15 A PREPRINT - S EPTEMBER 15, 2026 for each batch, the solution and derivative values at the corresponding 90 grid points are used for training, together with 
+
+NIC = 90 and NBC = 90 randomly resampled initial condition and boundary condition collocation points. The number of residual points is set to Nres = 100 in both lPINN and PINN for the forward problem, and we use Nres = 100 
+
+residual points and Nm = 5 measurements of u for the inverse problem. As shown in Table 2, residual-based pretraining gives smaller approximation errors for both Nη = 20 and Nη = 50 . Residual-based pretraining gives smaller residual RMSE and better accuracy in both the forward and inverse problems. Specifically, it reduces the forward error from 
+
+3.15 ×10 −3 to 8.07 ×10 −4 and also gives lower inverse errors for both u and ν. In the remaining numerical experiments of this section, we use the residual-based pretraining. Table 2: Comparison of residual-based and derivative-matching pretraining for Burgers’ equation. As we use Nm = 5 
+
+in this test and we use Nm = 50 for solving the inverse problem in the following part of the section, the result is not directly comparable. Metric Nη Residual-based Derivative-matching Approximation rRMSE 20 5.35 × 10 −4 2.11 × 10 −3
+
+50 8.13 × 10 −4 8.24 × 10 −4
+
+Residual rRMSE 20 3.10 × 10 −2 4.90 × 10 −2
+
+50 4.56 × 10 −2 6.32 × 10 −2
+
+Forward rRMSE u 20 8.07 × 10 −4 3.15 × 10 −3
+
+Inverse rRMSE u 50 1.57 × 10 −3 3.24 × 10 −3
+
+Inverse rRMSE ν 50 3.18 × 10 −3 1.14 × 10 −2
+
+Next, we compare the PINN and lPINN solutions of the forward Burgers’ problem. Figure 9 shows the PINN, lPINN, and reference solutions at t = 0 .0 and 1.0 s. The lPINN solution agrees much more closely with the reference and achieves an rRMSE of 0.0008 , whereas the PINN yields an rRMSE of 0.0439 . The computational advantage is also substantial: lPINN requires only 17 .3 s, while PINN requires 308 .3 s. 
+
+Figure 9: Burgers’ forward problem: Comparison of the PINN and lPINN predictions with the reference solution at 
+
+t = 0 .0 s and 1.0 s. Here, Nres = 100 , Nη = 20 , Ntrain = 500 
+
+Figure 10(a) examines the dependence of lPINN and PINN errors in the forward Burgers’ problem on Nres for Nη = 20 .The rRMSE of PINN decreases to an asymptotic value at Nres ≈ 800 , while the rRMSE of lPINN stays nearly constant across Nres . The lPINN asymptotic error is close to the approximation error for Nη = 20 , which is the lower limit of lPINN error. The PINN asymptotic error is smaller than that of lPINN. This is different from the ADE problem where lPINN remained more accurate than PINN for all considered Nres . Figure 10(b) explains why the lPINN error does not decrease with increasing Nres : while the PDE residual error decreases, the initial and boundary condition residual errors stay unchanged with increasing Nres .16 A PREPRINT - S EPTEMBER 15, 2026 
+
+Figure 10: Burgers’ forward problem: (a) Relative root-mean-square error (rRMSE) of the predicted solution for PINN and lPINN as a function of the number of residual points Nres . (b) Relative root-mean-square error (rRMSE) of the residual, initial condition, and boundary condition errors as functions of the number of residual points Nres . Nη = 20 ,
+
+Ntrain = 500 .Figure 11 compares the PINN and lPINN u inverse solutions at t = 0 .0, and 1.0 s using Nres = 100 residual points and 
+
+Nm = 5 measurements of u. The lPINN solution achieves an rRMSE of 0.0016 versus 0.0061 in PINN. The estimated 
+
+ν in the lPINN solution has a relative error of 0.0032 versus 0.0119 in PINN. The time to obtain the lPINN solution (excluding pretraining) is 3.2 s versus 251 .5 s in the PINN method. 
+
+Figure 11: Burgers’ inverse problem: Comparison of the PINN and lPINN predictions with the reference solution at 
+
+t = 0 .0 and 1.0 s. Nres = 100 , Nm = 5 , Nη = 50 , Ntrain = 500 
+
+We further investigate the effect of the number of measurements on inverse solution accuracy for Nη = 50 and 
+
+Nres = 100 . As shown in Figure 12, the PINN errors in the estimated ν and u strongly depend on Nm. In contrast, lPINN errors are less sensitive to Nm. The lPINN method achieves similar accuracy with relatively few measurements. The error in the estimated ν is smaller than that of PINN for all considered Nm. The u estimate is more accurate in lPINN for Nm < 20 and less accurate otherwise. This suggests that lPINN is more robust than PINN in the limited-data regime. 17 A PREPRINT - S EPTEMBER 15, 2026 
+
+Figure 12: Burgers’ inverse problem: Relative root-mean-square error (rRMSE) of the inferred kinematic viscosity ν
+
+and predicted solution u as functions of the number of measurement points Nm. Nres = 100 , Nη = 50 , Ntrain = 500 
+
+3.3 Nonlinear Pendulum Equation 
+
+We next assess the proposed lPINN framework on the nonlinear pendulum equation 
+
+d2θdt 2 + γ dθ dt + g0
+
+ℓ sin( θ) = 0 , (36) subject to the initial conditions 
+
+θ(0) = π
+
+2 , dθ dt (0) = 0 , (37) where γ is the damping coefficient, ℓ is the pendulum length, and θ is the angle, g0 is the gravity. In the forward problem, we compute θ for γ ∈ [0 .05 , 0.5] , ℓ ∈ [0 .5, 2.0] . In the inverse problem, γ, ℓ, and θ(t) are estimated from θ
+
+measurements at a few time instances. To construct the training dataset, we draw Ntrain = 500 samples of (γ, ℓ ) uniformly from their considered ranges. Eq. (36) is solved numerically for each parameter combination with the Runge–Kutta method on a uniform temporal grid using a constant time step ∆t = T / (Nt − 1) , where Nt = 300 and T = 30 . In addition to θ, dθ dt and d2θdt 2 are also obtained from the solver and used for the DNN pretraining. The pretrained model is then tested on the same temporal mesh for γref = 0 .1 and ℓref = 0 .8.Eq (36) is challenging to solve using PINN because of θ oscillation with t as result of the spectral bias, the tendency of DNNs to learn low-frequency components more readily than high-frequency components [29]. In lPINN, we find that a standard fully connected network approximates θ(t) more accurately at early times than at later times. We also find that the training losses of the mean and fluctuation components converge at substantially different rates, which further complicates joint training with standard DNNs. To improve DNN pretraining, we separately pretrain the mean and fluctuation networks using the numerical values of ¯θ, d¯θ/dt , d2 ¯θ/dt 2, and θ′, dθ ′/dt , d2θ′/dt 2, respectively. Also, we use a Fourier Feature Neural Network (FFNN) rather than a standard fully connected network to model fluctuations 
+
+θ′(t). In both PINN and lPINN, we use FFNNs with a mapping size of 64 and the hidden-layer width Nη . We use different frequency scales (0.5 for PINN and 0.1 for lPINN) because preliminary tuning showed that the two methods achieve their best performance at different Fourier-feature scales. For lPINN, the smaller scale provides sufficient resolution of the oscillatory solution without introducing spurious high-frequency artifacts. The rRMSEs of the predicted θ and, for the inverse problem, estimated γ and ℓ are defined as 
+
+rRMSE θ = θ − θref 
+
+> 2
+
+θ0
+
+√Nt
+
+, rRMSE γ = γ − γref 
+
+|γref | , rRMSE ℓ = ℓ − ℓref 
+
+|ℓref | ,
+
+18 A PREPRINT - S EPTEMBER 15, 2026 where θref is the reference solution and θ0 = π/ 2 is the initial condition. The dimensionless rRMSEs for the PDE residual and the initial conditions are defined as 
+
+rRMSE R = ℓθ0g0
+
+∥R∥2
+
+√Nres 
+
+, rRMSE IC ,0 = |θ(0) − θ0|
+
+θ0
+
+,
+
+and 
+
+rRMSE IC ,1 =
+
+> dθ (0)
+> dt
+
+θ0
+
+pg0/ℓ .
+
+For the nonlinear pendulum Eq (36), residual-based pretraining did not produce an accurate pretrained representation and resulted in large errors during the subsequent online step. In contrast, derivative-matching pretraining accurately reproduced the mean and fluctuation fields, along with their first and second time derivatives. Therefore, this pretraining approach is better suited for learning the basis functions for the nonlinear pendulum equation, and we use it in all examples in this section. For derivative-matching offline pretraining, the solution and its first- and second-order time derivatives of all Ntrain = 500 realizations at Nt = 300 temporal grid points are used for training. Figure 13 plots the relative approximation error, the residual of the approximated solution, and the relative errors in the forward and inverse lPINN solutions as functions of Nη . The number of residual points is set to Nres = 10 Nη
+
+while the training set size is kept fixed at Ntrain = 500 . For the inverse problem, the number of θ measurements is set to Nm = 50 . The approximation error decreases significantly as Nη increases, reaching nearly machine precision at 
+
+Nη = 400 . In contrast, the residual error remains at approximately the same order of magnitude for all tested widths, indicating that increasing the last layer beyond Nη = 200 does not improve the overall solution representation for the fixed Ntrain . The forward lPINN solutions reach the smallest error at Nη = 200 . For the inverse problem, the relative errors in the estimated θ and the estimated parameter γ decrease with Nη , while the estimated parameter ℓ is practically independent of it. Therefore, considering both accuracy and computational cost, we set Nη = 200 in the following numerical experiments. 
+
+Figure 13: Nonlinear pendulum equation. Left: Approximation error of the pretrained fluctuation network and the corresponding residual error. Middle: Relative error of the lPINN forward prediction. Right: Relative errors of the lPINN inverse prediction for the solution θ and the inferred parameter γ and ℓ. Here, Ntrain = 500 , Nres = 10 Nη , and 
+
+Nm = 50 for the inverse problem. Figure 14 compares the PINN and lPINN forward solutions with the reference solution. The lPINN achieves an rRMSE of 0.0022 , compared with 0.0994 for PINN, corresponding to an error reduction of approximately 98% . The computational cost drops from 2375 .3 s for PINN to 287 .1 s for lPINN, an approximately 8.3-fold speedup. 19 A PREPRINT - S EPTEMBER 15, 2026 
+
+Figure 14: Nonlinear pendulum equation forward problem: Comparison of the PINN and lPINN predictions with the reference solution. Nres = 1000 , Nη = 200 , Ntrain = 500 .We next examine how the number of residual points affects forward solution accuracy. Figure 15(a) shows that lPINN errors are smaller than PINN errors for all considered Nres . The PINN error initially decreases with Nres and reaches an asymptotic value at Nres = 2000 . The lPINN error also initially decreases with Nres and reaches an asymptotic value at Nres = 1000 . At Nres = 1000 , the lPINN error is more than an order of magnitude smaller than the PINN error. 
+
+Figure 15: Nonlinear pendulum forward problem: (a) rRMSE of the predicted solution for PINN and lPINN as a function of the number of residual points Nres . (b) rRMSE of residual and initial condition errors as a function of the number of residual points Nres . Nη = 200 , Ntrain = 500 .Figure 16 compares the inverse PINN and lPINN solutions for θ with the reference solution. The lPINN solution is more accurate, with an rRMSE of 0.0014 versus 0.3767 in the PINN solution. The lPINN parameter estimates are also more accurate, yielding rRMSEs of 0.0133 for γ and 0.0012 for ℓ versus 1.0917 and 0.2648 , respectively, in the PINN method. The online part of the lPINN solution takes 209 .0 s versus 2271 .0 s for the PINN solution. 20 A PREPRINT - S EPTEMBER 15, 2026 
+
+Figure 16: Nonlinear pendulum equation inverse problem: Comparison of the PINN and lPINN predictions with the reference solution. Nres = 500 , Nm = 10 , Nη = 200 , Ntrain = 500 .Figure 17 depicts the effect of the number of measurements on the accuracy of the PINN and lPINN inverse solutions. Both PINN and lPINN errors generally decrease with increasing Nm. The lPINN gives similar errors to PINN for θ and 
+
+ℓ, and estimates γ more accurately. The lPINN errors are smaller than PINN’s for Nm = 10 for all three unknowns. For 
+
+Nm ≥ 20 , lPINN gives similar errors as PINN for ℓ and γ, while PINN estimates θ more accurately. 
+
+Figure 17: Nonlinear pendulum equation inverse problem: Relative root-mean-square error (rRMSE) of the inferred damping coefficient γ, pendulum length ℓ, and predicted solution θ as functions of the number of measurement points 
+
+Nm. Nres = 500 , Nη = 200 , Ntrain = 500 .
+
+3.4 Superresolution of lPINN 
+
+In this section, we study the interdependence between numerical errors in the training dataset and lPINN accuracy as a function of the numerical resolution of the model generating the training dataset for offline pretraining of the lPINN DNNs. The goal is to demonstrate that an lPINN pretrained on a dataset computed on a coarser mesh can produce a numerical solution that is more accurate than the test numerical solution computed on the same coarse mesh and, more importantly, is more accurate than the test numerical solution computed on a finer mesh. We refer to the latter 21 A PREPRINT - S EPTEMBER 15, 2026 as superresolution. We demonstrate the superresolution properties of lPINN for the ADE, nonlinear Burgers’ and pendulum equations. 
+
+3.4.1 ADE equation 
+
+We first study how lPINN accuracy depends on the accuracy of the numerical simulations that compose the training dataset. The numerical solutions are obtained using the second-order central differences in space and the adaptive fifth-order Runge–Kutta (RK45) method in time. We generate three training datasets, {Di}3
+
+> i=1
+
+, each consisting of 
+
+Ntrain = 500 numerical simulations, performed on the uniform mesh (N ix, N it ), where N ix = N it ∈ (30 , 59 , 240) . We pretrained five lPINN models on each corresponding dataset. In the online stage, we use the lPINN models to obtain test solutions with Nres = 500 residual points. We compute the rRMSE errors with respect to the analytical solution on the mesh used to generate the corresponding dataset. For comparison, we also compute the rRMSE of the numerical test solution obtained on the corresponding mesh. Figure 18 shows that lPINN and numerical solution errors decrease with decreasing ∆x = L/ (N ix − 1) . Two important observations are that lPINN errors are smaller than the numerical solution error for the same ∆x. More importantly, the lPINN error obtained on the grid L 
+
+> 29
+
+is smaller than the error of the numerical solution obtained on the finer mesh L 
+
+> 58
+
+.Similarly, the lPINN error corresponding to grid size L 
+
+> 58
+
+is smaller than the numerical solution error corresponding to the finer mesh L 
+
+> 239
+
+. We also see the limitation of the lPINN superresolution in the considered setting (the training data set size, the number of basis functions, and the number of residual points): the lPINN error pretrained on the grid L 
+
+> 29
+
+is larger than the error of the numerical solution obtained on the grid L 
+
+> 239
+
+.
+
+Figure 18: lPINN prediction error vs. mesh spacing ∆x for ADE equation. For each mesh, the lPINN is pretrained using the numerical-solution dataset generated on that mesh and is then evaluated on the same mesh. Smaller ∆x
+
+corresponds to a finer mesh. Nres = 500 , Nη = 50 , Ntrain = 500 .
+
+3.4.2 Burgers’ equation 
+
+We first study how lPINN accuracy depends on the accuracy of the numerical simulations that compose the training dataset. We obtain the numerical solutions using second-order central differences in space and an adaptive fifth-order Runge–Kutta (RK45) method in time. We generate three training datasets, {Di}3
+
+> i=1
+
+, each consisting of Ntrain = 500 
+
+numerical simulations, performed on the uniform mesh (N ix, N it ), where N ix = N it ∈ (15 , 30 , 59) . We pretrained five lPINN models on each corresponding dataset. In the online stage, we use the lPINN models to obtain test solutions with Nres = 100 residual points. We compute the rRMSE errors with respect to the analytical solution on the mesh used to generate the corresponding dataset. For comparison, we also compute the rRMSE of the numerical test solution obtained on the corresponding mesh. 22 A PREPRINT - S EPTEMBER 15, 2026 Figure 19 shows that lPINN and numerical solution errors decrease with decreasing ∆x = L/ (N ix − 1) . Two important observations are that lPINN errors are smaller than the numerical solution error for the same ∆x. More importantly, the lPINN error obtained on the grid L 
+
+> 14
+
+is smaller than the error of the numerical solution obtained on the finer mesh L 
+
+> 29
+
+.Similarly, the lPINN error corresponding to grid size L 
+
+> 29
+
+is smaller than the numerical solution error corresponding to the finer mesh L 
+
+> 58
+
+. We also see the limitation of the lPINN superresolution in the considered setting (the training data set size, the number of basis functions, and the number of residual points): the lPINN error pretrained on the grid L 
+
+> 14
+
+is larger than the error of the numerical solution obtained on the grid L 
+
+> 58
+
+.
+
+Figure 19: lPINN prediction error versus mesh spacing ∆x for Burgers’ equation. For each mesh, the lPINN is pretrained using the numerical-solution dataset generated on that mesh and is then evaluated on the same mesh. Smaller 
+
+∆x corresponds to a finer mesh. Nres = 100 , Nη = 20 , Ntrain = 500 .
+
+3.4.3 Nonlinear Pendulum equation 
+
+We next investigate whether the same conclusion holds for the nonlinear pendulum equation, for which the lPINN is pretrained using the derivative-matching approach. We obtain the numerical solutions using the fourth-order Runge– Kutta (RK4) method. We generate three training datasets, {Di}3 
+
+> i=1
+
+each consisting of Ntrain = 500 numerical simulations performed on a uniform temporal grid with N it ∈ (181 , 241 , 481) over t ∈ [0 , 30] , corresponding to a constant timestep ∆t = T / (N it − 1) . We pretrain lPINN models on each dataset. In the online stage, the lPINN models are used to obtain test solutions for γ = 0 .1 and ℓ = 0 .8 using Nres = 1000 randomly sampled residual points. The lPINN rRMSEs are compared to the rRMSEs of the numerical solutions computed on the same meshes and with 
+
+Nt = 361 . All rRMSEs are computed with respect to a high-resolution numerical reference solution, obtained using the adaptive fifth-order Runge–Kutta (RK5) method with N ref  
+
+> t
+
+= 2881 .We consider two sets of lPINN solutions, one set obtained with Ntrain = 500 and Nη = 200 and the other obtained with Ntrain = 4000 and Nη = 400 .Figure 20 plots rRMSEs of the numerical and lPINN solutions as functions of the time step size. With Ntrain = 500 
+
+and Nη = 200 , lPINN does not produce superresolution. Moreover, lPINN does not consistently outperform numerical solutions obtained on the same temporal grids. Increasing the ensemble size to Ntrain = 4000 and the basis dimension to Nη = 400 substantially improves the accuracy of the basis function representation, as evidenced by the reduction in the lPINN solution rRMSEs. Under this enriched setting, the lPINN rRMSEs are smaller than the rRMSEs of the numerical solutions obtained on the same temporal meshes. Furthermore, the lPINN trained with Nt = 181 is more accurate than the numerical solution obtained with Nt = 241 , and the lPINN trained with Nt = 241 is more accurate than the numerical solution obtained with Nt = 361 . Thus, the lPINN with Ntrain = 4000 and Nη = 400 achieves superresolution. 23 A PREPRINT - S EPTEMBER 15, 2026 
+
+Figure 20: lPINN prediction error elPINN versus time-step size ∆t for the nonlinear pendulum equation. For each temporal mesh, the lPINN is pretrained using the numerical-solution dataset generated on that mesh and is then evaluated on the same mesh. Smaller ∆t corresponds to a finer temporal mesh. Nres = 1000 .
+
+## 4 Conclusion 
+
+We developed the Linearized Physics-Informed Neural Network (lPINN) as a physics-corrected neural reduced-basis method for many-query forward and inverse problems governed by differential equations. The central feature of the method is that an ensemble of numerical solutions is used offline to learn a continuous, coordinate-dependent neural basis functions, while the solution of each new problem is determined online by minimizing the governing-equation residual in the resulting low-dimensional coefficient space. The continuous neural basis can be pretrained through derivative matching or by augmenting solution reconstruction with physics residuals. These alternatives provide different mechanisms for representing the differential quantities required during online inference. The numerical experiments show that the preferred strategy can depend on the governing equation and neural architecture. Residual-based pretraining produced the most accurate downstream solutions for the advection–diffusion and Burgers’ equations, whereas derivative-matching pretraining was more effective for the oscillatory nonlinear pendulum problem. The latter example also demonstrated that the framework can incorporate Fourier feature networks when the solution family contains oscillatory components that are difficult to represent with a standard multilayer perceptron. Once the neural trial space has been constructed, lPINN restricts problem-specific optimization to the reduced coefficients and, in inverse problems, the unknown physical parameters. For linear differential operators, the online problem can be solved as regularized linear least squares. For nonlinear operators, the residual remains nonlinear in the reduced variables, but the nonlinear feature representation is not retrained. This distinction enables lPINN to extend final-layer adaptation beyond linear forward problems to nonlinear forward and inverse inference. The method was evaluated on the advection–diffusion equation, Burgers’ equation, and the nonlinear pendulum equation. In the reported test cases, lPINN produced lower solution and parameter errors than the corresponding vanilla PINNs while reducing online inference times by factors ranging from approximately one order of magnitude to more than three orders of magnitude. Its advantages were generally most pronounced when the numbers of residual or measurement points were limited. The cross-resolution experiments further showed that a continuous basis learned from coarse-mesh solution data could be evaluated on finer meshes without retraining and with nearly unchanged accuracy. These results demonstrate cross-resolution transfer of the learned representation, although the attainable accuracy remains limited by the quality and expressiveness of the offline trial space. Several limitations define the scope of the present results. First, lPINN requires a representative ensemble of numerical solutions, and its reliability outside the parameter, initial-condition, or boundary-condition ranges covered during pretraining has not been established. Second, generating the training ensemble and learning the neural basis can be computationally expensive. The method is therefore most appropriate when this offline cost can be amortized over a sufficiently large number of forward or inverse queries. Third, performance depends on the basis dimension, 24 A PREPRINT - S EPTEMBER 15, 2026 architecture, pretraining objective, regularization, and online enforcement of initial and boundary conditions. The observed degradation of constraint accuracy in some experiments also indicates that properties learned offline should not always be assumed to remain satisfied when only the interior differential-equation residual is minimized online. Future work should establish systematic criteria for selecting the basis dimension and pretraining strategy, develop adaptive enrichment procedures for parameter regions that are not adequately represented by the initial ensemble, and investigate exact or weighted enforcement of initial and boundary conditions during reduced inference. Additional pri-orities include quantifying out-of-distribution generalization, analyzing amortized computational cost and conditioning, and comparing the method with classical residual-minimizing reduced-order models, random-feature methods, and neural operators. Extensions to higher-dimensional systems, spatially heterogeneous coefficients, variable geometries, and field-scale forward and inverse problems will be necessary to determine the practical range of the approach. Overall, the results support the use of lPINN as an alternative to repeated full-network PINN optimization in many-query settings. By learning an operator-compatible continuous neural reduced basis offline and enforcing the governing physics in its coefficient space online, lPINN combines reusable data-driven representation with problem-specific physical correction. The present comparisons are designed to isolate the computational consequences of replacing instance-specific full-network PINN optimization with reduced coefficient inference in a pretrained neural trial space. They should not be interpreted as establishing superiority over classical or nonlinear reduced-order models. A systematic ROM comparison would require controlling for the snapshot ensemble, basis dimension, continuous reconstruction of discrete modes, derivative approximation, residual sampling, constraint enforcement, and hyper-reduction. Such a comparison is an important direction for future work, particularly for quantifying when the intrinsic coordinate continuity and automatic differentiability of the lPINN basis justify its additional offline training cost. 
+
+## 5 Acknowledgements 
+
+This research was supported by CUSSP (Center for Understanding Subsurface Signals and Permeability), an Energy Earthshot Research Center funded by the U.S. Department of Energy (DOE), Office of Science under FWP 81834, and the SRI (Strategic Research Initiative) Program at the UIUC’s Grainger College of Engineering. 
+
+## 6 Appendix 
+
+6.1 Summary of Hyperparameters, Error and Standard Deviation 
+
+Table 3: Forward Problem in Basis Size Studies for lPINN. Ntrain = 500 . For ADE equation, NIC = Nres and 
+
+NBC = 2 Nres . For Burgers’ equation, NIC = NBC = Nres .Fig. Equation Nη Nres λIC ,0 λBC λ rRMSE u σrRMSE u
+
+# 2 ADE 10 100 0.7 1 0 0.002579 0.001858 20 200 1.5 1.75 10 −4 0.004899 0.002794 50 500 0.3 0.5 0 0.001249 0.002268 100 1000 0.6 1 10 −4 0.001342 0.002638 150 1500 0.6 0.85 0 0.001555 0.001287 200 2000 0.7 1 0 0.001499 0.001388 8 Burgers’ 8 80 1 10 0 0.000962 0.000280 20 200 10 1 10 −8 0.000741 0.000185 50 500 30 3 0 0.001526 0.000159 100 1000 10 0 0 0.001880 0.000218 25 A PREPRINT - S EPTEMBER 15, 2026 Table 4: Nonlinear Pendulum Forward Problem in the Basis Size Study for lPINN. Ntrain = 500 .Fig. Nη Nres λIC ,0 λIC ,1 λ rRMSE θ σrRMSE θ
+
+13 100 1000 316.228 0.003 0 0.050856 0.005259 200 2000 0.01 10 0 0.002318 0.003529 400 4000 0 0 10 −4 0.003344 0.000264 Table 5: ADE Inverse Problem in the Basis Size Study for lPINN. Ntrain = 500 , Nm = 40 , NIC = NBC = Nres ,
+
+λdata = 1 , Fig. 2. 
+
+## Nη Nres λ rRMSE u σrRMSE u rRMSE V σrRMSE V rRMSE D σrRMSE D
+
+## 10 100 0 0.007071 0.004013 0.003085 0.002319 0.194328 0.221529 20 200 0 0.008056 0.000843 0.005200 0.001114 0.197752 0.035221 50 500 10 −6 0.003898 0.002181 0.004135 0.002421 0.107233 0.088383 100 1000 10 −8 0.006063 0.001795 0.004601 0.001695 0.166546 0.067861 150 1500 0 0.005475 0.001152 0.003259 0.001233 0.134873 0.046461 200 2000 10 −6 0.006883 0.001085 0.005783 0.000727 0.195849 0.046107 Table 6: Burgers Equation Inverse Problem in the Basis Size Study for lPINN. Ntrain = 500 , Nm = 50 , NIC = NBC =
+
+Nres , λdata = 1 , Fig. 8. 
+
+Nη Nres λ rRMSE u σrRMSE u rRMSE ν σrRMSE ν
+
+8 80 0 0.005800 0.001245 0.039483 0.008887 20 200 10 −6 0.006070 0.002712 0.042535 0.019688 50 500 10 −8 0.002922 0.000346 0.014586 0.003803 100 1000 10 −8 0.003454 0.000325 0.018585 0.002970 Table 7: Nonlinear Pendulum Inverse Problem in the Basis Size Study for lPINN. Ntrain = 500 , Nm = 50 , λdata = 1 ,Fig. 13. 
+
+## Nη Nres λ rRMSE θ σrRMSE θ rRMSE γ σrRMSE γ rRMSE ℓ σrRMSE ℓ
+
+## 100 1000 0 0.006772 0.000292 0.04747 0.006382 0.00092 0.000347 200 2000 10 −8 0.001398 0.000245 0.02072 0.001825 0.00083 0.000248 400 4000 10 −8 0.000600 0.000028 0.01841 0.000628 0.00134 0.000025 26 A PREPRINT - S EPTEMBER 15, 2026 Table 8: Forward Problem: PINN and lPINN Error vs. Nres . Ntrain = 500 for lPINN. For ADE equation, NIC = Nres 
+
+and NBC = 2 Nres . For Burgers’ equation, NIC = NBC = Nres .Fig. Equation Nres Method Nη λIC ,0 λBC λ rRMSE u σrRMSE u
+
+## 4ADE 100 PINN – 1 1 10 −4 0.028976 0.026853 4 100 lPINN 50 0.003 0.01 10 −4 0.002354 0.005093 3,4 500 PINN – 1 1 10 −4 0.010406 0.004776 3,4 500 lPINN 50 0.1 0.1 10 −4 0.001451 0.002036 4 1500 PINN – 1 1 10 −4 0.010727 0.004047 4 1500 lPINN 50 0.3 0.3 10 −4 0.001420 0.001167 4 3000 PINN – 1 1 10 −4 0.010341 0.002033 4 3000 lPINN 50 3.225 6.45 10 −4 0.001447 0.000705 9,10 Burgers’ 100 PINN – 1 2 10 −6 0.043862 0.099357 9,10 100 lPINN 20 24 0.03 10 −6 0.000807 0.000189 10 300 PINN – 1 2 10 −6 0.000902 0.000905 10 300 lPINN 20 25 1.00 10 −6 0.000780 0.000047 10 800 PINN – 1 2 10 −6 0.000211 0.000331 10 800 lPINN 20 25 0.15 10 −6 0.000810 0.000041 10 1500 PINN – 1 2 10 −6 0.000151 0.000099 10 1500 lPINN 20 25 0.005 10 −6 0.000835 0.000051 Table 9: Nonlinear Pendulum Forward Problem: PINN and lPINN Error vs. Nres . Ntrain = 500 for lPINN. Fig. Nres Method Nη λIC ,0 λIC ,1 λ rRMSE θ σrRMSE θ
+
+# 15 500 PINN – 1 1 10 −8 0.271213 0.112946 15 500 lPINN 200 10 −4 0 10 −8 0.005755 0.013405 14,15 1000 PINN – 1 1 10 −8 0.099410 0.159099 14,15 1000 lPINN 200 3 3 10 −8 0.002208 0.003536 15 2000 PINN – 1 1 10 −8 0.015899 0.000640 15 2000 lPINN 200 10 100 10 −8 0.002178 0.004497 15 8000 PINN – 1 1 10 −8 0.016420 0.000193 15 8000 lPINN 200 0.1 300 10 −8 0.002187 0.002994 Table 10: ADE Inverse Problem: PINN and lPINN Error vs. Nm. Ntrain = 500 , Nη = 50 , Nres = 500 , NIC = 500 ,
+
+NBC = 500 , λdata = 1 .Fig. Nm Method Nres Nη λIC ,0 λBC λ rRMSE u σrRMSE u rRMSE V σrRMSE V rRMSE D σrRMSE D
+
+6 5 PINN 500 50 1 1 10 −4 0.253604 0.235495 0.486947 0.513296 0.996616 0.001698 5 lPINN 500 50 0 0 0 0.010980 0.004001 0.006302 0.001981 0.366958 0.158113 5,6 40 PINN 500 50 1 1 0 0.050878 0.030874 0.028985 0.019506 0.851279 0.279618 40 lPINN 500 50 0 0 0 0.003886 0.002205 0.004118 0.002396 0.107385 0.089965 6 80 PINN 500 50 1 1 0 0.018262 0.040573 0.024940 0.029324 0.491649 0.416658 80 lPINN 500 50 0 0 0 0.002356 0.000988 0.002744 0.001640 0.052280 0.056886 6 160 PINN 500 50 1 1 10 −6 0.002576 0.004371 0.001215 0.007101 0.172043 0.281317 160 lPINN 500 50 0 0 0 0.001833 0.000939 0.001649 0.001257 0.051348 0.056867 27 A PREPRINT - S EPTEMBER 15, 2026 Table 11: Burgers Equation Inverse Problem: PINN and lPINN Error vs. Nm. Ntrain = 500 , Nη = 50 , Nres = 100 ,
+
+NIC = 100 , NBC = 100 .Fig. Nm Method λdata λIC ,0 λBC λ rRMSE u σrRMSE u rRMSE (¯ ν) σrRMSE ν
+
+12 1 PINN 1 1 1 10 −8 0.089693 0.040345 0.43077 0.193140 1 lPINN 1 0 0 10 −8 0.002252 0.001035 0.00786 0.006911 11,12 5 PINN 1 1 1 10 −8 0.006089 0.016743 0.01190 0.027147 5 lPINN 1 0 0 10 −6 0.001568 0.000236 0.00318 0.002070 12 20 PINN 1 1 1 0 0.001236 0.001589 0.00214 0.011031 20 lPINN 5 0 0 10 −8 0.001503 0.000098 0.00196 0.001913 12 50 PINN 1 1 1 10 −6 0.001059 0.000894 0.00173 0.004184 50 lPINN 1000 0 0 10 −8 0.001409 0.000052 0.001456 0.001385 Table 12: Nonlinear Pendulum Inverse Problem: PINN and lPINN Error vs. Nm. Ntrain = 500 , Nη = 200 , Nres = 500 .Fig. Nm Method λdata λIC ,0 λIC ,1 λ rRMSE θ σrRMSE θ rRMSE γ σrRMSE γ rRMSE ℓ σrRMSE ℓ
+
+17 5 PINN 1 10 10 10 −4 0.434149 0.048105 1.10 0.337883 0.497 0.107659 5 lPINN 1 0 0 10 −4 0.501447 0.000623 0.314 0.018098 0.499 0.000960 16,17 10 PINN 1 10 10 0 0.376713 0.135898 1.09 0.507195 0.265 0.161166 10 lPINN 5 0 0 10 −8 0.001433 0.000873 0.01332 0.006621 0.001212 0.000433 17 20 PINN 1 10 10 10 −4 0.000530 0.000107 0.0145 0.003320 0.00114 0.000068 20 lPINN 5 0 0 10 −8 0.001150 0.000732 0.01308 0.009210 0.00121 0.000390 17 50 PINN 1 10 10 10 −6 0.000307 0.000244 0.0112 0.005170 0.00129 0.000288 50 lPINN 1000 0 0 10 −8 0.000825 0.000112 0.01336 0.006976 0.00123 0.000387 Table 13: ADE lPINN and dPICKLE Comparison. Ntrain = 500 , Nη = 50 , Nres = 784 , NIC = 30 , and NBC = 59 .Method λIC ,0 λBC λ rRMSE u
+
+lPINN 0.5 750 10 −4 0.0013 dPICKLE – – – 0.0470 Table 14: Superresolution studies. For the ADE equation, NIC = Nres and NBC = 2 Nres . For Burgers’ equation, 
+
+NIC = NBC = Nres . Ntrain = 500 for lPINN, rRMSE num is the error of the numerical solution. Fig. Equation Mesh ( Nt × Nx) Nη Nres λIC ,0 λBC λ rRMSE num rRMSE u σrRMSE u
+
+18 ADE 
+
+30 × 30 50 500 7 6 0 0.055363 0.008344 0.002795 
+
+59 × 59 50 500 3.5 5 10 −8 0.024839 0.002061 0.002378 
+
+240 × 240 50 500 0.48 0.96 0 0.002109 0.001816 0.001932 19 Burgers’ 
+
+15 × 15 20 100 30 70 0 0.120381 0.005004 0.000806 
+
+30 × 30 20 100 8 0.1 10 −4 0.029587 0.003316 0.000202 
+
+59 × 59 20 100 0.3 10 10 −8 0.005350 0.000618 0.000088 28 A PREPRINT - S EPTEMBER 15, 2026 Table 15: Nonlinear Pendulum Superresolution Study. Nres = 1000 for lPINN. rRMSE num is the error of the numerical solution. Fig. Nt Ntrain Nη λIC ,0 λIC ,1 λ rRMSE num rRMSE θ σrRMSE θ
+
+# 20 181 500 200 10 10 10 −8 0.004882 0.003288 0.002839 241 500 200 10 1 0 0.001046 0.004369 0.003157 481 500 200 100 100 10 −6 0.000120 0.000597 0.001220 181 4000 400 10 10 0 0.004882 0.000691 0.001927 241 4000 400 0.1 1 10 −6 0.001046 0.000131 0.000760 481 4000 400 0.1 0.1 0 0.000120 0.000114 0.000362 Table 16: Offline pretraining. For ADE and Burgers’ equation, λf = λIC ,0 = λBC = 1 in 15, and for nonlinear pendulum equation, λ1 = λ4 = 1 in ?? and ?? .Equation λ
+
+ADE 10 −6
+
+Burgers 10 −6
+
+Nonlinear pendulum mean network 0Nonlinear pendulum basis 10 −6
+
+## References 
+
+[1] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics , 378:686–707, 2019. [2] GE Karniadakis, IG Kevrekidis, L Lu, P Perdikaris, S Wang, and L Yang. Physics-informed machine learning: Nature reviews physics.(2021). 2021. [3] Alexandre M Tartakovsky, C Ortiz Marrero, Paris Perdikaris, Guzel D Tartakovsky, and David Barajas-Solano. Physics-informed deep neural networks for learning parameters and constitutive relationships in subsurface flow problems. Water Resources Research , 56(5):e2019WR026731, 2020. [4] Ramakrishna Tipireddy, Paris Perdikaris, Panos Stinis, and Alexandre Tartakovsky. A comparative study of physics-informed neural network models for learning unknown dynamics and constitutive relations. arXiv preprint arXiv:1904.04058 , 2019. [5] Aditi Krishnapriyan, Amir Gholami, Shandian Zhe, Robert Kirby, and Michael W Mahoney. Characterizing possible failure modes in physics-informed neural networks. Advances in neural information processing systems ,34:26548–26560, 2021. [6] Jorge F Urbán, Petros Stefanou, and José A Pons. Unveiling the optimization process of physics informed neural networks: How accurate and competitive can pinns be? Journal of Computational Physics , 523:113656, 2025. [7] Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing , 43(5):A3055–A3081, 2021. [8] Matthew Tancik, Pratul Srinivasan, Ben Mildenhall, Sara Fridovich-Keil, Nithin Raghavan, Utkarsh Singhal, Ravi Ramamoorthi, Jonathan Barron, and Ren Ng. Fourier features let networks learn high frequency functions in low dimensional domains. Advances in neural information processing systems , 33:7537–7547, 2020. [9] Sifan Wang, Xinling Yu, and Paris Perdikaris. When and why pinns fail to train: A neural tangent kernel perspective. Journal of Computational Physics , 449:110768, 2022. [10] Jan S. Hesthaven, Gianluigi Rozza, and Benjamin Stamm. Certified Reduced Basis Methods for Parametrized Partial Differential Equations . Springer International Publishing, Cham, 2016. [11] Alfio Quarteroni, Andrea Manzoni, and Federico Negri. Reduced Basis Methods for Partial Differential Equations: An Introduction . Springer International Publishing, Cham, 2016. 29 A PREPRINT - S EPTEMBER 15, 2026 [12] A.M. Tartakovsky, D.A. Barajas-Solano, and Q. He. Physics-informed machine learning with conditional Karhunen-Loève expansions. Journal of Computational Physics , 426:109904, 2021. [13] Kevin Carlberg, Charbel Bou-Mosleh, and Charbel Farhat. Efficient non-linear model reduction via a least-squares petrov–galerkin projection and compressive tensor approximations. International Journal for Numerical Methods in Engineering , 86(2):155–181, 2011. [14] Kevin Carlberg, Matthew Barone, and Harbir Antil. Galerkin v. least-squares petrov–galerkin projection in nonlinear model reduction. Journal of Computational Physics , 330:693–734, 2017. [15] Kevin Carlberg, Charbel Farhat, Julien Cortial, and David Amsallem. The GNAT method for nonlinear model reduction: Effective implementation and application to computational fluid dynamics and turbulent flows. Journal of Computational Physics , 242:623–647, 2013. [16] Youngsoo Choi and Kevin Carlberg. Space–time least-squares petrov–galerkin projection for nonlinear model reduction. SIAM Journal on Scientific Computing , 41(1):A26–A58, 2019. [17] Alexandre M Tartakovsky and Yifei Zong. Physics-informed machine learning method with space-time karhunen-loève expansions for forward and inverse partial differential equations. Journal of Computational Physics ,499:112723, 2024. [18] Yiheng Xie, Towaki Takikawa, Shunsuke Saito, Or Litany, Shiqin Yan, Numair Khan, Federico Tombari, James Tompkin, Vincent Sitzmann, and Srinath Sridhar. Neural fields in visual computing and beyond. Computer Graphics Forum , 41(2):641–676, 2022. [19] Peter Yichen Chen, Jinxu Xiang, Dong Heon Cho, Yue Chang, G. A. Pershing, Henrique Teles Maia, Maurizio M. Chiaramonte, Kevin Carlberg, and Eitan Grinspun. CROM: Continuous reduced-order modeling of PDEs using implicit neural representations. In International Conference on Learning Representations , 2023. [20] Minji Kim, Tianshu Wen, Kookjin Lee, and Youngsoo Choi. Physics-informed reduced order model with conditional neural fields. arXiv preprint arXiv:2412.05233 , 2024. [21] Vikas Dwivedi and Balaji Srinivasan. Physics informed extreme learning machine (PIELM)–a rapid method for the numerical solution of partial differential equations. Neurocomputing , 391:96–118, 2020. [22] Xu Liu, Wen Yao, Wei Peng, and Weien Zhou. Bayesian physics-informed extreme learning machine for forward and inverse PDE problems with noisy data. Neurocomputing , 549:126425, 2023. [23] Jingrun Chen, Xurong Chi, Weinan E, and Zhouwang Yang. Bridging traditional and machine learning-based algorithms for solving PDEs: The random feature method. arXiv preprint arXiv:2207.13380 , 2022. [24] Shaan Desai, Marios Mattheakis, Hayden Joy, Pavlos Protopapas, and Stephen Roberts. One-shot transfer learning of physics-informed neural networks. arXiv preprint arXiv:2110.11286 , 2021. [25] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence ,3:218–229, 2021. [26] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. In International Conference on Learning Representations , 2021. [27] Sifan Wang, Hanwen Wang, and Paris Perdikaris. Learning the solution operator of parametric partial differential equations with physics-informed DeepONets. Science Advances , 7(40):eabi8605, 2021. [28] Zongyi Li, Hongkai Zheng, Nikola Kovachki, David Jin, Haoxuan Chen, Burigede Liu, Kamyar Azizzadenesheli, and Anima Anandkumar. Physics-informed neural operator for learning partial differential equations. ACM Transactions on Machine Learning Research , 3(1):1–27, 2024. [29] Sifan Wang, Hanwen Wang, and Paris Perdikaris. On the eigenvector bias of fourier feature networks: From regression to solving multi-scale pdes with physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 384:113938, 2021. 30
