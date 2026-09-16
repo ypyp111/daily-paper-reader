@@ -1,0 +1,720 @@
+Title: Learning Long-Term Stable Operator Inference Reduced-Order Models of Fluid Flows through Online Spatial Filtering
+
+URL Source: https://arxiv.org/pdf/2609.14812v1
+
+Published Time: Tue, 15 Sep 2026 02:03:45 GMT
+
+Number of Pages: 41
+
+Markdown Content:
+# Learning Long-Term Stable Operator Inference Reduced-Order Models of Fluid Flows through Online Spatial Filtering 
+
+Ian Moore ∗ Ping-Hsuan Tsai † Anthony Gruber ‡ Ionut ¸ Farca¸ s§
+
+Christopher Wentland ‡ Irina Tezaur ‡ Traian Iliescu §
+
+September 15, 2026 
+
+Abstract 
+
+This paper introduces an online evolve–filter–relax (EFR) strategy for long-term stability of Operator Inference (OpInf) reduced-order models (ROMs) of complex fluid flow simulations. The main novelty of the new EFR-OpInf strategy is the use of online (i.e., at the learned ROM online evaluation level) spatial filtering inspired from large eddy simulation to signifi-cantly improve long-term stability and predictive performance of standard OpInf. Furthermore, the EFR-OpInf strategy reduces, and in some cases even eliminates, the need for standard L2
+
+regularization, while providing physical interpretability for the OpInf hyperparameters. The EFR-OpInf framework is modular, readily integrated into existing OpInf workflows, and accom-modates a user-selected ROM filtering strategy. We demonstrate the EFR-OpInf’s effectiveness using a fully non-intrusive projection-based ROM filter, a ROM differential filter, and a hybrid projection-differential ROM filter. The new EFR-OpInf models are evaluated on a high-P´ eclet-number convection–diffusion–reaction problem that embeds the variation in one parameter and two unsteady Navier–Stokes problems that focus on predictions beyond a training horizon: a transitional two-dimensional flow past a cylinder and a three-dimensional turbulent minimal channel flow. Across these three scenarios, EFR-OpInf can reduce prediction errors by up to an order of magnitude relative to standard OpInf. Moreover, EFR-OpInf remains stable over long prediction horizons in cases where standard OpInf diverges. Depending on the ROM filter used, EFR-OpInf’s computational cost is comparable to that of standard OpInf. 
+
+# 1 Introduction 
+
+High-fidelity numerical simulations of fluid flows often require the solution of large-scale nonlinear systems over many timesteps, making them computationally expensive even on modern computing architectures. This cost becomes particularly restrictive in the many-query settings common to uncertainty quantification, optimization, parameter studies, inverse problems, and real-time pre-diction and control, where the full-order model (FOM) must be evaluated many times or under strict computational constraints. Reduced-order models (ROMs) address this challenge by replac-ing the high-dimensional FOM with a low-dimensional approximation that retains dominant flow features while substantially reducing the computational cost. 
+
+> ∗
+
+Department of Computational Applied Mathematics and Operations Research, Rice University, Houston, TX 77005, USA ( ian.moore@rice.edu ). 
+
+> †
+
+Department of Applied Mathematics, National Yang Ming Chiao Tung University, Hsinchu 30010, Taiwan. 
+
+> ‡
+
+Sandia National Laboratories, Albuquerque, NM 87123, USA. 
+
+> §
+
+Department of Mathematics and Division of Computational Modeling and Data Analytics, Virginia Tech, Blacks-burg, VA 24061, USA. 
+
+1arXiv:2609.14812v1 [math.NA] 13 Sep 2026 Among the most established approaches, standard intrusive Galerkin ROMs (G-ROMs) [5, 6, 24, 52] construct such low-dimensional approximations in two stages: an offline stage that projects high-dimensional operators onto a low-dimensional space, and an online stage that evolves the resulting low-dimensional model in time. Due to its use of reduced governing equations, this can yield a substantial speed-up over the FOM numerical solution with a minimal loss of accuracy. While G-ROMs have been successfully used in the numerical simulation of laminar fluid flows [25, 45, 56], accurately representing these complex dynamics generally requires a prohibitively large number of ROM basis functions. Retaining computational efficiency in the ROM therefore requires the use of a relatively low-dimensional approximation; however, this does not adequately capture the effects of the discarded modes on the resolved dynamics. This loss of information can lead to a non-physical accumulation of energy and, consequently, spurious numerical oscillations in the reduced model. Thus, for realistic, convection-dominated flows, G-ROMs are generally used in conjunction with closure models [1] and/or stabilizations [3, 47] to account for the effect of the discarded ROM basis functions. One of the main challenges in applying G-ROMs to realistic engineering, scientific, and biomed-ical flow problems is their intrusive nature. Intrusive models require access to the underlying FOM operators, which is challenging or even impossible in legacy, highly specialized, large-scale, or pro-prietary simulation codes. One of the most promising strategies to address this shortcoming of G-ROMs is Operator Inference (OpInf ) [48], a scientific machine learning technique that bridges the gap between black-box machine learning and G-ROMs. Specifically, OpInf mimics the two-stage structure of G-ROMs but changes the offline stage from intrusive to non-intrusive: instead of using the FOM operators to assemble the ROM operators, OpInf learns reduced operators through a non-intrusive least-squares minimization problem. The OpInf framework has enabled the use of projection-like ROMs for problems that were prohibitively challenging for intrusive methods, such as multiphysics combustion processes [37, 49] and rotating detonation rocket engine simulations with more than 4 × 10 7 spatial degrees of freedom (DoFs) [11, 13], where access to the FOM codes can be difficult or even impossible. Despite the increased utility that comes with learning operators, there is a cost. For com-plex applications, standard OpInf workflows require careful regularization of the operator-learning regression problem [11, 19, 37, 49, 65], typically through tuning one or more Tikhonov hyperparam-eters. The performance of the resulting OpInf model depends critically on these hyperparameters. For example, the numerical investigation in Section 4 shows that, for short training horizons, choos-ing hyperparameters that ensure the long-term stability of the resulting OpInf model can require excessively large amounts of regularization, yielding inaccurate predictions. On the other hand, choosing hyperparameters that only minimize training error can yield OpInf models that over-fit, i.e., ROMs that accurately reproduce the training data but become inaccurate and unstable during long-term prediction. In addition to their critical effect on OpInf’s stability and accuracy, these regularization parameters can span several orders of magnitude [13, 19, 65], making OpInf hyperparameter selection challenging and computationally demanding (see, however, [13] for an efficient, parallel implementation of the OpInf workflow including the hyperparameter selection). Furthermore, these hyperparameters do not have a direct physical interpretation with respect to the ensuing ROM solution. To address these challenges, we propose incorporating spatial filtering online into the OpInf solution to suppress spurious oscillations and promote stable predictions, potentially over long time horizons. Spatial filtering is a large eddy simulation- (LES-) inspired stabilization approach that is well established at the FOM level [7, 35, 57] and has also proved effective in intrusive G-ROMs [41, 71, 73]. In convection-dominated flow problems, for example, ROM spatial filtering has been used to mitigate the excessive energy accumulation caused by spatial under-resolution [71] and to 2suppress numerical oscillations that can lead to model blow-up during time integration [58]. These methods provide a physically motivated alternative to purely algebraic stabilization techniques. The objective of this paper is to demonstrate that spatial filtering applied during the online stage can similarly enhance the long-term stability and predictive performance of OpInf ROMs of fluid flows. To accomplish this, we introduce a new online filtering strategy: the evolve-filter-relax OpInf (EFR-OpInf ) ROM. EFR is a three-step process that has successfully been applied at both the FOM [8, 10, 63] and ROM levels [18, 27, 71]. EFR is a simple and modular strategy that takes an intermediate solution produced by a time-stepping scheme, filters this solution using a spatial filter of the user’s choice, and then relaxes the filtered solution onto the tentative solution to provide the model update. This flexible strategy allows stabilization with physical meaning, filters with known parameter ranges, and numerical analysis that supports initial parameter choices. As shown in the numerical investigation in Section 4, the proposed EFR-OpInf model improves the performance of the standard OpInf in cases of limited training data availability. Indeed, for three challenging scenarios across two- and three-dimensional domains, EFR-OpInf: (i) remains stable over long prediction horizons in cases for which standard OpInf diverges; (ii) can reduce the standard OpInf prediction errors by up to an order of magnitude; (iii) can reduce, and in some cases even eliminate, the need for L2 regularization in the OpInf pro-cess, while introducing stabilization filtering parameters with a clear physical interpretation; (iv) introduces only a modest computational overhead compared with standard OpInf; and (v) is a modular strategy that can be easily integrated into existing OpInf workflows. The main novelty of our approach is the development of an online, ROM-level spatial filtering strategy for OpInf models. To our knowledge, this is the first use of online spatial filtering at the ROM level in the OpInf setting. The only previous work combining spatial filtering and OpInf was done in [12], in which Gaussian filtering was applied to the FOM training data as an offline preprocessing step before constructing the OpInf ROM. The proposed EFR-OpInf strategy is fundamentally different from this approach: in EFR-OpInf, spatial filtering is applied online to the evolving reduced-order solution rather than offline on the FOM data used for training. This distinction has two important practical consequences. First, the ROM-level filtering employed by EFR-OpInf scales with the reduced dimension, typically of order O(10), whereas FOM-level filtering used in [12] scales with the very large dimension of the full-order state. Second, the online formulation allows filtering to be activated, deactivated, or adjusted during time integration, providing additional flexibility for balancing the accuracy and stability of OpInf predictions. The remainder of this paper is organized as follows. Section 2 introduces notation and pro-vides background on full-order modeling (Section 2.1), OpInf with standard L2 regularization (Sec-tion 2.2), as well as the three filtering algorithms that we will use (Section 2.3). Section 3 presents the main methodological contribution of this work: the EFR-OpInf algorithm. Section 4 then evaluates its performance against standard OpInf across three scenarios. We first consider a two-dimensional (2D) convection-diffusion-reaction (CDR) problem, constructing a parametric OpInf model used to predict a solution with a sharp boundary layer at P´ eclet number 6,000. We then investigate EFR-OpInf for the flow past a cylinder (FPC) arising from the 2D unsteady Navier– Stokes equations (NSE), demonstrating that the proposed model can produce stable future-state predictions from transitional flow data. We further assess the framework on a more challenging NSE scenario: the three-dimensional (3D) minimal channel flow (MCF) in a turbulent regime. 3Overall, these results show that EFR stabilization can improve the long-time stability of OpInf models across increasingly complex flow settings. Section 5 concludes the paper. 
+
+# 2 Background 
+
+This section introduces notation and provides background on full-order fluid flow modeling (Sec-tion 2.1), OpInf with standard L2 regularization (Section 2.2), and the three filtering algorithms considered in the present work (Section 2.3). 
+
+2.1 High-fidelity Fluid Flow Modeling 
+
+Since the filtering strategies proposed in this work are motivated by LES for convection-dominated flows [7, 57], in the numerical investigation in Section 4 we consider two convection-dominated problems: a high-P´ eclet number convection-diffusion-reaction equation, which is a simplified com-putational setting, and the convection-dominated NSE. Since in the next sections the proposed filtering strategies will be developed for the NSE, in this section we briefly outline these equations. The unsteady incompressible NSE are written as follows: 
+
+∂u
+
+∂t − Re −1∆u + ( u · ∇ )u + ∇p = f , in Ω × (0 , t f ]
+
+∇ · u = 0 , in Ω × (0 , t f ].
+
+(1) The NSE (1) are posed on a spatial domain Ω ∈ Rd, d = 2 or d = 3 with velocity field u :Ω×[0 , t f ] → Rd, where tf denotes the final time, pressure field p : Ω ×[0 , t f ] → R, and forcing f . We consider the continuous pressure and velocity spaces, Q = L20(Ω) := q ∈ L2(Ω) , R 
+
+> Ω
+
+q = 0 , X =
+
+H10 (Ω; Rd) := u ∈ H1(Ω; Rd), u|∂Ω = 0 , suitable for the NSE (1) equipped with homogeneous Dirichlet boundary conditions. The case of inhomogeneous Dirichlet conditions can be handled with minor adjustment to these definitions. For the 2D flow past a cylinder test problem in Section 4.2, the FOM data are generated by solving the NSE with conforming finite element (FE) spaces, here consisting of linear-quadratic Taylor–Hood element pairs. The spatial and temporal discretization parameters are provided in Section 4.2. For the 3D minimal channel flow in Section 4.3, the FOM data are generated using the spectral element method (SEM) to solve the NSE. The velocity and pressure are approximated using the PN –PN −2 formulation, and time integration is performed using the third-order semi-implicit BDF3/EXT3 scheme that treats the viscous term implicitly and the nonlinear term explicitly [15]. The spatial and temporal discretization parameters are provided in Section 4.3. In what follows, ( ·, ·) denotes the L2 inner product, while all other norms are specified explicitly when introduced. 
+
+2.2 Operator Inference 
+
+OpInf is a scientific machine learning framework for constructing projection-like ROMs from data, typically used when the governing equations exhibit polynomial structure [34, 48]. For systems involving more general nonlinearities, lifting transformations can be used to expose polynomial structure in the transformed state variables, potentially through the introduction of auxiliary vari-ables [51]. In the context of fluid flows governed by the NSE, OpInf seeks to learn quadratic ROMs from data generated by the semi-discrete governing equations (1) (discretized via, e.g., FEM or SEM), thereby retaining the same polynomial degree as intrusive G-ROMs. 42.2.1 Reduced basis and model form 
+
+Let [ ti, t f ] denote the time interval of interest, where ti > 0 and tf denote the initial and final times, respectively. Moreover, let N ∈ N denote the dimension of the spatial discretization used to obtain the FOM by discretizing (1) in space. To form the reduced basis, we first collect the FOM solution at Nt ∈ N time instances, or snapshots, over a training time horizon [ ti, t t], where tt < t f , and center the snapshots about their temporal mean umean (x) = 1
+
+> Nt
+
+PNt 
+
+> j=1
+
+uh(t(j), x). We then arrange the mean-centered fluctuations into the snapshot matrix U ∈ RN ×Nt and compute the rank-r POD basis Φr. When the data are generated by an FE simulation, this discrete construction is equivalent to the corresponding continuous ROM projection [22, 29, 69]. Therefore, both representations are used interchangeably, writing φri = PNj=1 ϕrij φhj ∈ Xr for the ROM basis functions and ϕri for the columns of Φr. This dual notation allows us to transfer the ROM differential filter introduced in Section 2.3.2, which is naturally posed in the continuous setting [41, 58, 71, 73], to the discretely formulated OpInf setting. Since POD modes are global, an arbitrary linear combination of them cannot match nonzero boundary values, and enforcing inhomogeneous Dirichlet conditions in a standard POD/Galerkin expansion is therefore nontrivial. Centering addresses this issue: for time-independent Dirichlet data, all snapshots satisfy the same boundary conditions, and therefore their mean umean (x) does as well. Therefore, the fluctuations uh(ti) − umean (x), together with every mode built from them, vanish on the boundary. The ROM (2) then satisfies the boundary conditions strongly, for every t
+
+and every fluctuation [64]. This is boundary enforcement method I of [22]: the centering term carries the non-homogeneous boundary values, while the modal correction vanishes on the boundary. This leads to the ROM approximation 
+
+ur(t, x) = umean (x) + 
+
+> r
+
+X
+
+> i=1
+
+ˆui(t)φri (x), ˆu(t) = [ˆ u1(t), . . . , ˆur(t)] T . (2) Since umean and each φri are linear combinations of discretely divergence-free FOM data, incom-pressibility holds discretely within the trial space and the pressure term drops out [56]. Substituting 
+
+ur into (1) and testing against φri gives the intrusive quadratic G-ROM, 
+
+M dˆu
+
+dt = c + Aˆu + ˆ uT H ˆu, (3) with operators 
+
+Mij = ( φri , φrj ), ci = ( φri , f ) − (φri , umean · ∇ umean ) − Re −1(∇φri , ∇umean ),Aij = −(φri , umean · ∇ φrj ) − (φri , φrj · ∇ umean ) − Re −1(∇φri , ∇φrj ), Hijk = −(φri , φrj · ∇ φrk).
+
+OpInf postulates an equivalent quadratic structure, 
+
+dˆu
+
+dt = ˆ c + bAˆu + bH(ˆ u ⊗ ˆu), (4) but infers the reduced operators ˆ c ∈ Rr, bA ∈ Rr×r, bH ∈ Rr×r2
+
+from data rather than from the FE operators. 
+
+Remark 1. Note that no OpInf analogue of the ROM mass matrix M in (3) appears in (4) . This is consistent with standard projection-based ROMs when the basis Φr is orthonormal with respect to the FE mass matrix and, consequently, the L2 inner product in Xh. When the FE mass matrix is 
+
+5unavailable, however, such a basis cannot be constructed, and the Euclidean POD basis will not in general have this property. In that case, multiplying (3) by M −1 yields a system of the form (4) with operators M −1c, M −1A, and M −1H. The two systems have the same trajectories, but they pose different regularized least-squares problems (with different symmetries) and therefore yield different inferred operators. In this paper, we use the completely non-intrusive POD construction described above for the CDR and FPC test cases, which corresponds to a (formal) multiplication by M −1.Conversely, we use a function space formulation [49] for the MCF test case, in which the inner product is directly specified. 
+
+2.2.2 The OpInf learning problem and its regularization 
+
+Let bU = ΦTr U ∈ RNt×r denote the reduced snapshot matrix, whose i-th column is ˆ u(ti) ∈ Rr, and let Dt( bU ) contain the corresponding time derivatives, estimated by, e.g., finite differences when unavailable from the FOM. The OpInf learning problem computes the reduced model operators via min   
+
+> ˆc,bA, bH
+
+Dt( bU ) − ˆc1 T − bA bU − bH bU ∗2 2 
+
+> F
+
++ β1
+
+ ∥ˆc∥2 
+
+> F
+
++ ∥ bA∥2
+
+> F
+
+ + β2∥ bH∥2 
+
+> F
+
+, (5) where 1 ∈ RNt is the vector of ones, bU ∗2 is the column-wise Kronecker (i.e, Khatri-Rao) product of bU , and β = [ β1, β 2]T are the L2 or Tikhonov regularization hyperparameters. As written, the quadratic operator bH ∈ Rr×r2
+
+in (4) is not uniquely determined: the symmetry ˆ uj ˆuk = ˆ uk ˆuj
+
+makes the columns of bU ∗2 redundant, so distinct operators produce identical dynamics and the data matrix in (5) is rank deficient. We therefore eliminate the redundant degrees of freedom and learn an operator of dimension r × r(r + 1) /2, as described in [34]. Following [37, 49], Tikhonov regularization is added to (5) to reduce overfitting and to account for model misspecification or other sources of error, with scalar regularization hyperparameters. The constant and linear terms are regularized separately from the quadratic term, which improves performance at the cost of a larger hyperparameter search: a grid with n candidate values per parameter requires n2 solves of (5). For a broader perspective, we consider three strategies in the present paper: I. Unregularized OpInf : β = 0; viable for simple problems, but inadequate for the flows consid-ered here. II. Weakly regularized OpInf : β minimizes the training error ∥ bU − eU train (β)∥F over the search grid. This improves the performance of unregularized OpInf but generally leads to overfitting. III. Strongly regularized OpInf : β minimizes the same training error among candidates that do not exhibit excessive coefficient growth over a time horizon at least as long as the prediction horizon, with Nk time instants, based on the strategy proposed in [37]. For model III, we measure the growth of the ROM approximate solution, eU (β), against the temporal mean bU mean = 1
+
+> Nt+1
+
+PNt 
+
+> i=0
+
+bUi of the reduced training data, discarding every β whose growth ratio 
+
+G(β) = max Nt<i ≤Nk ∥ eUi(β) − bU mean ∥∞
+
+max 0≤i≤Nt ∥ bUi − bU mean ∥∞
+
+, (6) exceeds a prescribed tolerance τ (e.g., τ = 1 .2) as likely to yield an unstable model. This criterion uses only ROM solutions beyond the training horizon and requires no FOM data in that regime, 6so it remains computationally inexpensive. Once β is selected through the grid search, which is parallelizable [13], the learned operators are frozen and used throughout the entire online phase. Further extensions to OpInf refine either the regularization, via Bayesian formulations [23, 36], Gershgorin-based eigenvalue shifts [19], or parametric extensions [11, 38], or the structure of the learned operators, through Hamiltonian and energy-conserving formulations [20, 61] and nested constructions that reduce sensitivity to β [2]. The learning problem (5) minimizes a residual assembled instant-by-instant from the training data, with no coupling across time. The ROM is then deployed online by integrating the learned operators over the time domain of interest. Therefore, a small residual does not necessarily imply an accurate reduced solution, which suggests selecting β based on the reduced solution eU (β) of the OpInf ROM (4). 
+
+Remark 2 (Regularization for parametric settings) . The regularization procedure described in this section is formulated primarily for predictive ROMs, namely OpInf models used to extrapolate be-yond the time interval on which they are trained. This setting is employed predominantly in our numerical experiments and provides the main motivation for the proposed EFR-OpInf method. The same general principles can also be extended to parametric OpInf models, for which the regulariza-tion parameters must account for accuracy and stability across multiple parameter instances. In Section 4.1, we consider a predictive problem that additionally incorporates parametric variation. Further details on the regularization of parametric OpInf models can be found in [11, 38]. 
+
+Most of the OpInf literature partitions the time domain of interest into training and prediction 
+
+intervals, noting that selection of the regularization hyperparameters may involve the imposition of bound constraint on the learned coefficients over a time horizon that extends beyond the final prediction time [37]. To more rigorously assess the robustness of the considered filtering strategies, we instead partition the time domain of interest into three subintervals: training , validation , and 
+
+testing . We explain this choice in more details below. 
+
+Training, validation, and testing. The terms training , validation , and testing are used here in the usual machine-learning sense. For all standard OpInf models, only high-fidelity data from the training interval are supplied to the regression problem (5). For weakly regularized OpInf, model II, the regularization hyperparameters β are selected solely by minimizing the training er-ror. Consequently, neither the validation nor the test data influence the learned operators or the choice of β, and both intervals may be used to assess the out-of-sample accuracy and stability of the resulting ROM. For strongly regularized OpInf, model III, the hyperparameters are selected by minimizing the training error subject to the boundedness constraint on the learned reduced coefficients described above, which is enforced over the validation interval. Thus, the validation interval is used for hyperparameter selection, whereas the test interval is reserved exclusively for evaluating the accuracy and stability of the selected ROM on previously unseen data. Much of the OpInf literature instead divides the time domain into only training and prediction intervals. Within this framework, a training–validation–test split can be introduced by dividing the prediction interval into a validation region, used to select the regularization hyperparameters, and a subse-quent test region, used for evaluation on unseen conditions. One could alternatively enforce the boundedness constraint over the entire combined validation-and-test horizon. However, for short training horizons as those considered in this work, enforcing boundedness over a long extrapola-tion interval may require excessively large regularization parameters. This can drive the learned operators toward small values and produce overly dissipative or otherwise inaccurate predictions. Conversely, enforcing boundedness only over the shorter validation interval may yield models that remain stable during validation but become unstable over the longer test horizon. This tradeoff 7between short-term accuracy and long-term stability is one of the primary motivations for the fil-tering extension proposed in this paper. The EFR-OpInf models are constructed from standard OpInf ROMs. A limited amount of high-fidelity data from the validation interval are used to select the filtering parameters and assess stability over that interval. The resulting EFR-OpInf models are evaluated over the previously unseen test interval to determine whether ROM solution stability persists over longer prediction horizons. For all three test problems, the coefficient boundedness constraint is enforced over the validation interval to select the filtering parameters. This constraint requires only the predicted ROM coefficients and does not use high-fidelity validation data. For the MCF problem, one representative FOM solution from the validation interval is additionally used to identify an initial set of candidate filtering parameters. This preliminary step is not essential, as the filtering parameters could instead be selected solely by enforcing the coefficient boundedness constraint. No high-fidelity data from the test interval is used for model or parameter selection. The resulting EFR-OpInf models are then evaluated over the previously unseen test interval to determine whether their accuracy and stability persist over longer prediction horizons. 
+
+2.3 ROM Filtering Algorithms 
+
+Spatial filtering is an LES strategy that has traditionally been applied at a FOM level to overcome issues of limited mesh resolution and complex turbulent interactions [7, 57]. Spatial filtering has also been applied at the ROM level to mitigate spatial under-resolution, which can lead to a non-physical accumulation of energy in the resolved ROM modes [71]. These problems seen in G-ROMs can also be observed in OpInf ROMs with limited training data. Indeed, as the numerical results of Section 4 will show, for short training horizons, choosing OpInf hyperparameters that ensure the model’s stability beyond the training interval can yield inaccurate predictions. Conversely, choosing OpInf hyperparameters that strictly minimize the training error can yield unstable models for long-term prediction. To address these challenges, we propose a novel strategy: the incorporation of online, ROM-level spatial filtering into the OpInf approximate solution to quell spurious numerical oscillations and promote stability in scenarios with limited amounts of training data. As we will show in Section 4, the proposed ROM spatial filtering strategy reduces, and in some cases even eliminates, the need for standard regularization in the OpInf process, while introducing stabilization parameters with a clearer physical interpretation. The proposed EFR-OpInf approach presented in Section 3 will use the following three ROM spatial filters: (i) the ROM projection filter (Section 2.3.1); (ii) the ROM differential filter (Section 2.3.2), and (iii) the ROM hybrid projection-differential filter (Section 2.3.3). We note that the first two filters have been extensively used in the development of ROM closures and stabilizations, whereas the third filter was recently introduced in [62]. Moreover, because each filter has proved effective in different modeling and computational settings, all three are viable candidates for EFR-OpInf. We therefore assess the performance of all three filters numerically in Section 4. To our knowledge, no comprehensive comparison of these ROM filters is currently available. These three ROM filters are presented in the context of fluid flow, where the velocity field is separated into mean and fluctuating components. Following [71], all ROM spatial filters are applied only to the small-scale fluctuating components. Thus, the filtered ROM velocity ur, with separated mean and fluctuating components, can be written as follows: 
+
+ur(t, x) = umean (x) + 
+
+> r
+
+X
+
+> i=1
+
+ˆui(t)φri (x), ˆu = [ˆ u1(t), . . . , ˆur(t)] T . (7) Observe that both the ROM velocity field in (2) and the filtered ROM velocity field in (7) are written in terms of the same basis functions, but potentially with different coefficients. 82.3.1 ROM Projection Filter 
+
+The ROM projection filter is a simple, fully discrete, and non-intrusive spatial filter. It has been successfully used in the development of ROM closures and stabilization strategies for convection-dominated, including turbulent, flows [30, 32, 33, 53, 70, 71]. The filter maps a ROM state rep-resented in an r-dimensional reduced space onto a coarser r′-dimensional space, with r′ < r , by retaining only the first r′ vectors of the POD basis Φr. This construction is motivated by the en-ergy ordering of the POD modes: in many convection-dominated flow problems, the leading modes predominantly represent the large-scale, energetic structures, whereas higher-index modes tend to contain less energetic and often smaller-scale features [25]. Consequently, projecting the ROM state onto the space spanned by the leading r′ POD modes removes part of the small-scale content and provides a natural ROM-level spatial filtering mechanism. Next, we explain the construction of the ROM projection. Given an r-dimensional POD basis 
+
+Φr, let Φr′ be the restriction of Φr to its first r′ < r columns. Recalling that the projection of the mean-centered snapshot matrix into the r-dimensional space determined by the basis is given by 
+
+ΦrΦTr U , further projection into the r′-dimensional space is given by Φr′ ΦTr′ ΦrΦTr U . Note that, due to the orthonormality of Φr, the column-wise inner products satisfy ΦTr′ Φr = Ir′ 0(r′)×(r−r′)
+
+ .
+
+This implies that Φr′ ΦTr′ ΦrΦTr U performs the following sequence of operations: ΦTr U computes the r-dimensional reduced coefficients of U ; ΦTr′ Φr(ΦTr U ) retains only the first r′ components of these coefficients; and left multiplication by Φr′ lifts the truncated coefficient vector back to RN as a linear combination of the first r′ basis vectors. Thus, projection onto the r′-dimensional reduced space is equivalent to truncating the final r − r′ reduced coefficients. The ROM projection filter is typically performed at a ROM level. When applied to an unfiltered set of coefficients ˆ u, the filtered coefficients ˆ u may be computed as, 
+
+u1, u2, . . . , ur
+
+T = ˆ u 7 → ˆu = u1, . . . ur′ , 0, . . . , 0T . (8) It is generally more convenient in software implementations to consider the projection filter as setting the excess r−r′ coefficients to 0, as in (8), rather than eliminating the excess basis functions. This way, both ˆ u and ˆ u live in Rn and are compatible with the same vector operations. We note that both the coefficient and basis perspectives of this projection filter produce equivalent numerical results. 
+
+Remark 3. The ROM projection filter can also be formulated in terms of a continuous projection analogous to the continuous POD [69]. We have chosen to demonstrate and implement the discrete version of the projection filter since it can be easily implemented into existing OpInf software without any alteration or additional data assumptions. 
+
+2.3.2 ROM Differential Filter 
+
+Just as the ROM projection, the ROM differential filter has been used to construct ROM closures and stabilizations [63, 71, 73]. The ROM differential filter is applied to the fluctuating components of ROM functions ur given in equations (2). Specifically, for any known ROM velocity ur, the coefficients ˆ u of the filtered velocity ur in (7) can be obtained by solving the system (I − δ2∆) 
+
+> r
+
+X
+
+> i=1
+
+ˆui(t)φri (x)
+
+!
+
+=
+
+> r
+
+X
+
+> i=1
+
+ˆui(t)φri (x).
+
+Testing against the ROM basis φrj , for j = 1 , . . . r, and noting that the basis functions φr have been specifically constructed with homogeneous Dirichlet boundary conditions, this is equivalent 9to the weak-form system 
+
+> r
+
+X
+
+> i=1
+
+ˆui(t)  φri , φrj
+
+ + δ2
+
+> r
+
+X
+
+> i=1
+
+ˆui(t)  ∇φri , ∇φrj
+
+ =
+
+> r
+
+X
+
+> i=1
+
+ˆui(t)  φri , φrj
+
+ , j = 1 , . . . , r. (9) Recalling that the ROM mass matrix, M , has components Mij = ( φri , φrj ), and defining the stiffness matrix S to have components Sij = ( ∇φri , ∇φrj ), the ROM vector of filtered coefficients ˆ u is compactly expressed as the solution to the linear system (M + δ2S)ˆ u = M ˆu. (10) The ROM differential filter is attractive in traditional G-ROM settings partly because it can be implemented entirely in reduced coefficients without requiring explicit FOM field reconstructions, in contrast to Gaussian or other convolution-based filters. Additionally, the effects of the ROM differential filter are not as closely linked to the POD basis as in the ROM projection filer, allowing for finer control over the filtering effect compared to the ROM projection filter. This flexibility comes at the cost of requiring the ROM-level differential operators M and S, and therefore makes the approach somewhat more involved than a fully data-driven OpInf workflow. The M and S op-erators may be obtained directly from the FOM code, when such access is available, or constructed independently from the full-order mesh. The latter does not require access to the FOM implemen-tation, but does require additional information beyond the snapshot data. The inclusion of ROM differential filtering in this work helps evaluate the utility of standard ROM filtering approaches in the OpInf setting. We aim to quantify whether the positive features of the filter justify the additional access to FOM-level information required to assemble M and S, and to assess whether developing fully non-intrusive alternatives with properties analogous to the ROM differential filter is beneficial for OpInf ROMs. 
+
+2.3.3 Hybrid ROM Projection-Differential Filter 
+
+While many LES models are based on differential filtering at the FOM level [7, 17, 57] and at the ROM level [18, 63, 71, 73], a common challenge for these models is their potential to be overly diffusive. This has led to the development of less diffusive approximate deconvolution FOM [35] and ROM [41] models. In this paper, we address this concern with a variational multiscale filter recently developed in [62]. Denoted as the hybrid ROM projection-differential filter, this procedure separates the ROM basis basis functions into large, dominant structures and smaller, oscillatory structures, akin to the projection filter. That is, defining some r′ < r , we assume basis functions 1, . . . r ′ represent fully resolved components, while basis functions r′ + 1 , . . . , r represent marginally resolved components. The hybrid filter keeps the first r′ modes unchanged and applies differential filtering to modes r′ + 1 through r. The key idea here is to leave the dominant and typically smooth structures (that do not require filtering) intact while extracting as much information as possible out of the small-scale components. For clarity, the precise definition of the hybrid projection-differential filter used in Section 4 is provided below. 
+
+Definition 2.1 (Hybrid ROM Projection-Differential Filter) . Let φri (x), i = 1 , . . . , r , be a basis for Xr, and let FDF (·) refer to the output of the differential filter given by (9) . Given any ROM function ur(t, x), the hybrid projection differential filter FHDF (ur(t, x)) is: 
+
+FHDF (ur(t, x)) = umean (x) + 
+
+> r′
+
+X
+
+> i=1
+
+ˆui(t)φri (x) + FDF 
+
+> r
+
+X
+
+> i=r′+1
+
+ˆui(t)φri (x)
+
+!
+
+. (11) 10 The cut-off dimension r′ used in the above definition is similar to that of the projection filter. However, here it does not indicate truncation, instead separating the filtered components from the unfiltered components of the ROM solution. Note that any ROM-level filter could be used in place of FDF (·) in (11). We have chosen to use the differential filter due to its success and widespread use within the ROM literature. Since the ROM differential filter has been noted to be over-diffusive [41, 58], we believe this hybrid filter may help address this point. In terms of vector representations, if ˆ u is the vector of ROM coefficients and FHDF (·) is the hybrid projection differential filter described in Definition 2.1, then its action on coefficients is given by 
+
+FHDF (ˆ u) = [ˆ u1, . . . , ˆur′ , ˆur′+1 , . . . ˆur]T ,
+
+where ˆ ui denotes the ith component of the output of the fully discretized ROM differential filter (10). That is, we obtain the last r − r′ coefficients of the hybrid filter as the last r − r′ coefficients of the 
+
+r−dimensional differential filter (10), while leaving the first r′ components untouched. We briefly note that this procedure could be made more efficient by solving only the ( r − r′)-dimensional differential filter, rather than the complete r-dimensional differential filter, but this cost is typically negligible in practice. We conclude this section by reiterating that the projection filter requires no additional infor-mation beyond what is needed for the standard POD-based OpInf model. Both the differential filter and the new hybrid projection-differential filter require the solution of an r-dimensional linear system. However, this generally incurs negligible computational cost, since r is O(10) for the ROM problems considered here, even when the underlying FOM has thousands to millions of DoFs. 
+
+# 3 Evolve-Filter-Relax OpInf (EFR-OpInf ) 
+
+To reduce the sensitivity of OpInf models to problem-dependent regularization parameters and alleviate the resulting tradeoff between short-term accuracy and long-term stability, we introduce a filtering-based OpInf framework that supplements the learned reduced dynamics with ROM-level spatial filtering. Rather than relying exclusively on Tikhonov regularization to simultaneously control model accuracy and long-term stability, the proposed approach uses filtering to suppress unresolved oscillations and stabilize the online evolution. This separation provides a more flexible mechanism for balancing accuracy and stability, and can reduce the need for large regularization parameters that can produce overly dissipative or otherwise inaccurate predictions. Evolve-Filter-Relax is a simple and modular LES-inspired model that has frequently been used to stabilize fluid simulation at both a FOM level [8, 44, 63] as well as a ROM level [18, 27, 63, 66, 71]. The key idea of EFR is to moderate the growth of solutions by incorporating just enough spatial filtering to modulate spurious oscillations caused by under-resolution and instabilities in the time-integration process. To perform the three-step process of EFR, we require a time integration scheme (e.g., forward Euler) applied to the OpInf dynamical system (4), along with a spatial filtering method for the evolved coefficients, e.g., the ROM projection filter (8) or ROM differential filter (10). The EFR algorithm then proceeds according to the online portion of Algorithm 1. The relaxation parameter, χ ∈ [0 , 1], demarcates the closely related Evolve-Filter methods (e.g., [71]) from Evolve-Filter-Relax methods (e.g., [21, 63]), and has been shown [8] to be important in limiting the amount of diffusion applied to the solution. The convex combination, parameterized by 
+
+χ, determines the amount of filtering included in the ultimate solution update, with larger values of χ corresponding to greater amounts of filtering. Numerical analysis at a FOM level [10] suggests the choice χ ≊ O(∆ t) to limit added dissipation. 11 Algorithm 1 EFR-OpInf  
+
+> 1:
+
+OpInf Construction (Offline) Require: Training window snapshot data U ∈ RN ×Nt , target energy η (e.g., 0.999), time-integration scheme E (e.g., RK4), set of potential hyperparameter values βi for i = 1 , . . . , N p
+
+with Np ∈ N, (Optional) maximum growth factor M (see equation (6)).  
+
+> 2:
+
+Extract POD basis Φ from snapshots X; set reduced dimension r according to target energy 
+
+η. 
+
+> 3:
+
+Φr ← Φ(: , 1 : r) 
+
+> 4:
+
+Compress snapshots U 7 → bU using Φr. 
+
+> 5:
+
+current error ← ∞  
+
+> 6:
+
+for i = 1 , . . . , N p do  
+
+> 7:
+
+Solve OpInf learning problem (5) for parameter value βi. 
+
+> 8:
+
+Perform online run of OpInf using time-integration scheme E to produce OpInf solution 
+
+eU (βi).  
+
+> 9:
+
+(Optional) Compute coefficient growth factor G, disqualify βi if G > M (equation (6)).  
+
+> 10:
+
+Calculate OpInf training error e(βi) = ∥ bU − eU train (βi)∥F 
+
+> 11:
+
+if e(βi) < current error then  
+
+> 12:
+
+βopt ← βi 
+
+> 13:
+
+current error ← e(βi) 
+
+> 14:
+
+end if  
+
+> 15:
+
+end for  
+
+> 16:
+
+return OpInf operators parameterized by βopt and resulting time-evolution scheme 
+
+E(t, ˆun; βopt ) 7 → ˆun+1 . 
+
+> 17:
+
+EFR-OpInf (Online) Require: Prediction time span ( t0, t f ), timestep ∆ t, OpInf time-evolution scheme E(t, ˆun; β) 7 →
+
+ˆun+1 , filter method F (ˆ u) 7 → ˆu, relaxation parameter χ ∈ (0 , 1].  
+
+> 18:
+
+n ← 0 
+
+> 19:
+
+t ← t0 
+
+> 20:
+
+while t < t f do  
+
+> 21:
+
+Evolve : ˆwn+1 ← E(t, ˆun, β) 
+
+> 22:
+
+Filter : ˆw n+1 ← F ( ˆ wn+1 ) 
+
+> 23:
+
+Relax : ˆ un+1 ← χ ˆw n+1 + (1 − χ) ˆ wn+1  
+
+> 24:
+
+t ← t + ∆ t 
+
+> 25:
+
+n ← n + 1  
+
+> 26:
+
+end while 
+
+12 As mentioned, we propose combining the OpInf framework with the EFR strategy in order to increase OpInf’s stability and accuracy, reducing the need for large regularization parameters that yield inaccurate results. The resulting model is denoted evolve-filter-relax OpInf (EFR-OpInf ) 
+
+and summarized in Algorithm 1. Note that EFR is modular, making it highly complementary to OpInf. Furthermore, while the evolve step in EFR-OpInf inherently relies on the purely data-driven OpInf model, the filtering step can be adapted to the FOM information available in a given application. The ROM projection filter requires only the snapshot data already needed for OpInf, whereas the ROM differential filter additionally requires the assembly of simple, standard operators commonly used in FE simulations. When further FOM information or capabilities are available, more recent ROM filtering approaches may also be incorporated, such as high-order algebraic filters [66]. Alternatively, fully data-driven filters may be employed, such as the recently introduced StabOp ROM [67]. Filtering methods have not yet been widely studied for OpInf models. To our knowledge, the only approach that employs filtering in an OpInf setting is found in [12], and uses a FOM-level spatial filter to smooth the training data before training an OpInf model on this filtered data. This offline filtering approach is more similar to the OpInf regularization methods discussed in Section 2.2.2 than to the online EFR-OpInf model that we propose here, since its motivation is to improve the training of OpInf models. The novelty of our approach is twofold. First, we employ ROM-level and not FOM-level filtering. Second, the use of ROM-level information enables the use of filtering in the online stage of the ROM as opposed to during offline training. Instead of improving the training procedure of an OpInf ROM, our method improves the performance of one that is already deployed. The main advantage of the proposed EFR-based online filtering approach, summarized in Algo-rithm 1, is that this filtering can be turned on and off and (in most cases) adjusted at will. While a standard pre-trained OpInf model carries a certain amount of regularization baked into the learned operators that remains fixed for the entire simulation, online EFR parameters such as χ can be adjusted at will in the online stage. The time-predictive EFR-OpInf in Section 4 employs filtering only outside the training regime, thus obtaining accuracy within the training regime while remain-ing stable in the predictive regime. We note that filters of varying strength and intrusiveness can be selected based on information available in the problem setting at hand, and are not restricted to those presented in Section 2.3. A second important advantage of EFR-OpInf comes from the physical interpretability of the EFR filtering approach. In standard OpInf, just as in machine learning, the regularization parameter is a property of the operators themselves, and it is difficult to quantify the effect of one set of parameters β as opposed to another. For example, one could ask the following questions. What is the difference between choosing a parameter β1 = 10 −5 instead of β1 = 10 7 in OpInf? How would this choice be reflected in the resulting OpInf dynamical system? Would the OpInf solutions be smoother or more oscillatory? We emphasize that, in contrast, each of the EFR filters under consideration can be clearly visualized and has physical meaning built into its construction (see Appendix A), making them more interpretable. For example, the cutoff dimension for the ROM projection filter, r′, corresponds directly to retained energy in the ROM modes. Similarly, the ROM differential filter parameter, δ, corresponds to a lengthscale that has clear physical meaning at a FOM level [7] and had recently been the subject of investigation at a ROM level [43]. We also note that there is rigorous mathematical support available for these filters. For example, the differential filter was proved to be stable [27, 73]. Moreover, parameter scalings based on the lengthscale δ were derived (and computed) for a Leray-type ROM using a differential filter in [73] and for a time relaxation ROM in [54]. Additional proofs on the stability of each of these filter methods were provided in [40]. These numerical analysis results for the ROM filters will serve 13 as a mathematical guide in choosing the EFR-OpInf parameters in the numerical investigation in Section 4. Specifically, instead of searching the regularization parameters over several orders of magnitude (as is often done for the standard OpInf), we will search the filtering parameters in EFR-OpInf over only a few (i.e., O(10)) values that are suggested by numerical analysis results. 
+
+# 4 Numerical Results 
+
+The proposed EFR-OpInf strategy is demonstrated in three scenarios: the 2D unsteady convection-diffusion-reaction equation with parametric dependence introduced through a multiplicative factor involving the inverse P´ eclet number, the two-dimensional transitional flow past a cylinder (FPC) at Re = 100, and the three-dimensional minimal channel flow at Re = 5,000. Our numerical investigation will show that the under-resolved simulations of these convection-dominated (the first and third tests) and transitional (the second test) flows can be challenging for the standard OpInf framework in the limited training data regime. For each problem, we will compare EFR-OpInf models built using each of the proposed filtering methods: the ROM projection filter, the ROM differential filter, and the hybrid ROM projection-differential filter. These will be labeled as EFR-OpInf-Proj, EFR-OpInf-DF, and EFR-OpInf-HDF respectively. Our filtered models will be compared against standard OpInf models using the regularization techniques I–III presented in Section 2.2.2. In particular, the CDR case will consider unregularized as well as strongly regularized OpInf, which obtains the hyperparameter β minimizing the training error and requires the coefficients of the ROM model to remain stable over a validation window. For the FPC and MCF test cases, we consider the same strongly regularized OpInf as well as a weakly regularized OpInf, in which the hyperparameters β are selected solely by minimizing the training error. We do not consider unregularized OpInf for the FPC and MCF problems because it produces unstable solutions even within the training interval. Because EFR stabilization is applied online to an already trained OpInf ROM, the performance of an EFR-OpInf model may depend on the regularization hyperparameter β used to learn the underlying OpInf operators. To reduce this impact, for the CDR problem, ERF filtering is applied to the unregularized OpInf model (model I); in this case, it is shown that EFR can eliminate the need for standard OpInf regularization. For the NSE problems, EFR filtering is applied to the weakly regularized OpInf model (model II). The strongly regularized OpInf model (model III) is included as a standard-practice baseline for OpInf approaches that do not employ online spatial filtering. In our experience, weakly regularized OpInf models tend to overfit the training data: they achieve high in-sample accuracy but exhibit reduced stability and poorer generalization beyond their training interval. The EFR formulation can therefore leverage their accurate representation of the training dynamics while restoring stability in the extrapolation regime. We consider as metric the relative L2 error at each timestep t,
+
+eL2 (t) = ∥uh(t, x) − ur(t, x)∥L2
+
+∥uh(t, x)∥L2
+
+.
+
+For the more complicated NSE problem setting, we will also compare the per-timestep kinetic energies of the ROM and FE velocity fields: defining KE (ur) = 12 ∥ur∥2 
+
+> L2
+
+, the relative kinetic energy error at time t is given as, 
+
+eKE (t) = |KE (uh(t, x)) − KE (ur(t, x)) ||KE (uh(t, x)) | .
+
+For the FPC and MFC problems, we present an additional parameter and timing study for the various EFR-OpInf models in Section 4.2.4 (Figure 11) for FPC problem and Section 4.3.4 (Figure 14 18) for the MCF problem. Both the CDR and the FPC simulations use FE data generated using the Python-based finite element platform FEniCSx [4, 59, 60]. The three-dimensional MCF simulations use SEM data generated with nekRS [14] and processed using NekROM [31] to construct the POD basis. The OpInf learning problem (5) is solved using the Python package OpInf [46]. Finally, for models involving the differential filter, the requisite M and S from equation (10) are computed by first obtaining the FOM mass and stiffness matrices from computation on the FOM mesh and then projecting these FOM operators onto the OpInf POD basis. 
+
+4.1 A High P´ eclet Number Parametric Convection-Diffusion-Reaction Problem 
+
+The goal of this example is to demonstrate that EFR-OpInf can replace the standard regularized OpInf formulation with a fully interpretable spatial filtering strategy. This is particularly useful for practitioners seeking a stable and computationally efficient model with minimal parameter tuning. We consider a linear scenario containing distinct convection, diffusion, and reaction terms, while approximating its global dynamics with a linear OpInf model. Given snapshots generated at a prescribed set of training parameter instances, the predictive task is to simulate the system trajectory at an unseen parameter configuration. EFR-OpInf is used to stabilize the solution of the unregularized OpInf ROM (i.e., model I). For each of the three filters considered, we employ filter and relaxation parameter values motivated by numerical analysis, without performing an additional parameter search. Since this example already incorporates parametric generalization, we evaluate future-state prediction only over the validation horizon, which is also used to select the regularization parameters for the strongly regularized OpInf model. Following this procedure, all three EFR-OpInf variants remain stable and accurate over the entire prediction horizon without tuning the OpInf Tikhonov regularization parameters or con-ducting a separate search for the EFR parameters. The resulting workflow reduces implementation complexity and offline computational cost while providing a physically interpretable stabilization mechanism. 
+
+4.1.1 CDR FOM Setup 
+
+The governing PDE for this example is given by the convection-diffusion-reaction equation 
+
+∂u ∂t − ϵ∆u + b · ∇ u + σu = f, in Ω × (0 , t f ],u|∂Ω = 0 .
+
+(12) Here, Ω = [0 , 1] × [0 , 1] is the unit square, b = [1 , 0] T , σ = 1, f ≡ 1, and the diffusion parameter ϵ
+
+is defined as the multiplicative inverse of the P´ eclet number, Pe. Starting from an initial condition 
+
+u0 ≡ 0, the solution reaches a steady state after t = 1 .0 (see Figure 1), forming a sharp boundary layer along the line y = 1. Accordingly, the FOM mesh is an evenly spaced grid with h = 1 /50 = 0.02 for the majority of the domain, but is refined near the boundary to improve spatial resolution near the sharp boundary layer. The choice of quadratic elements leads to 11 , 000 DoFs for the FE problem and produces a model able to resolve shocks with P´ eclet numbers up to Pe = 10 , 000. The FE problem is solved using the backward Euler method with timestep ∆ t = 0 .01. 
+
+4.1.2 CDR Standard OpInf Setup 
+
+To provide a more comprehensive assessment of EFR-OpInf, we consider a setting that combines parametric generalization with future-state prediction. Specifically, the system is parameterized 15 (a) FE mesh, refined to capture shocks. (b) Steady state FOM solution at t = 20 for Pe = 6,000. 
+
+Figure 1: CDR test case: FOM mesh and steady state solution. FOM solution is rotated for visualization. by the diffusion coefficient ϵ, and the ROM is evaluated both at an unseen parameter instance and for future-state predictions at that parameter value. We train the ROM using Nϵ = 4 FOM trajectories corresponding to Pe ∈ { 5000 , 5500 , 6500 , 7000 } and evaluate its predictive performance at the unseen parameter value Pe = 6,000. We employ OpInf to learn a linear ROM of the form, dˆ u
+
+dt = ˆ c + ϵ bAˆu + bB ˆu , (13) where ϵ denotes the multiplicative inverse of the P´ eclet number. Our OpInf model thus consists of a parameter-dependent bA and a parameter-independent bB, thereby isolating the effects of P´ eclet variation in bA, while bB captures the contributions of terms involving the fixed parameters b and 
+
+σ. The operators defining (13) are the solution to the minimization problem, min   
+
+> ˆc,bA, bB
+> 4
+
+X
+
+> j=1
+> Nt
+
+X
+
+> i=0
+
+dˆ u(ti)dt − ˆc − ϵj bAˆu(ti) − bB ˆu(ti)
+
+> 22
+
++ β1(∥ bA∥2 
+
+> F
+
++ ∥ bB∥2 
+
+> F
+
++ ∥ˆc∥2 
+
+> F
+
+) , (14) where {ϵj }4 
+
+> j=1
+
+denote the Nϵ = 4 training parameter instances. Similar formulations, extended to the multi-parameter case, are studied in [38] for a parametric heat equation and neuron model, as well as in [68] for a parametric heat equation and wave equation. The OpInf ROMs employed here are constructed using mean-centered snapshots because this transformation was found to improve model stability, although it is not required to enforce the boundary conditions. More generally, snapshot transformations are commonly used in OpInf to improve predictive performance or impose a desired model structure [50, 51], and have been previously shown to enhance the stability of OpInf models across various complex applications such as solar-wind-stream prediction [26] and rocket combustion simulations [11, 13, 37, 49]. For comparison purposes, we will consider two standard OpInf scenarios: the first, unregularized OpInf, will set β1 = 0. The second, strongly regularized OpInf, will find β1 such that the OpInf 16 error is minimized in the training region (0 , 2] and the OpInf ROM remains stable until the end of the validation horizon, t = 20 .0. Given these parameters, the strongly regularized β1 was found to be 4 .835 which gave the smallest training error among the models satisfying the coefficient growth criterion (6) over the validation interval, with τ = 1 .2 after searching 100 log-spaced values in the parameter range [10 −10 , 10 3] . All OpInf models will use r = 10, which captures 99 .99% of the energy in the POD modes, and are integrated in time using Runge–Kutta 4 scheme with a timestep of ∆ t = 0 .01, identical to the FOM timestep. 
+
+4.1.3 CDR EFR-OpInf Setup   
+
+> (a) First POD mode (b) Second POD mode
+> (c) Fifth POD mode (d) 10th POD mode
+
+Figure 2: CDR test case: POD modes. Color, scale, and orientation is individual to each basis function for clearer visualization. The unregularized OpInf ROM serves as the baseline model for EFR-OpInf. Additionally, EFR-OpInf-DF requires no parameter tuning, since the EFR parameters δ and χ are prescribed directly from theoretically motivated scalings. Analysis of EFR formulations at the FOM level suggests the relaxation scaling χ = O(∆ t) [10], while a standard choice for the filter radius is δ = O(h) [7, 57]. Accordingly, we set χ = ∆ t = 0 .01 for all EFR-OpInf models and δ = h = 0 .02 for the EFR-OpInf-DF and EFR-OpInf-HDF models, without performing any additional parameter search. No filtering is applied over the training horizon, t ≤ 2.0, where the underlying OpInf ROM accurately reproduces the observed dynamics. The prescribed EFR stabilization is activated only once the ROM enters the validation regime, where extrapolation errors and instabilities may develop rapidly. Consequently, EFR-OpInf begins its future-state prediction from an accurate reduced state and introduces stabilization only where it is needed to support robust temporal extrapolation. This leaves only one hyperparameter for EFR-OpInf: the reduced projection dimension r′ for the 17 EFR-OpInf-Proj and EFR-OpInf-HDF models. Here we consider nine possible values ( r′ < r = 10) whose solution is given by inspection of the POD basis plotted in Figure 2. Inspection of the POD basis shows that all modes beyond the first exhibit pronounced oscillatory structure, giving the basis a Fourier-like character. The first mode is therefore the only one dominated by a smooth, non-oscillatory structure, which motivates our choice of r′ = 1 for both EFR-OpInf-Proj and EFR-OpInf-HDF. 
+
+4.1.4 CDR Comparison between OpInf and EFR-OpInf Models 
+
+Figure 3 plots the L2 errors over time for all considered OpInf models. Note that the errors for the unregularized OpInf model and all EFR-OpInf models are identical until the end of training data and diverge after the filter methods are turned on. The strongly regularized OpInf model is up to two orders of magnitude worse than all other OpInf models within the training region. In contrast, all EFR-OpInf models yield higher accuracy within the training region since they build on unregularized OpInf. Although strong regularization slows the error growth relative to the unregularized OpInf model, both predictions deteriorate and exhibit a persistent increase in error over time. On the other hand, all EFR-OpInf models are stable and reach a steady state in terms of error by around t = 5 .0. Importantly, their errors do not grow in time. The EFR-OpInf-DF model performs similarly well to EFR-OpInf-Proj, with EFR-OpInf-HDF performing the worst of the EFR-OpInf models. However, all EFR-OpInf models are stable and display no more than 10 −4 relative L2 error throughout the duration of the simulation, far better than either standard OpInf method is able to perform. While EFR-OpInf-HDF remains stable and is more accurate than the strongly regularized OpInf model, it is outperformed by the other filtered ROMs for this CDR problem. This result indicates that the relative effectiveness of the different filtering strategies can depend on the underlying problem and flow features. As shown in Section 4.2.4, EFR-OpInf-HDF exhibits a better performance for the NSE equations, where it becomes competitive with the best-performing filtered ROMs. 
+
+Figure 3: CDR test case: comparison of OpInf models at P´ eclet number 6,000 ( r = 10). Figure 4 contrasts the solutions of the EFR-OpInf-DF model and the best performing standard OpInf model, i.e., the strongly regularized OpInf model. While the EFR-OpInf-DF model remains stable and displays no oscillations, the standard OpInf model displays oscillations as early as t = 5, including sharp oscillations near the boundary layer by t = 10 and complete breakdown by t = 20. Recall in addition that the stable and accurate EFR-OpInf-DF requires no tuning: there is no regularization baked into the underlying OpInf problem, and each of the EFR parameters δ and 18 χ are chosen according to scalings obtained from theoretical error bounds without any parameter search.     
+
+> (a) EFR-OpInf-DF (left) and Strongly Regularized OpInf solutions (right) at t= 10
+> (b) EFR-OpInf-DF (left) and Strongly Regularized OpInf solutions (right) at t= 20
+
+Figure 4: CDR test case: OpInf solutions at P´ eclet number 6,000. Compare with Figure 1. 
+
+4.2 Navier–Stokes Equations: 2D Flow Past a Cylinder in the Transitional Regime 
+
+We next test the proposed EFR-OpInf method on the more complex setting of the unsteady in-compressible Navier–Stokes equations. Specifically, we assess its ability to construct predictive ROMs for flow past a cylinder, a canonical benchmark problem widely used in the ROM litera-ture [21, 39, 63, 71]. 
+
+4.2.1 FPC FOM Setup 
+
+The training data are derived from a FE simulation using Taylor–Hood elements. Figure 5a plots the underlying mesh. The discrete velocity field has 8,024 DoFs per velocity component, yielding a total of 16,048 DoFs for the full-order solution. The problem setup closely follows a FEniCSx implementation tutorial that can be found online at [9]. The length of the domain is 2.2, the height is 0.41, and the cylinder has a radius of 0.05 with a center point of (0.2,0.2), considering the bottom-left of the rectangular domain to be the origin. The simulation is run from a cold start with a parabolic inflow condition for ux, the x-component 19 (a) FE Mesh (b) FOM velocity magnitude at time t = 8 .0
+
+Figure 5: NSE FPC: Finite element mesh (left) and full-order model velocity magnitude at t = 8 .0(right) with magnitude scale [0,2.2]. of u:
+
+ux(t, y ) = 
+
+
+
+6 sin( πt/ 8) y(y − 0.41) 0.41 2 , t < 4,
+
+1.5, t ≥ 4,
+
+where the y-component, uy, is set equal to zero. This provides a maximum flow velocity of 1 .5in the horizontal direction, resulting in a Reynolds number of Re = 100. The FOM is solved with a pressure-correcting method using a Crank–Nicolson scheme with a FOM ∆ t of 0 .0005 over 
+
+t ∈ (0 .0, 20 .0]. The mesh is generated according to a scheme where the mesh elements near the cylinder have a target mesh resolution of h = 0 .05 /3 ≈ 0.02, one-third of the size of the cylinder radius. The snapshots are uniformly spaced in time with ∆ t = 0 .005, which is also used as the timestep for all OpInf and EFR-OpInf ROM simulations. The FOM takes approximately 15 minutes to run all 20 seconds using 4 MPI processes on a laptop. We collect snapshots over the time span of [4 .0, 20 .0], partitioned into the training interval [4 .0, 6.0), the validation interval [6 .0, 10 .0), and the additional testing interval [10 .0, 20 .0]. The FOM produces 40,000 snapshots over the interval [0 .0, 20 .0], but we retain every tenth snapshot to reduce storage requirements. This results in 400 training snapshots over [4 .0, 6.0), 800 validation snapshots over [6 .0, 10 .0), and 2,000 testing snapshots over [10 .0, 20 .0]. 
+
+4.2.2 FPC Standard OpInf Setup 
+
+We retain the first r = 20 POD modes, which capture 99.6% of the total snapshot energy. The magnitudes of the 1 st , 5 th , 10 th , and 15 th POD velocity basis vectors are plotted in Figure 6. As expected, the low-index POD modes are dominated by large-scale flow structures, whereas the higher-index modes display progressively more oscillatory, small-scale features. The NSE OpInf model is constructed according to the process discussed in Section 2.2. We will consider two OpInf regularization strategies for β: the weakly regularized OpInf method (model II) and the strongly regularized OpInf method (model III). The regularization parameters are obtained from a grid search: recalling that β = [ β1, β 2]T where β1 regularizes ˆ c and bA, and 
+
+β2 regularizes bH, we take 10 log-spaced values between (10 −5, 10 2) for β1 and 15 log-spaced values between (10 −2, 10 4) for β2, choosing the optimal β1, β 2 values in this range. After this grid search, 
+
+β = [0 .1, 4.6] T was chosen for the weakly regularized EFR-OpInf, and β = [31 , 464] T was found which gives the smallest training error among the models satisfying the coefficient growth criterion (6) over the validation interval, with τ = 1 .2 for strongly regularized OpInf. The solutions of these models at time t = 8 .0, midway through the validation region, are plotted in Figure 7. Comparing this against the FOM solution at the same timestep in Figure 5b, it is clear that neither OpInf solution is physical. The differing effects of regularization are also evident: the strongly regularized OpInf ROM displays considerably lower velocity magnitudes as compared to the unregularized OpInf ROM. However, in this case of limited training data, neither OpInf ROM properly learns the dynamics of the flow past a cylinder problem, even within the bounds of the 20 (a) Mean (non-fluctuating component)   
+
+> (b) 1st ROM POD Mode (c) 5th ROM POD Mode
+> (d) 10th ROM POD Mode (e) 15th ROM POD Mode
+
+Figure 6: NSE FPC: Magnitudes of ROM POD modes and mean of snapshot data. Basis functions are derived from the fluctuating component of flow and color map scaling varies by function. validation region. KE and L2 error results will follow in Figures 9 and 10, but each OpInf model displays unbounded growth in both metrics over the full test region, with the weakly regularized OpInf model diverging within the validation region. 
+
+Remark 4 (ROMs for Transitional Flows) . The physical and numerical parameters chosen (such as the inflow condition from cold start) result in a FOM velocity field which is still developing in the training regime of t ∈ [4 .0, 6.0] and is not statistically steady (see FOM KE in Figure 9). This is not the traditional setting for ROMs of FPC settings ([21, 39, 63, 71]), where snapshots are collected within the statistically steady regime and used to predict data from the same statistical regime. This is fundamentally different from the setting we consider here, where snapshots collected from the transitional regime are used to predict into the statistically steady region. It is promising that EFR-OpInf can provide significant performance improvements for this more challenging than usual FPC problem. 
+
+4.2.3 FPC EFR-OpInf Setup 
+
+We now discuss the choice of parameters for each of our EFR models. For EFR-OpInf-Proj, an inspection of the basis (Figure 6) suggests that r′ = 10 (half of ROM dimension r = 20) is a reasonable transition point between smoother and more oscillatory basis components. For EFR-OpInf-DF, we leverage the numerical analysis available at the FOM level [7] and choose 
+
+δ = h ≈ 0.02. The main parameter that we will allow to vary is χ, which controls the amount of filtering used in the relaxation step, with smaller χ corresponding to less filtering. To maintain a consistent comparison with standard OpInf regularization methods, we will use a similar ROM coefficient-based strategy as to that which was described for standard OpInf in 2.2.2. To accomplish this, we select 15 log-spaced values of χ in the range of [0 .05 , 1.0], and run the EFR-OpInf ROM over the validation region. We compute the growth of the online EFR-OpInf ROM and compare it to growth seen within training according to Equation (6). Selecting a maximum growth ratio of M = 1 .2, we discard any EFR parameter choices that result in excessive 21 (a) Weakly Regularized OpInf 
+
+> (b) Strongly Regularized OpInf
+
+Figure 7: NSE FPC: OpInf solutions at t = 8 .0. Compare to Figure 5b. growth in the validation region. From those parameter values remaining, we choose χ such that the corresponding EFR-OpInf ROM shows the least growth within the validation region. After running this process for each of our methods, we obtain the following values of χ: for EFR-OpInf-Proj, χ = 0 .1805, for EFR-OpInf-DF, χ = 0 .05, and for EFR-OpInf-HDF, χ = 0 .05. These parameter choices are summarized in Table 1. 
+
+r′ δ χ
+
+EFR-OpInf-Proj 10 - 0.1805 EFR-OpInf-DF - 0.02 0.05 EFR-OpInf-HDF 10 0.02 0.05 Table 1: NSE FPC: EFR-OpInf Parameter Values. 
+
+4.2.4 FPC Comparison between OpInf and EFR-OpInf Models 
+
+Here we compare the accuracy, stability, and online costs of our various OpInf and EFR-OpInf models for the flow past a cylinder problem. In Figure 8, we compare each of our EFR-OpInf models against the FOM solution at t = 15 .0, well into the testing region. Each of the models is stable, but clearly EFR-OpInf-DF is overly diffusive. In contrast, both EFR-OpInf-Proj and EFR-OpInf-HDF remain visually close to the FOM solution 9 seconds after leaving the training data. Comparing KEs in Figure 9, we see that weakly regularized OpInf provides an excellent match to the FOM KE within the training window but diverges quickly past training, while strongly regularized OpInf provides lower accuracy within the training window and ultimately fails to remain stable at the testing horizon. By using weakly regularized OpInf as a springboard for our EFR models, each of our EFR methods is able to retain optimal KE within training window while remaining long-term stable. For these parameter values, EFR-OpInf-HDF and EFR-OpInf-Proj provide comparable solutions, with EFR-OpInf-HDF coming out on top, while EFR-OpInf-DF is overly diffusive. The story for L2 errors in Figure 10 is similar to that for KE, with weakly regularized OpInf spiking to 40% error by the end of training window, as the excessively high β damages the solution accuracy. In contrast, the error curves for all ERF-OpInf models remain flat over a greatly extended 22 (a) FOM Solution (b) EFR-OpInf-Proj  
+
+> (c) EFR-OpInf-DF (d) EFR-OpInf-HDF
+
+Figure 8: NSE FPC: Comparison EFR-OpInf Velocity Magnitudes to FOM at t = 15 .0. 
+
+Figure 9: NSE FPC: OpInf, EFR-OpInf, and FOM kinetic energies. 23 Figure 10: NSE FPC: OpInf and EFR-OpInf relative velocity L2 errors. time horizon. In cases where it is difficult for standard OpInf regularization techniques to balance stability and accuracy, adding this extra layer of regularization lets OpInf focus on accuracy while handling the stability through filtering. Our last comparison, Figure 11 is a Pareto plot that gives an idea of model performance and online time cost. Variations in performance are created by altering the relaxation parameter χ
+
+shared across all EFR-OpInf models, with minimum χ = 0 .005 = ∆ t and maximum value of 
+
+χ = 1 .0 (no relaxation). In this figure, the ‘OpInf baseline’ label refers to the strongly regularized, best performing standard OpInf model. We will compare the models in the validation region, as this gives the fairest comparison to standard OpInf techniques in the low-data setting. In Figure 11, both KE and L2 relative errors are computed as averages over the time horizon of [4 .0, 10 .0], the training and validation regions. This provides a comparison in the regions where OpInf can be expected to perform the best. In Figure 11, the wall-clock time refers to the online cost of time-integrating the ROM from t = 4 .0 to t = 10 .0, which is 1,200 timesteps of RK4. For these choices, the computed quantities were finite (i.e., the model did not diverge) for all but the first χ
+
+value for EFR-OpInf-Proj, and all but the first two χ values for both differential filters. In general, we observed that the EFR-OpInf models were consistently stable after a certain threshold of χ
+
+was reached, which for this problem was larger than ∆ t. Previous work on filtering for ROMs has suggested [41] that ROMs can tolerate, and sometimes require, more filtering than corresponding FOM filtering techniques. Observe that the time costs are extremely similar for each of the OpInf and EFR-OpInf models considered: while the errors vary more than an order of magnitude, the runtimes for every OpInf model, EFR or not, are within 0.08 seconds of each other. EFR-OpInf-Proj is the simplest filter and nearly identical to the baseline OpInf model at 0.20-0.21 seconds, but both EFR-OpInf-DF and EFR-OpInf-HDF average out to 0.23-0.24 seconds online. This shows that there is very little online cost separating the projection and differential filters. For the kinetic energy errors in Figure 11(a), only the overly dissipative EFR-OpInf-DF model displays worse kinetic energy error than the OpInf model. EFR-OpInf-Proj provides reasonable KE improvements over standard OpInf, and EFR-OpInf-HDF provides the best KE matching of all the models considered. Neither the EFR-OpInf-Proj nor EFR-OpInf-DF models display significant sensitivity to χ. The performance of the EFR-OpInf-HDF model is similar to the EFR-OpInf-Proj model for low χ, and it can be tuned to perform much better (in terms of KE) than all competing models for values of χ approaching 1. Since χ = 1 corresponds to using the filtered state without relaxation, these results suggest that the relaxation parameter may be eliminated from 24 the EFR-OpInf-HDF model if the goal is KE-optimal models. This would remove the principal hyperparameter tuning required for EFR-OpInf-HDF, representing an advantage over both the projection and differential filters. For the L2 errors in Figure 11(b), each of the EFR-OpInf models outperform the standard OpInf model, with the EFR-OpInf-Proj and EFR-OpInf-HDF outperforming standard OpInf by an order of magnitude or more for most values of χ. While the EFR-OpInf-Proj model displays even less sensitivity to χ in terms of L2 errors, the EFR-OpInf-HDF model displays a similar sensitivity to that seen in the kinetic energy errors, with all χ values tested superior to standard OpInf but some choices of χ better than others. In particular, the reverse of the kinetic energy case holds: smaller values of χ tend to produce better L2 error values than larger values. While we exclude additional visualizations for space, applying EFR-OpInf-HDF with large χ produces a flow that is also representative of the FPC problem. However, the EFR-OpInf-HDF velocity field is phase-shifted from the FOM solution, which causes pointwise L2 errors to degrade.    
+
+> (a) KE error vs online ROM time (b) L2error vs online ROM time
+
+Figure 11: NSE FPC: Pareto plots for mean relative L2 and KE errors vs. online ROM cost for 
+
+t ∈ [4 .0, 10 .0] (training + validation region). OpInf baseline corresponds to the strongly regularized OpInf model. Models are colored by varying χ ∈ [0 .005 , 1.0]. The results of the runs for the Pareto chart in Figure 11 are summarized in Table 2, reporting the averages of both L2 and KE errors as well as the minimums, and the χ values for which they occurred. Model Avg. L2 Error Avg. KE Error Min. L2 Error Min. KE Error Strongly Reg. OpInf 15.43% 3.3% 15.43% 3.3% EFR-OpInf-Proj 1.15% 1.5% 0.73% ( χ = 0 .015) 0.83% ( χ = 0 .005) EFR-OpInf-DF 6.07% 4.81% 5.48% ( χ = 0 .05) 3.62% ( χ = 0 .03) EFR-OpInf-HDF 1.92% 1.11% 0.58% ( χ = 0 .04) 0.28% ( χ = 0 .8) Table 2: NSE FPC: Summary of time-averaged errors over validation region from Figure 11. 25 4.3 Navier–Stokes Equation: 3D Minimal Channel Flow 
+
+We next consider the 3D minimal channel flow scenario at Re = 5000, which exhibits strongly turbulent dynamics while retaining a computationally tractable domain size. Minimal channel flow has been widely used as a reduced computational setting for studying near-wall turbulence, since it preserves important turbulent structures while significantly lowering the computational cost compared with a full channel flow simulation [28]. 
+
+4.3.1 MCF FOM Setup 
+
+Following the setup in [28], the streamwise and spanwise lengths of the channel are set to 0 .6π and 0.18 π, respectively, and the channel half-height is set to 1. The boundary conditions are periodic in the streamwise and spanwise directions, with no-slip boundary conditions imposed at the channel walls. For this scenario, time is nondimensionalized by the convective time scale tc = L/U , where 
+
+L and U are the characteristic length and velocity scales, respectively. Thus, the nondimensional time t⋆ = t/t c = tU/L is measured in convective time units (CTUs). The FOM simulation is carried out using nekRS [14]. The spatial discretization uses 576 spec-tral elements with polynomial order N = 9, resulting in approximately 5 .76 × 10 5 spatial degrees of freedom per velocity component. Thus, each three-component velocity snapshot contains ap-proximately 1 .73 × 10 6 degrees of freedom. The FOM uses a semi-implicit BDF k/EXT k time discretization with timestep ∆ t = 0 .0025 and orders up to k = 3, where BDF k is used for the time derivative, EXT k for the advection and forcing terms, and an implicit treatment for the dissipation terms. We focus on the time interval [3000 , 3100] CTUs, after the solution has reached a statistically steady regime. The ROM is set up so that ur(t, x) = umean + Pri=1 ai(t)φri (x), where the basis functions φri are obtained through POD on the snapshot matrix of the fluctuating component of the high-dimensional FOM data. We divide the full time interval into the training interval [3000 , 3025], the validation interval (3025 , 3050], and the testing interval (3050 , 3100]. Over the training interval, snapshots are sampled every 0 .0125 CTUs, leading to a total of 2001 snapshots, including the initial condition at t = 3000. These snapshots are used to construct the POD basis and train both the weakly and strongly regularized OpInf models. The FOM simulation is then continued through the validation interval, from which one representative snapshot is retained to guide the selection of the EFR-OpInf filtering parameter r′. Finally, the testing interval is used to evaluate the long-time predictive accuracy and stability of the resulting OpInf and EFR-OpInf models. 
+
+4.3.2 MCF Standard OpInf Setup 
+
+The POD basis is constructed with a ROM dimension of r = 29, which retains approximately 60% of the cumulative energy of the available modes. In our preliminary numerical investigation, we have also tested the ROM dimensions r = 44 (which retains approximately 70% of the cumulative energy) and r = 67 (which retains about 80% of the cumulative energy). Since the resulting numerical behavior was qualitatively consistent across these choices, we present only the results for r = 29 for clarity. This choice places the ROM in a more strongly under-resolved regime, representative of the challenges encountered when modeling turbulent flows with low-dimensional approximations. We note that the retained energy for r = 29 is substantially lower than in the FPC example, reflecting the richer dynamics and broader range of active scales present in the minimal channel flow. Consequently, this example provides a particularly challenging setting for assessing the stability and predictive performance of the OpInf and EFR-OpInf models. 26 For the standard OpInf models, we consider both the weakly and strongly regularized versions described in Section 2.2.2. The regularization parameters are obtained through a grid search. Recalling that β = [ β1, β 2]T , where β1 regularizes ˆ c and bA, and β2 regularizes bH, we take 10 logarithmically spaced values between 10 −5 and 10 2 for β1, and 15 logarithmically spaced values between 10 −5 and 10 2 for β2. After this grid search, the weakly regularized model uses β =[3 .59 × 10 −4, 10 −3]T , which gives the smallest training error over the grid. The strongly regularized model uses β = [10 −5, 10 −2]T , which gives the smallest training error among the models satisfying the coefficient growth criterion (6) over the validation interval, with τ = 1 .2. We note that the selected value of β1 lies at the lower bound of the search interval. Therefore, this parameter choice is optimal only over the grid considered, and extending the search interval could yield a different strongly regularized model. Figure 12 compares the kinetic energy of the FOM, the weakly regularized, and the strongly regularized OpInf models. In the training region, the weakly and strongly regularized OpInf models exhibit similar kinetic energy behavior, but both show a gap from the FOM energy due to the approximation error associated with r = 29. After the training window, the weakly regularized OpInf model overfits and quickly becomes unstable, whereas the strongly regularized OpInf model remains stable throughout the validation region but eventually becomes unstable in the testing region. 
+
+Figure 12: 3D MCF at Re = 5000: Kinetic energy behavior of the FOM, the weakly regularized OpInf model ( β1 = 3 .59 × 10 −4, β 2 = 10 −3), and the strongly regularized OpInf model ( β1 =10 −5, β 2 = 10 −2). Figure 13 shows the velocity magnitude fields at t = 3042 in the validation region. At this time instant, the weakly regularized OpInf prediction has already become non-physical, whereas the strongly regularized OpInf model still produces a reasonable velocity field. 
+
+4.3.3 MCF EFR-OpInf Setup 
+
+For all three EFR-OpInf experiments, the underlying OpInf model is the weakly regularized model with β = [3 .59 × 10 −4, 10 −3]T . Online EFR stabilization is activated only after the ROM exits the training interval, [3000 , 3025). Thus, the unfiltered OpInf ROM is evolved over the training interval, whereas EFR stabilization is applied only afterwards. For EFR-OpInf-Proj, we use the ROM pro-jection filter described in Section 2.3.1. For this scenario, we choose r′ = 11. The cutoff dimension 
+
+r′ is selected using the same strategy as in the previous scenario. We first consider a representative 27 FOM Weakly regularized OpInf Strongly regularized OpInf Figure 13: 3D MCF at Re = 5000: Velocity magnitude fields computed by the FOM and predicted by the weakly and strongly regularized OpInf models at t = 3042. FOM velocity field at t = 3037 .5 in the validation region, project it onto the r-dimensional POD space, and examine how different cutoff values r′ modify the projected velocity field. The values of r′
+
+for which visible changes occur are retained as candidates, giving r′ ∈ { 29 , 28 , 19 , 18 , 16 , 12 , 11 , 4, 3}.For each candidate cutoff dimension, we vary the relaxation parameter χ over values proportional to the FOM timestep ∆ t. For each EFR-OpInf-Proj parameter pair ( r′, χ ), we compute the coeffi-cient growth ratio defined in (6) over the validation interval and retain the pair as admissible if this ratio does not exceed the prescribed tolerance τ = 1 .2. This selection process does not use kinetic energy information and is consistent with the selection strategy used for the strongly regularized OpInf baseline. The admissible cutoff values are r′ = 11, r′ = 4, and r′ = 3. We choose the largest admissible cutoff, r′ = 11, together with χ = 0 .000625 = 0 .25∆ t, so that the filter retains as many resolved POD modes as possible. For EFR-OpInf-DF, we use the ROM differential filter defined in (10). The filter radius is chosen as δ = 0 .077, which is half of the average mesh size of the spectral elements used in the FOM simulation. To keep the EFR-OpInf-DF setup consistent with EFR-OpInf-Proj, we use the same relaxation parameter, χ = 0 .000625 = 0 .25∆ t. For EFR-OpInf-HDF, we use the hybrid ROM projection-differential filter introduced in Section 2.3.3. This filter applies the differential filter only to the high-index portion of the reduced state, namely the last r − r′ modes, while leaving the first 
+
+r′ modes unchanged. For consistency with the projection and differential filter choices above, we set r′ = 11, δ = 0 .077, and χ = 0 .000625 = 0 .25∆ t.
+
+4.3.4 MCF Comparison between OpInf and EFR-OpInf Models 
+
+In this section, we compare the predictive performance and online costs of the standard OpInf models and the EFR-OpInf models for the minimal channel flow scenario. The comparison in-cludes the weakly regularized OpInf model, the strongly regularized OpInf model, and the three EFR-OpInf models constructed using the ROM projection, ROM differential, and hybrid ROM projection-differential filters. We evaluate these models through the end of the testing interval and compare them in terms of kinetic energy, relative velocity L2 error, representative velocity fields, and online computational cost. Figure 14 compares the kinetic energy of the FOM, the OpInf models, and the three EFR-OpInf models. As noted above, the weakly regularized OpInf model becomes unstable after the training region, while the strongly regularized OpInf model remains stable through validation but 28 Figure 14: 3D MCF at Re = 5000: Kinetic energy behavior of the FOM, the OpInf, and the EFR-OpInf models. eventually diverges in the testing region. In contrast, all three EFR-OpInf models remain stable over the full interval [3000 , 3100]. This demonstrates that applying EFR stabilization during the online stage can improve the long-time stability of the weakly regularized OpInf model without modifying the learned operators. Among the EFR-OpInf models, EFR-OpInf-Proj and EFR-OpInf-HDF perform similarly, with kinetic energies tracking the FOM much closer than EFR-OpInf-DF. These numerical results suggest that, for this χ choice, the differential filter in the EFR-OpInf-HDF has a negligible effect. Although the kinetic energy of EFR-OpInf-DF remains bounded, the model is overly dissipative, and its energy eventually settles to a constant value. The hybrid ROM projection-differential filter mitigates this over-dissipation by applying differential filtering only to the high-index modes. The relative L2 errors for velocity, plotted in Figure 15, show a consistent trend. In the training region, all models perform similarly, with relative errors around 6%–8%. The errors rise to roughly 8%–12% upon entering the validation region, likely because the ROM subspace constructed from training data may not fully capture the solution behavior beyond it. Nevertheless, the EFR-OpInf errors remain moderate and bounded. In contrast, the weakly regularized OpInf error grows rapidly around t ≈ 3042, while the strongly regularized OpInf error remains bounded through validation but diverges near t ≈ 3082 in the testing region. All three EFR-OpInf models remain bounded over the full interval [3000 , 3100], with testing errors ranging from roughly 9 .5% to 14 .6%. Among the EFR-OpInf models, EFR-OpInf-Proj and EFR-OpInf-HDF show similar relative L2
+
+error behavior, while EFR-OpInf-DF gives a slightly smaller relative L2 error. This smaller error does not necessarily indicate better dynamical accuracy, as shown in Figure 14, where its kinetic energy eventually settles to a nearly constant value rather than tracking the FOM dynamics. Figures 16 and 17 compare representative velocity magnitude fields in the validation and testing regions, respectively. At t = 3042, the weakly regularized OpInf model has already broken down, whereas the strongly regularized OpInf and EFR-OpInf models remain bounded. At the later testing time t = 3081, both standard OpInf models have become non-physical, while the EFR-OpInf models continue to produce stable velocity fields. These qualitative comparisons are consistent with the kinetic energy and relative L2 error results. Finally, Figure 18 compares the mean relative kinetic energy error and online ROM cost for different EFR-OpInf models obtained by varying the relaxation parameter χ, while fixing the 29 3000 3020 3040 3060 3080 3100 Time t             
+
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> Relative  L2 Error
+> OpInf and EFR-OpInf Relative L2Errors
+> Weak Reg. OpInf Strong Reg. OpInf EFR-Proj r′= 11, = 0.000625
+> EFR-DF = 0.077, = 0.000625
+> EFR-HDF r′= 11, = 0.077, = 0.000625
+> End training End validation
+
+Figure 15: 3D MCF at Re = 5000: Relative velocity L2 errors of the OpInf and EFR-OpInf models with respect to the FOM. FOM Weakly regularized OpInf Strongly regularized OpInf EFR-OpInf-Proj EFR-OpInf-DF EFR-OpInf-HDF 
+
+Figure 16: 3D MCF at Re = 5000: Velocity magnitude fields computed by the FOM and predicted by the OpInf and EFR-OpInf models at the validation time t = 3042. projection cutoff at r′ = 11 and the differential filter radius at δ = 0 .077. Figure 18 (a) reports the mean relative kinetic energy error over the training and validation regions, while Figure 18 (b) includes the testing region. The comparison shows that some parameter choices can appear accurate over the shorter time interval but become less reliable once the testing region is included. Faded markers correspond to EFR-OpInf-DF runs that become over-diffusive, with kinetic energy settling to a nearly constant value. Although these runs may have small mean relative kinetic energy errors, they do not accurately reproduce the temporal variation of the FOM kinetic energy. Overall, EFR-OpInf-HDF performs similarly to EFR-OpInf-Proj in terms of the mean relative kinetic energy error, while avoiding the over-diffusive behavior observed for EFR-OpInf-DF. It is also important to note that the online costs of the EFR-OpInf models are close to each other and comparable to that of the strongly regularized OpInf baseline. In particular, the wall-clock times for a simulation over the full time interval [3000 , 3100] remain within a narrow range, approximately between 6 .0 and 7.4 seconds. Hence, for this scenario, the improved long-time stability provided by the EFR-OpInf models is obtained without a substantial increase in online computational cost. Moreover, compared with the FOM, which requires approximately 981 seconds to simulate the same time interval using nekRS on a single NVIDIA TITAN V GPU, the EFR-OpInf models achieve a wall-clock speedup 30 FOM Weakly regularized OpInf Strongly regularized OpInf EFR-OpInf-Proj EFR-OpInf-DF EFR-OpInf-HDF Figure 17: 3D MCF at Re = 5000: Velocity magnitude fields computed by the FOM and predicted by the OpInf and EFR-OpInf models at the testing time t = 3081. of approximately 132 ×–163 ×.3.0 3.1 3.2 3.3 3.4 3.5 3.6 Wall-clock Time (s) 3 × 10 3   
+
+> 4 × 10 3
+> 5 × 10 3
+> 6 × 10 3
+> Mean Kinetic Energy Relative Error
+
+Mean Kinetic Energy Relative Error vs. Compute Time    
+
+> EFR-OpInf-Proj EFR-OpInf-DF EFR-OpInf-HDF OpInf baseline
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Filter parameter
+
+(a) Training and validation regions 6.0 6.2 6.4 6.6 6.8 7.0 7.2 7.4 Wall-clock Time (s) 3 × 10 3  
+
+> 4 × 10 3
+> 6 × 10 3
+> Mean Kinetic Energy Relative Error
+
+Mean Kinetic Energy Relative Error vs. Compute Time     
+
+> EFR-OpInf-Proj EFR-OpInf-DF EFR-OpInf-HDF OpInf diverges in testing
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Filter parameter
+
+(b) Training, validation, and testing regions 
+
+Figure 18: 3D MCF at Re = 5000: Pareto comparison of mean relative kinetic energy error and online ROM cost for r = 29. Panel (a) uses the training and validation interval t ∈ [3000 , 3050], while Panel (b) includes the testing interval t ∈ [3000 , 3100]. The EFR-OpInf models are obtained by varying χ, with r′ = 11 and δ = 0 .077 fixed. Faded markers correspond to over-diffusive EFR-OpInf-DF runs. 31 5 Conclusions 
+
+We have proposed an EFR stabilization strategy for OpInf ROMs of complex fluid flow simulations. The main novelty of this EFR-OpInf framework is the LES-inspired online ROM spatial filtering that significantly improves long-term stability and predictive performance of standard OpInf. An-other advantage of the new EFR-OpInf strategy is that it reduces, and in some cases even eliminates, the need for regularization in the OpInf problem. Furthermore, EFR-OpInf provides physical inter-pretability for its hyperparameters: each stabilization parameter can be associated with a concrete and observable modification of the spatial content of the ROM solution, enabling users to select an appropriate filter with minimal tuning and parameter choices guided by numerical analysis. We have investigated EFR-OpInf for two of the most common ROM spatial filters: the completely non-intrusive ROM projection filter and the ROM differential filter, which requires additional FOM-level information. We have also studied the recently introduced hybrid ROM projection-differential fil-ter, which provides minimal regularization by adjusting only the smallest scales of flow, preventing excessive diffusion. The proposed EFR-OpInf has been evaluated on a parameter-dependent, high-P´ eclet-number convection–diffusion–reaction problem, a transitional 2D flow past a cylinder, and a 3D turbulent minimal channel flow. For all these test problems, EFR-OpInf reduces the standard OpInf prediction errors by up to an order of magnitude, and remains stable over long prediction horizons in cases for which standard OpInf diverges. Furthermore, EFR-OpInf’s computational cost is comparable to that of standard OpInf. In Table 3, we include a qualitative comparison of the performance of each of the considered filters on our test cases, with checkmarks ( ✓) indicating a succesful strategy, and x-marks ( ✗)indicating an unsuccesful strategy. For the CDR, EFR-OpInf-DF was the clear winner, but both the projection and hybrid filters showed strong performance in accuracy and stability. For both of the NSE examples, the differential filter proved overly-diffusive, a phenomenon which can likely be explained by the difference in complexity of dynamics. Indeed, for all of the examples, the differential filter produced essentially a steady state solution, which was appropriate for the CDR problem but not for either of the NSE problems. Over-diffusivity has been a known problem for the differential filter [40], but we stress that it has performed well for Galerkin ROMs of complex 3D flows previously [71]. For the NSE problems, we found that that both the projection and hybrid filters performed comparably, though the hybrid filter was more receptive to tuning (see Figure 11). Because of the similar performance of the projection and hybrid filters, we would suggest practitioners first attempt the fully non-intrusive and computationally inexpensive projection filter when seeking to adapt the new EFR-OpInf strategy. EFR-OpInf-Proj EFR-OpInf-DF EFR-OpInf-HDF CDR ✓ ✓ ✓
+
+NSE FPC ✓ ✗ ✓
+
+NSE MCF ✓ ✗ ✓
+
+Table 3: Spatial filter qualitative performance. We emphasize that EFR-OpInf represents a first step in the development of online ROM spa-tial filtering strategies for OpInf, and opens the door to several natural extensions and follow-up directions. First, we note that the experiments in this paper used only the most standard versions of EFR-OpInf’s two main components: unstructured OpInf and EFR. Probably the most natural direction for future work is to extend the new EFR-OpInf framework by incorporating more sophis-ticated OpInf methods and EFR strategies. At the EFR level, the results presented in this paper use a simple heuristic for determining when to incorporate filtering: if the model is within the 32 temporal training region, we assume no filtering is needed, and once the model exceeds the training regime we turn on the full amount of filtering to ensure stability. While this proved effective, the flexibility of the EFR-OpInf model enables much more granular control, allowing for the adjustment of filtering amounts during the online stage. At the OpInf level, incorporating function-space OpInf formulations that consistently incorporate the discretization-induced spatial inner product [49], as well as extensions that go beyond POD-based reduction such as quadratic manifolds [16] constitute future research directions. Moreover, extensions based on distributed OpInf [13] provide pathways for addressing large-scale applications. Another direction for future work lies in ensuring long-term stability of OpInf when used in multi-component modeling. While long-term stability is already a desirable model property, it is even more critical in the deployment of surrogates as part of multi-component models such as digital twins. In this setting, a ROM deployed as a component of a digital twin or generic coupled model can provide significant speedups and flexibility over a traditional monolithic model [42, 65]. OpInf is a particularly attractive ROM choice here due to its non-intrusive compatibility with legacy solvers. Stability is particularly critical in digital twins, because the failure of one small component can imply the failure of the entire simulation. Yet another direction for future work is to use other LES-inspired methodologies for OpInf ROMs. This includes Leray type models [71, 73], and approximate deconvolution methods [41, 58, 72]. It is also worthwhile to raise the question of model consistency [63], noting that our EFR-OpInf ROM creates an approximation for filtered coefficients while using unfiltered data. It would be interesting to see if results improve when filtered data are used, which would also provide a connection with prior OpInf filtering work in [12]. The main contribution of this paper is the introduction and development of an online, ROM-level spatial filtering strategy for OpInf. This is part of a broader program for reducing dependence on hyperparameter tuning in data-driven modeling and scientific machine learning by leveraging mathematically supported and physically interpretable spatial filtering to promote stability. To our knowledge, the only other investigation in this direction occurs in [55], which found that spatial filtering of a differential type could improve model performance for graph neural networks modeling reactive flow. This paper also found that standard machine learning techniques, including adjusting weight decay and dropout probability, were ineffective in improving solution accuracy on their example problem. While more work is needed to extend EFR-OpInf to realistic flow applications, the findings in our paper and the results in [55] demonstrate that exploiting spatial filtering represents a promising strategy in data-driven modeling and scientific machine learning, where a wealth of mathematical and physical principles developed in LES [7, 57] are still waiting to be explored. 
+
+# Declaration of competing interest 
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+# Acknowledgments 
+
+The second author was supported by the Yushan Fellow Program of the Ministry of Education (MOE), Taiwan (MOE-115-YSFMS-0010-001-P1). The fourth author was supported in part by the National Science Foundation under Grant No. DMS-2436357. The first, third, fifth, and sixth 33 authors wish to acknowledge Sandia National Laboratories’ Laboratory Directed Research and Development (LDRD) program and the U.S. Department of Energy, Office of Science, Office of Ad-vanced Scientific Computing Research, Mathematical Multifaceted Integrated Capability Centers (MMICCs) program, which was performed under Field Work Proposal 22025291 and the Multi-faceted Mathematics for Predictive Digital Twins (M2dt) project. Sandia National Laboratories is a multi-mission laboratory managed and operated by National Technology and Engineering So-lutions of Sandia, LLC., a wholly owned subsidiary of Honeywell International, Inc., for the U.S. Department of Energy’s National Nuclear Security Administration under contract DE-NA0003525. 
+
+# A Effect of ROM Level Spatial Filtering 
+
+In this appendix, we discuss and demonstrate the effect of ROM level spatial filtering. At the FOM level, spatial filtering is at the core of LES. ROM level spatial filtering is an interpretable framework for regularization of fluid flow. As discussed in Section 2.2.2, in the OpInf setting, Tikhonov regularization for a hyperparameter β can be involved, and it is not a trivial task to determine the correct hyperparameter ranges or what the effect of choosing one hyperparameter vs. another is on the the performance of the resulting OpInf model. In contrast, the effect of ROM spatial filtering can be immediately visualized at any point in the simulation before any model tuning takes place with out of the box suggestions for filter parameter choices guided by numerical analysis. To demonstrate this, for a variety of filter parameter options, we will show the effects of each of our three ROM level spatial filtering options (detailed in Section 2.3) on the FOM data (which is first projected onto the POD basis to allow easy ROM level computation) contained in the snapshot in Figure 5b. We emphasize that these filtering results are not the result of any time-stepping ROM scheme; they are solely the result of applying filtering at a ROM level to a particular FOM snapshot. To make the filter effects as clear as possible, and because the actual filtering we will use is applied to mean-centered snapshots, all of the results in this section will be applied to the mean-centered snapshot of the FOM velocity field at t = 8 .0 depicted in Figure 19. 
+
+Figure 19: FPC: mean-centered FOM velocity magnitude at t = 8 .0. 
+
+ROM Projection Filter We begin with the projection filter, which is closely related to the ROM expansion illustrated in Figure 6. A key preliminary step in projection filtering is to examine the POD basis and assess how the retained modes influence the reduced-order representation. Figure 6 indicates that by approximately the 15 th mode, the basis functions primarily capture increasingly fine-scale, low-energy features of the fluctuating velocity field. Retaining these higher-index modes can improve the expressiveness and in-sample accuracy of the OpInf ROM; however, these same components can promote numerical instability in out-of-sample predictions. The main advantage of EFR-OpInf-Proj is its ability to use these small-scale components to produce a more accurate and expressive ROM, while limiting their deleterious effects outside of the training regime in a 34 completely non-intrusive way.        
+
+> (a) Effect of projection filter for r′= 20 (no filtering occurs).
+> (b) Effect of projection filter for r′= 10. (c) Effect of projection filter for r′= 5.
+
+Figure 20: FPC: effect of ROM projection filter on magnitude of fluctuating component of velocity field at time t = 8 .0, color on identical scale. Figure 20 demonstrates the effect of projection filtering on the FOM velocity magnitude at time t = 8 .0 by selectively dropping ROM modes, and displays the same patterns as found in the POD deconstruction. When the filter cutoff is the same as the maximum POD dimension (r′ = r = 20), the “filtered” solution (no filtering actually occurs for r′ = r) contains most of the same fine-structure details as the FOM velocity magnitude. The 10-dimensional projection filter diffuses the velocity representation mostly in the right half of the domain, whereas the 5-dimensional projection filter begins to merge the vortices that form directly after the cylinder. While these effects are small individually, they compound when incorporated into a time-stepping scheme of several hundred iterations. We note that it is important to be judicious with filtering: while r′ = 5 can work for stabilization of the solution, it could also lead to excessive diffusion being added to the solution. The right approach to filtering for EFR is to determine how to add just enough to stabilize the solution. 
+
+ROM Differential Filter Next, we will move on to the differential filter. The projection and differential filters act by fundamentally different mechanisms, which explains the distinct differences between projection filtering in Figure 20 and differential filtering in Figure 21. The projection filter eliminates high-index modes while leaving the retained, energetically dominant modes completely intact. This leaves the velocity field’s pointwise magnitude essentially unchanged in the wake of the cylinder. By contrast, the differential filter in Figure 21 solves an elliptic PDE and therefore performs a spatially continuous smoothing whose local strength depends on the solution gradients; as a result it tends to reduce the magnitude of the velocity field in regions of large gradients, such as the cylinder wake. Figures 20 and 21 show that the projection filter eliminates small-scale components but preserves the amplitudes of the large coherent structures, whereas the differential filter attenuates magnitudes where gradients are large throughout the entire domain. We note that this level of filtering throughout the domain can introduce excessive amounts of diffusion into the solution. Indeed, Figure 21 shows post-cylinder vortices with lower pointwise velocities than for the projection filter, and this diminishing energy will have effects downstream that tend towards over-diffusion (see [41, 58] for over-diffusivity of the differential filter in a different setting). 
+
+Hybrid ROM Projection-Differential Filter To address the potential over-diffusivity of the differential filter, we use the recently proposed hybrid ROM projection-differential filter [62]. Con-35 (a) Effect of differential filter for δ = 0 .01. (b) Effect of differential filter for δ = 0 .02. 
+
+Figure 21: FPC: magnitudes of fluctuating components of filtered ROM using differential filter at 
+
+t = 8 .0 for ROM basis dimension of 20 for δ = 0 .01 and 0 .02, colored on identical scale. sider the application of the hybrid projection-differential filter to the FOM velocity magnitude at 
+
+t = 8 .0, plotted in Figure 22. We note that there is very little difference in the performance of the filter for δ = 0 .01 and δ = 0 .02, and there is no visible diffusion in the post-wake structures. This is notably different from the results of the differential filter for the same values of δ in Figure 21. Even for the much larger value of δ = 0 .2, almost no diffusion appears in the wake for the hybrid projection-differential filter, suggesting that this filter could correct the over-diffusivity observed in the EFR-OpInf-Proj and EFR-OpInf-DF models in Section 4.        
+
+> (a) Effect of hybrid differential filter for δ= 0 .01.
+> (b) Effect of hybrid differential filter for δ= 0 .02. (c) Effect of hybrid differential filter for δ= 0 .2.
+
+Figure 22: FPC: effect of hybrid differential filter on magnitude of FOM velocity at t = 8 .0 for ROM basis dimension of 20 for δ = 0 .01, 0 .02, and 0 .2, colored on identical scale. 
+
+# Code / Data Availability 
+
+The code used to produce the CDR and NSE results is available at https://github.com/irmoore/EFR Opinf, along with instructions for ————————reproducing the results. This code is based on the 
+
+opinf [46] python package and the FEniCSx [4] project. 
+
+# References 
+
+[1] S. E. Ahmed, S. Pawar, O. San, A. Rasheed, T. Iliescu, and B. R. Noack , On closures for reduced order models − a spectrum of first-principle to machine-learned avenues ,Phys. Fluids, 33 (2021), p. 091301. [2] N. Aretz and K. Willcox , Nested operator inference for adaptive data-driven learning of reduced-order models , 2025. 36 [3] M. Balajewicz, I. Tezaur, and E. Dowell , Minimal subspace rotation on the Stiefel manifold for stabilization and enhancement of projection-based reduced order models for the compressible Navier–Stokes equations , Journal of Computational Physics, 321 (2016), pp. 224– 241. [4] I. A. Baratta, J. P. Dean, J. S. Dokken, M. Habera, J. S. Hale, C. N. Richard-son, M. E. Rognes, M. W. Scroggs, N. Sime, and G. N. Wells , DOLFINx: the next generation FEniCS problem solving environment . preprint, 2023. [5] P. Benner, S. Gugercin, and K. Willcox , A survey of projection-based model reduction methods for parametric dynamical systems , SIAM Review, 57 (2015), pp. 483–531. [6] P. Benner, W. Schilders, S. Grivet-Talocia, A. Quarteroni, G. Rozza, and L. Miguel Silveira , eds., Model Order Reduction Volume 2: Snapshot-Based Methods and Algorithms , De Gruyter, Berlin, Boston, 2021. [7] L. C. Berselli, T. Iliescu, and W. J. Layton , Mathematics of large eddy simulation of turbulent flows , Springer, 2006. [8] L. Bertagna, A. Quaini, and A. Veneziani , Deconvolution-based nonlinear filtering for in-compressible flows at moderately large Reynolds numbers , International Journal for Numerical Methods in Fluids, 81 (2016), pp. 463–488. [9] J. S. Dokken , Test problem 2: Flow past a cylinder (DFG 2D-3 benchmark) , 2026. Accessed 04/13/2026. [10] V. J. Ervin, W. J. Layton, and M. Neda , Numerical analysis of filter-based stabilization for evolution equations , SIAM Journal on Numerical Analysis, 50 (2012), pp. 2307–2335. [11] I. Farcas, R. Gundevia, R. Munipalli, and K. E. Willcox , Parametric non-intrusive reduced-order models via operator inference for large-scale rotating detonation engine simula-tions .[12] I. Farcas, R. Munipalli, and K. E. Willcox , On filtering in non-intrusive data-driven reduced-order modeling .[13] I.-G. Farcas ¸, R. P. Gundevia, R. Munipalli, and K. E. Willcox , Distributed computing for physics-based data-driven reduced modeling at scale: Application to a rotating detonation rocket engine , Computer Physics Communications, 313 (2025), p. 109619. [14] P. Fischer, S. Kerkemeier, M. Min, Y.-H. Lan, M. Phillips, T. Rathnayake, E. Merzari, A. Tomboulides, A. Karakus, N. Chalmers, et al. , NekRS, a GPU-accelerated spectral element Navier–Stokes solver , Parallel Comput., 114 (2022), p. 102982. [15] P. Fischer, M. Schmitt, and A. Tomboulides , Recent developments in spectral element simulations of moving-domain problems , in Recent Progress and Modern Challenges in Applied Mathematics, Modeling and Computational Science, Springer, 2017, pp. 213–244. [16] R. Geelen, S. Wright, and K. Willcox , Operator inference for non-intrusive model reduction with quadratic manifolds , Computer Methods in Applied Mechanics and Engineering, 403 (2023), p. 115717. 37 [17] M. Germano , Differential filters of elliptic type , The Physics of Fluids, 29 (1986), pp. 1757– 1758. [18] M. Girfoglio, A. Quaini, and G. Rozza , A hybrid projection/data-driven reduced order model for the Navier-Stokes equations with nonlinear filtering stabilization , Journal of Com-putational Physics, 486 (2023), p. 112127. [19] L. Gkimisis, N. Aretz, M. Tezzele, T. Richter, P. Benner, and K. E. Willcox ,
+
+Non-intrusive reduced-order modeling for dynamical systems with spatially localized features ,Computer Methods in Applied Mechanics and Engineering, 444 (2025), p. 118115. [20] A. Gruber and I. Tezaur , Variationally consistent Hamiltonian model reduction , SIAM Journal on Applied Dynamical Systems, 24 (2025), pp. 376–414. [21] M. Gunzburger, T. Iliescu, M. Mohebujjaman, and M. Schneier , An evolve-filter-relax stabilized reduced order stochastic collocation method for the time-dependent Navier– Stokes equations , SIAM/ASA Journal on Uncertainty Quantification, 7 (2019), pp. 1162–1184. [22] M. D. Gunzburger, J. S. Peterson, and J. N. Shadid , Reduced-order modeling of time-dependent PDEs with multiple parameters in the boundary data , Computer Methods in Applied Mechanics and Engineering, 196 (2007), pp. 1030–1047. [23] M. Guo, S. A. McQuarrie, and K. E. Willcox , Bayesian operator inference for data-driven reduced-order modeling , Computer Methods in Applied Mechanics and Engineering, 402 (2022), p. 115336. A Special Issue in Honor of the Lifetime Achievements of J. Tinsley Oden. [24] J. S. Hesthaven, G. Rozza, and B. Stamm , Certified Reduced Basis Methods for Parametrized Partial Differential Equations , Springer, 2015. [25] P. Holmes, J. L. Lumley, G. Berkooz, and C. W. Rowley , Turbulence, Coherent Structures, Dynamical Systems and Symmetry , Cambridge, second ed., 2012. [26] O. Issan and B. Kramer , Predicting solar wind streams from the inner-heliosphere to earth via shifted operator inference , Journal of Computational Physics, 473 (2023), p. 111689. [27] A. Ivagnes, T. van Gastelen, S. D. Agdestein, B. Sanderse, G. Stabile, and G. Rozza , A new data-driven energy-stable evolve-filter-relax model for turbulent flow simu-lation , Computer Methods in Applied Mechanics and Engineering, 450 (2026), p. 118654. [28] J. Jim´ enez and P. Moin , The minimal flow unit in near-wall turbulence , J. Fluid Mech., 225 (1991), pp. 213–240. [29] I. Kalashnikova, M. F. Barone, S. Arunajatesan, and B. G. van Bloemen Waan-ders , Construction of energy-stable projection-based reduced order models , Applied Mathe-matics and Computation, 249 (2014), pp. 569–596. [30] K. Kaneko and P. Fischer , Augmented reduced order models for turbulence , Frontiers in Physics, Volume 10 - 2022 (2022). [31] K. Kaneko, P.-H. Tsai, N. Christensen, and P. Fischer , NekROM . https://github. com/Nek5000/NekROM , 2026. [32] K. Kaneko, P.-H. Tsai, and P. Fischer , Towards model order reduction for fluid-thermal analysis , Nuclear Engineering and Design, 370 (2020), p. 110866. 38 [33] B. Koc, C. Mou, H. Liu, Z. Wang, G. Rozza, and T. Iliescu , Verifiability of the data-driven variational multiscale reduced order model , Journal of Scientific Computing, 93 (2022), p. 54. [34] B. Kramer, B. Peherstorfer, and K. E. Willcox , Learning nonlinear reduced models from data with operator inference , Annual Review of Fluid Mechanics, 56 (2024), pp. 521–548. [35] W. J. Layton and L. G. Rebholz , Approximate Deconvolution Operators and Models ,Springer Berlin Heidelberg, Berlin, Heidelberg, 2012, pp. 61–88. [36] S. A. McQuarrie, M. Guo, and A. Chaudhuri , Active learning for data-driven reduced models of parametric differential systems with Bayesian operator inference , 2025. [37] S. A. McQuarrie, C. Huang, and K. E. Willcox , Data-driven reduced-order models via regularised operator inference for a single-injector combustion process , Journal of the Royal Society of New Zealand, 51 (2021), pp. 194–211. [38] S. A. McQuarrie, P. Khodabakhshi, and K. E. Willcox , Nonintrusive reduced-order models for parametric partial differential equations via data-driven operator inference , SIAM Journal on Scientific Computing, 45 (2023), pp. A1917–A1946. [39] M. Mohebujjaman, L. Rebholz, and T. Iliescu , Physically constrained data-driven cor-rection for reduced-order modeling of fluid flows , International Journal for Numerical Methods in Fluids, 89 (2019), pp. 103–122. [40] I. Moore , Filtering and Domain Decomposition Techniques for Intrusive and Non-intrusive Reduced Order Models of Convection-Dominated Problems , PhD thesis, Virginia Tech, 2026. [41] I. Moore, A. Sanfilippo, F. Ballarin, and T. Iliescu , A priori error bounds for the ap-proximate deconvolution Leray reduced order model , Numerical Methods for Partial Differential Equations, 41 (2025), p. e70044. [42] I. Moore, C. R. Wentland, A. Gruber, and I. Tezaur , Domain decomposition-based coupling of operator inference reduced order models via the Schwarz alternating method ,in Computer Science Research Institute Summer Proceedings, M. Adams, T. Casey, and B. Reuter, eds., Sandia National Laboratories, 2024, pp. 109–127. Technical report SAND2024-16688O. [43] C. Mou, E. Merzari, O. San, and T. Iliescu , An energy-based lengthscale for reduced order models of turbulent flows , Nuclear Engineering and Design, 412 (2023), p. 112454. [44] J. S. Mullen and P. F. Fischer , Filtering techniques for complex geometry fluid flows ,Communications in Numerical Methods in Engineering, 15 (1999), pp. 9–18. [45] B. R. Noack, M. Morzynski, and G. Tadmor , Reduced-Order Modelling for Flow Control ,vol. 528, Springer Verlag, 2011. [46] Operator Inference Project Contributors , OpInf: Operator Inference in Python .
+
+https://github.com/operator-inference/opinf , 2026. Python package for data-driven, non-intrusive reduced-order modeling using Operator Inference. 39 [47] E. Parish, M. Yano, I. Tezaur, and T. Iliescu , Residual-based stabilized reduced-order models of the transient convection–diffusion–reaction equation obtained through discrete and continuous projection , Archives of Computational Methods in Engineering, 32 (2025), pp. 1885–1929. [48] B. Peherstorfer and K. Willcox , Data-driven operator inference for nonintrusive projection-based model reduction , Computer Methods in Applied Mechanics and Engineering, 306 (2016), pp. 196–215. [49] E. Qian, I.-G. Farcas ¸, and K. Willcox , Reduced Operator Inference for Nonlinear Partial Differential Equations , SIAM Journal on Scientific Computing, 44 (2022), pp. A1934–A1959. [50] E. Qian, B. Kramer, A. N. Marques, and K. E. Willcox , Transform & Learn: Adata-driven approach to nonlinear model reduction .[51] E. Qian, B. Kramer, B. Peherstorfer, and K. Willcox , Lift & learn: Physics-informed machine learning for large-scale nonlinear dynamical systems , Physica D: Nonlinear Phenom-ena, 406 (2020), p. 132401. [52] A. Quarteroni, A. Manzoni, and F. Negri , Reduced Basis Methods for Partial Differen-tial Equations: An Introduction , vol. 92, Springer, 2015. [53] J. Reyes, P.-H. Tsai, I. Moore, H. Liu, and T. Iliescu , Verifiability and limit consistency of eddy viscosity large eddy simulation reduced order models , Journal of Scientific Computing, 105 (2025), p. 78. [54] J. Reyes, P.-H. Tsai, J. Novo, and T. Iliescu , A priori error bounds and parameter scalings for the time-relaxation reduced order model , SIAM Journal on Numerical Analysis, 63 (2025), pp. 1933–1961. [55] E. Rezaian and K. Duraisamy , Predictive Modeling of Complex Flows using Regularized Conditionally Parameterized Graph Neural Networks , 2023. [56] G. Rozza, G. Stabile, and F. Ballarin , Advanced reduced order methods and applications in computational fluid dynamics , SIAM, 2022. [57] P. Sagaut , Large Eddy Simulation for Incompressible Flows: An Introduction , Springer Berlin Heidelberg, Berlin, Heidelberg, 2006. [58] A. Sanfilippo, I. Moore, F. Ballarin, and T. Iliescu , Approximate deconvolution Leray reduced order model for convection-dominated flows , Finite Elements in Analysis and Design, 226 (2023), p. 104021. [59] M. W. Scroggs, I. A. Baratta, C. N. Richardson, and G. N. Wells , Basix: a runtime finite element basis evaluation library , Journal of Open Source Software, 7 (2022), p. 3982. [60] M. W. Scroggs, J. S. Dokken, C. N. Richardson, and G. N. Wells , Construction of arbitrary order finite element degree-of-freedom maps on polygonal and polyhedral cell meshes ,ACM Transactions on Mathematical Software, 48 (2022), pp. 18:1–18:23. [61] H. Sharma, Z. Wang, and B. Kramer , Hamiltonian operator inference: Physics-preserving learning of reduced-order models for canonical Hamiltonian systems , Physica D: Nonlinear Phenomena, 431 (2022), p. 133122. 40 [62] M. Strazzullo, F. Ballarin, T. Iliescu, and T. C. Rebollo , Variational multiscale evolve and filter strategies for convection-dominated flows , Comput. Meth. Appl. Mech. Eng., 438 (2025), p. 117811. [63] M. Strazzullo, M. Girfoglio, F. Ballarin, T. Iliescu, and G. Rozza , Consistency of the full and reduced order models for evolve-filter-relax regularization of convection-dominated, marginally-resolved flows , International Journal for Numerical Methods in Engineering, 123 (2022), pp. 3148–3178. [64] R. Swischuk, L. Mainini, B. Peherstorfer, and K. Willcox , Projection-based model reduction: Formulations for physics-based machine learning , Computers & Fluids, 179 (2019), pp. 704–717. [65] I. Tezaur, E. Parish, A. Gruber, I. Moore, C. Wentland, and A. Mota , Hybrid coupling with operator inference and the overlapping Schwarz alternating method , 2026. [66] P.-H. Tsai, P. Fischer, and T. Iliescu , A time-relaxation reduced order model for the turbulent channel flow , Journal of Computational Physics, 521 (2025), p. 113563. [67] P.-H. Tsai, A. Ivagnes, A. Quaini, T. Iliescu, and G. Rozza , StabOp: A data-driven stabilization operator for reduced order modeling , 2026. [68] A. Vijaywargiya, S. A. McQuarrie, and A. Gruber , Tensor parametric Hamiltonian operator inference , 2025. [69] S. Volkwein , Proper orthogonal decomposition: Theory and reduced-order modelling , Lecture Notes, University of Konstanz, (2013). [70] Z. Wang, I. Akhtar, J. Borggaard, and T. Iliescu , Proper orthogonal decomposition closure models for turbulent flows: A numerical comparison , Computer Methods in Applied Mechanics and Engineering, 237-240 (2012), pp. 10–26. [71] D. Wells, Z. Wang, X. Xie, and T. Iliescu , An evolve-then-filter regularized reduced order model for convection-dominated flows , International Journal for Numerical Methods in Fluids, 84 (2017), pp. 598–615. [72] X. Xie, D. Wells, Z. Wang, and T. Iliescu , Approximate deconvolution reduced order modeling , Computer Methods in Applied Mechanics and Engineering, 313 (2017), pp. 512–534. [73] , Numerical analysis of the Leray reduced order model , Journal of Computational and Applied Mathematics, 328 (2018), pp. 12–29. 41

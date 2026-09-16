@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-16 <!--dpr-date:20260916-->
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/16/2609.14812v1-learning-long-term-stable-operator-inference-reduced-order-models-of-fluid-flows-through-online-spatial-filtering" data-sidebar-item="{&quot;title&quot;: &quot;Learning Long-Term Stable Operator Inference Reduced-Order Models of Fluid Flows through Online Spatial Filtering&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.14812v1-learning-long-term-stable-operator-inference-reduced-order-models-of-fluid-flows-through-online-spatial-filtering&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sci-ml-agent&quot;}], &quot;evidence&quot;: &quot;流体流动PDE的长期稳定降阶模型&quot;}">Learning Long-Term Stable Operator Inference Reduced-Order Models of Fluid Flows through Online Spatial Filtering</a>
   * 2026-09-15 <!--dpr-date:20260915-->
     * 精读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/15/2609.14926v1-linearized-pinn-with-pretrained-nonlinear-layers" data-sidebar-item="{&quot;title&quot;: &quot;Linearized PINN with pretrained nonlinear layers&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.14926v1-linearized-pinn-with-pretrained-nonlinear-layers&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;sci-ml-agent&quot;}], &quot;evidence&quot;: &quot;用于微分方程的线性化物理信息神经网络&quot;}">Linearized PINN with pretrained nonlinear layers</a>
