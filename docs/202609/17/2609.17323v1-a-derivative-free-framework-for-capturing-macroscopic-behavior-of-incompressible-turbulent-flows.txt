@@ -1,0 +1,695 @@
+Title: A derivative-free framework for capturing macroscopic behavior of incompressible turbulent flows
+
+URL Source: https://arxiv.org/pdf/2609.17323v1
+
+Published Time: Wed, 16 Sep 2026 01:39:31 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# A derivative-free framework for capturing macroscopic behavior of incompressible turbulent flows 
+
+Jihun Han ∗1 and Yoonsang Lee †21Department of Mathematics and Statistics, University at Albany - State University of New York, Albany, NY 12222 
+
+> 2
+
+Department of Mathematics, Dartmouth College, Hanover, NH 03755 
+
+Abstract 
+
+The derivative-free loss method (DFLM) is a mesh-free neural network approach for solving partial differential equations by simulating stochastic walkers rather than computing derivatives directly. Although DFLM has previously been applied to the Navier–Stokes equations, extending it to turbulent flows reveals two limitations of its simplest implementation. The walkers do not account for the swirling, directionally stretching motion of the flow, and randomly sampling the walkers used to evaluate the target introduces noise into the learned solution. We address both limitations with an analytic approximation of the walkers’ local motion that captures directional stretching and eliminates this sampling noise, while remaining computationally efficient. We study the resulting method as a non-intrusive multiscale solver capable of learning macroscopic flow behavior without resolving every scale on a fine grid or explicitly coupling coarse- and fine-scale models. For two turbulent two-dimensional flows, the proposed method reproduces the macroscopic energy spectrum of fully resolved reference simulations more accurately than the standard method, particularly where directional stretching is strongest, confirming DFLM’s efficacy as a multiscale solver for turbulent fluid systems. 
+
+# 1 Introduction 
+
+Fluid systems in many engineering and geophysics applications, which are often described by the Navier-Stokes equation, are well known for a wide range of scales, hindering accurate computer simulation of all relevant scale components [25]. The energy backscatter from the small to large scales [23] must be accounted for to capture the correct large scale dynamics, while truncating small scale components leads to inaccurate macroscopic large scale dynamics. Instead of resolving all rel-evant scales, analytic or computational modeling methods that aim for capturing large macroscopic behaviors of the fluid systems have attracted many researchers, leading to various methods. Large Eddy Simulation [24] closes the macroscopic resolved system through a modeling of the effective behavior of the unresolved scales, either through a nonlinear deterministic model [2, 20, 4] or a stochastic model [15, 18, 19]. In geophysical systems, the effect of the unresolved scale is sometimes modeled as stochastic forcing terms [3, 12, 17]. 
+
+> ∗jhan25@albany.edu
+> †yoonsang.lee@dartmouth.edu
+
+1arXiv:2609.17323v1 [physics.flu-dyn] 15 Sep 2026 With increasing computer power, more nonintrusive computational approaches that bypass the modeling of the effective subgrid scale dynamics have been proposed. These methods instead simulate the subgrid scales directly, but only in local spatiotemporal domains that do not cover the whole domain, using the resulting local statistics to estimate the parameters needed to close the macroscale dynamics. The Heterogeneous Multiscale Method type approaches [1, 28] are examples of such methods. Superparameterization (SP) [6, 7, 14] follows the same strategy, embedding local high-resolution simulations within a coarse macroscale model to estimate the unresolved dynamics. In this work, we investigate the derivative-free loss method (DFLM) [11] as a non-intrusive multiscale solver for fluid systems. DFLM employs a mesh-free neural network representation to approximate solutions of a class of partial differential equations (PDEs). By leveraging an equivalent stochastic formulation, the method uses stochastic walkers to estimate solution behavior without explicitly computing derivatives, and has been applied to the homogenization of heterogeneous media [8], where the exploration neighborhood of the walkers determines which microscale features are averaged out and which macroscale behavior is retained. DFLM captures macroscopic behavior without requiring fine-grid resolution of all relevant scales or explicit coupling between macro- and microscale models. Instead, stochastic walkers naturally encode microscale dynamics, without the need to uniformly sample the entire domain. By aggregating the averaged behavior of these walkers at collocation points, the neural network learns an effective representation of the macroscopic solution. DFLM has also been applied directly to fluid and other multiscale problems, including elliptic PDEs in perforated domains [9] and, closest to the present work, the Navier–Stokes equations [22], with successful results across a range of test problems, and its theoretical properties, including the bias and convergence of the training loss with respect to the target horizon and walker size, have been analyzed in [10]. The application of DFLM to the Navier–Stokes equations in [22] was demonstrated on viscous, large-scale, laminar flows, using the simplest possible way of simulating the stochastic walkers, with each walker advanced directly from its starting point to its destination in a single step. That work explicitly identified two obstacles to extending the method toward turbulence: this single-step motion cannot capture the swirling, directional stretching that characterizes turbulent flow, and evaluating the target by randomly sampling many walkers introduces sampling error into the learned solution, which the authors noted must be corrected “for our method to have a chance at calculating turbulence.” The present work addresses both obstacles directly. We introduce a more refined, multi-step way of simulating the stochastic walkers (Section 2), together with an analytic approximation of their local motion, developed in Section 3, that captures this directional stretching exactly and replaces random sampling with a deterministic evaluation, eliminating this walker-based sampling error. We then demonstrate the resulting method on genuinely turbulent two-dimensional flows, assessing its accuracy through the macroscopic energy spectrum rather than pointwise error, consistent with our interest in capturing large-scale statistical behavior rather than resolving individual realizations exactly. Gaussian approximations of unresolved dynamics are also widely used in multiscale and geo-physical turbulence modeling [16, 7, 14]. In these approaches, a closure is typically calibrated from the microscale variables and then coupled explicitly to the resolved macroscale equations. DFLM takes a different, non-intrusive approach, in which its stochastic walkers evolve directly according to the governing PDE, rather than according to a fitted surrogate. Consequently, the macroscopic Bellman target introduced in Section 2 is evaluated without a separate closure model or parameter-fitting step. We discuss this distinction further in Section 3. 2The remainder of the paper is organized as follows. Section 2 reviews the stochastic formulation underlying DFLM for the Navier–Stokes equations, including the Bellman target and the multi-step discretization used to simulate the stochastic walkers. Section 3 introduces our main technical contribution: an analytic Gaussian approximation of the walkers’ local motion that resolves the anisotropy and sampling-error limitations discussed above. Section 4 validates the resulting method against direct numerical simulation on two turbulent two-dimensional flows. Section 5 discusses the implications of these results and directions for future work. 
+
+# 2 Derivative-Free Loss Method for fluids 
+
+This section starts a brief review of the derivative-free loss method (DFLM) for the Navier–Stokes equations (NSE) following the ideas introduced in [22] and [8]. Its purpose is to formulate the problem of interest and to introduce the terminology used throughout the remainder of the paper. 
+
+2.1 Stochastic formulation of the Navier-Stokes equation 
+
+We consider the incompressible Navier-Stokes equation of the fluid velocity u(x, t ) in a periodic domain Ω ⊂ Rd
+
+∂u
+
+∂t + u · ∇ u = − 1
+
+ρ ∇p + ν∆u + f , in Ω × (0 , T ], (1) 
+
+∇ · u = 0 in Ω × (0 , T ]. (2) Here, p(x, t ) ∈ R is the pressure, f is the force, ρ is the fluid density, and ν is the viscosity with initial condition u(x, 0) = u0(x). DFLM is built on a martingale, or Feynman–Kac type, representation of the velocity field along a backward-in-time stochastic diffusion. Following [22], applying Itˆ o’s formula to u(Xs, t − s) along the diffusion driven by Eq. (1) shows that u(Xs, t − s) + R s 
+
+> 0
+
+f (Xr, t − r) dr is a martingale, provided 
+
+Xs solves the backward Itˆ o diffusion 
+
+dXs∧τ = −u(Xs, t − s ∧ τ ) d(s ∧ τ ) + √2ν d Bs∧τ , X0 = x, (3) where Bs is a standard Brownian motion in Rd, τ = inf {s | (Xs, t − s) ∈ Ω × { t = 0 }} is a stopping time marking the first backward time at which the initial slice t = 0 is reached, and s∧τ = min {s, τ };since Ω is periodic, no corresponding stopping is needed at the spatial boundary, and Xs is instead understood to evolve on the torus. Because τ is a stopping time, the Optional Stopping Theorem [21, 13] preserves the martingale property of the stopped process, so that evaluating the martingale at s = 0 and s = ∆ t ∧ τ gives the stochastic representation of the velocity field 
+
+u(x, t ) = E
+
+
+
+u(X∆t∧τ , t − ∆t ∧ τ ) + 
+
+Z ∆t∧τ
+
+> 0
+
+f (Xs, t − s)ds X0 = x
+
+
+
+, ∀∆t ∈ (0 , t ], (4) with Xs evolving according to Eq. (3) under the incompressibility constraint Eq. (2). We refer to ∆ t as the target horizon 1: it is the length of the backward window over which the stochastic representation is evaluated, not a timestep at which any system is evolved, that role being played       
+
+> 1[8] refers to ∆ tas the macro-timestep . We adopt target horizon instead, to avoid suggesting that ∆ tis itself a timestep at which the system is evolved; that role is played by the micro-timestep δt .
+
+3by the micro-timestep δt introduced in Section 2.2. For interior points with ∆ t < τ , Eq. (4) reduces to the unstopped representation over the full target horizon ∆ t; when the backward walker reaches 
+
+t = 0 before ∆ t elapses, the stopped formulation lets the initial condition enter the representation directly, allowing the walker to flow smoothly from the interior into the initial data. Section 2.2 describes how this is used, together with an explicit initial-condition loss term, to enforce the initial condition in training. Eq. (4) must be enforced together with the incompressibility constraint Eq. (2), i.e., the velocity field is sought in the weakly divergence-free space associated with the classical Leray–Hopf weak formulation of the NSE [30], 
+
+V = {v ∈ H1(Ω; Rd) : ∇ · v = 0 in Ω }. (5) In the Leray–Hopf theory, the pressure is eliminated by projecting the momentum equation onto 
+
+V , so that weak solutions are characterized entirely through divergence-free velocity fields, without reference to p. DFLM enforces membership in V by construction, rather than by penalizing ∇ · u in the loss. We introduce a neural network ϕ(x, t ; θ) representing a vector potential ϕ : Ω ×[0 , T ] → Rd
+
+and define the velocity network as 
+
+u(x, t ; θ) = ∇x × ϕ(x, t ; θ). (6) Since ∇· (∇x ×ϕ) ≡ 0 for any sufficiently smooth ϕ, every choice of θ automatically satisfies Eq. (2) and lies in V , so that no explicit incompressibility loss term, and no separate representation of the pressure, is required. This mirrors the Leray–Hopf construction, where the pressure-free projected equation is likewise posed directly on V ; here the same divergence-free constraint is instead realized through a differentiable parametrization suitable for gradient-based training. 
+
+2.2 DFLM for the Navier-Stokes equation 
+
+The derivative-free loss method (DFLM) trains the velocity network u(x, t ; θ) defined through Eq. (6) to satisfy the stochastic representation Eq. (4) for a fixed target horizon ∆ t. We refer to the conditional expectation on the right-hand side of Eq. (4), evaluated using the current network in place of the unknown velocity field, as the Bellman target [26] for the velocity field at ( x, t ), 
+
+B(x, t ; θ) := EX0≤s≤∆t
+
+
+
+u (X∆t∧τ , t − ∆t ∧ τ ; θ) + 
+
+Z ∆t∧τ
+
+> 0
+
+f (Xs, t − s)ds X0 = x
+
+
+
+. (7) The terminology follows the bootstrapped target used in temporal-difference reinforcement learn-ing [29]. Rather than regressing against an externally supplied label, the network is trained so that its own prediction at ( x, t ) matches B(x, t ; θ), a target that is itself constructed from the net-work’s current prediction one target horizon ∆ t away. The loss function for this local martingale representation is given by 
+
+L(θ) = E(x,t )
+
+h
+
+|u(x, t ; θ) − B (x, t ; θ)|2i
+
+. (8) The optimization follows a bootstrapping approach in reinforcement learning where the target value (inner expectation) and network are alternately updated. Precisely, for each n-th gradient descent step in optimization θn+1 = θn − α∇L n(θ) where 
+
+Ln(θ) = 1
+
+NrNrX
+
+> i=1
+
+u(xi, t i; θ) − bBi (θn) 2
+
+(9) 4Here Nr is the number of collocation points, {xi, t i}Nr
+
+> i=1
+
+, uniformly sampled from the spatiotemporal domain Ω × (0 , T ] for an unbiased estimator of the outer expectation. The inner expectation for target evaluation is estimated in Monte-Carlo using Ns stochastic walkers X(i,j ) 
+
+> s
+
+starting from xi,evolving according to the backward SDE Eq. (3) with X(i,j )0 = xi for 0 ≤ s ≤ ∆t and drift given by the current network approximation u(·, ·; θn), 
+
+bBi (θn) = 1
+
+NsNsX
+
+> j=1
+
+u
+
+
+
+X(i,j )∆t , t i − ∆t; θn
+
+
+
++ If
+
+
+
+{X(i,j ) 
+
+> s
+
+}0≤s≤∆t
+
+
+
+. (10) Here Ns is the number of stochastic walkers simulated independently at each collocation point (xi, t i). The walkers X(i,j ) 
+
+> s
+
+, . . . , X(i,N s) 
+
+> s
+
+are independent and identically distributed (i.i.d.) real-izations of the transition kernel of the backward SDE Eq. (3), all started from the same point 
+
+xi. Because bBi(θn) is a finite-sample average over these Ns i.i.d. walkers, it is itself an unbiased estimator of the Bellman target B(xi, t i; θn), with variance decreasing as Ns increases. For small 
+
+Ns, however, the resulting sampling error can be substantial, introducing noise into the training signal that must be weighed against the added cost of simulating more walkers per collocation point. This sampling variance does not cancel out of the training loss. Because bBi(θn) enters the squared residual in Eq. (9), the resulting empirical loss is itself only asymptotically unbiased , as 
+
+Ns → ∞ , for the exact loss L(θ) in Eq. (8). As shown in [10], this bias is of order ∆ t/N s and scales with the spatial gradient of the network. Throughout this paper, sampling error refers specifically to this walker-level noise in estimating the inner expectation at a fixed collocation point. The outer expectation retains its own Monte-Carlo error from the random choice of collocation points {xi, t i}
+
+used to estimate the loss Eq. (9). This outer sampling error is not addressed by the methods developed below. The standard DFLM ([11] for elliptic problems and [22] for fluids) evaluates the target in Eq. (10) using a single Euler–Maruyama step for computational efficiency, so that each walker is drawn directly from the one-step transition kernel of the backward SDE Eq. (3). More generally, the target horizon ∆ t can be resolved by M Euler–Maruyama microsteps of size δt , such that ∆t = M δt ; [8] introduced this multi-timestep discretization along with its analysis in resolving periodic structures, as a multiscale method, to improve the accuracy of the stochastic representation by resolving microscale features to capture macroscopic behavior. The backward SDE Eq. (3) is then discretized as 
+
+X(m+1) δt = Xmδt − u(Xmδt , t − mδt ; θn) δt + √2νδt Z, Z ∼ N (0, I), m = 0 , 1, . . . , M − 1,
+
+(11) which reduces to the standard one-step update when M = 1 and δt = ∆ t. Figure 1 illustrates the two discretizations schematically. Here If is an approximation of the stochastic integral 
+
+If
+
+
+
+{X(i,j ) 
+
+> s
+
+}0≤s≤∆t
+
+
+
+= δt  
+
+> M−1
+
+X
+
+> m=0
+
+f
+
+
+
+X(i,j ) 
+
+> mδt
+
+, t i − mδt 
+
+
+
+. (12) For incompressible flows, the divergence-free drift preserves volume locally, but it can still stretch fluid elements in one direction while compressing them in another. This directional stretching can make the one-step DFLM approximation produce anisotropic errors in the stochastic representation of the velocity field, as we show in the next section. 5(a) one-step ( M = 1) (b) multi-step ( M = 5) Figure 1: Schematic comparison of the Euler–Maruyama discretizations of the target horizon ∆ t.(a) A single step directly from t to t + ∆ t. (b) M microsteps of size δt , with ∆ t = M δt .DFLM simulates both the initial and boundary conditions physically, rather than through an explicit loss term. The periodic boundary condition was already noted in Section 2.1, where the walker evolves on the torus, so a step that carries X(i,j ) 
+
+> s
+
+outside Ω is simply mapped back in by adding the appropriate periodic vector Plel. The initial condition is enforced in the same spirit through the stopping construction built into the backward SDE Eq. (3). As the walker evolves backward in time, it is stopped at τ once it reaches t = 0 before completing the target horizon ∆t, and its drift is thereafter fixed to the initial velocity u0, so that the martingale representation Eq. (4) continues to hold with ∆ t replaced by the stopped horizon ∆ t ∧ τ . This lets the initial data flow smoothly into the interior, allowing the trained velocity field to naturally adapt to u0.To further enforce the initial condition directly, we add a loss term using Na collocation points uniformly sampled at t = 0, 
+
+Linit = 1
+
+NaNaX
+
+> i=1
+
+|u(xi, 0; θ) − u0(xi)|2. (13) 
+
+# 3 Derivative-Free Loss Method as a multiscale method for fluids 
+
+The Bellman target B(x, t ; θ) in Eq. (7) gives DFLM an intrinsic averaging property that is par-ticularly useful for multiscale problems. The conditional expectation in Eq. (7) is taken over a backward walker that explores a neighborhood of x determined by both local advection and the diffusive length scale √2ν∆t over the target horizon ∆ t. Matching the network to its Bellman target therefore enforces a local, physically motivated average of the velocity field over this neigh-borhood, rather than a pointwise fit to a single realization. A related mechanism appears in the homogenization of elliptic multiscale PDEs in [8], in which the exploration neighborhood of the stochastic walkers, controlled by the time horizon, determines which microscale features are aver-aged out and which macroscale behavior is retained. In DFLM, the interaction between macro-and microscales is embedded in the stochastic representation itself, without introducing an explicit subgrid-scale model. Realizing this averaging by Monte Carlo, however, is computationally costly. At each of Nr
+
+collocation points, evaluating the empirical target bBi requires Ns stochastic walkers, each advanced through M Euler–Maruyama microsteps, giving a total cost proportional to M N sNr. Multi-step propagation can reduce the anisotropic errors of a one-step discretization, but it further increases this cost. Moreover, controlling the Monte Carlo sampling error discussed in Section 2.2 requires sufficiently large Ns (and typically many collocation points, Nr). We therefore introduce a Gaussian approximation of the stochastic process for Bellman-target evaluation, directly addressing the two 6obstacles [22] identified for extending DFLM to turbulent flow. It permits an anisotropic transition covariance and removes Monte Carlo sampling variance, while avoiding the cost of large walker ensembles and, in particular, resolving within-step deformation without requiring large M .The central idea of the Gaussian approximation is to locally linearize the drift over each mi-crostep. The nonlinear stochastic dynamics are then approximated by a linear SDE, whose dis-tribution remains Gaussian and is fully characterized by its mean and covariance. Both moments admit closed-form propagation, so they can be updated deterministically without additional sam-pling. The conditional expectations in the Bellman target are subsequently evaluated using Gauss– Hermite quadrature. A key feature of this construction is its treatment of covariance. Although the Brownian forcing is isotropic, the local velocity gradient continuously deforms the diffusive distribution during each microstep. This strain-induced deformation generally makes the transition covariance anisotropic. When the initial covariance is zero, a single Euler–Maruyama step does not capture this within-step deformation, whereas the analytic covariance derived below retains it through exact propagation of the locally linearized dynamics. As demonstrated in Section 4, this distinction is important for flows with persistent shear or strain. Gaussian closures that use microscale dynamics to inform macroscale behavior are common in multiscale and geophysical turbulence modeling [16, 7, 14]. Such methods generally approximate unresolved microscale variables to estimate the parameters needed to close the macroscale equations, thereby coupling the two scales through a fitted closure. DFLM takes a different approach. The Gaussian moment propagation developed below approximates the stochastic walker directly, and the resulting analytic Bellman target yields the macroscopic velocity field without a separate closure or parameter-fitting step. Furthermore, the walker SDE is derived from the governing PDE rather than inferred from data. The Gaussian approximation is therefore applied to a known stochastic process, and its deterministic Bellman target can be evaluated without Monte Carlo sampling and used directly in the training loss. In this section, we first illustrate the limitation of the standard, one-step DFLM discretization in capturing anisotropy (Section 3.1). We then introduce the Gaussian approximation of the stochastic process and derive the exact mean and covariance propagation (Section 3.2), and describe how the resulting Gaussian is used to evaluate the Bellman target through Gauss–Hermite quadrature, com-paring its computational cost against standard Monte-Carlo sampling (Section 3.3). Because the mean and covariance are propagated analytically rather than through additional Euler–Maruyama microsteps, the Gaussian approximation retains anisotropy without multi-stepping while eliminat-ing Monte-Carlo sampling error. Finally, we describe how these analytic formulas are evaluated in practice using a block matrix exponential (Section 3.4). 
+
+3.1 Issue of the one-step approach in capturing anisotropy 
+
+Many fluid systems exhibit persistent anisotropic structures rather than isotropic turbulence; for example, rotating geophysical flows organize into anisotropic zonal jets through the beta-plane mechanism [27]. Accurately resolving such anisotropy, rather than defaulting to an isotropic tran-sition, is therefore important for the stochastic representation of the flow. For an incompressible flow, the local velocity gradient satisfies tr( ∇xu) = ∇ · u = 0 , (14) 7which expresses volume preservation. Accordingly, the local flow may stretch a distribution in one direction while compressing it in another, thereby producing anisotropy. Specializing Eq. (11) to M = 1 (so δt = ∆ t) at each collocation point xi gives the one-step update 
+
+X∆t = xi − u(xi, t i; θn) ∆ t + √2ν∆t Z, Z ∼ N (0, I). (15) Because every stochastic walker used to estimate the distribution of X∆t starts from the same collocation point xi, its initial covariance is zero: Σ0 = 0. Hence the covariance of X∆t, denoted 
+
+ΣEM 1 , is isotropic, 
+
+ΣEM 1 = 2 ν∆t I. (16) Thus, the one-step Euler–Maruyama covariance is isotropic and completely independent of the local velocity gradient. This shows that, for the one-step approach, increasing the number of Monte-Carlo samples Ns can reduce the sampling error of the Euler–Maruyama estimator but cannot recover the missing within-step deformation (anisotropy), since all samples are generated from the same isotropic one-step transition kernel in Eq. (16). The discrepancy is therefore associated with the time discretization of the stochastic transition rather than with Monte-Carlo sampling error. When multiple Euler–Maruyama microsteps are used, the isotropic covariance generated by diffusion in one microstep is subsequently deformed by the velocity gradient in later microsteps, allowing the accumulated transition covariance to become anisotropic. Refining the microstep size improves the approximation of the continuous deformation of the stochastic distribution, but also increases the computational cost. In contrast, the exact covariance propagation in Eq. (28) captures the deformation induced by the locally linearized velocity field within each microstep, including when M = 1. 
+
+3.2 Gaussian approximation of the stochastic process 
+
+Consider the backward stochastic process over the m-th microstep, s ∈ [mδt, (m + 1) δt ], and denote 
+
+μm = E[Xmδt ], Σm = Cov( Xmδt ). (17) For a sufficiently short microstep δt ≪ 1, we freeze the time dependence of the velocity at tm =
+
+t − mδt and linearize its spatial dependence about μm:
+
+u(x, t − s) ≃ um + Jm(x − μm), um := u(μm, t m), Jm := ∇xu(μm, t m). (18) The stochastic process over this microstep is thus approximated by 
+
+dXs = [ −um − Jm(Xs − μm)] ds + √2ν d Bs, s ∈ [mδt, (m + 1) δt ]. (19) Eq. (19) admits the explicit solution 
+
+Xs = μm + e−Jmτ (Xmδt − μm) −
+
+Z τ
+
+> 0
+
+e−Jmr dr 
+
+
+
+um + √2ν
+
+Z smδt 
+
+e−Jm(s−r) dBr. (20) where τ = s − mδt . The solution consists of an affine transformation of Xmδt and a Gaussian stochastic integral independent of Xmδt . Consequently, if Xmδt ∼ N (μm, Σm), the Gaussian distribution is preserved throughout the microstep, so that X(m+1) δt ∼ N (μm+1 , Σm+1 ). Thus, the locally linearized stochastic process can be propagated deterministically by tracking only its mean μm and covariance Σm.8The corresponding dynamics of the mean and covariance are obtained as follows. Taking the expectation in Eq. (19) gives 
+
+dμs
+
+ds = −um − Jm(μs − μm), s ∈ [mδt, (m + 1) δt ]. (21) For the covariance, define 
+
+Ys = Xs − μs, Σs = E[YsY ⊤ 
+
+> s
+
+]. (22) Subtracting Eq. (21) from Eq. (19) gives 
+
+dYs = −JmYs ds + √2ν d Bs. (23) Applying Itˆ o’s product rule to YsY ⊤ 
+
+> s
+
+and taking the expectation yields 
+
+dΣs
+
+ds = −JmΣs − ΣsJ⊤ 
+
+> m
+
++ 2 νI, s ∈ [mδt, (m + 1) δt ]. (24) Eqs. (21) and (24) provide a closed system for the evolution of the first two moments of the locally linearized process. Since um and Jm are frozen over the m-th microstep, both equations are linear with constant coefficients and therefore admit exact closed-form solutions over the microstep. For the mean, writing ys = μs − μm, Eq. (21) becomes dys/ds = −Jmys − um with ymδt = 0,the same linear equation solved by the centered process in Eq. (20); evaluating its solution at 
+
+s = ( m + 1) δt gives the exact mean update 
+
+μm+1 = μm −
+
+Z δt 
+
+> 0
+
+e−Jmr dr 
+
+
+
+um. (25) Regarding the covariance, the same integrating-factor idea applies, generalized to matrices. Define 
+
+Φs := eJm(s−mδt )Σs eJ⊤
+
+> m(s−mδt )
+
+; since Jm commutes with its own exponential, differentiating Φs
+
+and substituting Eq. (24) for dΣs/ds gives 
+
+dΦs
+
+ds = eJm(s−mδt )
+
+
+
+JmΣs + dΣs
+
+ds + ΣsJ⊤
+
+> m
+
+
+
+eJ⊤ 
+
+> m(s−mδt )
+
+= 2 ν e Jm(s−mδt )eJ⊤
+
+> m(s−mδt )
+
+, (26) where the ±JmΣs terms (and their transposed counterparts) cancel. Integrating from s = mδt ,where Φmδt = Σm, to s = ( m + 1) δt gives 
+
+eJmδt Σm+1 eJ⊤ 
+
+> mδt
+
+= Σm + 2 ν
+
+Z δt 
+
+> 0
+
+eJmσeJ⊤ 
+
+> mσ
+
+dσ. (27) Multiplying on the left by e−Jmδt and on the right by e−J⊤
+
+> mδt
+
+, and substituting r = δt − σ in the integral, gives the exact covariance update 
+
+Σm+1 = e−Jmδt Σme−J⊤ 
+
+> mδt
+
++ Qm, (28) where 
+
+Qm = 2 ν
+
+Z δt 
+
+> 0
+
+e−Jmre−J⊤ 
+
+> mr
+
+dr. (29) 9The first term in Eq. (28) describes the deformation of the covariance already present at the beginning of the microstep, while Qm represents the covariance generated by molecular diffusion and continuously deformed by the local velocity gradient during the microstep. The effect of the local velocity gradient, particularly in developing anisotropy, can be seen directly by expanding Qm for small δt :
+
+Qm = 2 νδt I − ν(δt )2 
+
+Jm + J⊤
+
+> m
+
+
+
++ O(δt 3). (30) Therefore, when Σm = 0, the exact covariance of the locally linearized process satisfies 
+
+Σm+1 = 2 νδt I − ν(δt )2 
+
+Jm + J⊤
+
+> m
+
+
+
++ O(δt 3). (31) This expression highlights a fundamental difference from the one-step Euler–Maruyama covariance: even when the stochastic process starts from a deterministic point ( m = 0, so Σ0 = 0), the exact covariance already carries an anisotropic correction through the term  Jm + J⊤
+
+> m
+
+.As anticipated in Section 3.1, this stretching-and-compressing mechanism can be made precise by decomposing the velocity gradient into its symmetric and antisymmetric parts, 
+
+Jm = Sm + Ωm, Sm = 12
+
+
+
+Jm + J⊤
+
+> m
+
+
+
+, Ωm = 12
+
+
+
+Jm − J⊤
+
+> m
+
+
+
+, (32) where Sm is the local rate-of-strain tensor and Ωm the local rotational component. Eq. (31) can then be written as 
+
+Σm+1 = 2 νδt (I − δt Sm) + O(δt 3). (33) Thus, the leading-order departure from the isotropic Brownian covariance is governed by the local rate of strain, not the rotation. For the two-dimensional incompressible flow, tr( Sm) = tr( Jm) = 0, so Sm has eigenvalues λm and −λm, giving leading-order covariance eigenvalues 2νδt (1 − δtλ m) and 2νδt (1 + δtλ m), (34) which are generally unequal. This corresponds to stretching of the diffusive distribution along one principal strain direction while compression along the other. The rotational component Ωm
+
+does not appear in Eq.(33), consistent with the fact that rigid rotation alone cannot deform an isotropic distribution into an anisotropic one. In contrast, the one-step Euler–Maruyama covariance in Eq. (16) contains no dependence on Sm and remains isotropic regardless of the local strain. 
+
+3.3 Gauss-Hermite quadrature for Bellman target 
+
+Using the locally linearized dynamics described above, the terminal distribution of the stochastic process is approximated by 
+
+X∆t ∼ N (μM , ΣM ). (35) We use this Gaussian approximation to replace the Monte-Carlo evaluation of the terminal contri-bution to the Bellman target with a deterministic Gauss–Hermite quadrature [5]. Let LM be the Cholesky decomposition of ΣM = LM L⊤ 
+
+> M
+
+. Then the terminal expectation is approximated as 
+
+E
+
+
+
+u(X∆t, t − ∆t) X0 = x
+
+
+
+≃
+
+> NGH
+
+X
+
+> j=1
+
+wj u (μM + LM ξj , t − ∆t) , (36) 10 where {ξj , w j }NGH  
+
+> j=1
+
+denote the Gauss–Hermite quadrature nodes and weights associated with the standard Gaussian distribution. For the forcing contribution, we use a left-point approximation along the propagated mean trajectory: 
+
+E
+
+Z ∆t
+
+> 0
+
+f (Xs, t − s)ds X0 = x
+
+
+
+≃ δt  
+
+> M−1
+
+X
+
+> m=0
+
+f (μm, t − mδt ). (37) Therefore, the deterministic approximation of the Bellman target is given by 
+
+> NGH
+
+X
+
+> j=1
+
+wj u (μM + LM ξj , t − ∆t) + δt  
+
+> M−1
+
+X
+
+> m=0
+
+f (μm, t − mδt ). (38) The standard Monte-Carlo construction requires Ns stochastic walkers with M microsteps for each collocation point, resulting in a cost proportional to NsM for walker propagation. In contrast, the proposed method propagates a single pair of moments ( μm, Σm) through the M microsteps and ap-plies Gauss–Hermite quadrature only once, at the terminal distribution characterized by ( μM , ΣM ). Therefore, the quadrature requires a fixed number NGH = qd of function evaluations, independent of M . In the two-dimensional problems considered in this work, NGH = q2. The resulting target is deterministic and eliminates Monte-Carlo sampling variance while retaining, through the exact covariance propagation, the local anisotropic deformation generated by the velocity gradient. 
+
+3.4 Computation of the analytic formula of the mean and covariance 
+
+We emphasize that Eq. (33) is used only to identify the leading-order mechanism responsible for this deformation. In the current work, the covariance and the mean are not approximated by a truncated expansion. Instead, Eqs. (25) and (28) are evaluated directly, retaining the full finite-δt 
+
+dependence on the locally linearized velocity gradient Jm.Both matrix integrals can be evaluated following Van Loan’s method [31] without numerical integration, by augmenting the generator so that the desired integral appears as a block of a single matrix exponential. For the mean, we augment the generator with the constant drift um, defining the ( d + 1) × (d + 1) matrix Am and its exponential 
+
+Am =
+
+−Jm um
+
+0⊤ 0
+
+
+
+, Φ( t) := exp( Amt) = 
+
+F (t) g(t)
+
+0⊤ h(t)
+
+
+
+. (39) Differentiating Φ against its generator and matching blocks gives ˙F = −JmF, ˙h = 0 , and ˙g = −Jmg + um, (40) with F (0) = I, h(0) = 1, g(0) = 0. Solving these by an integrating factor gives F (t) = e−Jmt,
+
+h(t) ≡ 1, and g(t) = 
+
+R t 
+
+> 0
+
+e−Jmr dr 
+
+
+
+um, which is exactly the integral in Eq. (25) evaluated at t = δt .Hence, the mean is updated as μm+1 = μm − gm, where gm is obtained from the upper-right block of Φ( t) evaluated at t = δt ,Φ( δt ) = 
+
+F (δt ) g(δt )
+
+0⊤ 1
+
+
+
+=
+
+Fm gm
+
+0⊤ 1
+
+
+
+. (41) 11 The same idea applies to the covariance integral Qm in Eq. (29), which can be evaluated through a second block matrix exponential. At each microstep, after evaluating Jm, we construct the augmented 2 d × 2d matrix Bm and its exponential 
+
+Bm =
+
+−Jm 2νI0 J⊤
+
+> m
+
+
+
+, Ψ( t) := exp( Bmt). (42) By the same argument as above, Ψ( δt ) = 
+
+Fm Cm
+
+0 F−⊤ 
+
+> m
+
+
+
+, (43) recovering the same propagator Fm = e−Jmδt already used for the mean in Eq. (41). The upper-right block Cm, together with Fm, determines the diffusion covariance as 
+
+Qm = CmF⊤
+
+> m
+
+. (44) Substituting Eq. (44) into Eq. (28) gives the covariance update 
+
+Σm+1 = FmΣmF⊤ 
+
+> m
+
++ CmF⊤
+
+> m
+
+. (45) Thus, evaluating both the mean and covariance updates at each microstep requires only the local velocity gradient Jm and drift um, construction of the two augmented generators, and computation of their matrix exponentials; no matrix inversion or separate numerical quadrature of Eq. (25) or Eq. (29) is required. 
+
+# 4 Numerical Results 
+
+We validate DFLM as a non-intrusive multiscale solver for the incompressible turbulent Navier– Stokes equation with a wide range of active scales, focusing on the two mechanisms introduced in Section 3 for resolving anisotropic transitions: multiple Euler–Maruyama microsteps (Section 3.1) and the analytic Gaussian approximation (Section 3.2). We consider two random-forcing regimes, broadband forcing (Example 1, Section 4.1) and narrowband forcing (Example 2, Section 4.2), and for each compare three constructions of the velocity field: a reference direct numerical simulation (DNS), the standard Monte-Carlo DFLM target of Section 2.2, and the Gaussian-approximation target of Section 3.3; figures below label these DFLM MC and DFLM GH, respectively. The reference DNS solution is computed with a 512 × 512 pseudo-spectral method with two-thirds dealiasing, advanced in time with a fourth-order exponential time-differencing Runge–Kutta scheme (ETDRK4) at time step δt DNS = 5 × 10 −4.The velocity network u(x, t ; θ) and the vector-potential network of Eq. (6) use a multilayer perceptron (MLP) with seven hidden layers of 200 neurons each, employing the swish activation in both examples. The empirical loss of Eq. (9) is evaluated at Nr = 5000 collocation points per iteration in the spatiotemporal domain. To impose the initial condition explicitly in addition to the implicit implementation, we sample Na = 2000 collocation points at t = 0. The standard Monte-Carlo target of Section 2.2 uses Ns = 300 stochastic walkers, and the Gaussian-approximation target of Section 3.3 uses NGH = 9 × 9 Gauss–Hermite nodes. Both networks are trained using the Adam optimizer with β1 = 0 .99 and β2 = 0 .99, with the learning rate decayed exponentially from an initial value α = 5 × 10 −4 by a factor γ = 0 .9 every 5000 iterations, for a total of 10 5 training 12 iterations. At each iteration, the target is evaluated and held fixed, and the network parameters are updated from θn−1 to θn through K = 3 gradient steps against this fixed target, ensuring the network adequately fits each bootstrapped target before it is refreshed: 
+
+θ(k+1)  
+
+> n−1
+
+= θ(k) 
+
+> n−1
+
+− α∇ ˜Ln
+
+
+
+θ(k)
+
+> n−1
+
+
+
+, k = 0 , 1, · · · , K − 1, θ(0)  
+
+> n−1
+
+= θn−1, θ(K) 
+
+> n−1
+
+= θn. (46) For the target horizon, ∆ t, Example 1 uses ∆ t = 10 −4, and Example 2 uses ∆ t = 5 × 10 −4. In the multistep comparison, both examples use M = 5 microsteps over the same target horizon as their respective one-step cases, corresponding to δt = 2 × 10 −5 in Example 1 and δt = 10 −4 in Example 2, respectively. In both examples below, the domain is Ω = [0 , 2π]2, the viscosity is ν = 0 .005, and the time interval is [0 , T ] with T = 5. The flow is driven by the common initial condition and a time-independent, divergence-free random body force f = ( fx, f y). Figure 2 shows a representative realization of the vorticity source for each forcing type; further details are given in the corresponding experiment descriptions. Both examples share the same initial vorticity field ω0, constructed independently of the forcing. In Fourier space, ω0 has a flat (“square”) amplitude on an annulus of intermediate wavenumbers and vanishes elsewhere, ˆω0(k) = 
+
+(eiθ k , kmin ≤ | k| ≤ kmax ,
+
+0, otherwise , θk ∼ Unif(0 , 2π), (47) with an independently generated random phase θk on each active mode. Hermitian symmetry is imposed so that ω0 is real-valued, and the resulting field is rescaled to a prescribed root-mean-square (RMS) amplitude, following the same normalization used for the forcing below. We choose 
+
+kmin = 4, kmax = 8, and an RMS amplitude of 3 .0, confining the initial vorticity to a band of intermediate wavenumbers. The two examples differ only in the spectral bandwidth of this forcing. Broadband forcing (Section 4.1) spreads energy with independent phases across roughly two decades of wavenumbers, giving the injected field a short, scale-mixed spatial coherence length. Narrowband forcing (Sec-tion 4.2) instead concentrates energy in a thin annulus of relative width ∆ kf /k f ≈ 1/6, giving it a well-defined spatial coherence length that is further organized, through the two-dimensional inverse energy cascade, into large-scale coherent vortices with persistent strain between them. As a result, the broadband example produces a nearly isotropic stochastic transition, while the narrow-band example develops substantial, persistent anisotropy, for which resolving the exact transition covariance becomes important. We assess each method through three complementary diagnostics: instantaneous streamline snapshots, instantaneous energy-spectrum snapshots, and the energy spectrum averaged over the final part of the simulation, t ∈ [4 .5, 5], by which point the flow has reached a statistically stationary state. Our focus throughout is on how accurately each method captures the macroscopic, large-to-intermediate-scale energy spectrum, rather than the fine-scale dissipation range. A distinctive feature of DFLM is how these snapshots are obtained. Because the network 
+
+u(x, t ; θ) is trained on collocation points sampled from the entire spatiotemporal domain Ω ×(0 , T ], rather than advanced step by step in time, the solution at every reported time is available as soon as training is complete. Every snapshot shown below is an evaluation of a single trained network at a different value of t, not the output of a sequential time-marching scheme. 13 (a) broadband (b) narrowband Figure 2: Vorticity forcing for the two random-forcing types. 
+
+4.1 Example 1: Broadband random forcing 
+
+To guarantee incompressibility automatically, we generate f from a scalar vorticity source fω
+
+through a stream function ψf , setting fω = ∆ ψf and f = ( ∂ψ f /∂x 2, −∂ψ f /∂x 1); in Fourier space this gives ˆfx(k) = − ik 1
+
+|k|2 ˆfω(k), ˆfy(k) = ik 2
+
+|k|2 ˆfω(k). (48) For the broadband case, fω is a Gaussian random field with Fourier amplitudes that decay alge-braically with the wavenumber, ˆfω(k) = Zr 
+
+> k
+
++ iZ i
+
+> k
+
+√2 |k|−s, Zr
+
+> k
+
+, Z i 
+
+> k
+
+∼ N (0 , 1) , (49) with Hermitian symmetry imposed so that fω is real-valued, and the resulting field rescaled to a prescribed RMS amplitude. We choose s = 1, giving a broadband forcing whose energy is spread over a wide range of spatial wavenumbers. Figure 2(a) shows a representative realization of this vorticity forcing. Because energy is injected simultaneously across many scales with independent phases, the resulting DNS spectrum decays monotonically from the largest scales and remains close to isotropic throughout the simulation, as seen in the streamline snapshots of Figure 3 and the spectrum sequence of Figure 4. By t = 1, the influence of the initial condition on the energy spectrum has effectively vanished, well before the diagnostic window t ∈ [4 .5, 5] considered below. Figure 5 compares the time-averaged spectra obtained with the Monte-Carlo target (left col-umn) and the Gaussian-approximation target (right column), using both one-step and multistep approaches, against DNS. Both methods reproduce the DNS spectrum closely up to k ≈ 20–25. At higher wavenumbers, the spectra develop a flattened tail rather than following the continued algebraic decay of DNS, reflecting the finite sampling and quadrature budgets rather than a sys-tematic bias. Because the flow is nearly isotropic in this example, the two target constructions 14 Figure 3: Broadband-forcing streamline snapshots. Top: DNS. Bottom: One-step DFLM GH. 
+
+Figure 4: Broadband-forcing spectrum snapshots of DNS and one-step DFLM GH. agree closely with each other and with DNS. Using multiple microsteps ( M = 5) produces results essentially indistinguishable from the one-step targets, since the target horizon ∆ t is sufficiently 15 (a) One-step DFLM MC (b) One-step DFLM GH 
+
+(c) Multistep DFLM MC (d) Multistep DFLM GH Figure 5: Broadband-forcing time-averaged energy spectra over t ∈ [4 .5, 5]. The multistep results uses M = 5 for both DFLM MC and DFLM GH. short that within-step deformation is negligible. This agreement over the macroscopic, large-to-intermediate-scale range provides a central validation of DFLM as a multiscale solver. Although neither target resolves the flow on a fine computational mesh, both recover the energy-containing scales of the fully resolved DNS through the intrinsic averaging property of the Bellman target described in Section 3. The comparable results of the Monte-Carlo and Gaussian-approximation targets are consistent with the bandwidth argument above: because broadband forcing has no single dominant scale, the local strain field is spatially incoherent and remains small relative to the diffusive covariance over the target horizon, so the isotropic one-step transition already provides an accurate approximation of the true, only weakly anisotropic transition kernel. In this near-isotropic regime, the Gaussian approximation therefore offers little accuracy advantage over Monte-Carlo, but it remains preferable on efficiency grounds without the sampling variance that Monte-Carlo requires additional walkers to control. This efficiency advantage becomes essential, rather than incidental, once anisotropy is significant, as in Example 2 below. 16 Figure 6: Narrowband-forcing streamline snapshots. Top: DNS. Bottom: One-step DFLM GH. 
+
+4.2 Example 2: Narrowband random forcing 
+
+The narrowband example uses the same domain, viscosity, and time interval as above, but changes the spectral structure of the forcing. The divergence-free force f is again constructed from a vorticity source fω through the stream-function relation of Section 4.1, but instead of the broadband spectrum in Eq. (49), fω is now confined to a thin annulus in Fourier space around a characteristic wavenumber kf ,ˆfω(k) = 
+
+(A e iϕ k , | | k| − kf | ≤ ∆kf ,
+
+0, otherwise , ϕk ∼ Unif(0 , 2π), (50) with Hermitian symmetry again imposed so that fω is real-valued, and the field rescaled to the same prescribed RMS amplitude. We choose kf = 6, ∆ kf = 1, and A = 2 .0: rather than spreading energy over a broad range of wavenumbers as in Example 1, this forcing injects energy at a single scale. Figure 2(b) shows a representative realization of this narrowband vorticity forcing. Unlike the broadband case, the resulting DNS spectrum is not monotonic. It rises to a peak near the injection scale kf , the integral (largest) scale of the flow, then falls through an inertial range before reaching the dissipative range at high k, reflecting the inverse energy cascade discussed above. Together with the streamline snapshots of Figure 6 and the spectrum sequence of Figure 7, this turbulent spectral shape shows visibly more organized, anisotropic flow structure than Example 1. Figure 8 compares the time-averaged spectra produced by the Monte-Carlo and Gaussian-approximation targets with one step and with M = 5 microsteps. In this anisotropic regime, the one-step Monte-Carlo target differs substantially from DNS, while multistep Monte Carlo improves the agreement by resolving part of the within-step deformation through repeated drift evaluations 17 Figure 7: Narrowband-forcing spectrum snapshots of DNS and one-step DFLM GH. (Section 3.1). The Gaussian-approximation target gives the closest agreement with DNS for both step choices. The residual difference between the multistep Monte-Carlo and Gaussian results suggests that finite-ensemble sampling error is at least as important as the error from neglecting within-step deformation. Increasing M addresses the latter only partially, whereas the Gaussian approximation eliminates sampling noise and propagates the transition covariance directly. Thus, in the genuinely turbulent, anisotropic regime, accurate recovery of the macroscopic spectrum depends on resolving the local transition rather than defaulting to an isotropic approximation. The Gaussian target achieves this without requiring a substantially larger walker ensemble. Section 3 provides a physical interpretation of this behavior. Even for a single microstep, the exact transition covariance already reflects the local strain, 
+
+Σ1 = 2 ν∆t (I − ∆t S0) + O((∆ t)3), S0 = 12
+
+
+
+J0 + J⊤
+
+> 0
+
+
+
+, (51) whereas the one-step Euler–Maruyama covariance in Eq. (16) keeps only the leading, isotropic term. The local strain number 
+
+χ(x, t ) = ∆ t ∥S(x, t )∥ (52) measures the significance of this correction. As argued above, the coherent, cascade-reinforced strain of the narrowband example keeps χ appreciable over the target horizon, whereas it stays small in the broadband example. Because the flow is incompressible, this straining is volume-preserving, with compression of the distribution along one direction accompanied by stretching along another. Molecular diffusion, though itself isotropic, can therefore produce an anisotropic distribution once transported by the flow. The exact covariance propagation retains this deformation whereas a single Euler–Maruyama step does not. 18 (a) One-step DFLM MC (b) One-step DFLM GH 
+
+(c) Multistep DFLM MC (d) Multistep DFLM GH Figure 8: Narrowband-forcing time-averaged energy spectra over t ∈ [4 .5, 5]. The multistep uses 
+
+M = 5 for both DFLM MC and DFLM GH. Multistep Monte-Carlo recovers this deformation only gradually. The covariance generated in the first microstep is isotropic, but each subsequent microstep transports and deforms it through the local velocity gradient, so that the covariance after the second microstep already contains (I − J1δt )ΣEM 1 (I − J1δt )⊤, (53) which is generally anisotropic. Repeated drift evaluations thus rebuild the missing deformation progressively, and only approximately, whereas the Gaussian approximation captures it exactly within a single microstep. 
+
+# 5 Discussions and Conclusions 
+
+This work extends DFLM [22] toward turbulent incompressible flow by directly addressing two limitations identified in that work: reliance on a single-step Euler–Maruyama discretization of the stochastic representation, and the resulting Monte-Carlo sampling error, which [22] identified as an obstacle to applying the method to turbulent flow. Our multi-step discretization, and more 19 effectively our analytic Gaussian approximation of the local stochastic transition, remove this obsta-cle. The Gaussian approximation eliminates the walker-based Monte-Carlo sampling error entirely while also resolving the anisotropic covariance structure that a single isotropic step misses. This addresses sampling error only in evaluating the Bellman target at each collocation point, however. The collocation points themselves remain randomly sampled from the spatiotemporal domain to estimate the training loss (Section 2), so a separate, outer Monte-Carlo error persists and is not ad-dressed by the present work. The two numerical examples confirm that this matters most precisely where [22] anticipated it would. In the genuinely turbulent, strain-organized narrowband-forced flow, the Gaussian approximation gives the best agreement with DNS, whereas in the near-isotropic broadband-forced example the simpler one-step Monte-Carlo target already suffices. Together, the two examples confirm DFLM’s efficacy as a multiscale solver for turbulent fluid systems. It recov-ers accurate macroscopic behavior across both the near-isotropic and strongly anisotropic regimes, without resolving the flow on a fine computational mesh. Interestingly, the improvement gained from multistep Monte-Carlo alone was modest in our experiments, in contrast to [8], where resolving the target horizon into multiple microsteps was essential for accuracy. The difference reflects what each problem asks the stochastic walkers to re-solve. In the homogenization setting of [8], the governing coefficients carry an explicitly prescribed fine-scale structure, at a known small scale, so accurately sampling that structure requires a corre-spondingly small microstep. In the present fluid problem, by contrast, neither the forcing nor the velocity field carries such a prescribed sub-target-horizon structure. The forcing is constructed at scales chosen directly by us, and the velocity field is itself only ever approximated macroscopically by the network. What limits the one-step transition here is not unresolved fine-scale structure but the anisotropy of the local transition covariance, which the exact Gaussian approximation cap-tures directly regardless of microstepping, and which multistep Monte-Carlo can only approximate indirectly, through the accumulation of many discrete, noisy steps. This suggests a natural future test problem involving fluid flow through a heterogeneous medium, which would combine the prescribed fine-scale structure that makes multistep essential in [8] with the anisotropic transition covariance addressed here, allowing both mechanisms to be evaluated together. Beyond this specific test problem, several other directions follow from different aspects of the method developed here. The first concerns the domain. The present work considers a periodic domain, and extending the initial and boundary condition treatment of Section 2.2 to non-periodic and non-Dirichlet boundaries, particularly perforated domains, is a natural next step. Prior work has applied DFLM to elliptic problems in perforated domains [9]. Extending this treatment to the Navier–Stokes setting would allow the method to address fluid systems such as flow through filtration media. A second direction concerns the modeling assumption at the core of Section 3.2. The Gaussian approximation is expected to be most accurate when the local transition is well described by its first two moments. Testing the method on fluid systems with more strongly non-Gaussian structure, such as the quasigeostrophic equation [14] across the low-, mid-, and high-latitude regimes that produce varying degrees of anisotropy, would help delineate the limits of this approximation. A third, more fundamental direction concerns the scale of macroscopic behavior the method resolves. Section 2.2 showed that the target horizon ∆ t governs the size of the neighborhood each stochastic walker explores around its collocation point. A companion theoretical analysis [10] makes this precise at a single collocation point. Although the empirical Bellman target is itself unbiased, 20 its sampling variance biases the resulting training loss, which is only asymptotically unbiased as 
+
+Ns → ∞ , with a bias that grows with ∆ t and the spatial gradient of the network but shrinks with the walker count Ns. Consequently, ∆ t must be bounded below for training to succeed at all, while 
+
+Ns can be taken as small as desired provided it satisfies the corresponding lower bound set by ∆t. That analysis, however, treats each collocation point in isolation. It does not address how the resulting macroscopic scale interacts with the number of collocation points Nr used to cover the domain. The largest macroscopic scale the trained network can resolve is likely also controlled by 
+
+Nr. The neighborhoods of nearby collocation points must overlap sufficiently for the network to learn a coherent macroscopic representation across the domain. Making this joint dependence on ∆t, Ns, and Nr precise, building on the single-point analysis of [10], is left to future work. 
+
+# Acknowledgments 
+
+JH is suppored by NSF DMS-2607647. YL is supported by NSF DMS-2607646 and ONR MURI N00014-20-1-2595. 
+
+# References 
+
+[1] A. Abdulle, E. Weinan, B. Engquist, and E. Vanden-Eijnden , The heterogeneous multiscale method , Acta Numerica, 21 (2012), pp. 1–87. [2] J. Bardina, J. Ferziger, and W. Reynolds , Improved subgrid-scale models for large-eddy simulation , in 13th Fluid and Plasmadynamics Conference, 1980, p. 1357. [3] J. Berner, G. Shutts, M. Leutbecher, and T. Palmer , A spectral stochastic kinetic energy backscatter scheme and its impact on flow-dependent predictability in the ECMWF ensemble prediction system , Journal of the Atmospheric Sciences, 66 (2009), pp. 603–626. [4] M. Germano, U. Piomelli, P. Moin, and W. H. Cabot , A dynamic subgrid-scale eddy viscosity model , Physics of Fluids A: Fluid Dynamics, 3 (1991), pp. 1760–1765. [5] G. H. Golub and J. H. Welsch , Calculation of Gauss quadrature rules , Mathematics of Computation, 23 (1969), pp. 221–230. [6] W. W. Grabowski and P. K. Smolarkiewicz , CRCP: A cloud resolving convection param-eterization for modeling the tropical convecting atmosphere , Physica D: Nonlinear Phenomena, 133 (1999), pp. 171–178. [7] I. Grooms and A. J. Majda , Efficient stochastic superparameterization for geophysical tur-bulence , Proceedings of the National Academy of Sciences, 110 (2013), pp. 4464–4469. [8] J. Han and Y. Lee , A neural network approach for homogenization of multiscale problems ,Multiscale Modeling & Simulation, 21 (2023), pp. 716–734. [9] , A stochastic approach for elliptic problems in perforated domains , Journal of Computa-tional Physics, 519 (2024), p. 113426. 21 [10] , An analysis of the derivative-free loss method for solving PDEs , Research in the Math-ematical Sciences, 13 (2026), p. 47. [11] J. Han, M. Nica, and A. R. Stinchcombe , A derivative-free method for solving elliptic partial differential equations with deep neural networks , Journal of Computational Physics, 419 (2020), p. 109672. [12] M. F. Jansen and I. M. Held , Parameterizing subgrid-scale eddy effects using energetically consistent backscatter , Ocean Modelling, 80 (2014), pp. 36–48. [13] I. Karatzas and S. Shreve , Brownian Motion and Stochastic Calculus , vol. 113, Springer Science & Business Media, 2012. [14] Y. Lee , Parameter estimation in the stochastic superparameterization of two-layer quasi-geostrophic flows , Research in the Mathematical Sciences, 7 (2020). [15] C. Leith , Stochastic backscatter in a subgrid-scale model: Plane shear mixing layer , Physics of Fluids A: Fluid Dynamics, 2 (1990), pp. 297–299. [16] A. J. Majda, I. Timofeyev, and E. Vanden-Eijnden , A priori tests of a stochastic mode reduction strategy , Physica D: Nonlinear Phenomena, 170 (2002), pp. 206–252. [17] P. P. Mana and L. Zanna , Toward a stochastic parameterization of ocean mesoscale eddies ,Ocean Modelling, 79 (2014), pp. 1–20. [18] L. Marstorp, G. Brethouwer, and A. V. Johansson , A stochastic subgrid model with application to turbulent flow and scalar mixing , Physics of Fluids, 19 (2007), p. 035107. [19] P. J. Mason and D. J. Thomson , Stochastic backscatter in large-eddy simulations of bound-ary layers , Journal of Fluid Mechanics, 242 (1992), pp. 51–78. [20] C. Meneveau and J. Katz , Scale-invariance and turbulence models for large-eddy simula-tion , Annual Review of Fluid Mechanics, 32 (2000), pp. 1–32. [21] B. Øksendal , Stochastic Differential Equations: An Introduction with Applications , Springer Science & Business Media, 2013. [22] K. M. S. Park and A. R. Stinchcombe , Deep reinforcement learning of viscous incom-pressible flow , Journal of Computational Physics, 467 (2022), p. 111455. [23] U. Piomelli, W. H. Cabot, P. Moin, and S. Lee , Subgrid-scale backscatter in turbulent and transitional flows , Physics of Fluids A: Fluid Dynamics, 3 (1991), pp. 1766–1771. [24] H. Pitsch , Large-eddy simulation of turbulent combustion , Annual Review of Fluid Mechanics, 38 (2006), pp. 453–482. [25] S. B. Pope , Turbulent flows , Cambridge University Press, 2000. [26] M. L. Puterman , Markov Decision Processes: Discrete Stochastic Dynamic Programming ,John Wiley & Sons, 2014. 22 [27] P. B. Rhines , Waves and turbulence on a beta-plane , Journal of Fluid Mechanics, 69 (1975), pp. 417–443. [28] N. D. Sandham, R. Johnstone, and C. T. Jacobs , Surface-sampled simulations of tur-bulent flow at high Reynolds number , International Journal for Numerical Methods in Fluids, 85 (2017), pp. 525–537. [29] R. S. Sutton and A. G. Barto , Reinforcement Learning: An Introduction , MIT Press, 2nd ed., 2018. [30] R. Temam , Navier-Stokes Equations: Theory and Numerical Analysis , North-Holland, 1977. [31] C. Van Loan , Computing integrals involving the matrix exponential , IEEE Transactions on Automatic Control, 23 (1978), pp. 395–404. 23
