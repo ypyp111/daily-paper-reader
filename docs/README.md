@@ -6,65 +6,46 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-17
-- 运行时间：2026-09-17 22:21:49 UTC
+- 最新运行日期：2026-09-18
+- 运行时间：2026-09-18 21:29:11 UTC
 - 运行状态：成功
-- 本次总论文数：15
-- 精读区：6
-- 速读区：9
+- 本次总论文数：8
+- 精读区：3
+- 速读区：5
 
 ### 今日简报（AI）
-今日精读6篇、速读9篇，共追踪15篇论文，聚焦PINN与神经算子前沿。最值得看的是9.0分的《Lecture notes on Physics Informed Neural Networks, Neural Operators, and their applications》系统梳理理论，以及同分的HiLNO多尺度分层潜神经算子处理一般几何PDE。普通读者可先从这两篇精读入手，再按兴趣浏览速读中的混合耦合与长程预测方向。
-- 详情：[/202609/17/README](/202609/17/README)
+今天共处理8篇（精读2篇、速读3篇已列出），主线集中在物理信息神经网络（PINN）的训练与求解效率上。
+最值得看的是9.0分的《Amortizing Physics-Informed Neural Solvers via Graph Hypernetworks》与8.0分的《Lazy training of quantum physics informed neural networks》，前者关注摊销式求解、后者关注量子PINN的惰性训练。
+普通读者可先读这两篇的摘要与图表抓住核心思路，再从速读里挑COBRA-Skills或LLM进化搜索评估那篇，判断方法能否迁移到自己的场景。
+- 详情：[/202609/18/README](/202609/18/README)
 
 ### 精读区论文标签
-1. [Lecture notes on Physics Informed Neural Networks, Neural Operators, and their applications](/202609/17/2609.17638v1-lecture-notes-on-physics-informed-neural-networks-neural-operators-and-their-applications)  
+1. [Amortizing Physics-Informed Neural Solvers via Graph Hypernetworks](/202609/18/2609.19915v1-amortizing-physics-informed-neural-solvers-via-graph-hypernetworks)  
    标签：评分：9.0/10、query:sci-ml-agent
-   evidence：系统讲解PINN、神经算子及其应用的讲义
-2. [HiLNO: A Hierarchical Latent Neural Operator with Multi-Scale Supervision for PDEs on General Geometries](/202609/17/2609.18419v1-hilno-a-hierarchical-latent-neural-operator-with-multi-scale-supervision-for-pdes-on-general-geometries)  
-   标签：评分：9.0/10、query:sci-ml-agent
-   evidence：分层潜神经算子用于PDE代理建模
-3. [Tackling Failure Modes of PINNs and PIKANs Using Conflict-Free Gradients](/202609/17/2609.14841v2-tackling-failure-modes-of-pinns-and-pikans-using-conflict-free-gradients)  
+   evidence：用算子图超网络实现PINN求解器跨方程摊销与自动设计
+2. [Lazy training of quantum physics informed neural networks](/202609/18/2609.19239v1-lazy-training-of-quantum-physics-informed-neural-networks)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：用基于投影的无冲突梯度手术训练求解PDE的PINN/PIKAN
-4. [Physics Informed Random Feature Neural Networks for Solving PDEs](/202609/17/2609.16406v1-physics-informed-random-feature-neural-networks-for-solving-pdes)  
+   evidence：物理信息神经网络求解PDE及其训练动力学理论
+3. [Beyond PINNs: A Unified Gauss--Newton and Petrov--Galerkin Framework for Neural and Hybrid PDE Solvers](/202609/18/2609.20641v1-beyond-pinns-a-unified-gauss--newton-and-petrov--galerkin-framework-for-neural-and-hybrid-pde-solvers)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：缓解谱偏差的物理信息随机特征神经网络求解PDE
-5. [A derivative-free framework for capturing macroscopic behavior of incompressible turbulent flows](/202609/17/2609.17323v1-a-derivative-free-framework-for-capturing-macroscopic-behavior-of-incompressible-turbulent-flows)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：无网格神经网络求解不可压湍流PDE
-6. [Evolutionary Ensemble Search: Council-Guided Program Evolution with Persistent Memory](/202609/17/2609.17590v1-evolutionary-ensemble-search-council-guided-program-evolution-with-persistent-memory)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：LLM 引导的演化程序合成与执行验证
+   evidence：面向含PINN的神经与混合PDE求解器的统一高斯-牛顿与Petrov-Galerkin框架
 
 ### 速读区论文标签
-1. [Hybrid coupling with numerics-informed neural networks and the overlapping Schwarz alternating method](/202609/17/2609.17841v1-hybrid-coupling-with-numerics-informed-neural-networks-and-the-overlapping-schwarz-alternating-method)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：数值信息神经网络混合耦合求解PDE，并与PINN对比
-2. [CATVis: A Collaborative Multi-Agent Workflow for Turbomachinery Simulation Data Visualization](/202609/17/2609.16598v1-catvis-a-collaborative-multi-agent-workflow-for-turbomachinery-simulation-data-visualization)  
+1. [COBRA-Skills: Contextual Bandit-Guided Evolution for Agent Skill Optimization](/202609/18/2609.11682v1-cobra-skills-contextual-bandit-guided-evolution-for-agent-skill-optimization)  
+   标签：评分：7.0/10、query:ai-pde
+   evidence：面向LLM智能体技能优化的上下文赌博机引导演化
+2. [Deep Learning for Singular PDEs: A Weighted Neural Network Approach](/202609/18/2609.19335v1-deep-learning-for-singular-pdes-a-weighted-neural-network-approach)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：面向叶轮机械CFD后处理的协作多智能体工作流
-3. [Stable by Construction: Variational Latent Markov Operators for Long-Horizon PDE Prediction](/202609/17/2609.16621v1-stable-by-construction-variational-latent-markov-operators-for-long-horizon-pde-prediction)  
+   evidence：用加权残差损失求解奇异PDE的深度学习神经网络框架
+3. [Evolution or Illusion? Rethinking Evaluation in LLM Evolutionary Search](/202609/18/2609.19799v1-evolution-or-illusion-rethinking-evaluation-in-llm-evolutionary-search)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：面向长时程预测的变分隐马尔可夫算子神经PDE代理
-4. [COBRA-Skills: Contextual Bandit-Guided Evolution for Agent Skill Optimization](/202609/17/2609.11682v1-cobra-skills-contextual-bandit-guided-evolution-for-agent-skill-optimization)  
-   标签：评分：6.0/10、query:ai-pde
-   evidence：上下文老虎机引导的智能体技能演化优化
-5. [ReLU Neural Network Approximation to Smooth Functional Operator: Dimensional Decay and Error Analysis](/202609/17/2609.15355v1-relu-neural-network-approximation-to-smooth-functional-operator-dimensional-decay-and-error-analysis)  
+   evidence：对LLM驱动演化程序搜索策略的评估研究
+4. [High-Fidelity Digital Twin Data Models by Randomized Dynamic Mode Decomposition and Deep Learning with Applications in Fluid Dynamics](/202609/18/2609.17101v1-high-fidelity-digital-twin-data-models-by-randomized-dynamic-mode-decomposition-and-deep-learning-with-applications-in-fluid-dynamics)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：光滑泛函算子的ReLU网络逼近理论
-6. [Can Deep Learning Achieve Cross-Physics Mapping?](/202609/17/2609.16853v1-can-deep-learning-achieve-cross-physics-mapping)  
+   evidence：面向流体力学的非侵入式降阶数字孪生模型
+5. [MAGS: Multi-agent Auto-formalization Guarantees Safety for Agentic Outputs](/202609/18/2609.19391v1-mags-multi-agent-auto-formalization-guarantees-safety-for-agentic-outputs)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向PDE支配物理域之间映射的算子学习框架
-7. [Latent Inversion of Material Coefficients from Boundary Data via Finite Tests and Neural Surrogates](/202609/17/2609.17137v1-latent-inversion-of-material-coefficients-from-boundary-data-via-finite-tests-and-neural-surrogates)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：神经代理与潜变量反演求解PDE反问题
-8. [Spatio-temporal Latent Denoising Diffusion Probabilistic Models for Reduced-order Modeling of Parametrized Dynamical Systems](/202609/17/2609.17768v1-spatio-temporal-latent-denoising-diffusion-probabilistic-models-for-reduced-order-modeling-of-parametrized-dynamical-systems)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：用生成式机器学习为参数化动力系统构建非侵入式降阶代理模型
-9. [Fast Learning Rates for Physics-Informed Kernel Methods](/202609/17/2609.18901v1-fast-learning-rates-for-physics-informed-kernel-methods)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：结合微分信息的物理信息核估计器学习率分析
+   evidence：对LLM生成程序的多智能体形式化验证
 
 
 <div class="dpr-home-promo-card">
