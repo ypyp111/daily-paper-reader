@@ -6,46 +6,44 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-18
-- 运行时间：2026-09-18 21:29:11 UTC
+- 最新运行日期：2026-09-19
+- 运行时间：2026-09-19 21:50:23 UTC
 - 运行状态：成功
-- 本次总论文数：8
-- 精读区：3
-- 速读区：5
+- 本次总论文数：7
+- 精读区：0
+- 速读区：7
 
 ### 今日简报（AI）
-今天共处理8篇（精读2篇、速读3篇已列出），主线集中在物理信息神经网络（PINN）的训练与求解效率上。
-最值得看的是9.0分的《Amortizing Physics-Informed Neural Solvers via Graph Hypernetworks》与8.0分的《Lazy training of quantum physics informed neural networks》，前者关注摊销式求解、后者关注量子PINN的惰性训练。
-普通读者可先读这两篇的摘要与图表抓住核心思路，再从速读里挑COBRA-Skills或LLM进化搜索评估那篇，判断方法能否迁移到自己的场景。
-- 详情：[/202609/18/README](/202609/18/README)
+- 今日共生成 7 篇推荐（精读 0 篇，速读 7 篇）
+- 速读：《Backward SDEs-based Diffusion for Physics-Constrained Generation》（7.0/10）, 《ZAPS: Zero-Cost Active Proxy Search for Neural Architecture Search》（6.0/10）, 《Agentic Search Spaces for Tabular Machine Learning》（6.0/10）
+- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
+- 详情：[/202609/19/README](/202609/19/README)
 
 ### 精读区论文标签
-1. [Amortizing Physics-Informed Neural Solvers via Graph Hypernetworks](/202609/18/2609.19915v1-amortizing-physics-informed-neural-solvers-via-graph-hypernetworks)  
-   标签：评分：9.0/10、query:sci-ml-agent
-   evidence：用算子图超网络实现PINN求解器跨方程摊销与自动设计
-2. [Lazy training of quantum physics informed neural networks](/202609/18/2609.19239v1-lazy-training-of-quantum-physics-informed-neural-networks)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：物理信息神经网络求解PDE及其训练动力学理论
-3. [Beyond PINNs: A Unified Gauss--Newton and Petrov--Galerkin Framework for Neural and Hybrid PDE Solvers](/202609/18/2609.20641v1-beyond-pinns-a-unified-gauss--newton-and-petrov--galerkin-framework-for-neural-and-hybrid-pde-solvers)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：面向含PINN的神经与混合PDE求解器的统一高斯-牛顿与Petrov-Galerkin框架
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [COBRA-Skills: Contextual Bandit-Guided Evolution for Agent Skill Optimization](/202609/18/2609.11682v1-cobra-skills-contextual-bandit-guided-evolution-for-agent-skill-optimization)  
-   标签：评分：7.0/10、query:ai-pde
-   evidence：面向LLM智能体技能优化的上下文赌博机引导演化
-2. [Deep Learning for Singular PDEs: A Weighted Neural Network Approach](/202609/18/2609.19335v1-deep-learning-for-singular-pdes-a-weighted-neural-network-approach)  
+1. [Backward SDEs-based Diffusion for Physics-Constrained Generation](/202609/19/2609.15702v1-backward-sdes-based-diffusion-for-physics-constrained-generation)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：用加权残差损失求解奇异PDE的深度学习神经网络框架
-3. [Evolution or Illusion? Rethinking Evaluation in LLM Evolutionary Search](/202609/18/2609.19799v1-evolution-or-illusion-rethinking-evaluation-in-llm-evolutionary-search)  
-   标签：评分：7.0/10、query:sci-ml-agent
-   evidence：对LLM驱动演化程序搜索策略的评估研究
-4. [High-Fidelity Digital Twin Data Models by Randomized Dynamic Mode Decomposition and Deep Learning with Applications in Fluid Dynamics](/202609/18/2609.17101v1-high-fidelity-digital-twin-data-models-by-randomized-dynamic-mode-decomposition-and-deep-learning-with-applications-in-fluid-dynamics)  
+   evidence：基于后向SDE扩散的物理约束生成式反演
+2. [ZAPS: Zero-Cost Active Proxy Search for Neural Architecture Search](/202609/19/2609.14184v1-zaps-zero-cost-active-proxy-search-for-neural-architecture-search)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向流体力学的非侵入式降阶数字孪生模型
-5. [MAGS: Multi-agent Auto-formalization Guarantees Safety for Agentic Outputs](/202609/18/2609.19391v1-mags-multi-agent-auto-formalization-guarantees-safety-for-agentic-outputs)  
+   evidence：面向神经架构搜索的零成本主动代理搜索
+3. [Agentic Search Spaces for Tabular Machine Learning](/202609/19/2609.16309v1-agentic-search-spaces-for-tabular-machine-learning)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：对LLM生成程序的多智能体形式化验证
+   evidence：LLM智能体自动设计超参搜索空间
+4. [FINNAS: FINN-Guided Hardware-Aware NAS and Pruning for FPGA Jet Substructure Classification](/202609/19/2609.16367v1-finnas-finn-guided-hardware-aware-nas-and-pruning-for-fpga-jet-substructure-classification)  
+   标签：评分：6.0/10、query:sci-ml-agent
+   evidence：面向科学硬件约束模型的演化神经架构搜索
+5. [Adaptive hybrid coupling with operator inference, the overlapping Schwarz alternating method and reinforcement learning](/202609/19/2609.17837v1-adaptive-hybrid-coupling-with-operator-inference-the-overlapping-schwarz-alternating-method-and-reinforcement-learning)  
+   标签：评分：6.0/10、query:sci-ml-agent
+   evidence：强化学习自适应FOM-ROM耦合的代理建模策略
+6. [Rosetta: Automating First-Principles Performance Modeling Using Multi-Agent LLMs](/202609/19/2609.19376v1-rosetta-automating-first-principles-performance-modeling-using-multi-agent-llms)  
+   标签：评分：6.0/10、query:sci-ml-agent
+   evidence：多智能体LLM自动生成可执行解析模型
+7. [SoL-Pi: Recursively Scaling Auto-Research Loops for Efficient Agent Harness](/202609/19/2609.20519v1-sol-pi-recursively-scaling-auto-research-loops-for-efficient-agent-harness)  
+   标签：评分：6.0/10、query:sci-ml-agent
+   evidence：智能体harness自动研究循环与可复用智能体技能
 
 
 <div class="dpr-home-promo-card">

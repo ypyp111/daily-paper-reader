@@ -1,0 +1,468 @@
+Title: Adaptive hybrid coupling with operator inference, the overlapping Schwarz alternating method and reinforcement learning
+
+URL Source: https://arxiv.org/pdf/2609.17837v1
+
+Published Time: Thu, 17 Sep 2026 00:16:12 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+ADAPTIVE HYBRID COUPLING WITH OPERATOR INFERENCE, THE OVERLAPPING SCHWARZ ALTERNATING METHOD AND REINFORCEMENT LEARNING 
+
+TRISHIT MONDAL ∗, IRINA TEZAUR † , AND ANTHONY GRUBER ‡
+
+Abstract. Hybrid domain decomposition methods provide a flexible framework for coupling full order models (FOMs) and reduced order models (ROMs), but typically assume that the model assigned to each subdomain is selected a priori and remains fixed throughout a simulation. This can be limiting for transient problems in which localized features propagate through the computational domain and the regions requiring high-fidelity resolution change over time. We introduce a reinforcement learning- (RL)-based approach for online adaptation of FOM-ROM models coupled using the overlapping Schwarz alternating method (O-SAM), an iterative domain decomposition method that solves subdomain-local problems while exchanging solution information through transmission boundary conditions on the overlapping subdomain interfaces. Deep Q-networks (DQNs) are trained offline to select among subdomain-local FOMs and pre-trained Op-erator Inference (OpInf) ROMs using a reward that balances solution accuracy and computational cost, while simultaneously penalizing unnecessary model switching. Once trained, the resulting policies are de-ployed predictively on problem instances not encountered during RL training without requiring a reference FOM solution. We demonstrate the proposed approach on two numerical examples: a one-dimensional advection-diffusion problem with a moving front and a three-dimensional linear elastic wave propagation problem implemented in the Norma.jl solid mechanics code. For the advection-diffusion benchmark, the learned policy dynamically allocates high-fidelity resolution as the front propagates and provides a favorable accuracy-cost tradeoff relative to static FOM/ROM assignments; allowing the agent to additionally adapt the domain decomposition provides no further benefit. For the elastic wave benchmark, the learned policies for both two and three subdomain decompositions track the propagating wave by assigning FOMs to the subdomains containing the wave and ROMs elsewhere, as expected. Importantly, this behavior is observed for problem instances not used during training. Our results demonstrate the potential of RL to enable predictive online adaptation of model fidelity within Schwarz-based hybrid simulations. 
+
+1. Introduction. Multi-scale, multi-physics modeling and simulation (ModSim) is es-sential for the design and qualification of engineered components and systems relevant to Sandia’s mission. Analysts face significant delays due to both the mesh generation step of the ModSim workflow and the long run-time requirements for simulations, which can preclude multi-query analyses such as design optimization, control and uncertainty quantifi-cation (UQ). Emerging approaches for building data-driven reduced order models (ROMs) have promised to reduce the runtime burden of ModSim and enable multi-query analyses. However, ROMs can suffer from their own deficiencies, including robustness, stability, and accuracy concerns, lengthy implementations, and a lack of systematic refinement mecha-nisms. In recent years, Sandia has expended a large effort to overcome both of the two afore-mentioned hurdles through the development of hybrid models based on optimal domain decomposition (DD) [26, 23, 19, 25], as illustrated in Figure 1.1(a). In our approach, the domain is decomposed into overlapping or non-overlapping subdomains according to some physics-based criteria, and different meshes and/or models are assigned to different subdo-mains according to these physics. The subdomains are coupled via an iterative technique known as the Schwarz alternating method (SAM) [21]. The key idea behind SAM is to replace a global monolithic problem in a domain Ω by a sequence of smaller problems in subdomains Ω i, where Ω = ∪iΩi. The coupling happens through carefully defined trans-mission boundary conditions prescribed on the interfaces between the subdomains Ω i. In our past work [14, 15, 23, 26, 19, 25], we have shown that SAM is capable of seamlessly 
+
+> ∗
+
+Worcester Polytechnic Institute, tmondal@wpi.edu 
+
+> †
+
+Sandia National Laboratories, ikalash@sandia.gov 
+
+> ‡
+
+Sandia National Laboratories, adgrube@sandia.gov arXiv:2609.17837v1 [cs.LG] 15 Sep 2026 “gluing together” arbitrary combinations of subdomain-local full order models (FOMs) and subdomain-local ROMs in a plug-and-play fashion. Since the method does not require conformal meshing of the subdomains Ω i, it is extremely effective at simplifying meshing workflows. The introduction of ROMs into the workflow has the potential to improve the predictive viability of the reduced models by enabling their spatial localization via DD, as well as through the online integration of high-fidelity information via FOM coupling.  
+
+> (a) DD and model assignment (b) Online ROM-FOM-ROM switching
+
+Fig. 1.1: Domain decomposition-based hybrid coupling and online ROM-FOM-ROM switch-ing within a SAM coupling framework. Until now, our SAM-based coupling workflow has assumed that the DD and the assign-ment of meshes and/or models to individual subdomains are performed once, prior to the start of a simulation, and remain fixed throughout the coupled simulation. The primary limitation of this approach is that it cannot account for changing dynamics or traveling features that emerge and propagate during a simulation. For example, consider a travel-ing shock that requires a FOM to be accurately resolved. If the shock enters subdomains to which ROMs were assigned a priori , inaccuracies may be introduced and subsequently propagate through the coupled system, degrading the solution over time. The idea of dynamically switching between ROMs and FOMs online, as illustrated in Figure 1.1(b), is relatively new, but has been explored in several previous works. In [18, 4], which consider solid mechanics problems, ROM-FOM switching is determined by the onset of plasticity within a prescribed subdomain: a ROM is employed as long as the subdomain remains in the elastic regime, and the subdomain switches to a FOM once plasticity is detected. Because plasticity is irreversible, switching is one-way, from ROM to FOM. Several more recent works pursue closely related ideas, including adaptive enrichment, fidelity selection, and heterogeneous ROM-FOM coupling, without performing dynamic on-line ROM-FOM switching in the strict sense. In [22], Smetana and Taddei propose an adaptive localized ROM in which residual-based error indicators identify components re-quiring enrichment and high-fidelity local correction problems are solved to augment the corresponding reduced spaces. Thus, rather than switching a component from a ROM to a FOM, their approach selectively introduces high-fidelity computations online when the ROM is deemed insufficient. In [8], Huang and coauthors develop adaptive and component-based ROM frameworks that incorporate online basis adaptation and permit heterogeneous coupling of ROM and FOM components; however, components are not dynamically switched between ROM and FOM representations during the simulation. In [5], Ebrahimi and Yano develop a component-based hyper-reduced ROM that adaptively selects the hyper-reduction fidelity of individual components online based on a system-level error estimate. This consti-tutes online adaptive fidelity selection rather than ROM-FOM switching, as the components remain reduced order throughout the computation. Finally, Hedayat et al. [6] perform on-line temporal switching between ROM and FOM computations, periodically invoking the FOM to acquire high-fidelity data used to adapt the ROM before returning to reduced order prediction. In contrast to the present setting, their approach considers a single computa-tional domain and therefore does not involve domain decomposition or coupling between distinct ROM and FOM subdomains. One fundamental challenge in enabling online ROM-FOM switching is determining when and where a change in model fidelity should occur. Fundamentally, this problem is related to extrapolation detection in machine learning and requires some measure of model ade-quacy. While there has been some work on error estimation for certain types of ROMs, e.g., projection-based ROMs [3], reliable error indicators are not readily available for many classes of data-driven models. Herein, we address this challenge by leveraging reinforcement learning (RL) [24] to learn an online model-switching policy for subdomain-local FOMs and Operator Inference (OpInf) ROMs [16] coupled via overlapping SAM (O-SAM). We refer to the resulting RL-based adaptive O-SAM framework as “RL–O-SAM”. In our workflow, the RL agent is trained on a collection of problem instances to select the model employed in each subdomain over time, with a reward function that balances computational cost, solution error, and penalizes unnecessary model switching. Once trained, the learned policy is deployed predictively on problem instances not encountered during RL training, including problems characterized by different parameters, boundary conditions, and/or initial condi-tions from those used to train the policy. In this way, the proposed framework seeks to learn when and where high-fidelity resolution is required while exploiting computationally inex-pensive ROMs elsewhere, enabling the model assignment within the domain decomposition to adapt dynamically as the solution evolves. Toward this effect, the remainder of this paper is organized as follows. Section 2 provides some preliminaries to keep this paper self-contained, overviewing the OpInf approach to model order reduction and the O-SAM algorithm applied to couple subdomain local OpInf ROMs with each other or with subdomain-local FOMs. Section 3 overviews RL and describes how it is utilized to perform online adaptation of O-SAM. Section 4 presents some numerical results illustrating the accuracy and efficiency of the proposed approach, applied to an advection-diffusion benchmark with a moving shock, and to a linear elastic wave propagation problem in solid mechanics. Finally, conclusions are offered in Section 5. 
+
+Remark 1. We note that the ROMs being coupled in our approach are all pre-trained and not updated on-the-fly using newly-available FOM information. Performing online OpInf ROM updates, a relatively open topic, will be the subject of future work, and may lever-age techniques from the recent pre-print by Koike et al. [10], in which a streaming OpInf approach is developed. 
+
+2. Hybrid coupling with operator inference (OpInf ) and the overlapping Schwarz alternating method (O-SAM). As discussed above, this paper presents an RL-based approach for performing online switching between subdomain-local FOMs and OpInf ROMs [16], coupled via O-SAM [21]. Before describing our RL-based workflow (Section 3.3), we briefly describe OpInf model order reduction and its combination with O-SAM [25]. 
+
+2.1. Operator Inference (OpInf ). First proposed by Peherstorfer and Willcox in [16], OpInf is a projection-inspired model reduction approach that is fully non-intrusive, requiring no access to the underlying high-fidelity simulation code. The approach consists of three steps: (i) the creation of a reduced basis Φr from snapshot data collected during a high-fidelity simulation, (ii) the solution of a regularized least-squares optimization problem for the operators defining the ROM, and (iii) online deployment of the learned ROM. Following the approach in [25], we construct our reduced basis Φr using a common technique known as Proper Orthogonal Decomposition (POD) [7]. Assume, without loss of generality, that we have collected K + 1 snapshots of a solution u(t) to a given transient partial differential equation (PDE) at times T0, T 1, ..., T K and placed them in the columns of a snapshot matrix U , i.e., 
+
+U :=   u(T0), u(T1) , · · · , u(TK )  ∈ RN ×K , (2.1) where N is the size of each snapshot, corresponding to the number of degrees of freedom (dofs) in the PDE being solved. POD is based on the assumption that the solution to a given PDE has a low rank relative to the FOM dof space RN , so that the snapshot matrix U admits a low-rank approximation. POD begins by performing a thin singular value decomposition (SVD) of U , so that U = ΦΣΨ T . The first r ≤ rank( U ) left singular vectors form the rank-r POD basis Φr ∈ RN ×r . This basis provides the optimal rank-r approximation of the snapshots in the Frobenius norm, so that 
+
+∥U − Φr Φ⊤ 
+
+> r
+
+U ∥2 
+
+> F
+
+= 
+
+> rank( U)
+
+X
+
+> i=r+1
+
+σ2 
+
+> i
+
+, (2.2) where σi denotes the ith singular value of U . The reduced dimension r is commonly selected to retain a prescribed fraction ξ ∈ (0 , 1) of the snapshot energy, i.e., as the smallest integer satisfying Pri=1 σ2
+
+> i
+
+Prank( U ) 
+
+> i=1
+
+σ2
+
+> i
+
+≥ ξ. (2.3) OpInf is founded on the observation that projection-based reduction of a polynomial FOM preserves its polynomial structure. For example, consider a linear FOM of the form ˙u + Au = Bg (2.4) with u ∈ RN , A ∈ RN ×N , B ∈ RN ×n and g ∈ Rn, for N, n ∈ N. A system of the form (2.4) is obtained by discretizing a linear PDE in space using the finite element method and enforcing Dirichlet boundary conditions using the Bg term, where the g vector encodes the Dirichlet boundary data 1. Projecting (2.4) onto a reduced basis Φr yields the linear ROM ˙bu + bAbu = ¯Bg , (2.5) where bu := ΦTr u, bA := ΦTr AΦr and ¯B := ΦTr B. In traditional (intrusive) projection-based model order reduction, computing the bA and ¯B operators in (2.5) requires access to the matrix A and vector f , and hence to the code that was used to generate these matrices. Non-intrusive OpInf avoids this by learning the reduced operators in (2.5) directly from the snapshot data (2.1) by solving a convex least-squares minimization problem. Given data for the projected state bU = ΦTr U and approximate derivative information, Dt( bU ) computed with, e.g., a finite difference operator Dt, the OpInf learning problem takes the form: arg min  
+
+> bA,¯B
+
+Dt( bU ) − bA bU − ¯BG 2
+
+> F
+
++ η
+
+
+
+∥ ˆA∥2 
+
+> F
+
++ ∥ ¯B∥2
+
+> F
+
+
+
+. (2.6) Here, G is a matrix whose ith column is g(Ti), and η ∈ R+ is a (scalar-valued) regularization parameter controlling the condition number of the resulting linear system.     
+
+> 1For a derivation of how the Bg and ¯Bg terms encode Dirichlet boundary condition in both the ROM and the FOM, the reader is referred to [25].
+
+2.2. O-SAM applied to Operator Inference. The second ingredient in our work-flow is O-SAM, which we use as a means to perform concurrent subdomain coupling. Con-sider a physical domain Ω ∈ Rd, for d = 1 , 2, 3, and assume Ω has been decomposed into two overlapping subdomains, Ω 1 and Ω 2, such that Ω = Ω 1 ∪ Ω2 and Ω 1 ∩ Ω2 = ∅, as shown in Figure 2.1. Let the interior interface boundaries be defined as Γ 1 := ∂Ω1 ∩ Ω2 and Γ2 := ∂Ω2 ∩ Ω1. In the multiplicative O-SAM algorithm, illustrated pictorally in Figure 2.1, the governing PDE is solved by iterating sequentially between subdomain-local prob-lems, with boundary information exchanged to ensure compatibility across the “Schwarz boundaries” Γ 1 and Γ 2, as shown in Figure 2.1. It has been shown [11, 14] that, for an overlapping DD, the Schwarz iteration process is guaranteed to converge if Dirichlet trans-mission boundary conditions (BCs) are specified on the Schwarz boundaries, provided the underlying problem is well-posed and the overlap region is non-empty. 
+
+Fig. 2.1: The basic O-SAM algorithm for the coupling of two overlapping subdomains, Ω 1
+
+and Ω 2.There is a critical detail implied by Figures 2.1 and 2.2: the PDEs in each of the sub-domains can be solved by any method on any mesh, meaning that the Schwarz algorithm allows for the plug-and-play coupling of a variety of models and meshes, including a com-bination of conventional and data-driven models. Indeed, it has been shown in previous work that O-SAM is capable of coupling regions with different mesh resolutions, different element types, different time integration schemes (e.g., implicit and explicit), and even dif-ferent models (e.g., FOM and ROM), all without introducing any artifacts exhibited by alternative coupling methods [14, 15, 23, 26, 19, 25]. In addition, the method is mini-mally intrusive to implement in existing HPC software frameworks and possesses rigorous convergence properties/guarantees [14, 15] in the all-FOM coupling setting. Herein, we adopt the O-SAM OpInf-OpInf and OpInf-FOM coupling methodology de-veloped in [25] and sketched succinctly below. The approach is depicted graphically in Figure 2.2. Consider the two subdomain decomposition shown in Figure 2.1 and assume that an OpInf ROM is employed in Ω 1 while a FOM is used in Ω 2. Suppose, additionally, that we have pre-learned the reduced basis and operators defining the former model by solv-ing the minimization problem (2.6) restricted to Ω 1. For simplicity, we assume that there Fig. 2.2: Graphical depiction of O-SAM being used to couple a subdomain-local FOM with a subdomain-local ROM. are no prescribed essential boundary conditions on the physical boundary, so that the only Dirichlet data imposed on each subdomain are the Schwarz transmission conditions. At the semi-discrete level, the corresponding subdomain models take the form: ˙bu1 + bA1 bu1 = ¯B1g1, ˙u2 + A2u2 = B2g2, (2.7) where gi contains the Dirichlet data imposed on the Schwarz boundary Γ i. More precisely, let 
+
+PΩj →Γi : RNj → RnΓi , i̸ = j, (2.8) denote an operator that restricts (or traces) the solution on Ω j to the Schwarz boundary Γ i
+
+of the neighboring subdomain, where Nj ∈ N+ is the number of dofs in Ω j and nΓi ∈ N+ is the number of dofs on Γ i. Now, the Dirichlet data imposed on Γ i are given by 
+
+gi = PΩj →Γi uj , i̸ = j. 
+
+Remark 2. The operator PΩj →Γi may additionally incorporate interpolation when the dis-cretizations of Ωi and Ωj are nonconformal. We do not consider this case herein but it is considered in some of our past works on Schwarz coupling, e.g., [14, 15, 26, 13, 25]. 
+
+Suppose now that Φr, 1 ∈ RN1×r1 is the size r1 ∈ N+ POD basis used to construct the OpInf model on Ω 1, so that 
+
+u1(t) ≈ Φr, 1 bu1(t). (2.9) Let n ∈ N denote the Schwarz iteration index. At Schwarz iteration n, the coupled OpInf– FOM subdomain problems are given by ˙bu(n)1 + bA1 bu(n)1 = ¯B1PΩ2→Γ1 u(n−1) 2 , (2.10) ˙u(n)2 + A2u(n)2 = B2PΩ1→Γ2 Φr, 1 bu(n)1 . (2.11) for n = 0 , 1, ... . The Schwarz iteration (2.10) continues until the differences in the solutions 
+
+u(k+1)  
+
+> i
+
+and u(k) 
+
+> i
+
+are sufficiently small, for i = 1 , ..., n d, with nd ∈ N+ denoting the number of subdomains (in this case, nd = 2), or the number of Schwarz iterations performed hits a pre-specified maximum Schwarz iteration value, maxit ∈ N+. Following the application of a time-discretization scheme, at each time step, the subdomain-local OpInf and FOM problems are solved alternately until the Schwarz convergence criterion is satisfied. The converged solution is then advanced to the next time step, and this procedure is repeated until the final simulation time is reached. The above workflow describes the online Schwarz coupling phase of the O-SAM algo-rithm, without considering the offline construction phase of the OpInf ROM in Ω 1. We construct our subdomain-local ROMs following the methodology described in Algorithm 2 in [25], which is based on a top-down training approach. In this approach: (i) a set of O-SAM-based FOM-FOM coupled simulations on Ω 1 and Ω 2 are performed, (ii) snapshots for U1 an G1, the solution and boundary data from Ω 1 are saved, (iii) a POD basis, Φr, 1
+
+is computed, and (iv) the regularized minimization problem in (2.6), restricted to Ω 1, is solved to obtain the bA1 and ¯B1 operators in (2.10). Extending the above algorithm to the case of OpInf-OpInf coupling and multiple sub-domains is straightforward. We note that various enhancements, such as the incorporation of essential boundary conditions on the outer boundaries of Ω 1 and Ω 2, and the reduction of the boundary dofs is also straightforward, but we omit these details herein for the sake of brevity. The interested reader is referred to [25] for those and other details. 
+
+3. Reinforcement learning for online adaptation of O-SAM. The objective of the present work is to use RL to enable online adaptation of the O-SAM coupling framework described in Section 2.2. In particular, we seek to learn a policy that dynamically selects between ROM and FOM representations within each subdomain as the solution evolves in time, thereby enabling both ROM-to-FOM and FOM-to-ROM switching during a sim-ulation. We additionally consider extending this framework to allow the underlying DD itself to vary in time, so that both the subdomain partition and the model assigned to each subdomain may be selected adaptively. The remainder of this section introduces the RL methodology employed to learn these adaptive policies and describes its integration within the O-SAM iteration process. In particular, Section 3.1 provides an overview of reinforcement learning in a general setting, Section 3.2 describes the specific RL algorithm used in this work, namely the deep Q-network (DQN) approach, and Section 3.3 describes the application of DQN to the online model-switching and DD adaptation problems considered in this work. 
+
+3.1. Reinforcement learning. RL [24, 17] is a machine learning paradigm in which an agent learns to make sequential decisions by interacting with an environment, in our case, a numerical simulation. The RL decision-making process begins with the agent observing the current state st ∈ S . Based on this state, the agent selects an action at ∈ A according to a policy π(a | s) and receives a scalar reward rt ∈ R quantifying the immediate benefit of that decision. The state represents the information available to the agent at the time a decision is made, while the action represents one of the available decisions. In the hybrid simulations considered herein, the state is constructed from the numerical solution at a given time, the actions correspond to different model selections, and the reward balances solution accuracy and computational cost, as detailed in Sections 3.3 and 4. Given a state st an action at, the environment transitions to a new state st+1 according to the transition dynamics 
+
+st+1 ∼ P(· | st, a t), (3.1) where P denotes the state transition probability distribution. It is evident from (3.1) that an action affects not only the reward received at the current step, but also the state from which subsequent decisions are made. This sequential dependence is central to RL: an action that appears favorable immediately may lead to less favorable outcomes later, and vice versa. This sequential interaction between the agent and the environment is commonly modeled as a Markov Decision Process (MDP) [17], defined by the tuple (S, A, P, R, γ ), (3.2) where S is the state space, A is the action space, P is the transition model, γ ∈ [0 , 1) is the discount factor, and R : S × A → R is the reward function generating the scalar reward 
+
+rt = R(st, a t, s t+1 ) received at every step. The objective of an RL agent is to learn a policy that maximizes the expected cumulative discounted reward, 
+
+J(π) = Eπ
+
+" ∞X
+
+> t=0
+
+γtrt
+
+#
+
+, (3.3) where the expectation is taken over trajectories induced by the policy, the transition dy-namics, and the initial state distribution. The discount factor γ determines the relative weighting of immediate and future rewards, so that values of γ close to zero place greater emphasis on immediate rewards, whereas values closer to one place greater weight on the long-term consequences of the agent’s decisions. In (3.3), J(π) should be distinguished from the reward function R: whereas R defines the reward received at each step, J(π) measures the expected cumulative performance of a policy π.In modern RL algorithms, NNs are often used to approximate the functions that define the RL agent’s decision-making policy, providing a practical means of representing these functions over high-dimensional state spaces. In the present work, we employ such an NN-based RL approach to enable adaptive decision-making within an evolving numerical simulation. Specifically, we augment the O-SAM coupling algorithm described in Section 2 with an RL-based model-switching strategy that adaptively selects between FOM and ROM subdomain models as the simulation evolves. The details of this approach are given in Section 3.3, following the description of the specific value-based RL algorithm employed in this work, the deep Q-network (DQN) [12] (Section 3.2). 
+
+3.2. Deep Q-networks (DQNs). As stated above, the RL policy learned herein uti-lizes a DQN [12]. DQNs are particularly well-suited to problems with high-dimensional state spaces and a discrete set of available actions. This makes DQN a natural choice for the model selection problem considered here, in which the state contains high-dimensional information describing the evolving solution, while the available actions correspond to a discrete and relatively small set of model assignments. 
+
+Remark 3. The reader may wonder why we do not consider simpler RL approaches that are not based on NNs, such as tabular Q-learning [24]. Tabular methods maintain a specific value estimate for every state-action pair and are effective when the state space is small and discrete, but they scale poorly with state dimension. The number of state-action pairs grows exponentially with the dimension of the state representation, and tabular methods do not provide any mechanism for generalizing across unvisited states. This is impractical in the present setting, where the state is constructed from a high-dimensional representation of the evolving numerical solution. DQN avoids this limitation by using a NN, with weights shared across all inputs, to approximate the action value function. Because nearby states share the same network parameters, the learned function varies smoothly across the state space, which allows the network to produce reasonable value estimates for states not directly seen during training. 
+
+As a value-based RL method, DQN uses a NN to approximate an action value function that quantifies the expected long-term return associated with taking a particular action in a given state. Toward this effect, rather than representing the policy π directly, the RL agent learns the action value function 
+
+Qπ (s, a ) = Eπ
+
+" ∞X
+
+> t=0
+
+γtrt s0 = s, a 0 = a
+
+#
+
+, (3.4) the expected return from taking action a in state s and following π thereafter. It can be shown [2] that the optimal action value function satisfies the Bellman optimality equation 
+
+Q∗(s, a ) = E
+
+h
+
+r + γ max  
+
+> a′
+
+Q∗(s′, a ′) s, a 
+
+i
+
+, (3.5) from which a greedy policy π∗(s) = arg max a Q∗(s, a ) is recovered. Training follows the standard DQN procedure, in which the DQN is trained using the information collected as the agent interacts with the environment. Each interaction produces a transition ( s, a, r, s ′), recording the current state s, the action a taken by the agent, the resulting reward r, and the subsequent state s′. These transitions are stored in a replay buffer, which serves as a collection of the agent’s past experiences. Rather than training the network using transitions in the order in which they occur, transitions are sampled randomly from this buffer in small groups, or minibatches. This reduces correlations between successive training samples and improves the stability of the learning process. DQN employs two neural networks during training: an online network Qθ , whose pa-rameters are continually updated, and a target network Q¯θ , whose parameters are held fixed for a prescribed number of training steps. For each sampled transition, the target network is used to construct the regression target 
+
+y = r + γ (1 − d) Q¯θ
+
+
+
+s′, arg max  
+
+> a′
+
+Qθ (s′, a ′)
+
+
+
+, (3.6) where the argmax is evaluated over the finite, discrete action set A: a single forward pass of the online network on s′ produces one value Q¯θ (s′, a ′) for each candidate action a′ ∈ A ,and the action having the largest such value is selected. The first term in (3.6) is the reward received for the action just taken, while the second estimates the future reward that can be obtained from the resulting state s′. If s′ is the terminal state, d = 1 and the future reward contribution vanishes. In (3.6), the online network Qθ is used to identify the action expected to be best in the new state s′, while the target network Q¯θ evaluates the value of that action. Separating these two operations reduces the systematic overestimation of action values that can arise when the same network is used for both. The parameters θ of the online network are updated by minimizing the Huber loss [9] between its current prediction Qθ (s, a ) and the target value y. For a residual δ := Qθ (s, a ) − y, the Huber loss is defined as 
+
+Lκ(δ) = 
+
+( 12 δ2, |δ| ≤ κ, κ  |δ| − 12 κ , |δ| > κ, (3.7) where κ > 0 is a threshold parameter. The Huber loss is selected because it is less sensitive than a squared loss to occasional large prediction errors during training. Through repeated updates using transitions sampled from the replay buffer, the network learns to estimate the expected long-term return associated with each available action. During deployment, the learned action value function is then used to select the action with the largest predicted return for the current state. The specific application of this DQN framework to adaptive model selection and DD within O-SAM is described next, in Section 3.3. 
+
+3.3. RL-based online adaptation of O-SAM. We now specialize the RL frame-work described above to the adaptive O-SAM problem. Recall from Section 2.2 that, for a given DD and model assignment, the O-SAM algorithm advances the solution by solving the subdomain-local problems and iteratively exchanging Dirichlet data until convergence is declared. Once the Schwarz iteration has converged, the coupled solution is advanced forward in time. In the present approach, RL does not modify the Schwarz iteration itself, but instead selects the subdomain models – and, possibly, the domain decomposition – used by O-SAM in each decision window. Suppose that the time interval [0 , T final ] associated with one simulated trajectory , i.e., one complete simulation of a particular problem instance, defined by a given choice of ini-tial conditions, boundary conditions and/or physical parameters, is divided into a prescribed number of decision windows , as illustrated in Figure 3.2. We refer to this simulated trajec-tory as an episode . The proposed RL–O-SAM workflow consists of two stages: an offline training stage and an online deployment stage , as illustrated in Figure 3.1. 
+
+Fig. 3.1: Offline training and online deployment of the RL–O-SAM framework. During training (left), a high-fidelity reference solution u∗(t) is computed for each problem instance and used to evaluate the error term in the reward (3.9) Each episode advances from t = 0 to Tfinal , with the reward evaluated after each decision window and used to train the DQN. During deployment (right), neither the reference solution nor the reward is required; the trained policy selects an action from the observed state alone. In the offline training stage, we first define the discrete action space A available to the RL agent and construct the corresponding subdomain-local ROMs. We consider two approaches for defining A.Fig. 3.2: RL–O-SAM workflow for two subdomains, showing the first eight of the 32 decision windows of an episode. The episode advances from left to right in time. At the beginning of each window, the agent observes the current state and selects a FOM/ROM assignment, which is held fixed while O-SAM advances the coupled solution over the window. The agent therefore acts once per decision window, rather than at each Schwarz iteration or time step (see Figure 3.1); the O-SAM coupling remains unchanged, while the models assigned to the subdomains may vary. In the first approach, termed “fixed-DD”, a fixed overlapping decomposition of the computational domain into nd subdomains is prescribed. To generate training data for the subdomain-local OpInf ROMs, we perform all-FOM simulations in which the subdomain-local FOMs are coupled using O-SAM, for a collection of problem instances characterized by different initial conditions, boundary conditions, and/or physical parameters. The resulting subdomain-local solution snapshots and Schwarz boundary data are then used to construct a pre-trained OpInf ROM for each subdomain, following the procedure described in Section 2. Thus, both a FOM (denoted by ‘F’) and a pre-trained OpInf ROM (denoted by ‘R’) are available in each subdomain. The action space A now consists of all possible FOM/ROM assignments across the nd subdomains, giving a total of |A| = 2 nd possible actions. For example, for nd = 3, A = {FFF, FFR, FRF, FRR, RFF, RFR, RRF, RRR }, where the position of each ‘F’ or ‘R’ identifies the model assigned to the corresponding subdomain. In the second approach, termed “adaptive-DD”, both the DD and the FOM/ROM subdomain assignment are included in the action space A. Rather than prescribing a single fixed decomposition, we define a discrete set of NDD candidate overlapping decompositions of the computational domain, each consisting of nd subdomains. For example, for the one-dimensional (1D) domain Ω = [0 , 1] and nd = 2, three candidate decompositions could be prescribed as 
+
+P1 : [0 , 0.5] ∪ [0 .4, 1] ,
+
+P2 : [0 , 0.3] ∪ [0 .2, 1] ,
+
+P3 : [0 , 0.8] ∪ [0 .5, 1] .
+
+(3.8) For each candidate decomposition, every subdomain may be assigned either a FOM (‘F’) or a pre-trained OpInf ROM (‘R’). Thus, an action specifies both the candidate decomposition, and the FOM/ROM assignment on that decomposition. The resulting action space will contain |A| = NDD 2nd possible actions. For the example above, NDD = 3 and nd = 2, yielding 3 ×22 = 12 possible actions. The action ( P2, FR), for instance, selects decomposition 
+
+P2, with a FOM employed on its first subdomain and a ROM on its second subdomain. Once the action space and all required subdomain-local ROMs have been constructed, the RL agent is trained offline using a collection of problem instances characterized by different initial conditions, boundary conditions, and/or physical parameters. Each problem instance defines an episode, comprised of prescribed decision windows, as illustrated in the left panel of Figure 3.1. At the beginning of each decision window, the agent observes the current state sk and selects an action ak ∈ A . The selected action determines the FOM/ROM assignment across the subdomains and, when adaptive-DD is considered, the DD to be used. This configuration is held fixed throughout the decision window while the coupled problem is advanced using O-SAM. At the end of each decision window, the agent receives a reward that balances computational efficiency, solution accuracy, and the cost of changing the selected configuration. Specifically, we define the reward as 
+
+rk = −cost k − α err k − β n flip ,k , (3.9) where cost k denotes the computational cost incurred during decision window k, err k denotes the error in the coupled solution relative to a reference solution, and nflip ,k penalizes changes in the selected action between consecutive decision windows. The precise definition of err k
+
+is problem-dependent and is given for the advection-diffusion and clamped linear elastic wave propagation benchmarks in Sections 4.1 and 4.2, respectively. The parameters α and 
+
+β in (3.9) control the relative importance of solution accuracy and switching, respectively. During offline RL training, a high-fidelity reference solution u∗(t) is computed for each training problem instance and used to evaluate err k. The specific reference solution employed depends on the test case and is defined in Section 4. The resulting transition ( sk, a k, r k, s k+1 )is used to train the DQN according to the procedure described in Section 3.2. Having described the offline training phase of our RL algorithm, we now move on to the online deployment stage, depicted in Figure 3.2. Once offline training is complete, the trained DQN policy and all pre-trained subdomain-local OpInf ROMs are held fixed and deployed for the online simulation of a new problem instance. At the beginning of each decision window, the RL agent observes the current state sk ∈ S , which consists of a fixed-dimensional representation of the current coupled solution together with the action ak−1
+
+selected in the preceding decision window. Including the previous action provides the agent with information about the current FOM/ROM assignment and, in the adaptive-DD setting, the current domain decomposition. The specific representation of the state employed in the numerical examples is described in Section 4. Given the state sk, the trained DQN selects an action ak ∈ A . This action determines the FOM/ROM assignment on each subdomain and, in the adaptive-DD setting, the DD to be employed during the current decision window. The selected configuration is held fixed throughout the decision window while the coupled problem is advanced using O-SAM. In particular, the RL agent does not act at individual time steps or Schwarz iterations. At the beginning of the subsequent decision window, a new state is constructed from the updated coupled solution and the preceding action, and the process is repeated until the final simulation time T is reached. In contrast to the offline training stage, online deployment requires neither a reference solution nor evaluation of the reward function. The trained DQN selects actions based solely on the observed state, and neither the DQN nor the pre-trained OpInf ROMs are updated during the online simulation. Thus, the high-fidelity reference solution used to evaluate the error contribution to the reward during training is not required for a new problem instance at deployment. Importantly, the trained policy is deployed predictively on problem instances not encountered during training. As demonstrated in Section 4, the numerical examples considered herein train the policy using one set of initial conditions and evaluate the result-ing policy on initial conditions withheld from RL training, thereby assessing the ability of the learned policy to generalize beyond the problem instances used to train it. Whether the underlying OpInf ROMs are themselves deployed predictively or reproductively depends on the benchmark and is specified in Section 4. 
+
+Remark 4. It is interesting to observe that the adaptive O-SAM framework may also be in-terpreted from a space-time DD perspective. Within each decision window, O-SAM performs an overlapping DD in space, with the subdomain-local models coupled through Schwarz trans-mission conditions. The successive decision windows, in contrast, define a non-overlapping decomposition of the time interval. Thus, the overall adaptive simulation can be viewed as a space-time decomposition consisting of overlapping Schwarz subdomains in space and non-overlapping subdomains in time. This interpretation is particularly apparent in the space-time representation of the advection-diffusion example in Figure 4.2. 
+
+4. Numerical results. We evaluate the proposed RL–O-SAM framework on two time-dependent benchmark problems: a 1D transient advection-diffusion problem with a moving front (Section 4.1), and a linear elastic wave propagation problem in solid mechanics (Sec-tion 4.2). These examples are used to assess the ability of the learned policy to perform online FOM-ROM switching as the solution evolves. For the advection-diffusion problem, we consider both a fixed-DD case, in which the RL agent selects only the FOM/ROM as-signment, as well as an adaptive-DD case, in which the agent selects both the DD and the corresponding FOM/ROM assignment. For all numerical experiments reported below, the DQN Qθ (see Section 3.2) is repre-sented by a multilayer perceptron (MLP) with two hidden layers of 256 units and ReLU activation functions, with one output for each available action. Training is performed using the Adam optimizer with a learning rate of 10 −3, a replay buffer containing up to 2 × 10 4
+
+transitions, minibatches of 128 transitions, and a discount factor of γ = 0 .99. The target network is synchronized with the online network every 400 environment steps. Problem-specific definitions of the state, action space, reward terms, and associated parameters are provided within the corresponding numerical examples. The same Schwarz solver settings are used throughout the numerical experiments. Schwarz convergence is declared when the change in the interface traces between successive iterations, measured in the discrete L2 norm over the decision window and accumulated over all interfaces, falls below an absolute tolerance of 10 −6. A maximum of 25 Schwarz iterations is permitted per decision window. 
+
+4.1. Advection-diffusion benchmark. We first assess the learned policy on a 1D transient advection-diffusion problem, 
+
+ut + c u x = ν u xx , x ∈ (0 , 1) , t ∈ [0 , T final ], (4.1) with c = 1, ν = 10 −2 and Tfinal = 0 .6, which gives rise to a P´ eclet number of cL/ν =100. A Dirichlet condition u(0 , t ) = 1 is imposed at the inflow boundary, together with a homogeneous Neumann condition at the outflow. The initial condition is given by the smoothed front 
+
+u(x, 0) = 12
+
+
+
+1 − tanh 
+
+ x − x0
+
+δ
+
+ 
+
+, δ = 0 .01 , (4.2) where x0 determines the initial location of the front. During RL training, x0 is sampled uniformly from [0 .05 , 0.5], so that each episode corresponds to a different problem instance. As the sharp front propagates across the domain, different subdomains require higher-fidelity resolution at different times, motivating adaptive FOM/ROM model selection. The domain Ω = (0 , 1) is first discretized using N = 2048 interior nodes. Because con-formal subdomain meshes are employed, the overlapping subdomain meshes are obtained by restricting this global discretization to the corresponding subdomain intervals. The precise subdomain locations depend on whether a fixed- or adaptive-DD is employed and are speci-fied below. Second-order central differences are used for diffusion and first-order upwinding for advection. The resulting semi-discrete systems are integrated using an adaptive Runge-Kutta method. The subdomains are coupled using multiplicative O-SAM with Dirichlet transmission conditions, as discussed in Section 2.2. The subdomain-local OpInf ROMs utilized within our couplings are constructed offline using 10 FOM trajectories, each corresponding to a different initial condition (4.2) with 
+
+x0 ∈ { 0.280 , 0.478 , 0.115 , 0.477 , 0.190 , 0.240 , 0.423 , 0.234 , 0.297 , 0.062 }. (4.3) Each trajectory contains 401 snapshots sampled uniformly over [0 , T final ]. The same 10 trajectories are used to construct all subdomain-local ROMs, with the snapshots restricted to the degrees of freedom associated with each subdomain. Thus, the local bases are con-structed from a common snapshot set rather than from separate FOM simulations. 
+
+Fig. 4.1: Monolithic full order solution in the space-time plane, used as the ground truth for both settings below. The front enters at the inflow boundary and advects to the right at speed c, remaining sharp over the whole time interval. For the advection-diffusion benchmark, the state supplied to the DQN consists of a fixed-dimensional representation of the current solution u together with the action selected in the preceding decision window. The N = 2048-dimensional solution field is max-pooled to 200 components to reduce the dimension of the solution state provided to the DQN, and the previous action is represented using one-hot encoding, i.e., a binary vector with a single entry equal to one at the index corresponding to the selected action and zeros elsewhere. For the reward function (3.9), cost k is taken to be the wall time required to advance decision window k, while err k is the relative error with respect to the corresponding monolithic FOM solution. To evaluate this error, the converged subdomain solutions are first assembled into a global solution field uk on the global grid, with the solutions from neighboring subdomains averaged at grid points in the overlap regions. The error is then computed as err k = ∥uk − u∗
+
+> k
+
+∥2
+
+∥u∗
+
+> k
+
+∥2
+
+, (4.4) where u∗ 
+
+> k
+
+denotes the corresponding monolithic FOM solution on the global grid and ∥ · ∥ 2
+
+denotes the discrete ℓ2 norm. We set α = 500 and β = 1 .5, with both parameters selected through a coarse parameter sweep to balance computational cost and solution accuracy, as well as to avoid policies that collapse to either the all-FOM or all-ROM assignment. The switching term nflip ,k counts the number of subdomains whose FOM/ROM assignment changes relative to the preceding decision window; in the adaptive-DD setting (Section 4.1.2), a change in the selected decomposition is also penalized. The purpose of this term is to discourage unnecessary changes in the model assignment or DD between consecutive decision windows, which may incur additional computational overhead and lead to frequent oscillations between otherwise comparable actions. No switching penalty is applied during the first decision window. The DQN is trained for 500 episodes and subsequently evaluated predictively for x0 = 0 .22. Since this initial condition is not used during either DQN training or OpInf ROM construction, both the learned policy and the underlying OpInf ROMs are evaluated predictively for this test case. The monolithic FOM solution for x0 = 0 .22, shown in Figure 4.1, is used solely as a reference for evaluating the accuracy of the deployed policy. We consider two configurations. In the first fixed-DD case, the DD is fixed and the agent selects only the FOM/ROM assignment among the three subdomains, yielding 2 3 = 8 possible actions (Section 4.1.1). In the second adaptive-DD case, the agent selects both the domain decomposition and the FOM/ROM assignment, yielding 40 possible actions (Section 4.1.2). 
+
+4.1.1. Fixed-DD case. First, we consider the first offline training approach described in Section 3.3, in which the DD is fixed, and we are learning a policy that determines online whether each subdomain is assigned a FOM (‘F’) or a ROM (’R’). In this study, the domain is decomposed into three overlapping subdomains of equal length with 30% overlap, Ω1 = [0 , 0.4167] , Ω2 = [0 .2917 , 0.7083] , Ω3 = [0 .5833 , 1] , (4.5) containing 853, 854, and 853 of the 2048 nodes, respectively. Each subdomain is equipped with an OpInf ROM of dimension r = 12. The ROM dimension was selected by testing a range of candidate values, with r = 12 being the smallest dimension that provided acceptable ROM accuracy for this configuration. The OpInf least-squares problem (2.6) uses a Tikhonov regularization with η = 10 −8. For the RL training, the time interval [0 , T final ] is divided uniformly into 128 decision windows. At the beginning of each window, the agent selects one of the 2 3 = 8 possible FOM/ROM assignments, which is held fixed while O-SAM advances the coupled solution over the window. After the Schwarz iteration converges, the RL agent observes the resulting state and selects the assignment for the next decision window. Table 4.1 compares the trained policy with each of the eight fixed FOM/ROM assign-ments. The learned policy achieves a relative L2 error of 8 .02 × 10 −4, approximately five times smaller than that of the most accurate fixed assignment containing at least one ROM (FFR), while requiring an average of 3.00 Schwarz iterations per decision window, compared with 1.61 for the all-FOM assignment. The increase in Schwarz iterations when ROMs are introduced is consistent with the observations in Wentland et al. [27], where Schwarz cou-plings involving lower-dimensional ROMs were found to generally require more iterations to converge than the corresponding all-FOM coupling. This behavior arises because inaccura-cies in the ROM solution can lead to larger discrepancies between neighboring subdomain solutions, requiring the Schwarz iteration to work harder to reconcile the solutions across the overlap. Despite the observed increase in Schwarz iterations, the learned policy reduces the wall time from 3 .23 s for FFF to 1 .91 s. As expected, the all-ROM (RRR) coupling yields the lowest wall time, 0 .51 s, but at the expense of a substantially larger relative L2 error of 1.18 × 10 −2. Thus, the learned policy provides a compromise between the high accuracy of the all-FOM assignment and the low computational cost of the all-ROM assignment. As shown in Figure 4.2, the learned policy adapts the model assignment as the sharp front propagates through the domain, preferentially assigning the FOM to the subdomain policy relative L2 error Schwarz iterations wall time [s] reward RL (8 actions) 8.02 × 10 −4 3.00 1.91 −67 .4
+
+FFF 1.19 × 10 −4 1.61 3.23 −106 .9FFR 4.19 × 10 −3 2.11 1.62 −141 .7RFF 8.31 × 10 −3 2.34 2.66 −310 .1RFR 9.19 × 10 −3 2.45 1.93 −325 .5FRR 9.50 × 10 −3 3.04 1.65 −333 .4FRF 9.65 × 10 −3 3.97 3.47 −356 .1RRF 1.17 × 10 −2 2.89 2.76 −419 .9RRR 1.18 × 10 −2 4.67 0.51 −397 .9Table 4.1: Advection-diffusion benchmark, fixed-DD. Results for the learned policy and the eight possible fixed FOM/ROM assignments. ‘F’ and ‘R’ denote full order and reduced order subdomain models, respectively, ordered from left to right. The relative L2 error is computed with respect to the monolithic FOM reference solution. ‘Schwarz iterations’ denotes the mean number of multiplicative Schwarz iterations per decision window, averaged over the 128 decision windows. ‘Reward’ denotes the sum of the rewards over all decision windows of the episode. The best value in each column is shown in bold. 
+
+Fig. 4.2: Advection-diffusion benchmark, fixed-DD. FOM/ROM model assignment selected by the learned policy for each subdomain as a function of time, with red denoting the FOM and blue denoting the ROM. The FOM assignment shifts from left to right as the sharp front advects through the domain, preferentially providing full order resolution in the subdomain containing the moving front. containing the front while using ROMs elsewhere. As the front advects from left to right, the FOM assignment correspondingly shifts from one subdomain to the next. Figure 4.3 shows the resulting hybrid solution and its pointwise error relative to the monolithic FOM reference solution. Finally, the accuracy-cost tradeoff is summarized by the Pareto plot in Figure 4.4, which shows the relative L2 error vs. wall time for the learned policy and all fixed model assignments. It is clear from this figure that the learned policy, denoted by ‘RL(8)’, is Pareto-optimal. 
+
+4.1.1.1. Effect of the switching penalty. It is interesting to understand the effect Fig. 4.3: Advection-diffusion benchmark, fixed-DD. Left: hybrid solution produced by the learned policy, with the two subdomain interfaces indicated in red. Right: pointwise error relative to the monolithic FOM reference solution, shown on a logarithmic scale. The error is largest in the reduced order subdomains and near the advecting front, and smallest where the policy selects the FOM. 0.5 1.0 1.5 2.0 2.5 3.0 3.5 wall time [s] 10 4  
+
+> 10 3
+> 10 2
+> relative  L2 error
+> RL(8)
+> FFF FFR FRF FRR RFF RFR RRF RRR
+
+Fig. 4.4: Advection-diffusion benchmark, fixed-DD. Pareto plot showing the relative L2 error vs. measured wall time for the learned policy and all fixed FOM/ROM assignments. The learned policy, denoted by ‘RL(8)’, is shown in red. Policies farther toward the lower left provide a more favorable accuracy-cost tradeoff, making the learned policy Pareto-optimal. of the switching penalty in the reward function (3.9), in particular, the extent to which it discourages unnecessary changes in the FOM/ROM assignment. To isolate the effect of this term, we retrain the fixed-DD policy with β = 0 and β = 1 .5 in (3.9), while holding all other parameters fixed. Figure 4.5 shows the number of model switches per episode during training. Both policies initially exhibit approximately 100 switches per episode, as the untrained agent explores the action space. As training progresses, the number of switches decreases for both policies. Without the switching penalty ( β = 0), however, the number eventually levels off at approximately 33 switches per episode, whereas with β = 1 .5, it continues to decrease to approximately 13. The effect of the switching penalty is even more apparent when examining the deployed policies. As shown in Figure 4.6, the policy trained with β = 0 (no switching penalty) switches models 31 times over the episode, with much of this switching occurring as rapid back-and-forth changes early in the simulation. In contrast, the policy trained with β = 1 .50 50 100 150 200 250 training episode 020 40 60 80 100 120 model switches per episode  = 0 
+
+> = 1.5
+
+Fig. 4.5: Advection–diffusion benchmark, fixed-DD, effect of the switching penalty during training. Number of FOM/ROM model switches per training episode for β = 0 (no switching penalty) and β = 1 .5 (including a switching penalty). Faint lines show the number of switches in each episode, while solid lines show the corresponding moving averages. Without the switching penalty, the number of switches levels off at approximately 33 per episode, whereas with β = 1 .5, it decreases to approximately 13 per episode. 
+
+Fig. 4.6: Advection-diffusion benchmark, fixed-DD, effect of the switching penalty on the deployed policy. FOM/ROM model assignments selected by policies trained without the switching penalty ( β = 0, left) and with the switching penalty ( β = 1 .5, right), with red denoting the FOM and blue denoting the ROM. The switching penalty suppresses the rapid FOM/ROM switching observed for β = 0, reducing the total number of model switches over the episode from 31 to 4. switches only four times, producing a considerably more coherent model-assignment pattern in which the FOM tracks the advecting front before transitioning to an all-ROM assignment after the front leaves the domain. The above results reinforce the fact that the purpose of the switching penalty is not to improve solution accuracy, but rather to regularize the behavior of the learned policy by suppressing unnecessary FOM/ROM switching. This is particularly important for de-ployment within a production code, where each model switch may require a state transfer between the FOM and ROM representations and therefore incur additional computational costs. 
+
+4.1.2. Adaptive-DD case. Next, we assess the second training strategy introduced in Section 3, in which the RL agent selects both the DD and the FOM/ROM assignment. Five candidate DDs, denoted by Pi, i = 1 , . . . , 5, are considered. These decompositions are obtained by varying the locations of the two interior interfaces while maintaining a 25% overlap between adjacent subdomains. The resulting subdomain extents and node counts are listed in Table 4.2. The set of candidate domain decompositions is prescribed offline, subdomain extent # nodes partition left middle right left middle right 
+
+P1 [0 , 0.551] [0 .484 , 0.811] [0 .757 , 1] 1128 670 497 
+
+P2 [0 , 0.454] [0 .377 , 0.758] [0 .688 , 1] 929 780 638 
+
+P3 [0 , 0.375] [0 .292 , 0.708] [0 .625 , 1] 768 854 768 
+
+P4 [0 , 0.285] [0 .222 , 0.646] [0 .559 , 1] 583 869 904 
+
+P5 [0 , 0.194] [0 .151 , 0.566] [0 .479 , 1] 397 851 1067 Table 4.2: Advection-diffusion benchmark, adaptive-DD. Subdomain extents and node counts for the five candidate DDs Pi, i = 1 , . . . , 5 available to the RL agent. Each de-composition consists of three overlapping subdomains with 25% overlap between adjacent subdomains. A separate OpInf ROM is constructed offline for each of the 15 subdomains, so that all candidate ROMs are available prior to online deployment. and a separate OpInf ROM is constructed offline for each subdomain of each Pi, resulting in a total of 15 subdomain-local ROMs. Thus, all ROMs that may be selected by the agent are available prior to deployment, and no ROM construction is performed online. For this con-figuration, each ROM has dimension r = 10, selected as the smallest dimension among the candidate values tested that provided acceptable ROM accuracy. The OpInf least-squares problem (2.6) utilizes a Tikhonov regularization parameter of η = 10 −8. At the beginning of each decision window, the agent selects one of the five candidate domain decompositions 
+
+Pi together with one of the eight possible FOM/ROM assignments, yielding an action space of 5 × 23 = 40 actions. The selected decomposition and FOM/ROM assignment are held fixed throughout the decision window while O-SAM advances the coupled solution. Table 4.3 summarizes the performance of the learned policy with an action space com-prising 40 possible actions, obtained by combining the five candidate DDs Pi, i = 1 , . . . , 5, with the eight possible FOM/ROM assignments. The learned policy achieves a relative L2
+
+error of 1 .03 × 10 −3, making it approximately seven times more accurate than the FFR cou-pling, the most accurate baseline FOM/ROM assignment containing at least one ROM. The learned policy requires an average of 2.73 Schwarz iterations per decision window, compared with 1.60 for the all-FOM (FFF) assignment. Although an individual ROM subdomain solve is approximately 34-44 times less expensive than the corresponding FOM solve, it is inter-esting to observe that this reduction does not translate directly into an equivalent reduction in overall wall time. The increased number of Schwarz iterations associated with FOM-ROM coupling partially offsets the computational savings provided by the reduced order subdomain solves. Despite requiring more Schwarz iterations, the learned policy has a lower wall time than FFF, 2 .84 s compared with 3 .64 s. The all-ROM (RRR) assignment has the lowest wall time, 0 .39 s, but its relative L2 error, 1 .81 × 10 −2, is approximately 18 times larger than that of the learned policy. Figures 4.7 and 4.8 illustrate how the learned policy, ‘RL(40)’, jointly adapts the DD policy relative L2 error Schwarz iterations wall time [s] reward RL (40 actions) 1.03 × 10 −3 2.73 2.84 −171 .2
+
+FFF 1.23 × 10 −4 1.60 3.64 −205 .5FFR 7.23 × 10 −3 1.81 3.25 −405 .2RFF 1.30 × 10 −2 1.95 3.70 −945 .5RFR 1.45 × 10 −2 2.20 2.93 −1027 .6FRR 1.54 × 10 −2 2.13 2.36 −1028 .0FRF 1.58 × 10 −2 2.34 4.79 −1091 .3RRR 1.81 × 10 −2 3.94 0.39 −1226 .3RRF 1.82 × 10 −2 3.19 3.74 −1286 .5Table 4.3: Advection-diffusion benchmark, adaptive-DD. Results for the learned policy with an action space comprising 40 actions, obtained by combining the five candidate domain decompositions Pi, i = 1 , . . . , 5 listed in Table 4.1 with the eight possible FOM/ROM assignments. ‘F’ and ‘R’ denote full order and reduced order subdomain models, respectively, ordered from left to right. The relative L2 error is computed with respect to the monolithic FOM reference solution. ‘Schwarz iterations’ denotes the mean number of multiplicative Schwarz iterations per decision window, averaged over the 128 decision windows. ‘Reward’ denotes the sum of the rewards over all decision windows of the episode. The best value in each column is shown in bold. 
+
+Fig. 4.7: Advection-diffusion benchmark, adaptive-DD. Domain decomposition and FOM/ROM model assignment selected by the learned policy as functions of time, with red denoting the FOM and blue denoting the ROM. Changes in the subdomain boundaries indicate changes in the selected candidate decomposition Pi, while changes in color indicate changes in the FOM/ROM assignment. and FOM/ROM assignment as the solution evolves. Figure 4.7 shows the corresponding decomposition and model assignments selected by the agent over time, while Figure 4.8 shows the resulting hybrid solution and pointwise error. The reader can observe from these figures that the RL agent makes frequent changes to the selected DD, particularly during the early portion of the simulation; however, these changes do not translate into an improved accuracy-cost tradeoff relative to the fixed-DD strategy considered in Section 4.1.1. Finally, Figure 4.9 provides a direct comparison of the accuracy and computational cost obtained with the fixed and adaptive-DD strategies, complementing the quantitative results in Tables 4.1 and 4.3. In both cases, the learned policy achieves substantially lower error than Fig. 4.8: Advection-diffusion benchmark, adaptive-DD. Left: hybrid solution produced by the learned policy, with the selected subdomain interfaces shown in red and the three sub-domains labeled. The interface locations change between decision windows as the agent selects among the five candidate domain decompositions Pi. Right: pointwise error relative to the monolithic FOM reference solution, shown on a logarithmic scale. Changes in the selected domain decomposition are visible as discontinuities in the interface locations. 
+
+Fig. 4.9: Advection-diffusion benchmark, comparison of fixed and adaptive-DD. Relative 
+
+L2 error (left) and measured wall time (right) for the learned policy and the baseline FOM/ROM assignments. The top row corresponds to the fixed-DD with 8 actions, while the bottom row corresponds to the adaptive-DD with 40 actions. The learned policy is shown in red. the baseline FOM/ROM assignments containing at least one ROM. However, expanding the action space from 8 to 40 actions by allowing the agent to select the DD does not improve the learned policy. Compared with the fixed-DD policy, the adaptive-DD policy requires slightly fewer Schwarz iterations per decision window (2.73 vs. 3.00), but has a higher relative L2
+
+error (1 .03 × 10 −3 vs. 8.02 × 10 −4) and a substantially higher wall time (2.84 s vs. 1.91 s). We conclude that, for this benchmark, allowing the agent to select the DD in addition to the FOM/ROM assignment does not improve the overall accuracy-cost tradeoff. This result is favorable from an implementation standpoint, since dynamically changing the DD during a simulation is not feasible in current production implementations of O-SAM. The remainder of this work therefore focuses on online adaptation of the FOM/ROM assignment for a fixed-DD. Nevertheless, this experiment demonstrates that the proposed RL framework can accommodate a larger action space in which both the model assignment and domain decomposition are selected online. 
+
+4.2. Clamped linear elastic wave propagation benchmark. The second example considered herein is a linear elastic wave propagation benchmark implemented within the 
+
+Norma.jl open-source three-dimensional (3D) solid mechanics code [20]. This test case is a variant of similar test cases considered in [15, 1, 25] Consider the equations of dynamic linear elasticity on a domain Ω ⊂ R3 over the time interval t ∈ [0 , T final ]. Let u(x, t ) :=   ux(x, t ), uy (x, t ), uz (x, t )  ∈ R3 denote the displacement field. In the absence of body forces, the governing equations are 
+
+ρ ¨u − ∇ · σ(u) = 0 in Ω × (0 , T ], (4.6) where ρ is the material density and σ is the Cauchy stress tensor. For a homogeneous, isotropic, linear elastic material, 
+
+σ(u) = λ tr( ε(u)) I + 2 μ ε(u), (4.7) with infinitesimal strain tensor 
+
+ε(u) = 12
+
+ ∇u + ∇uT  . (4.8) Here, λ and μ are the Lam´ e parameters, which may be expressed in terms of the Young’s modulus E and Poisson ratio ν as 
+
+λ = Eν 
+
+(1 + ν)(1 − 2ν) , μ = E
+
+2(1 + ν) . (4.9) For the clamped linear elastic wave propagation benchmark, the computational domain is a slender 3D beam geometry, so that Ω =  −5 × 10 −4, 5 × 10 −4× −5 × 10 −4, 5 × 10 −4×
+
+(−0.5, 0.5) m. We utilize the following material properties: E = 1 GPa, ν = 0, and ρ = 1000 kg/m 3. The problem is evolved over 0 ≤ t ≤ Tfinal , with Tfinal = 2 × 10 −3 s. The spatial domain is discretized using eight-node hexahedral elements with an axial mesh spacing of ∆z = 0 .002 m, and with ∆ x = ∆ y = 10 −3, making the mesh exactly one element thick in the x- and y-directions. All overlapping subdomain meshes employed in the O-SAM calculations are conformal. The resulting semi-discrete equations are integrated in time using the implicit Newmark-β time integration scheme, with γ = 12 and β = 14 , with a time step of ∆ t = 3 .125 × 10 −6 s. Herein, for simplicity, we wish to restrict the dynamics to the axial ( z) direction in order to obtain a 1D problem solved using the 3D code, Norma.jl . In order to accomplish this, homogeneous Dirichlet boundary conditions are imposed on the transverse displacement components: 
+
+ux(x, t ) = 0 , at x = ±5 × 10 −4,uy (x, t ) = 0 , at y = ±5 × 10 −4, (4.10) The beam is additionally clamped in the axial direction at its two ends, giving 
+
+uz (x, t ) = 0 , at z = ±0.5. (4.11) The remaining unconstrained displacement components are subject to homogeneous Neu-mann boundary conditions. The initial conditions for our benchmark are: 
+
+u(x, 0) = 
+
+
+
+00
+
+f (z)
+
+ , ˙u(x, 0) = 
+
+
+
+00
+
+f ′(z)
+
+ (4.12) where f (z) ∈ R specifies the initial axial displacement profile, and f ′(z) := df dz . Here, we consider initial axial displacement profiles of the form 
+
+f (z) = a exp 
+
+
+
+− z2
+
+2s2
+
+
+
+, (4.13) for a, s ∈ R, so that 
+
+f ′(z) = − ac s2 z exp 
+
+
+
+− z2
+
+2s2
+
+
+
+, (4.14) where c = pE/ρ m/s is the speed of the traveling wave. To assess the ability of the learned policy to generalize across different initial conditions, we consider a family of problems in which both the initial pulse location and width are varied. Specifically, we generalize the initial condition in (4.13) by defining 
+
+f (z) = a exp 
+
+
+
+− (z − z0)2
+
+2s2
+
+
+
+. (4.15) with the corresponding initial velocity obtained by differentiating f (z) with respect to z, as in (4.14). We consider seven equally spaced values of the pulse location z0 ∈ [−0.05 , 0.10] m, with spacing 0 .025 m, and three pulse widths s ∈ { 0.02 , 0.03 , 0.04 } m, yielding a total of 21 problem instances. The pulse amplitude is fixed at a = 1 .0 × 10 −3 m. For all configurations considered below, each subdomain-local OpInf ROM uses a re-duced basis of dimension r = 10. As in Section 4.1, the ROM dimension was selected by testing a range of candidate values, with r = 10 being the smallest dimension that pro-vided acceptable ROM accuracy. The OpInf least-squares problem (2.6) uses Tikhonov regularization with regularization parameter η = 10 −8. The ROMs are constructed us-ing FOM snapshot data from all 21 problem instances considered below, making the OpInf ROMs are reproductive with respect to the problem instances considered in this benchmark. Snapshots are collected at fixed, uniformly spaced output times with a snapshot interval of ∆tsnap = 6 .25 × 10 −6 s, corresponding to every two Newmark time steps. Based on the results of Section 4.1.2, we restrict the present study to fixed-DDs. For the advection-diffusion benchmark (Section 4.1), allowing the RL agent to additionally select among multiple candidate domain decompositions did not improve the overall accuracy-cost tradeoff relative to adapting only the FOM/ROM assignment. Moreover, dynamically changing the DD during a simulation is not currently supported within 3D code implemen-tations such as Norma.jl .For the subdomain-local OpInf ROM training, each episode is divided uniformly into 32 decision windows, corresponding to 20 time steps per decision window. The state supplied to the DQN consists of the displacement field together with the action selected in the preceding decision window. For the reward function (3.9), cost k is the computational cost incurred during decision window k. Since the linear elastic wave propagation benchmark is a 
+
+dynamics problem, there are three solution fields of interest: the displacement, the velocity and the acceleration, denoted by u, v and a, respectively; this means that all three fields should go into the err k term in (3.9). Toward this effect, to evaluate err k, the displacement, velocity, and acceleration solutions from the individual subdomains are first assembled into global fields uk, vk, and ak on the global grid spanning the full domain Ω, with the solutions from neighboring subdomains averaged at grid points in the overlap regions. The error is then defined as 
+
+err k =
+
+s
+
+∥u − u∗∥22 + ∥v − v∗∥22 + ∥a − a∗∥22
+
+∥u∗∥22 + ∥v∗∥22 + ∥a∗∥22
+
+, (4.16) where ( u∗, v∗, a∗) denotes the corresponding all-FOM O-SAM reference solution and ∥ · ∥ 2
+
+denotes the discrete ℓ2 norm. We set α = 200 and β = 1 .5 in (3.9). As before, these parameters were fixed prior to training by sweeping each over several orders of magnitude and selecting values that kept the computational-cost, accuracy, and switching contributions to the reward on comparable scales. In what follows, two DDs are considered: (i) a two subdomain decomposition (Section 4.3), and a (ii) three subdomain decomposition (Section 4.4). For each decomposition, the RL agent selects the FOM/ROM assignment among the subdomains, yielding 2 2 = 4 and 23 = 8 possible actions, respectively. The high-fidelity reference solution introduced in Section 2.2 is the corresponding all-FOM O-SAM solution and includes the displacement, velocity and acceleration fields, as in (4.16). Thus, the reference is obtained using the FF assignment for the two subdomain decomposition and the FFF assignment for the three subdomain decomposition. We adopt an all-FOM O-SAM reference because this problem is implemented in the production-oriented Norma .jl solid mechanics code, where, for problems of practical interest, construction of a single monolithic mesh may be difficult or impractical. This reference is used to evaluate the error term (4.16) in the reward during training and to assess the accuracy of the learned policy and fixed FOM/ROM assignments during predictive testing. Separate DQN policies are trained for the two configurations. Of the 21 problem in-stances, 11 are used for RL training and the remaining 10 are reserved for testing the learned policies. The split is constructed so that the test cases represent combinations of pulse location and width not encountered during RL training, but within the parameter range spanned by the training set. The two subdomain policy is trained for 1000 episodes, while the three subdomain policy is trained for 5000 episodes. Thus, although the OpInf ROMs are reproductive for this benchmark, the RL policies are evaluated predictively on the held-out test cases. 
+
+4.3. Two subdomain study. We first consider a decomposition of the 3D beam into two overlapping subdomains, Ω 1 and Ω 2. Each subdomain spans the full cross-section of the beam, with axial extents z ∈ [−0.50 , −0.20] m for Ω 1 and z ∈ [−0.30 , 0.50] m for Ω 2.Thus, the two subdomains overlap over z ∈ [−0.30 , −0.20] m. The corresponding RL action space consists of the four possible FOM/ROM assignments to the two subdomains. The DQN policy for this configuration is trained for 1000 episodes using the training problem instances described above. We then evaluate the trained policy predictively on the held-out test cases. Figure 4.10 shows the axial displacement uz (z, t ) and the FOM/ROM assignments selected by the policy at six representative times for a held-out test case with 
+
+z0 = −0.0375 m. At t = 0, the pulse is located primarily in Ω 2, and the policy assigns the sd1 sd2                          
+
+> t= 0
+> sd1 sd2
+> t= 3.91 × 10 −4s
+> sd1 sd2
+> t= 7.81 × 10 −4s
+> −0.4 −0.2 0.0 0.2 0.4
+> zt= 1.17 × 10 −3s
+> −0.4 −0.2 0.0 0.2 0.4
+> zt= 1.56 × 10 −3s
+> −0.4 −0.2 0.0 0.2 0.4
+> zt= 1.98 × 10 −3s
+
+Two Subdomain  
+
+> FOM ROM
+
+Fig. 4.10: Linear elastic wave benchmark, two subdomain case. Snapshots of the axial displacement uz (z, t ) at six times over the episode, for the predictive test case z0 = −0.0375 m. Colors indicates the FOM/ROM assignment selected by the trained DQN policy (red: full order; blue: reduced order), and the vertical black line marks the divide between Ω 1
+
+(z ∈ [−0.50 , −0.20] m) and Ω 2 (z ∈ [−0.30 , 0.50] m). FOM to Ω 2 and the ROM to Ω 1. As the pulse propagates to the left and enters Ω 1, the policy assigns the FOM to Ω 1 and the ROM to Ω 2. Following reflection from the clamped boundary at z = −0.5 m, the pulse propagates back toward Ω 2. As the reflected wave moves from Ω 1 toward Ω 2, the policy temporarily assigns the FOM to both subdomains. Once the wave has propagated farther into Ω 2, the policy returns to a ROM-FOM assignment. The policy therefore adapts the FOM/ROM assignment in response to the propagation of the localized wave between the two subdomains. This behavior is expected: the FOM is preferentially assigned to the subdomain containing the propagating wave, while the ROM is used in regions where the solution is comparatively smooth. Table 4.4 compares the learned policy with each of the four fixed FOM/ROM assign-ments. The learned policy achieves a relative L2 error of 1 .59 × 10 −2, more than an order of magnitude smaller than that of the most accurate fixed assignment containing at least one ROM (RF), whose error is 2 .43 × 10 −1. The learned policy also reduces the wall time from 52.91 s for the all-FOM (FF) assignment to 49.77 s. The all-FOM relative error is identically zero, as the all-FOM solution is utilized as the reference solution in the L2 error calculation. As expected, the all-ROM (RR) assignment has the lowest wall time, 33.23 s, but its relative L2 error of 2 .69 × 10 −1 is approximately 17 times larger than that of the learned policy. Thus, as in the advection-diffusion benchmark (Section 4.1), the learned policy provides a compromise between the high accuracy of the all-FOM assignment and the lower computational cost of assignments involving fixed ROMs. 
+
+4.4. Three subdomain study. We next consider a decomposition of the 3D beam into three overlapping subdomains, Ω 1, Ω 2, and Ω 3. Each subdomain spans the full cross-section of the beam, with axial extents z ∈ [−0.50 , −0.10] m, z ∈ [−0.20 , 0.20] m, and policy relative L2 error wall time [s] RL (4 actions) 1.59 × 10 −2 49 .77 FF 0 52 .91 RF 2.43 × 10 −1 45 .00 FR 2.67 × 10 −1 42 .09 RR 2.69 × 10 −1 33 .23 Table 4.4: Linear elastic wave benchmark, two subdomain case. Results for the learned policy and the four possible fixed FOM/ROM assignments. ‘F’ and ‘R’ denote full order and reduced order subdomain models, respectively, ordered from left to right. The relative 
+
+L2 error is computed with respect to the FF assignment, which therefore has zero error by construction. The results correspond to the predictive test case z0 = −0.0375 m shown in Figure 4.10. 
+
+z ∈ [0 .10 , 0.50] m, respectively. Thus, adjacent subdomains overlap over z ∈ [−0.20 , −0.10] m and z ∈ [0 .10 , 0.20] m. The corresponding RL action space consists of the 2 3 = 8 possible FOM/ROM assignments to the three subdomains. sd1 sd2 sd3                            
+
+> t= 0
+> sd1 sd2 sd3
+> t= 3.91 × 10 −4s
+> sd1 sd2 sd3
+> t= 7.81 × 10 −4s
+> −0.4 −0.2 0.0 0.2 0.4
+> zt= 1.17 × 10 −3s
+> −0.4 −0.2 0.0 0.2 0.4
+> zt= 1.56 × 10 −3s
+> −0.4 −0.2 0.0 0.2 0.4
+> zt= 1.98 × 10 −3s
+
+Three Subdomain  
+
+> FOM ROM
+
+Fig. 4.11: Linear elastic wave benchmark, three subdomain case. Snapshots of the axial displacement uz (z, t ) at the same six times as Figure 4.10, for the predictive test case 
+
+z0 = −0.025 m, s = 0 .02 m. Shading and vertical lines are as in Figure 4.10, now marking the two divides between Ω 1 (z ∈ [−0.50 , −0.10] m), Ω 2 (z ∈ [−0.20 , 0.20] m), and Ω 3
+
+(z ∈ [0 .10 , 0.50] m). The DQN policy for the three subdomain configuration is trained for 5000 episodes using the training problem instances described above. As for the two subdomain case, we evaluate the trained policy predictively on the held-out test cases. Figure 4.11 shows the axial displacement uz (z, t ) and the FOM/ROM assignments selected by the policy at six representative times for a held-out test case with z0 = −0.025 m and s = 0 .02 m. At t = 0, the pulse is located primarily in Ω 2, and the policy assigns the FOM to Ω 2 and ROMs to Ω1 and Ω 3. As the pulse propagates toward the left end of the beam, the policy assigns the FOM to Ω 1 and ROMs to the other two subdomains. Following reflection from the left clamped boundary, the wave propagates toward the right end of the beam, with the FOM assignment shifting from Ω 1 and Ω 2, to Ω 2 and Ω 3, and finally to Ω 3 as the wave approaches the right boundary. After reflection, the FOM is again assigned to Ω 2 as the wave propagates back toward the center. As in the two subdomain case (Section 4.3), the results described above exhibit the expected behavior: the policy preferentially assigns the FOM to the subdomain or subdomains containing the propagating wave and uses the ROM elsewhere. The three subdomain example demonstrates that this behavior is retained as the number of subdomains and possible FOM/ROM assignments increases. policy relative L2 error wall time [s] RL (8 actions) 3.90 × 10 −3 54 .04 FFF 0 62 .63 FFR 1.54 × 10 −1 60 .03 FRF 2.23 × 10 −1 67 .53 RRF 2.58 × 10 −1 42 .42 FRR 2.58 × 10 −1 55 .72 RRR 2.94 × 10 −1 42 .10 RFF 4.05 × 10 −1 61 .39 RFR 8.48 × 10 −1 50 .22 Table 4.5: Linear elastic wave benchmark, three subdomain case. Results for the learned policy and the eight possible fixed FOM/ROM assignments. ‘F’ and ‘R’ denote full order and reduced order subdomain models, respectively, ordered from left to right. The relative 
+
+L2 error is computed with respect to the FFF assignment, which therefore has zero error by construction. The results correspond to the predictive test case z0 = −0.025 m and s = 0 .02 m shown in Figure 4.11. Table 4.5 compares the learned policy with each of the eight fixed FOM/ROM assign-ments. The learned policy achieves a relative L2 error of 3 .90 × 10 −3, approximately 40 times smaller than that of the most accurate fixed assignment containing at least one ROM (FFR), whose error is 1 .54 × 10 −1. The learned policy also reduces the wall time from 62.63 s for the all-FOM (FFF) assignment to 54.04 s. As for the two subdomain version of this problem (Section 4.4), the all-FOM relative error is identically zero, due to the fact that the all-FOM solution is utilized as the reference solution in the L2 error calculation. As expected, the all-ROM (RRR) assignment has the lowest wall time, 42.10 s, but its relative 
+
+L2 error of 2 .94 × 10 −1 is approximately 75 times larger than that of the learned policy. Thus, the three subdomain results exhibit the same overall behavior as the two subdomain results: the learned policy retains accuracy much closer to that of the all-FOM solution while reducing its computational cost. 
+
+5. Conclusions. In this work, we have developed an RL-based approach for online adaptation of hybrid FOM-ROM models coupled through the overlapping Schwarz alter-nating method. The objective is to address a limitation of conventional hybrid Schwarz coupling, in which the model assigned to each subdomain is typically selected a priori and remains fixed throughout the simulation. Such a fixed assignment may be inadequate for transient problems involving moving or evolving features, since the regions requiring high-fidelity resolution can change over time. To address this challenge, we employed DQNs to learn policies that dynamically select between subdomain-local FOMs and pre-trained OpInf ROMs as the solution evolves. The policies are trained offline using a reward func-tion that balances solution accuracy and computational cost while penalizing unnecessary model switching, and are subsequently deployed online without requiring access to a refer-ence FOM solution. We studied our proposed approach using two transient benchmark problems. First, a 1D advection-diffusion problem with a moving front was used to study online FOM/ROM switching for both fixed and adaptive domain decompositions and to examine the effect of the switching penalty in the reward function. For this first benchmark, both the OpInf ROMs and the learned RL policy were evaluated predictively. Second, a 3D linear elastic wave propagation problem implemented in the Norma.jl code [20] was used to evaluate the approach on a solid mechanics test case with two and three subdomain decompositions, in which the initial pulse location and width are varied and the learned policies are evaluated predictively on unseen problem instances. For this second benchmark, the OpInf ROMs were reproductive, while the RL policies were evaluated predictively on problem instances withheld from RL training. For the advection-diffusion benchmark, the learned policy successfully adapted the FOM/ROM assignment as the moving front propagated through the domain. For the fixed domain decomposition, it achieved a relative L2 error of 8 .02 × 10 −4, approximately five times smaller than that of the most accurate fixed FOM/ROM assignment containing at least one ROM, while also reducing the wall time relative to the all-FOM coupled solution. The switching penalty was found to play an important role in regularizing the learned policy, reducing unnecessary FOM/ROM switching without changing the underlying objective of balancing accuracy and computational cost. Allowing the agent to adapt the DD in addition to the FOM/ROM assignment did not improve the overall accuracy-cost tradeoff: although the adaptive-DD policy required slightly fewer Schwarz iterations, it exhibited both higher error and higher wall time than the learned policy for the fixed domain decomposition. These results suggest that online adaptation of the FOM/ROM assignment within a fixed-DD setting provides the more effective and practically realizable strategy for the problems considered here. The 3D linear elastic wave propagation benchmark demonstrated that the same ap-proach can be applied within the Norma.jl solid mechanics code [20]. For both the two and three subdomain configurations, the learned policies exhibited the expected behavior, preferentially assigning the FOM to subdomains containing the propagating wave and us-ing ROMs elsewhere. As the wave propagated through the beam and reflected from the clamped boundaries, the policies adapted the FOM/ROM assignments accordingly. The improvement relative to fixed FOM/ROM assignments was particularly pronounced for this benchmark, with the learned policies achieving errors more than an order of magnitude smaller than the most accurate fixed assignments containing at least one ROM, while also reducing the wall time relative to the all-FOM assignments. Importantly, these results were obtained for held-out combinations of pulse location and width, indicating that the learned policies can generalize their model selection behavior to initial conditions not encountered during the training of the RL agent. Several directions for future work follow naturally from the present study. First, the implementation developed for the linear elastic wave propagation benchmark provides a workflow for applying the proposed adaptive FOM/ROM coupling strategy to fully 3D problems in Norma.jl . A natural next step is therefore to apply this capability to more complex, nonlinear and truly 3D solid mechanics problems involving richer spatial and temporal dynamics, for which the regions requiring high-fidelity resolution may evolve in less predictable ways. Second, the OpInf ROMs considered in the present work are constructed offline and remain fixed throughout deployment. An important direction for future work is to enable these ROMs to adapt online using newly available FOM information generated during the hybrid simulation. Online adaptation of data-driven ROMs remains an open research area; one promising approach to investigate is the streaming OpInf methodology of Koike et al. [10], which enables reduced operators to be updated incrementally as new data become available. Finally, the present work employs DQN to learn the adaptive model-selection policy. Future studies could investigate more advanced reinforcement learning approaches, including methods designed for larger or more structured action spaces, as the number of subdomains and available modeling choices increases. 
+
+Acknowledgements. Support for this work was received through Sandia National Laboratories’ Laboratory Directed Research and Development (LDRD) program and through the U.S. Department of Energy, Office of Science, Office of Advanced Scientific Computing Research, Mathematical Multifaceted Integrated Capability Centers (MMICCs) program, under Field Work Proposal 22025291 and the Multifaceted Mathematics for Predictive Dig-ital Twins (M2dt) project. Additionally, the writing of this manuscript was funded in part by Irina Tezaur’s Presidential Early Career Award for Scientists and Engineers (PECASE). The authors wish to thank Chris Wentland for valuable discussions and insightful advice that helped shape the research presented in this paper. The authors additionally wish to thank Alejandro Mota for his assistance in using and developing the Norma.jl code. Sandia National Laboratories is a multi-mission laboratory managed and operated by National Technology and Engineering Solutions of Sandia, LLC., a wholly owned subsidiary of Honeywell International, Inc., for the U.S. Department of Energy’s National Nuclear Security Administration under contract DE-NA0003525. 
+
+REFERENCES [1] J. Barnett, I. Tezaur, and A. Mota , The Schwarz alternating method for the seamless coupling of nonlinear reduced order models and full order models , 2022. [2] R. Bellman , Dynamic programming , science, 153 (1966), pp. 34–37. [3] P. J. Blonigan and E. J. Parish , Evaluation of dual-weighted residual and machine learning er-ror estimation for projection-based reduced-order models of steady partial differential equations ,Computer Methods in Applied Mechanics and Engineering, 409 (2023), p. 115988. [4] A. Corigliano, M. Dossi, and S. Mariani , Model order reduction and domain decomposition strate-gies for the solution of the dynamic elastic–plastic structural problem , Computer Methods in Applied Mechanics and Engineering, 290 (2015), pp. 127–155. [5] M. Ebrahimi and M. Yano , A hyperreduced reduced basis element method for reduced-order modeling of component-based nonlinear systems , Computer Methods in Applied Mechanics and Engineering, 431 (2024), p. 117254. [6] A. Hedayat, A. Padovan, and K. Duraisamy , Toward adaptive non-intrusive reduced-order models: Design and challenges , Structural and Multidisciplinary Optimization, 69 (2026), p. 151. [7] P. Holmes, J. L. Lumley, and G. Berkooz , Turbulence, Coherent Structures, Dynamical Systems and Symmetry , Cambridge University Press, 1996. [8] C. Huang, K. Duraisamy, and C. Merkle , Component-based reduced order modeling of large-scale complex systems , Frontiers in Physics, 10 (2022). [9] P. J. Huber , Robust estimation of a location parameter , in Breakthroughs in statistics: Methodology and distribution, Springer, 1992, pp. 492–518. [10] T. Koike, P. Mohan, M. T. H. de Frahan, J. Bessac, and E. Qian , Streaming operator inference for model reduction of large-scale dynamical systems , 2026. [11] P.-L. Lions , On the Schwarz alternating method I . in First International Symposium on Domain Decomposition Methods for Partial Differential Equations, 1988. [12] V. Mnih, K. Kavukcuoglu, D. Silver, A. Graves, I. Antonoglou, D. Wierstra, and M. Ried-miller , Playing atari with deep reinforcement learning , arXiv preprint arXiv:1312.5602, (2013). [13] A. Mota, D. Koliesnikova, I. K. Tezaur, and J. Hoy , A fundamentally new coupled approach to contact mechanics via the Dirichlet–Neumann Schwarz Alternating Method , International Journal for Numerical Methods in Engineering, 126 (2025), p. e70039. [14] A. Mota, I. Tezaur, and C. Alleman , The Schwarz alternating method in solid mechanics , Computer Methods in Applied Mechanics and Engineering, 319 (2017), pp. 19–51. [15] A. Mota, I. Tezaur, and G. Phlipot , The Schwarz alternating method for dynamic solid mechanics ,International Journal for Numerical Methods in Engineering, (2022), pp. 1–36. [16] B. Peherstorfer and K. Willcox , Data-driven operator inference for nonintrusive projection-based model reduction , Computer Methods in Applied Mechanics and Engineering, 306 (2016), pp. 196– 215. [17] M. L. Puterman , Markov decision processes: discrete stochastic dynamic programming , John Wiley & Sons, 2014. [18] A. Radermacher and S. Reese , Model reduction in elastoplasticity: proper orthogonal decomposition combined with adaptive sub-structuring , Computational Mechanics, 54 (2014), pp. 677–687. [19] C. Rodriguez, I. Tezaur, A. Mota, A. Gruber, E. Parish, and C. Wentland , Transmission conditions for the non-overlapping schwarz coupling of full order and operator inference models ,2025. [20] Sandia National Laboratories , Norma.jl: A julia testbed for solid mechanics, coupling, and mul-tiphysics . https://github.com/sandialabs/Norma.jl , 2026. GitHub repository, accessed August 18, 2026. [21] H. A. Schwarz , Ueber einen Grenz¨ ubergang durch alternirendes Verfahren , Z¨ urcher u. Furrer, 1870. [22] K. Smetana and T. Taddei , Localized model reduction for nonlinear elliptic partial differential equa-tions: Localized training, partition of unity, and adaptive enrichment , SIAM Journal on Scientific Computing, 45 (2023), pp. A1300–A1331. [23] W. Snyder, I. Tezaur, and C. Wentland , Domain decomposition-based coupling of physics-informed neural networks via the Schwarz alternating method , 2023. [24] R. S. Sutton and A. G. Barto , Reinforcement Learning: An Introduction , The MIT Press, Cam-bridge, MA, 2nd ed., 2018. [25] I. Tezaur, E. Parish, A. Gruber, I. Moore, C. Wentland, and A. Mota , Hybrid cou-pling with operator inference and the overlapping Schwarz alternating method , arXiv preprint arXiv:2511.20687, (2025). [26] C. R. Wentland, F. Rizzi, J. L. Barnett, and I. K. Tezaur , The role of interface boundary conditions and sampling strategies for schwarz-based coupling of projection-based reduced order models , Journal of Computational and Applied Mathematics, 465 (2025), p. 116584. [27] C. R. Wentland, F. Rizzi, J. L. Barnett, and I. K. Tezaur , The role of interface boundary conditions and sampling strategies for Schwarz-based coupling of projection-based reduced order models , Journal of Computational and Applied Mathematics, 465 (2025), p. 116584.
