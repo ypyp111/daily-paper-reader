@@ -6,44 +6,32 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-19
-- 运行时间：2026-09-19 21:50:23 UTC
+- 最新运行日期：2026-09-20
+- 运行时间：2026-09-20 21:16:25 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：0
-- 速读区：7
+- 本次总论文数：4
+- 精读区：1
+- 速读区：3
 
 ### 今日简报（AI）
-- 今日共生成 7 篇推荐（精读 0 篇，速读 7 篇）
-- 速读：《Backward SDEs-based Diffusion for Physics-Constrained Generation》（7.0/10）, 《ZAPS: Zero-Cost Active Proxy Search for Neural Architecture Search》（6.0/10）, 《Agentic Search Spaces for Tabular Machine Learning》（6.0/10）
-- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202609/19/README](/202609/19/README)
+今日精读1篇、速读3篇，聚焦神经PDE代理模型与工程优化前沿。最值得关注的是分布偏移如何影响神经PDE预训练收益（8.0分），以及气动表面预测的神经场集成方案（7.0分）。普通读者可优先了解PDE代理模型的泛化边界，再按需跟进LLM智能体协作与ACOPF缩放规律。
+- 详情：[/202609/20/README](/202609/20/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [How Does Distribution Shift Shape Pretraining Gains in Neural PDE Surrogates?](/202609/20/2609.20814v1-how-does-distribution-shift-shape-pretraining-gains-in-neural-pde-surrogates)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：用于CFD的神经PDE代理预训练与分布偏移
 
 ### 速读区论文标签
-1. [Backward SDEs-based Diffusion for Physics-Constrained Generation](/202609/19/2609.15702v1-backward-sdes-based-diffusion-for-physics-constrained-generation)  
+1. [Neural Field Ensembles for Aerodynamic Surface Prediction: Winning Solution to the ONERA CRM Wall Distribution 2025 Challenge](/202609/20/2609.17160v1-neural-field-ensembles-for-aerodynamic-surface-prediction-winning-solution-to-the-onera-crm-wall-distribution-2025-challenge)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：基于后向SDE扩散的物理约束生成式反演
-2. [ZAPS: Zero-Cost Active Proxy Search for Neural Architecture Search](/202609/19/2609.14184v1-zaps-zero-cost-active-proxy-search-for-neural-architecture-search)  
+   evidence：用于CFD气动预测的机器学习代理模型
+2. [MOSCOPT: Mixture-of-Skills Collective Optimization for LLM Agents](/202609/20/2609.14399v1-moscopt-mixture-of-skills-collective-optimization-for-llm-agents)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：文本原生地联合优化智能体技能池并动态选择技能
+3. [Scaling Laws for Physics-Aware ACOPF Surrogate Learning](/202609/20/2609.16282v1-scaling-laws-for-physics-aware-acopf-surrogate-learning)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向神经架构搜索的零成本主动代理搜索
-3. [Agentic Search Spaces for Tabular Machine Learning](/202609/19/2609.16309v1-agentic-search-spaces-for-tabular-machine-learning)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：LLM智能体自动设计超参搜索空间
-4. [FINNAS: FINN-Guided Hardware-Aware NAS and Pruning for FPGA Jet Substructure Classification](/202609/19/2609.16367v1-finnas-finn-guided-hardware-aware-nas-and-pruning-for-fpga-jet-substructure-classification)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向科学硬件约束模型的演化神经架构搜索
-5. [Adaptive hybrid coupling with operator inference, the overlapping Schwarz alternating method and reinforcement learning](/202609/19/2609.17837v1-adaptive-hybrid-coupling-with-operator-inference-the-overlapping-schwarz-alternating-method-and-reinforcement-learning)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：强化学习自适应FOM-ROM耦合的代理建模策略
-6. [Rosetta: Automating First-Principles Performance Modeling Using Multi-Agent LLMs](/202609/19/2609.19376v1-rosetta-automating-first-principles-performance-modeling-using-multi-agent-llms)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：多智能体LLM自动生成可执行解析模型
-7. [SoL-Pi: Recursively Scaling Auto-Research Loops for Efficient Agent Harness](/202609/19/2609.20519v1-sol-pi-recursively-scaling-auto-research-loops-for-efficient-agent-harness)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：智能体harness自动研究循环与可复用智能体技能
+   evidence：物理感知代理学习的缩放规律，面向约束优化问题
 
 
 <div class="dpr-home-promo-card">
