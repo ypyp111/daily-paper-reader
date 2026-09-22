@@ -1,0 +1,946 @@
+Title: Hard-Constrained Physics–Informed Neural Network with Adaptive Regional Residual Balancing for the Generalized Falkner–Skan Problem
+
+URL Source: https://arxiv.org/pdf/2609.23493v1
+
+Published Time: Tue, 22 Sep 2026 01:26:20 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# Hard-Constrained Physics-Informed Neural Network with Adaptive Regional Residual Balancing for the Generalized Falkner–Skan Problem 
+
+## Mehari Fentahun Endalew and Xiaoming John Zhang Beijing Institute of Mathematical Sciences and Applications (BIMSA), Beijing, China 
+
+Abstract 
+
+We present a physics-informed neural solver for the generalized Falkner–Skan boundary-value problem that combines an exact boundary-admissible trial repre-sentation with adaptive regional residual balancing (ARRB). The three prescribed boundary conditions are embedded analytically, eliminating boundary-condition penalty terms while allowing the finite-domain streamfunction value and wall shear to be determined by the governing equation. The residual is divided into wall, middle, and tail regions, and a physical global residual is reconstructed from regional mean-squared errors using region-length fractions. Safeguarded exponential-moving-average inverse-gradient coefficients adaptively balance the regional contributions during Adam optimization. A deterministic 800-point residual monitor is used for checkpoint selection, followed by two deterministic L-BFGS stages minimizing the physical global residual. The method is tested on the Blasius, favorable-pressure-gradient Falkner–Skan, and Pohlhausen cases. For (β0, β 1) = (0 .75 , 0.50) , the predicted wall shear is f ′′ (0) = 0 .8997161394 , compared with the finite-domain reference 0.8997168085 , giving an absolute error of 6.691 × 10 −7. The residual MSE is 6.357 × 10 −9, while the relative L2 errors in f ′ and f ′′ are 2.848 × 10 −6 and 
+
+4.188 × 10 −5. A matched single-seed ablation shows that ARRB reduces residual MSE by 52.81% relative to global-residual training and by 50.24% relative to equal-regional weighting. Wall-shear errors are reduced by 77.30% and 72.37%, respectively. These results support ARRB as an accuracy-oriented residual-conditioning strategy, while multi-seed experiments remain necessary to quantify optimization variability. 
+
+Keywords: physics-informed neural network; Falkner–Skan equation; hard boundary constraints; adaptive regional residual balancing; adaptive residual weighting 
+
+# 1 Introduction 
+
+Similarity solutions of the laminar boundary-layer equations provide a classical framework for investigating the interaction of viscous diffusion, convection, and pressure gradients. The Blasius equation describes the zero-pressure-gradient flat-plate boundary layer [2], whereas the Falkner–Skan equation extends the similarity formulation to wedge flows and related external-velocity distributions [1, 23]. 1arXiv:2609.23493v1 [physics.flu-dyn] 20 Sep 2026 Although the Falkner–Skan problem is one-dimensional, its nonlinear third-order structure, semi-infinite physical domain, and sensitivity of the wall quantity f ′′ (0) make it a useful benchmark for nonlinear numerical methods [9–11]. The wall shear is particularly sensitive to the near-wall solution, whereas the normalized velocity approaches its outer value asymptotically. These features make the problem suitable for examining both boundary-condition enforcement and spatially nonuniform residual optimization. Physics-informed neural networks (PINNs) approximate solutions of differential equa-tions by minimizing residuals constructed through automatic differentiation [4]. Neural-network-based approaches have also been explored for Blasius and Falkner–Skan-type equations, including direct machine-learning implementations, orthogonal-polynomial neu-ral blocks, and comparisons with recurrent and fully connected neural architectures [12–14]. PINN optimization may, however, become difficult when different loss components or different spatial portions of the governing-equation residual generate substantially different parameter-gradient magnitudes [21, 22]. Boundary penalties can introduce an additional source of competition because governing-equation accuracy must then be balanced against approximate boundary-condition satisfaction. Boundary-satisfying neural trial functions provide an established alternative in which prescribed boundary conditions are incorporated directly into the admissible solution space [5, 6]. Related hard-constraint formulations include constrained expressions, functional-connection methods, distance-function constructions, and hard–soft combinations designed to strengthen or exactly impose selected physical constraints [7, 8, 15, 16]. Hard boundary constraints and adaptive residual weighting address different optimiza-tion issues. Exact boundary admissibility removes the need to balance governing-equation and boundary-condition penalty terms. It does not, however, ensure that different spatial portions of the remaining governing-equation residual contribute comparably to parameter updates. Adaptive PINN strategies therefore seek to mitigate imbalance by modifying the relative influence of losses or residual information using, for example, gradient or residual information [21, 22]. The present formulation applies this general motivation to spatially aggregated components of a single governing-equation residual. Recent work has also extended ansatz-based hard constraints to multidomain interface problems. Chung et al. [17] considered hard-constrained PINN formulations for elliptic interface equations. The generalized Falkner–Skan problem considered here is structurally different: it is a single-domain, third-order boundary-value problem with no internal material interface or prescribed jump condition. The factor G(s) introduced below therefore acts as a global boundary-admissibility mask for a single neural correction rather than an interface-localized construction. Accordingly, the contribution claimed here is not the general concept of hard-constraint embedding itself. Instead, the proposed method combines a Falkner–Skan-specific admissi-ble trial representation with adaptive regional residual balancing. The trial representation satisfies 
+
+f (0) = 0 , f ′(0) = 0 , f ′(L) = 1 
+
+identically while retaining the degrees of freedom required for the governing equation to determine the wall shear f ′′ (0) and the unprescribed terminal value f (L).The motivation for regional balancing follows from the spatially nonuniform Falkner– Skan solution structure. The near-wall region is particularly important for recovery of 
+
+f ′′ (0) , whereas the outer region approaches f ′(η) → 1. A single scalar domain-averaged residual does not explicitly reveal whether different spatial regions generate substantially different optimization gradients, even when the boundary conditions themselves are already 2satisfied exactly. The computational domain is therefore partitioned into wall, middle, and tail regions. Regional residual mean-squared errors are used in two distinct ways. First, a physical domain-averaged residual is reconstructed using the corresponding region-length frac-tions. Its physical weighting is therefore independent of the integer number of stochastic collocation points assigned to each region. Second, safeguarded EMA-smoothed inverse proxy-gradient coefficients are used during Adam optimization to balance the regional residual components. These adaptive coefficients are optimization quantities and are distinct from the physical region-length weights. The principal contributions of this work are: 1. a Falkner–Skan-specific hard-boundary trial representation that enforces f (0) = 0 ,
+
+f ′(0) = 0 , and f ′(L) = 1 identically while preserving the freedom required to determine f ′′ (0) and f (L) from the governing equation; 2. an adaptive regional residual balancing strategy in which wall, middle, and tail components of the governing-equation residual are balanced using safeguarded, EMA-smoothed inverse proxy-gradient coefficients; 3. a physical domain-averaged residual constructed explicitly from regional residual means using region-length fractions, so that its physical weighting is independent of regional collocation density; and 4. a hybrid computational protocol combining fresh stratified Adam collocation batches, deterministic fixed-grid checkpoint selection, physical-global-residual L-BFGS re-finement with stagewise rollback, and quantitative validation against finite-domain BVP references and an analytical Pohlhausen wall-shear benchmark. The method is evaluated for the Blasius case, a selected favorable-pressure-gradient Falkner–Skan case, and the Pohlhausen benchmark. A matched single-seed residual-objective ablation is additionally used to isolate the effect of adaptive regional weighting while retaining the same hard-constrained trial representation and optimization protocol. The remainder of the paper is organized as follows. Section 2 introduces the generalized Falkner–Skan problem and benchmark cases. Section 3 develops the hard-constrained trial representation, regional residual decomposition, adaptive weighting rule, and optimization objectives. Section 4 summarizes the computational algorithm. Section 5 describes the reference solutions and validation metrics. Section 6 gives them computational configuration. Section 7 presents the numerical results and residual-objective ablation. Section 8 discusses the numerical behavior and limitations of the method, and Section 9 gives the conclusions. 
+
+# 2 Generalized Falkner–Skan problem 
+
+The generalized Falkner–Skan equation considered in this study is 
+
+f ′′′ (η) + β0f (η)f ′′ (η) + β1
+
+1 − f ′(η)2 = 0 , η ∈ [0 , L ]. (1) The finite-domain boundary conditions are 
+
+f (0) = 0 , f ′(0) = 0 , f ′(L) = 1 . (2) 3A truncated domain L = 12 is used throughout the reported calculations to approximate the far-field condition. Here, η is the similarity coordinate, f (η) is the dimensionless streamfunction variable, f ′(η) is the normalized velocity, and f ′′ (0) is the dimensionless wall-shear parameter under the adopted similarity scaling. For the conventional one-parameter Falkner–Skan family, 
+
+β0 = m + 1 2 , β1 = m, (3) where m is the pressure-gradient parameter. With 
+
+c =
+
+rm + 1 2 , ξ = cη, F (ξ) = cf (η), (4) eq. (1) transforms to 
+
+F ′′′ + F F ′′ + βH
+
+1 − (F ′)2 = 0 , βH = 2mm + 1 . (5) The normalized velocity is unchanged because F ′(ξ) = f ′(η).The Blasius case is 
+
+(β0, β 1) = (0 .5, 0) , (6) the selected favorable-pressure-gradient Falkner–Skan case is 
+
+(β0, β 1) = (0 .75 , 0.50) , (7) which corresponds to m = 0 .5, and the Pohlhausen benchmark is 
+
+(β0, β 1) = (0 , 1) . (8) The Pohlhausen pair does not belong to the one-parameter family in eq. (3). It nevertheless provides an independent benchmark because an analytical semi-infinite-domain solution is available for this parameter pair [3]. 
+
+# 3 Hard-constrained PINN with adaptive regional resid-ual balancing 
+
+## 3.1 Neural representation and hard boundary constraints 
+
+The hard-constrained formulation is based on the general principle of constructing a neural trial space in which the prescribed boundary conditions are satisfied identically. This idea has a long history in neural differential-equation solvers, where the trial solution is decomposed into a non-trainable component satisfying the prescribed boundary data and a trainable correction that preserves those conditions [5, 6]. For an ordinary differential equation with linear boundary operators 
+
+Bj [f ] = gj , j = 1 , . . . , m, (9) a boundary-admissible representation may be written as 
+
+ˆfθ(η) = b(η) + ψθ(η), (10) 4where the lifting function b satisfies 
+
+Bj [b] = gj , j = 1 , . . . , m, (11) and the trainable correction satisfies 
+
+Bj [ψθ] = 0 , j = 1 , . . . , m. (12) By linearity, 
+
+Bj [ ˆfθ] = Bj [b] + Bj [ψθ] = gj . (13) Thus, the boundary conditions are incorporated into the trial space rather than enforced approximately through boundary-loss penalties. For the three-condition boundary set 
+
+f (0) = A, f ′(0) = B, f ′(L) = C, (14) one admissible lifting is 
+
+bA,B,C (η) = A + Bη + ( C − B)η − (1 − e−η)1 − e−L . (15) Its derivative is 
+
+b′ 
+
+> A,B,C
+
+(η) = B + ( C − B) 1 − e−η
+
+1 − e−L . (16) Hence, 
+
+bA,B,C (0) = A, b′ 
+
+> A,B,C
+
+(0) = B, b′ 
+
+> A,B,C
+
+(L) = C. (17) For the Falkner–Skan problem, 
+
+A = 0 , B = 0 , C = 1 , (18) so that the lifting becomes 
+
+b(η) = η − (1 − e−η)1 − e−L . (19) A fully connected feed-forward neural network Nθ(x) is used, with architecture 
+
+[1 , 100 , 100 , 1] . (20) Hyperbolic-tangent activations are used, and all neural-network calculations and automatic differentiation are performed in 64-bit floating-point precision. The physical coordinate is normalized according to 
+
+s = ηL, x = 2 s − 1, x ∈ [−1, 1] . (21) Define 
+
+H(s) = 3 s2 − 2s3 (22) and 5G(s) = Ls 2(1 − s)2. (23) The Hermite endpoint mode satisfies 
+
+H(0) = 0 , H(1) = 1 , Hs(0) = Hs(1) = 0 , (24) whereas the neural mask satisfies 
+
+G(0) = G(1) = 0 , Gs(0) = Gs(1) = 0 . (25) The hard-constrained Falkner–Skan approximation is 
+
+ˆfθ(η) = b(η) + cθH(s) + G(s)Nθ(x) (26) where cθ is a trainable scalar parameter and Nθ is the raw neural-network output. In the implementation, cθ is stored as a model parameter together with the neural-network parameters. For the lifting function, 
+
+b(0) = 0 , b′(0) = 0 , b′(L) = 1 , (27) because 
+
+b′(η) = 1 − e−η
+
+1 − e−L . (28) Since 
+
+dH dη = 1
+
+LHs (29) and 
+
+ddη [G(s)Nθ(x)] = 1
+
+LGs(s)Nθ(x) + 2
+
+LG(s)Nθ,x (x), (30) the endpoint properties imply 
+
+ˆfθ(0) = 0 , ˆf ′
+
+> θ
+
+(0) = 0 , ˆf ′
+
+> θ
+
+(L) = 1 (31) identically for all trainable parameters, apart from floating-point roundoff. The construction retains the second-derivative freedom required by the third-order equation. In particular, 
+
+Gss (0) = Gss (1) = 2 L. (32) Because G = Gs = 0 at the endpoints, 
+
+d2
+
+dη 2 [G(s)Nθ(x)] η=0 
+
+= 2
+
+LNθ(−1) , (33) and 
+
+d2
+
+dη 2 [G(s)Nθ(x)] η=L
+
+= 2
+
+LNθ(1) . (34) 6Similarly, 
+
+Hss (0) = 6 , Hss (1) = −6. (35) Moreover, 
+
+b′′ (η) = e−η
+
+1 − e−L , (36) so 
+
+b′′ (0) = 11 − e−L . (37) The wall curvature is therefore 
+
+ˆf ′′  
+
+> θ
+
+(0) = 11 − e−L + 6cθ
+
+L2 + 2
+
+LNθ(−1) (38) and remains a trainable, equation-determined quantity. Since H(1) = 1 and G(1) = 0 ,
+
+ˆfθ(L) = b(L) + cθ, (39) while 
+
+ˆf ′
+
+> θ
+
+(L) = 1 . (40) Thus, the unprescribed terminal streamfunction value f (L) also remains free. All linear layers are first initialized using Xavier-normal weights and zero biases. The weights and bias of the final neural-network layer are then reset to zero while the hidden-layer initialization is retained. The endpoint coefficient is initialized as cθ = 0 .Consequently, the raw network output initially satisfies Nθ(x) = 0 for every input x, and the complete trial solution begins exactly from the analytical lifting profile, 
+
+ˆfθ(η) initial = b(η). (41) 
+
+## 3.2 Physics-informed residual 
+
+Automatic differentiation provides 
+
+ˆf ′
+
+> θ
+
+, ˆf ′′  
+
+> θ
+
+, ˆf ′′′  
+
+> θ
+
+. (42) The pointwise Falkner–Skan residual is 
+
+Rθ(η) = ˆf ′′′  
+
+> θ
+
++ β0 ˆfθ ˆf ′′  
+
+> θ
+
++ β1
+
+
+
+1 −
+
+ ˆf ′
+
+> θ
+
+2
+
+. (43) No boundary-condition penalty terms are included because eq. (31) holds analytically. 73.3 Regional residual decomposition 
+
+The computational domain is divided into 
+
+Ωw = [0 , 3] , Ωm = (3 , 8) , Ωt = [8 , 12] . (44) In the implementation, a point at η = 3 is assigned to the wall region and a point at η = 8 
+
+is assigned to the tail region, consistent with the interval convention in eq. (44). For a collocation subset Cr in region r,
+
+Lr = 1
+
+|C r|
+
+X
+
+> ηi∈C r
+
+Rθ(ηi)2, r ∈ { w, m, t}. (45) The physical region fractions are 
+
+ωw = 312 = 14, (46) 
+
+ωm = 8 − 312 = 512 , (47) and 
+
+ωt = 12 − 812 = 13. (48) The physical domain-averaged residual is therefore 
+
+Lg = 14Lw + 512 Lm + 13Lt . (49) Equation eq. (49) is implemented directly. The residual MSE is first computed independently within each of the three regions, after which the regional means are combined using the corresponding physical region-length fractions. The physical global residual is therefore not computed as the unweighted mean over the complete stratified stochastic batch. Consequently, changing the integer number of collocation points assigned to a region does not change that region’s prescribed physical weight in Lg.
+
+## 3.4 Stratified collocation sampling 
+
+Each reported Adam step uses 
+
+Nc = 500 (50) collocation points. Before integer rounding, 
+
+500 
+
+14, 512 , 13
+
+
+
+= (125 , 208 .33 . . . , 166 .67 . . . ). (51) A largest-remainder allocation gives 
+
+Nw = 125 , Nm = 208 , Nt = 167 . (52) 8The number of Adam collocation points assigned to each region is chosen in propor-tion to its physical length. The largest-remainder procedure in eq. (52) therefore gives 
+
+125 /208 /167 points for the reported partition. Within each region, samples are drawn independently from a uniform distribution. The first wall-region sample is replaced by η = 0 , and the final tail-region sample is replaced by η = L.An initial stratified batch is generated before the Adam loop. With the reported setting resample_interval =1, this batch is used for the first Adam update and a newly sampled stratified batch is generated before every subsequent Adam update. No cumulative residual-adaptive point-enrichment procedure is used. 
+
+## 3.5 Adaptive regional residual balancing 
+
+Regional losses may generate substantially different parameter-gradient magnitudes. The implementation therefore constructs adaptive coefficients from proxy gradient norms. The proxy parameter subset θp consists of the weights and bias of the final neural-network layer together with the endpoint coefficient cθ. For each region, 
+
+Gr = ∇θp Lr 2 . (53) The Euclidean norm is formed jointly over the available proxy-parameter gradient components. A regional norm is considered valid only if it is finite and strictly greater than ε. Invalid regional norms are replaced by the median of the valid regional norms; if none of the three norms is valid, the replacement value is set to unity. At the first adaptive update, 
+
+G(0)  
+
+> r
+
+= G(0)  
+
+> r
+
+. (54) At subsequent updates, 
+
+G(k) 
+
+> r
+
+= ρG (k−1)  
+
+> r
+
++ (1 − ρ)G(k) 
+
+> r
+
+, ρ = 0 .90 . (55) The normalized inverse-gradient coefficients are 
+
+q(k) 
+
+> r
+
+=
+
+
+
+G(k) 
+
+> r
+
++ ε
+
+−1
+
+X
+
+> j
+
+
+
+G(k) 
+
+> j
+
++ ε
+
+−1 , ε = 10 −12 . (56) The safeguarded adaptive coefficients are 
+
+λ(k) 
+
+> r
+
+= γq (k) 
+
+> r
+
++ (1 − γ)13, γ = 0 .80 . (57) Thus, 
+
+λr ≥ 1 − γ
+
+3 = 0 .0667 . (58) The three coefficients are renormalized so that 
+
+X
+
+> r
+
+λr = 1 . (59) 9The weighted regional loss is 
+
+Lreg = λwLw + λmLm + λtLt. (60) The proposed Adam objective is 
+
+LAdam = αLg + (1 − α)Lreg , α = 0 .50 . (61) Combining eqs. (49), (60) and (61), the Adam objective can equivalently be written as 
+
+LAdam = X
+
+> r∈{ w,m,t}
+
+weff  
+
+> r
+
+Lr, (62) where 
+
+weff  
+
+> r
+
+= αω r + (1 − α)λr . (63) Thus, λr represents only the adaptive-balancing contribution and should not be interpreted as the complete coefficient multiplying Lr. The physical contribution αω r
+
+remains present in the Adam objective. Adaptive regional weights are updated at 
+
+1, 51 , 101 , 151 , . . . . (64) Adaptive regional coefficients are updated only during Adam optimization. During L-BFGS refinement the coefficients are frozen and the optimization closure backpropagates the physical global residual Lg exclusively. 
+
+## 3.6 Baseline objectives 
+
+For the global hard-constrained baseline, 
+
+LA = Lg. (65) For the equal-regional hard-constrained PINN, 
+
+λw = λm = λt = 13, (66) and 
+
+LA = 12Lg + 12
+
+Lw + Lm + Lt
+
+3
+
+
+
+. (67) The adaptive regional formulation uses eq. (61). The regional coefficients are not adaptive in either baseline. The global formulation uses Lg alone, whereas the equal-regional formulation keeps λw = λm = λt = 1 /3 throughout Adam optimization. All three formulations subsequently use the same physical-global-residual L-BFGS objective. 10 3.7 Adam checkpointing and deterministic global-residual L-BFGS refinement 
+
+The first optimization phase consists of 
+
+NAdam = 15000 (68) completed Adam updates with initial learning rate 
+
+μ0 = 10 −3. (69) An initial stratified collocation batch is generated before optimization. With resample_interval =1, a newly sampled batch is generated before every Adam update after the first. The global norm of the gradients of all trainable model parameters is clipped according to 
+
+∇(θ,c θ )LAdam 2 ≤ 1 . (70) Adaptive regional coefficients are updated at completed Adam steps 
+
+1, 51 , 101 , 151 , . . . . (71) Checkpoint selection is based on a deterministic uniform monitoring grid containing 
+
+Nmon = 800 (72) points over [0 , L ]. The monitor is the physical global residual 
+
+Jmon = Lmon g . (73) It is evaluated after completed Adam step 1, after every 100 completed updates, and after the final Adam update. Thus, a monitor entry indexed by step k refers to the model after k completed Adam parameter updates. At each scheduled monitor evaluation, the monitor value is first supplied to a 
+
+ReduceLROnPlateau scheduler with patience 20 monitor evaluations and reduction factor 0.5. Whenever 
+
+J(k)mon < J best mon , (74) the current model state and regional-weight state are stored. When the scheduled monitor first satisfies 
+
+Jmon ≤ 10 −6, (75) a one-time fine-stage learning-rate reduction is then applied to the current learning rate: 
+
+μnew = max  0.2μold , 10 −5 . (76) For the reported adaptive benchmark runs, this produces 
+
+10 −3 → 2 × 10 −4. (77) 11 The selected case first triggers this reduction at the scheduled monitor after completed Adam step 2000, the Blasius case at step 4900, and the Pohlhausen case at step 6000. After all Adam updates have been completed, the checkpoint having the smallest scheduled physical-global monitor is restored. For ARRB, the adaptive-weight state associated with that checkpoint is restored together with the model parameters. The complete adaptive-weight trajectory is retained separately for diagnostic plotting. Two deterministic L-BFGS stages are then applied. For stage j,
+
+NLBFGS ,j = max (2000 j, 4Nc) . (78) With Nc = 500 ,
+
+NLBFGS ,1 = 2000 , NLBFGS ,2 = 4000 . (79) The L-BFGS optimization closure minimizes only 
+
+min 
+
+> θ,c θ
+
+Lg . (80) Thus, ARRB is an Adam-stage residual-conditioning mechanism; the quasi-Newton refinement objective is common to all three residual formulations. The PyTorch L-BFGS optimizer uses an initial step-size parameter of 0.5, at most 500 internal iterations per stage, and at most 1000 function evaluations per stage. The history size is 50, the gradient tolerance is 10 −12 , the parameter-change tolerance is 10 −16 , and the line search is strong Wolfe [19]. Optimization within L-BFGS stage j is performed on its corresponding 2000- or 4000-point uniform grid. Stage acceptance, however, is determined using the separate 800-point deterministic monitor used for Adam checkpointing. Let Jbefore and Jafter denote the monitor values immediately before and after a candidate L-BFGS stage. The stage is retained only if 
+
+Jafter ≤ Jbefore (81) and Jafter is finite. Otherwise, the pre-stage model is restored. The overall sequence is therefore Adam → restore best monitored checkpoint → L-BFGS (N = 2000) → L-BFGS (N = 4000) .
+
+(82) 12 4 Computational algorithm 
+
+Algorithm 1 Hard-constrained PINN with adaptive regional residual balancing for the generalized Falkner–Skan problem 
+
+Require: β0, β 1, L , regional interfaces, network Nθ , NA, N c, ρ, ε, γ, α 
+
+Ensure: ˆfθ , ˆf ′ 
+
+> θ
+
+, ˆf ′′  
+
+> θ
+
+, and ˆf ′′  
+
+> θ
+
+(0) 
+
+1: Initialize neural parameters, set cθ ← 0, and set λw = λm = λt = 1 /3
+
+2: Define s = η/L , x = 2 s − 1, and ˆfθ = b(η) + cθ H(s) + G(s)Nθ (x)
+
+3: Construct the fixed 800-point monitoring grid 4: Generate the initial stratified Adam collocation batch including η = 0 and η = L
+
+5: Phase I: Adam optimization 
+
+6: for k = 1 , . . . , N A do 
+
+7: if k > 1 then 
+
+8: Generate a fresh stratified collocation batch 9: end if 
+
+10: Compute ˆf ′ 
+
+> θ
+
+, ˆf ′′  
+
+> θ
+
+, ˆf ′′′  
+
+> θ
+
+and the governing-equation residual Rθ
+
+11: Compute Lw, Lm, Lt and Lg = P 
+
+> r
+
+ωr Lr
+
+12: if k = 1 or (k − 1) mod 50 = 0 then 
+
+13: Compute Gr = ∥∇ θp Lr ∥2 for r ∈ { w, m, t}
+
+14: Replace invalid Gr , update Gr , and compute qr ∝ (Gr + ε)−1
+
+15: Set λr = γq r + (1 − γ)/3 and normalize P 
+
+> r
+
+λr = 1 
+
+16: end if 
+
+17: Compute Lreg = P 
+
+> r
+
+λr Lr and LAdam = αLg + (1 − α)Lreg 
+
+18: Backpropagate, clip the global model-gradient norm to 1, and perform one Adam update 19: if k = 1 or k mod 100 = 0 or k = NA then 
+
+20: Evaluate the fixed-grid Jmon 
+
+21: Supply Jmon to the plateau scheduler 22: if Jmon < J best mon then 
+
+23: Save the model state and regional-weight state 24: end if 
+
+25: if Jmon ≤ 10 −6 for the first scheduled time then 
+
+26: Apply the one-time learning-rate reduction 27: end if 
+
+28: end if 
+
+29: end for 
+
+30: Restore the model and weight state associated with the best Adam monitor 31: Phase II: deterministic L-BFGS refinement 
+
+32: for j = 1 , 2 do 
+
+33: Set NLBFGS ,j = max(2000 j, 4Nc) and construct the L-BFGS uniform grid 34: Evaluate and store Jbefore on the independent 800-point monitor 35: Save the current model state 36: Minimize Lg on the L-BFGS grid 37: Evaluate Jafter on the 800-point monitor 38: if Jafter is non-finite or Jafter > J before then 
+
+39: Restore the pre-stage model 40: end if 
+
+41: end for 
+
+42: Evaluate the accepted solution on 5000 uniform points and compute wall-shear, residual, and reference-error metrics 43: return final solution and validation metrics 
+
+13 5 Reference solutions and validation metrics 
+
+## 5.1 Numerical boundary-value reference 
+
+For quantitative validation, a numerical reference is computed using the SciPy boundary-value solver [20]. Introduce 
+
+y1 = f, y2 = f ′, y3 = f ′′ . (83) Then 
+
+y′ 
+
+> 1
+
+= y2, (84) 
+
+y′ 
+
+> 2
+
+= y3, (85) and 
+
+y′ 
+
+> 3
+
+= −β0y1y3 − β1
+
+ 1 − y22
+
+ . (86) The boundary conditions are 
+
+y1(0) = 0 , y2(0) = 0 , y2(L) = 1 . (87) The same truncated domain L = 12 is used for the PINN and numerical BVP reference. The numerical solver begins from a uniform mesh containing 1200 points and uses residual tolerance 
+
+10 −10 . (88) The maximum permitted number of mesh nodes is 
+
+30000 . (89) The initial BVP velocity profile is based on 
+
+f ′(η) ≈ 1 − e−η, (90) with 
+
+f (η) ≈ η − 1 + e−η. (91) Several candidate wall-shear initial guesses are attempted if necessary until the BVP solver converges. The resulting BVP solution is treated as a high-accuracy numerical reference rather than an exact solution. The specified solver tolerance controls the convergence criterion of the numerical algorithm and should not be interpreted by itself as a rigorous absolute error bound for every reported solution quantity. 14 5.2 Analytical Pohlhausen benchmark 
+
+For 
+
+β0 = 0 , β1 = 1 , (92) the governing equation becomes 
+
+f ′′′ + 1 − (f ′)2 = 0 . (93) Define 
+
+a = arctanh 
+
+r23, (94) and 
+
+ξ = η
+
+√2 + a. (95) The analytical semi-infinite-domain solution is 
+
+f ′(η) = 3 tanh 2(ξ) − 2, (96) 
+
+f ′′ (η) = 3 √2 tanh( ξ) sech 2(ξ), (97) and 
+
+f (η) = η − 3√2 [tanh( ξ) − tanh( a)] . (98) The third derivative is 
+
+f ′′′ (η) = 3 sech 2(ξ) 1 − 3 tanh 2(ξ) . (99) The exact wall shear is 
+
+f ′′ (0) = 2
+
+√3 = 1 .154700538379 . . . . (100) The analytical solution satisfies 
+
+f ′(η) → 1 as η → ∞ , (101) whereas the PINN and numerical BVP calculations impose f ′(12) = 1 exactly. The analytical semi-infinite problem and the finite-domain problem therefore do not satisfy precisely the same terminal condition. Accordingly, 2/√3 is used as the independent analytical Pohlhausen wall-shear bench-mark. The implementation additionally computes the finite-domain BVP wall shear as a truncation diagnostic, while all reported discrete profile errors are evaluated against the finite-domain BVP posed on the same interval as the PINN. This distinction separates the analytical wall-shear benchmark from the finite-domain reference used for profile comparison. 15 5.3 Validation metrics 
+
+Final metrics are evaluated on a uniform grid containing 
+
+Ne = 5000 (102) points. The residual MSE is 
+
+EMSE  
+
+> R
+
+= ωwLeval w + ωmLeval m + ωtLeval t . (103) The maximum residual is 
+
+Emax  
+
+> R
+
+= max  
+
+> i
+
+|Rθ(ηi)|. (104) The relative velocity-profile error is 
+
+EL2  
+
+> f′
+
+= ∥f ′ 
+
+> PINN
+
+− f ′ 
+
+> ref
+
+∥2
+
+∥f ′ 
+
+> ref
+
+∥2
+
+. (105) The relative shear-profile error is 
+
+EL2  
+
+> f′′
+
+= ∥f ′′  
+
+> PINN
+
+− f ′′  
+
+> ref
+
+∥2
+
+∥f ′′  
+
+> ref
+
+∥2
+
+. (106) The maximum velocity error is 
+
+Emax   
+
+> f′
+
+= max  
+
+> i
+
+|f ′
+
+> PINN
+
+(ηi) − f ′ 
+
+> ref
+
+(ηi)| . (107) The wall-shear error is 
+
+Ew = |f ′′ 
+
+> PINN
+
+(0) − f ′′ 
+
+> benchmark
+
+(0) | . (108) For Blasius and the selected case, the benchmark is the numerical BVP wall shear. For Pohlhausen, the benchmark is 2/√3.
+
+# 6 Computational configuration 
+
+The principal settings used for the reported calculations are summarized in table 1. 
+
+# 7 Numerical results 
+
+All results reported in this section use the physical global residual defined in eq. (49). The same global residual is used for fixed-grid monitoring, L-BFGS refinement, and final residual evaluation. 16 Table 1: Main computational parameters of the proposed hard-constrained PINN with ARRB. 
+
+Parameter Value Truncated computational domain η ∈ [0 , 12] 
+
+Network architecture [1 , 100 , 100 , 1] 
+
+Activation function tanh Numerical precision 64-bit floating point Publication computation device CPU Adam collocation points 500 Wall/middle/tail counts 125 / 208 / 167 Regional intervals [0 , 3] , (3 , 8) , [8 , 12] 
+
+Physical global weights 1/4, 5/12 , 1/3
+
+Residual-adaptive point refinement not used Adam steps 15000 Initial Adam learning rate 1 × 10 −3
+
+Threshold-triggered LR factor 0.20 Threshold-triggered LR floor 1 × 10 −5
+
+Fine-stage threshold 1 × 10 −6
+
+Plateau scheduler factor 0.5 Plateau scheduler patience 20 monitor evaluations Adaptive-weight updates during Adam steps 1, 51 , 101 , . . . 
+
+EMA factor ρ = 0 .90 
+
+Gradient-norm stabilizer ε = 10 −12 
+
+Adaptive blend γ = 0 .80 
+
+Global-loss fraction α = 0 .50 
+
+Gradient clipping global model-parameter norm ≤ 1
+
+Fixed monitoring points 800 Monitoring schedule after step 1, every 100 completed updates, and after final update L-BFGS stages 2L-BFGS optimization grids 2000 and 4000 points L-BFGS initial step-size parameter 0.5 Maximum L-BFGS iterations 500 per stage Maximum L-BFGS evaluations 1000 per stage L-BFGS history size 50 L-BFGS gradient tolerance 10 −12 
+
+L-BFGS change tolerance 10 −16 
+
+L-BFGS line search strong Wolfe L-BFGS acceptance monitor same independent 800-point fixed grid Final evaluation points 5000 Numerical BVP tolerance 10 −10 
+
+Numerical BVP initial mesh 1200 points Maximum BVP mesh nodes 30000 Random seed 42 
+
+Table 2: Evaluation-grid accuracy of the hard-constrained PINN with adaptive regional residual balancing. 
+
+Case (β0, β 1) PINN f ′′ (0) Reference f ′′ (0) Wall error Residual MSE Relative L2(f ′′ )
+
+Blasius (0 .50 , 0.00) 0.3320572256 0.3320573362 1.106 × 10 −7 5.039 × 10 −8 3.586 × 10 −4
+
+Selected (0 .75 , 0.50) 0.8997161394 0.8997168085 6.691 × 10 −7 6.357 × 10 −9 4.188 × 10 −5
+
+Pohlhausen (0 .00 , 1.00) 1.1546922871 1.1547005384 8.251 × 10 −6 6.483 × 10 −8 1.735 × 10 −4
+
+Note: For Pohlhausen, the wall-shear error is computed against the analytical semi-infinite-domain value 2/√3, while the profile errors are computed against the finite-domain BVP reference. 
+
+17 7.1 Accuracy for the three benchmark cases 
+
+The final 5000-point evaluation-grid results are summarized in table 2. The relative L2 velocity errors for the Blasius, selected, and Pohlhausen cases are 
+
+2.093 × 10 −5, 2.848 × 10 −6, 1.960 × 10 −5, (109) respectively. Their maximum absolute velocity errors are 
+
+4.121 × 10 −5, 6.835 × 10 −6, 4.332 × 10 −5, (110) and the corresponding maximum absolute equation residuals are 
+
+1.410 × 10 −3, 7.540 × 10 −4, 3.406 × 10 −3. (111) For all three cases, the hard-boundary diagnostics give 
+
+| ˆfθ(0) | = | ˆf ′
+
+> θ
+
+(0) | = | ˆf ′
+
+> θ
+
+(L) − 1| = 0 (112) to the displayed numerical precision. The adaptive coefficients restored with the best Adam checkpoints are Blasius: (0 .7044 , 0.2130 , 0.0826) , (113) Selected: (0 .7276 , 0.1816 , 0.0908) , (114) Pohlhausen: (0 .4552 , 0.3177 , 0.2271) . (115) These coefficients are not updated during the subsequent L-BFGS stages. The complete 15000-step adaptive-coefficient trajectory is retained separately for diagnostic plotting even when the best Adam checkpoint occurs before the final Adam update.  
+
+> (a) Velocity profiles. (b) Shear profiles.
+
+Figure 1: PINN and reference profiles for the selected Falkner–Skan, Blasius, and Pohlhausen cases: (a) normalized velocity f ′(η); (b) shear profile f ′′ (η).As shown in fig. 1, the predicted velocity and shear profiles closely follow the numerical reference solutions for all three benchmark cases. Relative to the PINN Blasius wall shear, the selected Falkner–Skan case increases 
+
+f ′′ (0) by 18 0.5676589138 , (116) or 170 .952% .The Pohlhausen increase relative to Blasius is 
+
+0.8226350615 , (117) or 247 .739% .
+
+Figure 2: Reference velocity-profile deviations from the Blasius solution for the selected favorable-pressure-gradient Falkner–Skan case and the Pohlhausen benchmark. The corresponding changes in the velocity profiles are illustrated in fig. 2. 
+
+## 7.2 Selected-case diagnostics 
+
+For the selected case, 
+
+(β0, β 1) = (0 .75 , 0.50) , (118) the final wall shear is 
+
+ˆf ′′  
+
+> θ
+
+(0) = 0 .8997161394 , (119) while the numerical BVP reference is 
+
+f ′′  
+
+> ref
+
+(0) = 0 .8997168085 . (120) The resulting wall-shear error is 
+
+Ew = 6 .691 × 10 −7. (121) The final 5000-point evaluation-grid physical residual MSE is 19 EMSE  
+
+> R
+
+= 6 .357 × 10 −9, (122) and the maximum absolute residual is 
+
+Emax  
+
+> R
+
+= 7 .540 × 10 −4. (123) The relative profile errors are 
+
+EL2  
+
+> f′
+
+= 2 .848 × 10 −6, EL2  
+
+> f′′
+
+= 4 .188 × 10 −5. (124) The maximum absolute velocity-profile error is 
+
+Emax   
+
+> f′
+
+= 6 .835 × 10 −6. (125) The selected-case regional residual MSEs are 
+
+Lw = 1 .234 × 10 −8, (126) 
+
+Lm = 1 .323 × 10 −9, (127) and 
+
+Lt = 8 .161 × 10 −9. (128) The adaptive coefficients restored with the selected-case best Adam checkpoint are 
+
+(λw, λ m, λ t) = (0 .7276 , 0.1816 , 0.0908) . (129) Because α = 0 .50 , the corresponding complete coefficients multiplying the three regional losses during the Adam objective at this checkpoint are, from eq. (63), 
+
+(weff w , w eff m , w eff t ) ≈ (0 .4888 , 0.2991 , 0.2121) . (130) Thus, the adaptive coefficients λr should not be interpreted as the complete regional weights of the Adam objective. The selected case first satisfies the 10 −6 threshold at the scheduled fixed-monitor evaluation after completed Adam step 2000. The best Adam monitor is 
+
+6.997 × 10 −9. (131) The first L-BFGS stage changes this value to 
+
+6.801 × 10 −9, (132) and the second stage further reduces it to 
+
+6.798 × 10 −9. (133) Both stages are therefore accepted. Figure 4 shows the deterministic fixed-grid convergence history together with the evolution of the adaptive regional coefficients. 20 (a) Pointwise profile errors. (b) Pointwise residual magnitude. 
+
+Figure 3: Pointwise diagnostics for the selected (β0, β 1) = (0 .75 , 0.50) case. 
+
+Figure 4: Deterministic fixed-grid physical-global-residual monitor and complete Adam-stage adaptive-coefficient trajectory for the selected (β0, β 1) = (0 .75 , 0.50) case. The coefficients used for reporting the restored model are those associated with the best Adam checkpoint, whereas the plotted coefficient history retains all adaptive updates for diagnostic purposes. 21 7.3 Regional residual distribution 
+
+Table 3 summarizes the final evaluation-grid regional residual MSEs together with the adaptive coefficients restored with the best Adam checkpoints. Table 3: Evaluation-grid regional residual MSEs and adaptive coefficients restored with the best Adam checkpoints. 
+
+Case Lw Lm Lt λw λm λt
+
+Blasius 4.966 × 10 −8 6.246 × 10 −8 3.586 × 10 −8 0.7044 0.2130 0.0826 Selected 1.234 × 10 −8 1.323 × 10 −9 8.161 × 10 −9 0.7276 0.1816 0.0908 Pohlhausen 1.864 × 10 −7 8.176 × 10 −9 4.446 × 10 −8 0.4552 0.3177 0.2271 
+
+The adaptive coefficients are optimization-balancing quantities. A larger λr does not imply greater physical importance. Under the inverse-gradient construction, a larger coefficient indicates that the corresponding regional loss would otherwise generate a comparatively smaller gradient over the selected proxy parameter subset. Moreover, λr constitutes only the adaptive portion of the Adam objective. The complete instantaneous regional coefficient is weff  
+
+> r
+
+= αω r + (1 − α)λr, so the physical region-length weighting remains present throughout Adam training. ————————— ——————————— 
+
+## 7.4 Residual-objective ablation 
+
+The selected favorable-pressure-gradient case is used for a matched single-seed compari-son of the global, equal-regional, and adaptive-regional objectives. Within the reported comparison, the three formulations use the same hard-constrained trial representation, ar-chitecture, initialization seed, stochastic sampling procedure, Adam settings, deterministic monitor, checkpoint rule, and L-BFGS refinement protocol. The intended methodologi-cal difference is restricted to the residual objective used during Adam: physical global, equal-regional mixture, or adaptively balanced regional mixture. Because the deterministic monitor is evaluated only at scheduled intervals, the conver-gence indicator is defined as the earliest scheduled Adam-monitor evaluation for which 
+
+Jmon ≤ 10 −6. (134) This quantity is therefore a first monitored threshold-crossing step rather than the exact optimizer iteration at which the evolving network first satisfies the inequality. Table 4: Matched single-seed selected-case residual-objective ablation for (β0, β 1) = (0 .75 , 0.50) .                                               
+
+> Method Residual MSE max |R|Wall-shear error Relative L2(f′′ )First monitored threshold step Global hard-constrained PINN 1.347 ×10 −81.368 ×10 −32.947 ×10 −66.056 ×10 −51800 Equal-regional hard-constrained PINN 1.277 ×10 −81.185 ×10 −32.422 ×10 −65.842 ×10 −51500 ARRB hard-constrained PINN 6.357 ×10 −97.540 ×10 −46.691 ×10 −74.188 ×10 −52000
+
+Note: Percentage reductions reported in the text are computed from the unrounded numerical values. “First monitored threshold step” denotes the earliest scheduled fixed-monitor evaluation satisfying 
+
+Jmon ≤ 10 −6.
+
+22 For this matched seed, ARRB reduces the final residual MSE by approximately 52 .81% 
+
+relative to the global hard-constrained formulation and by 50 .24% relative to equal-regional weighting. The wall-shear error is reduced by approximately 77 .30% relative to the global formulation and by 72 .37% relative to equal-regional weighting. ARRB also gives the smallest maximum absolute residual and relative shear-profile error among the three objectives in this experiment. These differences concern final approximation accuracy rather than the speed at which the prescribed monitored threshold is reached. Equal-regional weighting first satisfies the threshold at the scheduled monitor after completed Adam step 1500, followed by the global formulation at step 1800 and ARRB at step 2000. The best physical-global monitor values obtained during Adam are Global hard-constrained: 1.626 × 10 −8, (135) Equal regional: 1.532 × 10 −8, (136) ARRB: 6.997 × 10 −9. (137) Thus, for this seed, the lower final residual achieved by ARRB is already apparent at the Adam checkpoint stage and is not produced solely by the subsequent common L-BFGS refinement. Because only one random seed is reported, the numerical differences in table 4 should be interpreted as a matched case study rather than estimates of expected performance over random initialization and sampling variability.  
+
+> (a) Fixed-grid convergence. (b) Final accuracy metrics.
+
+Figure 5: Matched residual-objective ablation for the selected (β0, β 1) = (0 .75 , 0.50) 
+
+Falkner–Skan case. Figure 5 reinforces the distinction between early threshold attainment and final approximation accuracy. 
+
+## 7.5 L-BFGS refinement and rollback 
+
+For every formulation, L-BFGS minimizes the physical global residual on the stage-specific 2000- or 4000-point grid, whereas acceptance or rollback is determined independently from the 800-point fixed monitor. 23 For the selected adaptive case, the monitor evolves as 
+
+6.997 × 10 −9 → 6.801 × 10 −9 → 6.798 × 10 −9, (138) so both L-BFGS stages are accepted. For Blasius, 
+
+1.281 × 10 −7 → 5.187 × 10 −8 → 5.180 × 10 −8, (139) and both stages are again accepted. For Pohlhausen, the first stage improves the monitor from 
+
+8.318 × 10 −8 (140) to 
+
+7.234 × 10 −8. (141) The second stage produces 
+
+7.237 × 10 −8, (142) which is slightly larger than the pre-stage value. The second stage is therefore rejected and the first-stage model is restored. In the selected-case ablation, the global baseline improves from 
+
+1.626 × 10 −8 (143) to 
+
+1.469 × 10 −8 (144) during its first L-BFGS stage, while its second stage is rejected. The equal-regional formulation similarly improves from 
+
+1.532 × 10 −8 (145) to 
+
+1.372 × 10 −8 (146) in the first stage; its second stage yields 
+
+1.373 × 10 −8 (147) and is rejected. These outcomes demonstrate the role of the independent rollback criterion: a candidate quasi-Newton stage is retained only when it does not degrade the prescribed fixed-grid physical-global monitor, even if optimization on the stage-specific L-BFGS grid has completed successfully. 24 7.6 Observed optimization times 
+
+The reported timing variable is measured from immediately before the first Adam update through completion of the L-BFGS stages and final training-grid loss evaluation, but before the subsequent 5000-point evaluation-grid post-processing metrics and hard-boundary diagnostics. The measured CPU optimization wall times for the adaptive selected, Blasius, and Pohlhausen cases are approximately 
+
+376 .04 s , 475 .02 s , 421 .67 s , (148) respectively. For the selected-case ablation, the global and equal-regional runs require approximately 
+
+511 .70 s and 521 .01 s , (149) respectively. The adaptive selected run requires 376 .04 s .These CPU wall times are measurements from individual runs on the reported publi-cation device. They are provided for reproducibility and workload context only. Because the experiments were not repeated specifically for timing statistics and because the com-pared methods can follow different optimization trajectories, the single-run values are not interpreted as evidence of systematic computational-speed differences. 
+
+# 8 Discussion 
+
+The numerical experiments show that the boundary-admissible representation can recover the tested generalized Falkner–Skan solutions with small wall-shear, profile, and governing-equation residual errors under the common computational setting summarized in table 1. The displayed zero boundary errors arise from the analytical trial construction rather than from learned boundary fitting. Consequently, interior residual accuracy, differentiated-profile errors, and recovery of the equation-determined wall shear provide the more informative numerical accuracy measures. The roles of the hard-boundary representation and ARRB should be distinguished. Exact boundary admissibility removes competition between a governing-equation objective and boundary-condition penalty terms. ARRB acts after this reduction and addresses a different issue: unequal parameter-gradient contributions produced by spatial portions of the same governing-equation residual. The results should therefore not be interpreted as evidence that hard constraints themselves are new, nor as an ablation of hard versus soft boundary enforcement. Across the three benchmark problems, the quantitative results in table 2 show that the selected favorable-pressure-gradient case gives the smallest physical global residual MSE, 6.357 × 10 −9, and the smallest maximum residual, 7.540 × 10 −4. Its wall-shear error is 6.691 × 10 −7, while its relative shear-profile error is 4.188 × 10 −5. For Blasius, the predicted wall shear is 0.3320572256 , compared with the finite-domain BVP reference 
+
+0.3320573362 , corresponding to an absolute difference of 1.106 × 10 −7. For Pohlhausen, the predicted wall shear is 1.1546922871 , which differs by 8.251 × 10 −6 from the analytical semi-infinite-domain value 2/√3. The Pohlhausen case also has the largest maximum pointwise residual among the three benchmark runs, 3.406 × 10 −3.25 The profile comparisons in fig. 1, including the velocity and shear subfigures in figs. 1a and 1b, show close agreement between the PINN and the corresponding numerical reference solutions over the computational interval. The reference-profile deviations from Blasius in fig. 2 further illustrate how the selected favorable-pressure-gradient and Pohlhausen cases differ from the zero-pressure-gradient benchmark, providing context for the substantially larger wall-shear values observed in those cases. The Pohlhausen comparison requires particular care. The analytical solution obeys 
+
+f ′(η) → 1 only as η → ∞ , whereas the PINN and finite-domain BVP impose f ′(12) = 1 
+
+exactly. Consequently, the analytical and finite-domain problems are not mathematically identical at finite L. The analytical wall shear is therefore used as an independent exact benchmark, while the reported discrete profile errors are computed against the BVP posed on the same finite interval as the PINN. The implementation additionally computes the finite-domain BVP wall shear as a truncation diagnostic. For the selected case, the pointwise diagnostics in fig. 3, with profile errors shown in fig. 3a and residual magnitude shown in fig. 3b, indicate that the small aggregate error measures are not produced by a uniformly exact approximation at every point. These plots therefore complement the scalar residual MSE and relative L2 errors by revealing the spatial distribution of the remaining approximation error. A central feature of the method is the separation between physical residual weighting and adaptive optimization weighting. The physical global residual in eq. (49) is recon-structed from regional residual means using region-length fractions rather than stochastic collocation counts. Therefore, the prescribed physical weighting does not change when the integer number of samples assigned to a region changes. The final regional residual MSEs and restored adaptive coefficients in table 3 show that the regional residual levels and the adaptive coefficients need not follow the same ordering, consistent with the fact that the coefficients are constructed from proxy-gradient information rather than directly from residual magnitude. The adaptive coefficients require a separate interpretation. For the selected case, the coefficients restored with the best Adam checkpoint are 
+
+(0 .7276 , 0.1816 , 0.0908) . (150) These values arise from safeguarded inverse proxy-gradient norms. A larger λr therefore indicates that the associated regional loss would otherwise have a comparatively smaller contribution to the chosen proxy gradient norm; it does not establish a hierarchy of physical importance. Furthermore, because 
+
+weff  
+
+> r
+
+= αω r + (1 − α)λr,
+
+the reported λr values are not the complete regional coefficients in the Adam objective. For the selected checkpoint, the effective wall, middle, and tail coefficients are approximately 
+
+(0 .4888 , 0.2991 , 0.2121) . (151) The deterministic convergence history and complete adaptive-coefficient trajectory in fig. 4 provide additional context for these restored values. In particular, the plotted coefficient history contains all adaptive updates over the Adam run, whereas the coefficients used for the reported restored model are those associated with the best Adam checkpoint. The figure also shows that the lower residual level achieved by the selected ARRB run is 26 already established during Adam rather than being produced solely by the subsequent quasi-Newton refinement. The matched single-seed ablation in table 4 provides evidence of improved final accuracy from adaptive weighting in the reported optimization trajectory. Relative to the global hard-constrained formulation, ARRB reduces the final residual MSE by approximately 
+
+52 .81% and the wall-shear error by approximately 77 .30% . Relative to equal-regional weighting, the corresponding reductions are approximately 50 .24% and 72 .37% . ARRB also gives the smallest maximum residual and relative shear-profile error among the three objectives for this seed. These differences are summarized visually in fig. 5, with the convergence histories in fig. 5a and the final accuracy metrics in fig. 5b. ARRB does not, however, attain the monitored 10 −6 threshold first. Equal-regional weighting first satisfies the criterion at the scheduled monitor after completed Adam step 1500, followed by the global formulation at step 1800 and ARRB at step 2000, as reported in table 4 and illustrated in fig. 5a. Because monitoring occurs only at prescribed intervals, these values should not be interpreted as the exact optimizer iterations at which the continuously evolving networks first crossed the threshold. The observed advantage of ARRB in this experiment therefore concerns final approximation accuracy rather than uniformly faster early optimization. The best Adam physical-global monitor for ARRB is 6.997 × 10 −9, compared with 
+
+1.626 × 10 −8 for the global baseline and 1.532 × 10 −8 for equal-regional weighting. Thus, the lower residual obtained in the reported ARRB run is already established during the Adam stage and is not generated solely by L-BFGS refinement. The deterministic L-BFGS results also illustrate the purpose of the rollback mechanism. Although each L-BFGS stage minimizes the physical global residual on its own 2000-or 4000-point uniform grid, acceptance is based on the independent 800-point monitor specified in table 1. The second Pohlhausen stage, together with the second stages of the global and equal-regional ablation baselines, is rejected because the corresponding monitor deteriorates slightly. This separation reduces the risk of accepting a refinement that improves the optimization grid while degrading the prescribed monitoring grid. Several limitations remain. First, the residual-objective ablation uses a single random seed. Multi-seed matched experiments are therefore required to quantify sensitivity to neural initialization and stochastic collocation sampling and to determine whether the observed accuracy differences persist statistically. Second, the regional interfaces at η = 3 and η = 8 , summarized together with the other computational choices in table 1, are prescribed rather than learned or optimized. The current implementation supports alternative interfaces and recomputes both physical region-length fractions and largest-remainder sample counts accordingly, but a systematic partition-sensitivity study has not yet been reported. Third, the adequacy of L = 12 should be re-examined for slower-decaying, adverse-pressure-gradient, and near-separation regimes. This is particularly relevant because the far-field condition is represented by an exact finite-domain endpoint condition. Fourth, the current ablation compares three residual objectives while retaining the same hard-boundary representation. It therefore isolates the residual-weighting mechanism but does not constitute a direct comparison with a conventional soft-boundary PINN. Finally, the SciPy BVP tolerance controls the numerical solver’s convergence criterion and should not be interpreted as an independent rigorous error certificate for every reported reference quantity. Mesh, solver-tolerance, and domain-length sensitivity should be examined when substantially higher reference precision is required. 27 9 Conclusions 
+
+This study combines a Falkner–Skan-specific hard-constrained neural representation with adaptive regional residual balancing. The analytical trial form satisfies 
+
+f (0) = 0 , f ′(0) = 0 , f ′(L) = 1 (152) identically, apart from floating-point roundoff, while preserving the freedom required for f ′′ (0) and f (L) to be determined by the governing equation. ARRB partitions the governing-equation residual into wall, middle, and tail regions and balances their proxy-gradient contributions during Adam training using safeguarded EMA-smoothed inverse-gradient coefficients. A separate region-length-weighted physical residual is retained for physical global evaluation, deterministic checkpoint monitoring, L-BFGS refinement, rollback decisions, and final residual assessment. The adaptive coefficients therefore modify optimization conditioning without replacing the underlying physical region-length weighting. For the selected favorable-pressure-gradient case (β0, β 1) = (0 .75 , 0.50) , the method predicts 
+
+f ′′ (0) = 0 .8997161394 , (153) compared with the finite-domain numerical BVP reference 
+
+f ′′ (0) = 0 .8997168085 . (154) The resulting wall-shear error is 6.691 × 10 −7, the 5000-point physical residual MSE is 
+
+6.357 × 10 −9, the maximum absolute residual is 7.540 × 10 −4, and the relative shear-profile error is 4.188 × 10 −5.In the reported matched single-seed residual-objective ablation, ARRB gives the small-est final residual MSE, maximum pointwise residual, wall-shear error, and relative shear-profile error among the three tested objectives. Relative to the global hard-constrained formulation, the residual MSE and wall-shear error are reduced by approximately 52 .81% 
+
+and 77 .30% , respectively. Relative to equal-regional weighting, the corresponding reduc-tions are approximately 50 .24% and 72 .37% .These improvements should be interpreted as results for the reported matched opti-mization trajectory rather than as statistical performance estimates. ARRB also does not reach the prescribed monitored early-convergence threshold first: equal-regional weighting reaches the criterion at an earlier scheduled monitor evaluation. The present results there-fore support ARRB primarily as an accuracy-oriented residual-conditioning mechanism rather than as a guarantee of faster optimization. Future work should quantify multi-seed variability, investigate sensitivity to the prescribed regional interfaces and domain truncation, extend the tests to adverse-pressure-gradient and near-separation regimes, compare directly against conventional soft-boundary PINNs, and explore adaptive or automatically determined regional decompositions and multi-domain extensions. 
+
+# References 
+
+[1] V. M. Falkner and S. W. Skan, “Some approximate solutions of the boundary-layer equations,” Philosophical Magazine , vol. 12, no. 80, pp. 865–896, 1931. 28 [2] H. Blasius, “Grenzschichten in Flüssigkeiten mit kleiner Reibung,” Zeitschrift für Mathematik und Physik , vol. 56, pp. 1–37, 1908. [3] K. Pohlhausen, “Zur näherungsweisen Integration der Differentialgleichung der lam-inaren Grenzschicht,” Zeitschrift für Angewandte Mathematik und Mechanik , vol. 1, no. 4, pp. 252–290, 1921. [4] M. Raissi, P. Perdikaris, and G. E. Karniadakis, “Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations,” Journal of Computational Physics , vol. 378, pp. 686– 707, 2019. [5] I. E. Lagaris, A. Likas, and D. I. Fotiadis, “Artificial neural networks for solving ordinary and partial differential equations,” IEEE Transactions on Neural Networks ,vol. 9, no. 5, pp. 987–1000, 1998, doi: 10.1109/72.712178. [6] K. S. McFall and J. R. Mahan, “Artificial neural network method for solution of boundary value problems with exact satisfaction of arbitrary boundary conditions,” 
+
+IEEE Transactions on Neural Networks , vol. 20, no. 8, pp. 1221–1233, 2009, doi: 10.1109/TNN.2009.2020735. [7] C. Leake and D. Mortari, “Deep theory of functional connections: A new method for estimating the solutions of partial differential equations,” Machine Learning and Knowledge Extraction , vol. 2, no. 1, pp. 37–55, 2020. [8] N. Sukumar and A. Srivastava, “Exact imposition of boundary conditions with distance functions in physics-informed deep neural networks,” Computer Methods in Applied Mechanics and Engineering , vol. 389, Art. 114333, 2022. [9] A. Asaithambi, “On solving the nonlinear Falkner–Skan boundary-value problem: A review,” Fluids , vol. 6, no. 4, Art. 153, 2021. [10] H. Temimi and M. Ben-Romdhane, “Numerical solution of Falkner–Skan equation by iterative transformation method,” Mathematical Modelling and Analysis , vol. 23, no. 1, pp. 139–151, 2018. [11] S. Abbasbandy and J. Hajishafieiha, “Numerical solution to the Falkner–Skan equa-tion: A novel numerical approach through the new rational a-polynomials,” Applied Mathematics and Mechanics , vol. 42, no. 10, pp. 1449–1460, 2021. [12] J. P. Narain, “Exploring Blasius and Falkner–Skan equations with Python,” American Journal of Fluid Dynamics , vol. 11, no. 1, pp. 1–4, 2021. [13] A. A. Aghaei, K. Parand, A. Nikkhah, and S. Jaberi, “Solving Falkner–Skan type equa-tions via Legendre and Chebyshev neural blocks,” arXiv preprint arXiv:2308.03337, 2023. [14] G. Anitha, S. T. N., and S. Singh, “Optimizing solution strategies for Falkner–Skan equation: LSTM, FCNN, and Runge–Kutta performance analysis,” 2024. [15] L. Lu, R. Pestourie, W. Yao, Z. Wang, F. Verdugo, and S. G. Johnson, “Physics-informed neural networks with hard constraints for inverse design,” SIAM Journal on Scientific Computing , vol. 43, no. 6, pp. B1105–B1132, 2021. 29 [16] D. T. Nguyen et al., “Adaptive hard–soft physics-informed neural networks for robust boundary-constrained PDE solving,” arXiv preprint, 2026. [17] S. W. Chung et al., “Hard-constrained physics-informed neural networks for interface problems,” arXiv preprint, 2026. [18] H. T. Yang and L. C. Chien, “Analytic solutions of the Falkner–Skan equation,” SIAM Journal on Applied Mathematics , vol. 29, no. 3, pp. 558–568, 1975. [19] J. Nocedal and S. J. Wright, Numerical Optimization , 2nd ed., Springer, 2006. [20] P. Virtanen et al., “SciPy 1.0: Fundamental algorithms for scientific computing in Python,” Nature Methods , vol. 17, pp. 261–272, 2020. [21] S. Wang, Y. Teng, and P. Perdikaris, “Understanding and mitigating gradient flow pathologies in physics-informed neural networks,” SIAM Journal on Scientific Com-puting , vol. 43, no. 5, pp. A3055–A3081, 2021. [22] L. McClenny and U. Braga-Neto, “Self-adaptive physics-informed neural networks,” 
+
+Journal of Computational Physics , vol. 474, Art. 111722, 2023. [23] H. Schlichting and K. Gersten, Boundary-Layer Theory , 9th ed., Springer, 2017. 30
