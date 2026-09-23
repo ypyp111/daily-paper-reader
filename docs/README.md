@@ -6,71 +6,46 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-22
-- 运行时间：2026-09-22 22:08:25 UTC
+- 最新运行日期：2026-09-23
+- 运行时间：2026-09-23 22:00:50 UTC
 - 运行状态：成功
-- 本次总论文数：17
-- 精读区：6
-- 速读区：11
+- 本次总论文数：8
+- 精读区：4
+- 速读区：4
 
 ### 今日简报（AI）
-今日筛选 17 篇文献并精读 6 篇，聚焦物理信息神经网络与神经算子。最值得关注 PINNForge（10.0/10）用大语言模型进化设计 PINN 求解 PDE，以及结合多项式混沌不确定性传播的 PINN 代理模型用于随机预测控制（9.0/10）。普通读者可先看这两篇精读，再按兴趣速读神经算子与经典求解器的成本-精度对比等 11 篇。
-- 详情：[/202609/22/README](/202609/22/README)
+2026-09-23日报完成8篇筛选，精读4篇、速读4篇，重点放在大模型自动算法设计与偏微分方程求解。  
+最值得看的是9.0分的《Online Automated Algorithm Design with Large Language Models》和8.0分的《SDC-GON: Singular Decomposition and Consistency-Regularized Green's Operator Networks for Solving Partial Differential Equations》，前者指向LLM自动设计算法，后者聚焦PDE的奇异分解与一致性正则Green算子网络。  
+普通读者可先读这两篇精读，若时间有限再速览7.0分的《NeuIDO》和随机神经网络椭圆界面误差分析，跟进自动算法与科学计算交叉方向。
+- 详情：[/202609/23/README](/202609/23/README)
 
 ### 精读区论文标签
-1. [PINNForge: Execution-Grounded Evolutionary Design of Physics-Informed Neural Networks for PDE Solving via Large Language Models](/202609/22/2609.23023v1-pinnforge-execution-grounded-evolutionary-design-of-physics-informed-neural-networks-for-pde-solving-via-large-language-models)  
-   标签：评分：10.0/10、query:sci-ml-agent
-   evidence：大模型驱动的演化框架实现基于执行反馈的PINN自动设计
-2. [Physics-Informed Neural Network Surrogates with Polynomial Chaos-Based Uncertainty Propagation for Stochastic Model Predictive Control](/202609/22/2609.23077v1-physics-informed-neural-network-surrogates-with-polynomial-chaos-based-uncertainty-propagation-for-stochastic-model-predictive-control)  
+1. [Online Automated Algorithm Design with Large Language Models](/202609/23/2609.25325v1-online-automated-algorithm-design-with-large-language-models)  
    标签：评分：9.0/10、query:sci-ml-agent
-   evidence：PINN代理模型求解随机PDE并传播多项式混沌不确定性
-3. [Learning Physics from an Imperfect Ancestor](/202609/22/2609.24947v1-learning-physics-from-an-imperfect-ancestor)  
-   标签：评分：9.0/10、query:sci-ml-agent
-   evidence：神经算子先验引导PINN落入正确解盆以求解PDE
-4. [LPINNs: First-Layer Gated Localization for Physics-Informed Neural Networks](/202609/22/2609.22984v1-lpinns-first-layer-gated-localization-for-physics-informed-neural-networks)  
+   evidence：LLM智能体在线合成算法逻辑，契合LLM引导的算法设计
+2. [SDC-GON: Singular Decomposition and Consistency-Regularized Green's Operator Networks for Solving Partial Differential Equations](/202609/23/2609.23206v1-sdc-gon-singular-decomposition-and-consistency-regularized-greens-operator-networks-for-solving-partial-differential-equations)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：面向物理信息神经网络的首层门控局部化架构设计
-5. [Hard-Constrained Physics--Informed Neural Network with Adaptive Regional Residual Balancing for the Generalized Falkner--Skan Problem](/202609/22/2609.23493v1-hard-constrained-physics--informed-neural-network-with-adaptive-regional-residual-balancing-for-the-generalized-falkner--skan-problem)  
+   evidence：用于求解线性偏微分方程的格林算子网络代理模型
+3. [Physics-Informed Kolmogorov-Arnold Networks for Grad-Shafranov Tokamak Equilibria](/202609/23/2609.23846v1-physics-informed-kolmogorov-arnold-networks-for-grad-shafranov-tokamak-equilibria)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：用于Falkner-Skan方程的硬约束物理信息神经网络与自适应残差平衡
-6. [Physics-Informed Latent Neural Operator for Three-Dimensional Compressor Cascade Flow Prediction](/202609/22/2609.23844v1-physics-informed-latent-neural-operator-for-three-dimensional-compressor-cascade-flow-prediction)  
+   evidence：物理信息神经网络求解Grad-Shafranov方程
+4. [AKAPINN: Adaptive Kolmogorov-Arnold Physics-Informed Neural Networks for approximating solutions to quasilinear partial differential equations](/202609/23/2609.25507v1-akapinn-adaptive-kolmogorov-arnold-physics-informed-neural-networks-for-approximating-solutions-to-quasilinear-partial-differential-equations)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：面向三维压气机叶栅流动代理预测的物理信息隐式神经算子
+   evidence：基于KAN的物理信息神经网络求解拟线性偏微分方程
 
 ### 速读区论文标签
-1. [Cost-Accuracy Trade-offs: Neural Operator vs Classical Numerical Solver](/202609/22/2609.24021v1-cost-accuracy-trade-offs-neural-operator-vs-classical-numerical-solver)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：神经算子作为PDE求解器的代理模型
-2. [Diff-NekRS: A Scalable Differentiable Framework for Multi-Timestep Solver-in-the-Loop Training](/202609/22/2609.23208v1-diff-nekrs-a-scalable-differentiable-framework-for-multi-timestep-solver-in-the-loop-training)  
+1. [NeuIDO: Neural Intrinsic Dynamics Operator for Physics-Informed 4D World Models](/202609/23/2609.24313v1-neuido-neural-intrinsic-dynamics-operator-for-physics-informed-4d-world-models)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：可微CFD求解器嵌入神经修正的混合物理-机器学习仿真
-3. [Predicting Out-of-Distribution Generalization of Neural Operators via Observable Spectral Error Decomposition](/202609/22/2609.23529v1-predicting-out-of-distribution-generalization-of-neural-operators-via-observable-spectral-error-decomposition)  
+   evidence：面向物理信息动力学代理的神经算子学习
+2. [Error Analysis for Solving Elliptic Interface Problems with Randomized Neural Networks](/202609/23/2609.26534v1-error-analysis-for-solving-elliptic-interface-problems-with-randomized-neural-networks)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：神经算子PDE代理的可靠性与泛化分析
-4. [The Neural Forcing for Three-Dimensional Incompressible Navier-Stokes finite time blowup](/202609/22/2609.23934v1-the-neural-forcing-for-three-dimensional-incompressible-navier-stokes-finite-time-blowup)  
-   标签：评分：7.0/10、query:sci-ml-agent
-   evidence：用于受迫纳维-斯托克斯的物理信息神经模型及独立验证回放
-5. [A Nonlinear Physics-based Reduced Order Model with Convolutional-based Operator Compression](/202609/22/2609.24300v1-a-nonlinear-physics-based-reduced-order-model-with-convolutional-based-operator-compression)  
-   标签：评分：7.0/10、query:sci-ml-agent
-   evidence：面向参数化PDE、基于卷积算子压缩的非线性降阶模型
-6. [AI-Driven Scientific Computing Workflows: A Systems Review of Orchestration, Execution, Reproducibility and Provenance](/202609/22/2609.21162v1-ai-driven-scientific-computing-workflows-a-systems-review-of-orchestration-execution-reproducibility-and-provenance)  
+   evidence：含PDE与边界界面复合损失的神经网络求解误差分析
+3. [Autoencoders vs. Numerical Analysis--Informed Manifold Learning for Navier--Stokes Flows](/202609/23/2609.24332v1-autoencoders-vs-numerical-analysis--informed-manifold-learning-for-navier--stokes-flows)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：AI驱动科学计算工作流的系统综述
-7. [LEMCA: LLM-Guided Synthesis of Efficient Mode-Switching Control Architectures](/202609/22/2609.21319v1-lemca-llm-guided-synthesis-of-efficient-mode-switching-control-architectures)  
+   evidence：面向纳维-斯托克斯流动的降阶代理建模基准
+4. [Enhancing Transformer Representations of Symbolic ODE Expressions](/202609/23/2609.24746v1-enhancing-transformer-representations-of-symbolic-ode-expressions)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：LLM引导的控制架构合成
-8. [Domain-decomposed Evolutional Deep Neural Network with Random Features for Transient Pressure Diffusion with Discontinuous and High-Contrast Coefficients](/202609/22/2609.22349v1-domain-decomposed-evolutional-deep-neural-network-with-random-features-for-transient-pressure-diffusion-with-discontinuous-and-high-contrast-coefficients)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：作为扩散PDE代理的神经网络求解器
-9. [NeSTR: Neural S-Transform Reconstruction for Gaussian SPDEs](/202609/22/2609.23001v1-nestr-neural-s-transform-reconstruction-for-gaussian-spdes)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向随机PDE的神经代理重构
-10. [TASE-Stabilized Time-Evolving Natural Gradient Methods for Diffusion-Dominated PDEs](/202609/22/2609.23054v1-tase-stabilized-time-evolving-natural-gradient-methods-for-diffusion-dominated-pdes)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向含时PDE的神经网络求解及稳定性处理
-11. [Sparsely connected neural network representation of Lagrange finite element function](/202609/22/2609.23299v1-sparsely-connected-neural-network-representation-of-lagrange-finite-element-function)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：由有限元离散规则决定的网络结构设计
+   evidence：面向符号微分方程的Transformer表示
 
 
 <div class="dpr-home-promo-card">
