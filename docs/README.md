@@ -6,46 +6,60 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-23
-- 运行时间：2026-09-23 22:00:50 UTC
+- 最新运行日期：2026-09-24
+- 运行时间：2026-09-24 22:24:09 UTC
 - 运行状态：成功
-- 本次总论文数：8
-- 精读区：4
-- 速读区：4
+- 本次总论文数：12
+- 精读区：1
+- 速读区：11
 
 ### 今日简报（AI）
-2026-09-23日报完成8篇筛选，精读4篇、速读4篇，重点放在大模型自动算法设计与偏微分方程求解。  
-最值得看的是9.0分的《Online Automated Algorithm Design with Large Language Models》和8.0分的《SDC-GON: Singular Decomposition and Consistency-Regularized Green's Operator Networks for Solving Partial Differential Equations》，前者指向LLM自动设计算法，后者聚焦PDE的奇异分解与一致性正则Green算子网络。  
-普通读者可先读这两篇精读，若时间有限再速览7.0分的《NeuIDO》和随机神经网络椭圆界面误差分析，跟进自动算法与科学计算交叉方向。
-- 详情：[/202609/23/README](/202609/23/README)
+2026-09-24 日报：从 12 篇新论文中精读 1 篇、速读 11 篇，主打"省内存的神经算子"。
+
+最值得看的是拿下 8.0 分的《MENO: Memory-Efficient Neural Operator》，想拓展视野可顺带看 7.0 分的《CodeMidas》（用代码本身扩展智能体编程 RL 环境）和《TinyUDE》（让微控制器免求解器跑通用微分方程）。
+
+普通读者建议先花时间啃 MENO 这一篇精读，再按自己关心的方向从三篇速读里挑一篇翻翻摘要即可。
+- 详情：[/202609/24/README](/202609/24/README)
 
 ### 精读区论文标签
-1. [Online Automated Algorithm Design with Large Language Models](/202609/23/2609.25325v1-online-automated-algorithm-design-with-large-language-models)  
-   标签：评分：9.0/10、query:sci-ml-agent
-   evidence：LLM智能体在线合成算法逻辑，契合LLM引导的算法设计
-2. [SDC-GON: Singular Decomposition and Consistency-Regularized Green's Operator Networks for Solving Partial Differential Equations](/202609/23/2609.23206v1-sdc-gon-singular-decomposition-and-consistency-regularized-greens-operator-networks-for-solving-partial-differential-equations)  
+1. [MENO: Memory-Efficient Neural Operator](/202609/24/2609.27739v1-meno-memory-efficient-neural-operator)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：用于求解线性偏微分方程的格林算子网络代理模型
-3. [Physics-Informed Kolmogorov-Arnold Networks for Grad-Shafranov Tokamak Equilibria](/202609/23/2609.23846v1-physics-informed-kolmogorov-arnold-networks-for-grad-shafranov-tokamak-equilibria)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：物理信息神经网络求解Grad-Shafranov方程
-4. [AKAPINN: Adaptive Kolmogorov-Arnold Physics-Informed Neural Networks for approximating solutions to quasilinear partial differential equations](/202609/23/2609.25507v1-akapinn-adaptive-kolmogorov-arnold-physics-informed-neural-networks-for-approximating-solutions-to-quasilinear-partial-differential-equations)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：基于KAN的物理信息神经网络求解拟线性偏微分方程
+   evidence：内存高效神经算子作为高性能PDE神经求解器
 
 ### 速读区论文标签
-1. [NeuIDO: Neural Intrinsic Dynamics Operator for Physics-Informed 4D World Models](/202609/23/2609.24313v1-neuido-neural-intrinsic-dynamics-operator-for-physics-informed-4d-world-models)  
+1. [CodeMidas: Scaling Agentic Coding RL Environments from Code Itself](/202609/24/2609.22068v1-codemidas-scaling-agentic-coding-rl-environments-from-code-itself)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：面向物理信息动力学代理的神经算子学习
-2. [Error Analysis for Solving Elliptic Interface Problems with Randomized Neural Networks](/202609/23/2609.26534v1-error-analysis-for-solving-elliptic-interface-problems-with-randomized-neural-networks)  
+   evidence：智能体流水线从代码构建带执行验证器的可执行强化学习环境
+2. [TinyUDE: Solver-Free Universal Differential Equations on Microcontrollers via Lie-Taylor Jet Matching](/202609/24/2609.26972v1-tinyude-solver-free-universal-differential-equations-on-microcontrollers-via-lie-taylor-jet-matching)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：含PDE与边界界面复合损失的神经网络求解误差分析
-3. [Autoencoders vs. Numerical Analysis--Informed Manifold Learning for Navier--Stokes Flows](/202609/23/2609.24332v1-autoencoders-vs-numerical-analysis--informed-manifold-learning-for-navier--stokes-flows)  
+   evidence：无求解器训练通用微分方程，属科学机器学习方法
+3. [ChipMEM: Verification-Grounded Memory for EDA Agents](/202609/24/2609.27067v1-chipmem-verification-grounded-memory-for-eda-agents)  
+   标签：评分：7.0/10、query:sci-ml-agent
+   evidence：验证驱动的记忆层，从执行反馈中蒸馏可复用智能体技能
+4. [Verified Learning for Compiler Optimization: An LLM-Guided Architecture with Formal Control](/202609/24/2609.27214v1-verified-learning-for-compiler-optimization-an-llm-guided-architecture-with-formal-control)  
+   标签：评分：7.0/10、query:sci-ml-agent
+   evidence：大模型引导的生成式重写，结合形式等价性检查与可执行验证回路
+5. [KATOsuper: Surrogate-accelerated neural topology optimization with sensitivity-consistent Fourier neural operators](/202609/24/2609.27216v1-katosuper-surrogate-accelerated-neural-topology-optimization-with-sensitivity-consistent-fourier-neural-operators)  
+   标签：评分：7.0/10、query:sci-ml-agent
+   evidence：面向PDE拓扑优化的敏感性一致傅里叶神经算子代理
+6. [Learning Lyapunov Operators for Nonlinear Systems](/202609/24/2609.18894v1-learning-lyapunov-operators-for-nonlinear-systems)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向纳维-斯托克斯流动的降阶代理建模基准
-4. [Enhancing Transformer Representations of Symbolic ODE Expressions](/202609/23/2609.24746v1-enhancing-transformer-representations-of-symbolic-ode-expressions)  
+   evidence：学习非线性系统Lyapunov偏微分方程的解算子
+7. [RRSI: Regularized Recursive Self-Improvement of Agent Harnesses](/202609/24/2609.24972v1-rrsi-regularized-recursive-self-improvement-of-agent-harnesses)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向符号微分方程的Transformer表示
+   evidence：大模型引导的智能体框架组件迭代演化与正则化
+8. [High-Order Variable-Scaled Energetic Variational Neural Networks for Phase-Field Gradient Flows](/202609/24/2609.25489v1-high-order-variable-scaled-energetic-variational-neural-networks-for-phase-field-gradient-flows)  
+   标签：评分：6.0/10、query:sci-ml-agent
+   evidence：求解相场PDE的神经网络方法
+9. [Learning Stiffness Dependent Fluid Structure Dynamics from Coarse Flow Representations](/202609/24/2609.26816v1-learning-stiffness-dependent-fluid-structure-dynamics-from-coarse-flow-representations)  
+   标签：评分：6.0/10、query:sci-ml-agent
+   evidence：面向流固耦合动力学的神经算子代理模型
+10. [A Hybrid Iterative Deep Ritz Method for Elliptic Interface Problems](/202609/24/2609.27325v1-a-hybrid-iterative-deep-ritz-method-for-elliptic-interface-problems)  
+   标签：评分：6.0/10、query:sci-ml-agent
+   evidence：神经网络求解椭圆界面问题
+11. [PhyMo: A Physical-Field Modality for Multimodal AI4Physics](/202609/24/2609.27554v1-phymo-a-physical-field-modality-for-multimodal-ai4physics)  
+   标签：评分：6.0/10、query:sci-ml-agent
+   evidence：以PDE相关算子组织异构测量的物理驱动多模态框架
 
 
 <div class="dpr-home-promo-card">

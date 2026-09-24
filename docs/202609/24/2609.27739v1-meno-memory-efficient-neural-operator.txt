@@ -1,0 +1,845 @@
+Title: MENO: Memory-Efficient Neural Operator
+
+URL Source: https://arxiv.org/pdf/2609.27739v1
+
+Published Time: Thu, 24 Sep 2026 00:59:54 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# MENO: Memory-Efficient Neural Operator 
+
+Shengyang Xu a,1 , Weijun Zhang a,1 , Jun Hu a,c , Pengzhan Jin b,c,* 
+
+Abstract 
+
+We propose the Memory-Efficient Neural Operator (MENO) as a high-performance PDE neural solver based on the Manifold Function Encoder (MFE). MENO features three primary advantages: (1) MENO has a significantly smaller memory footprint and much faster training speed than other popular architectures, with the memory footprint being independent of the data resolution, and therefore holds the potential for scaling up to large-scale models. (2) MENO can accept PDE inputs of arbitrary form, including arbitrary geometric domains and arbitrary discretizations. In particular, it is capable of handling cross-geometry scenarios, i.e., where the input functions and the output solutions are defined on different manifolds. (3) MENO exhibits strong generalization capability, and achieves the best accuracy on most of the benchmarks we tested, compared with the results reported in the literature. The code is available on GitHub at https://github.com/jpzxshi/MENO, and all numerical examples in this paper can be run with a single command to reproduce the reported results. 
+
+# 1 Introduction 
+
+Neural operators offer a data-driven approach to approximating mappings between function spaces, enabling efficient surrogate modeling of families of partial differential equations (PDEs). Repre-sentative architectures, including DeepONet [20, 21] and the Fourier neural operator (FNO) [16], learn solution operators rather than individual solutions [6, 25]. Subsequent developments have ex-plored alternative operator representations, including the extension of DeepONet and FNO [14, 24], wavelet and multiwavelet formulations [9, 27], attention-based approximation [5], and convolutional architectures [10, 26]. Beyond architectural developments, neural operators have also motivated new training and numerical solution paradigms. Physics-informed DeepONets [28] incorporate gov-erning equations into operator learning to reduce reliance on paired solution data. Rather than using neural operators solely as standalone surrogates, hybrid iterative methods integrate them into classical numerical solvers [12, 34]. In many applications such as the practical scenarios of hybrid methods, however, the computational domain varies together with the coefficients, forcing terms, and boundary conditions. This introduces an additional challenge: the PDEs may be defined on different domains across problem instances. The second phase in the development of neural operators focuses on adaptability to PDEs on varying domains. Preliminary attempts have been made to handle PDE problems on varying do-mains via transfer learning [8], however, this approach still requires a certain degree of retraining. Practical operator learning methods for handling varying-domain problems mainly fall into two categories: deformation and extension. The main idea of the deformation strategy is to deform a 
+
+> aSchool of Mathematical Sciences, Peking University, Beijing 100871, China
+> bNational Engineering Laboratory for Big Data Analysis and Applications, Peking University, Beijing 100871, China
+> cChongqing Research Institute of Big Data, Peking University, Chongqing 401329, China
+> 1These authors contributed equally to this work.
+> *Corresponding author. Email: jpz@pku.edu.cn
+
+1arXiv:2609.27739v1 [cs.LG] 23 Sep 2026 large class of topologically or diffeomorphically equivalent domains into the same canonical domain, and then learn the operator mapping on this canonical domain, such as Geo-FNO [15], DIMON [32], and D2D&D2E [31]. In particular, [31] presents a comprehensive theoretical framework of this class of methods. Although the deformation strategy performs well in specific cases, it faces a limitation, i.e., it cannot handle domains that are not topologically homeomorphic. Extension-based operator learning methods overcome this limitation. The idea behind the extension strategy is very simple: we extend different domains, along with the functions defined on them, to a larger canonical domain. This is no longer constrained by the topological structure of the domains. There are many extension-based methods, representative examples such as DAFNO [18] with the char-acteristic functions, GINO [17] with the signed distance functions (SDF), MFE-MIONet [13] with the dual representation. The graph- or point cloud-based architectures such as Graph U-Net [7], MeshGraphNet [23], UPT [2], AB-UPT [1], GAOT [29], can also be regarded as dual representation-based methods, with local integration encoders or processing layers. All these representations can be viewed as different ways of embedding the manifold function space into a large Banach space. Importantly, different embedding approaches can lead to completely different encoding performance and training efficiency, and can also severely affect the GPU memory overhead. This is also a key focus of the next stage of neural operator research. To handle operator learning problems in real-world three-dimensional industrial scenarios, the training cost of varying-domain neural operators must be kept under control. The direct extension methods including the characteristic functions and the SDF, suffer from a severe efficiency bottle-neck in three-dimensional problems, as their computation involves physical points throughout the entire three-dimensional space. By contrast, the dual representation is advantageous, because the encoder based on it only involves the manifold itself and the functions defined on it in computation. The Transolver series [22, 30, 35], the PCNO [33], the MFE-MIONet [13], etc. all belong to this category, with global integration encoder. The encoders in these works all expand manifold func-tions in the dual space, obtaining the latent codes by computing the integrals of some global basis functions over the manifold. Nevertheless, there remains a fundamental difference in efficiency be-tween them. For Transolver and PCNO, each of their layers requires integration operations, so the computational cost during training grows with data resolution and leads to severe GPU memory bottlenecks for large-scale problems. Although Transolver-3 reduces the peak GPU memory usage to within an acceptable range for a single GPU through certain techniques, the computational cost remains enormous. The MIONet [14] as an integration-free architecture, combined with the MFE [13], exactly resolves the memory and computation bottleneck, however, its generalization capability still lags behind integration-based architectures. Therefore, we are strongly motivated to propose a new neural operator architecture that is integration-free while achieving generalization performance no worse than that of integration-based neural operators, and that maintains both computational efficiency and prediction accuracy. 
+
+Contributions. Our main contribution is proposing a novel neural operator architecture, the Memory-Efficient Neural Operator (MENO), with a remarkably small memory footprint indepen-dent of data resolution, as well as extremely fast training. MENO also has strong generalization ability, and it achieves the best accuracy on most benchmarks we tested. Moreover, MENO can handle arbitrary geometric inputs, including cross-geometry scenarios. The remainder of this paper is organized as follows. We begin with introducing the Manifold Function Encoder (MFE) in Section 2. In Section 3, we formally propose the architecture of MENO in details. Section 4 presents several numerical experiments regarding to MENO. Finally Section 5 summarizes this work. 22 Manifold Function Encoder 
+
+We first briefly recall the Manifold Function Encoder (MFE) introduced in [13], as the cornerstone of MENO. MFE is able to efficiently encode the shape of the manifolds and the functions defined on them, with rigorous theoretical guarantees. 
+
+Setting. Consider the union of a finite number of k-dimensional Lipschitz manifolds contained in the d-dimensional box 
+
+V := [0 , 1] d, (1) where 0 ≤ k ≤ d. More precisely, define 
+
+Mk := {∪ mi=1 Mi :Mi ⊂ V is a compact k−dimensional Lipschitz manifold ( Hk(Mi) < ∞),Mi ∩ Mj is manifold of dimension less than k or empty set , i ̸ = j, m ≥ 1}, (2) where Hk is the k-dimensional Hausdorff measure, and 
+
+Xk := {(M, f M ) : M ∈ M k, f M ∈ L2(M )}. (3) Note that when k = 0, an element of M0 is regarded as a finite set of points in V , and fM ∈ L2(M )is a real-valued function on these points. Xk is exactly the space composed of manifold functions that we expect to encode. 
+
+Encoder. Assume that {ϕn,m }1≤n, 1≤m≤κ(n) ⊂ C(V ) is a series of given fixed continuous basis functions defined on V (e.g., orthogonal polynomials, Fourier basis, finite elements). Here n can be regarded as the indexing of the κ(n)-dimensional subspace span {ϕn, 1, ..., ϕ n,κ (n)}, and κ(n) → ∞ 
+
+as n → ∞ . The encoder is defined as follows. Given any manifold function (M, f M ) ∈ Xk, (4) let Φ1 
+
+> n
+
+: Mk → Rκ(n), Φ1
+
+> n
+
+(M ) := 
+
+(∫ 
+
+> M
+
+1 · ϕn,m dHk
+
+)
+
+> 1≤m≤κ(n)
+
+∈ Rκ(n), (5) and Φ2 
+
+> n
+
+: Xk → Rκ(n), Φ2
+
+> n
+
+(M, f M ) := 
+
+(∫ 
+
+> M
+
+fM · ϕn,m dHk
+
+)
+
+> 1≤m≤κ(n)
+
+∈ Rκ(n). (6) The final encoder is Φn : Xk → R2κ(n), Φn(M, f M ) := (Φ 1
+
+> n
+
+(M ), Φ2
+
+> n
+
+(M, f M )) ∈ R2κ(n). (7) Here Φ 1
+
+> n
+
+(M ) encodes the manifold M , and Φ 2
+
+> n
+
+(M, f M ) encodes the function fM defined on M . The encoding dimension grows as n increases. 
+
+Decoder. For ease of understanding, here we decode the latent codes onto C(V ), which simplifies the original setting in [13]. Given a vector ( γm)κ(n) 
+
+> m=1
+
+∈ Rκ(n), we denote Ψ1
+
+> n
+
+(
+
+(γm)κ(n)
+
+> m=1
+
+)
+
+:= 
+
+> κ(n)
+
+∑
+
+> m=1
+
+γmϕn,m , (8) then for the latent vector 
+
+(
+
+(αm)κ(n)
+
+> m=1
+
+, (βm)κ(n)
+
+> m=1
+
+)
+
+= Φ n(M, f M ) ∈ R2κ(n), (9) 3the decoder can be written as Ψn
+
+(
+
+(αm)κ(n)
+
+> m=1
+
+, (βm)κ(n)
+
+> m=1
+
+)
+
+:= 
+
+(
+
+Ψ1
+
+> n
+
+(
+
+(αm)κ(n)
+
+> m=1
+
+)
+
+, Ψ1
+
+> n
+
+(
+
+(βm)κ(n)
+
+> m=1
+
+)) 
+
+∈ C(V ) × C(V ). (10) Since in the PDE problems we consider, the manifold on which the solution resides is known (for example, it may coincide with one of the input manifolds), it is sufficient to obtain the decoded solution function on the manifold by the restriction operator. 
+
+Super-algebraic convergence. The MFE has been proven to achieve super-algebraic con-vergence based on the commonly used spectral basis functions, such as the Legendre polynomials and the Fourier basis functions. 
+
+Theorem 1 (Corollary 1 and Remark 2 from [13]) . For Legendre-based (Fourier-based) MFE, the composite of encoder and decoder Ψn ◦ Φn converges to the identity mapping super-algebraically. 
+
+The above theorem indicates that MFE can compress the manifold function information into a very low-dimensional vector, which is one of the key reasons why MENO is memory-efficient. 
+
+MFE tokens. Given several manifold functions which may be of different dimensions k1, ..., k p,
+
+M1, f 1 
+
+> M1
+
+, ..., f l1−1 
+
+> M1
+
+, (M1 ∈ M k1 )
+
+M2, f 1 
+
+> M2
+
+, ..., f l2−1 
+
+> M2
+
+, (M2 ∈ M k2 )...
+
+Mp, f 1 
+
+> Mp
+
+, ..., f lp−1 
+
+> Mp
+
+. (Mp ∈ M kp )(11) Such manifold functions as the input of PDE problems cover all the possible scenarios. The inputs can be encoded to MFE tokens as 
+
+[
+
+Φ1
+
+> n
+
+(M1), Φ2
+
+> n
+
+(f 1 
+
+> M1
+
+), ..., Φ2
+
+> n
+
+(f l1−1 
+
+> M1
+
+), ..., Φ1
+
+> n
+
+(Mp), Φ2
+
+> n
+
+(f 1 
+
+> Mp
+
+), ..., Φ2
+
+> n
+
+(f lp−1 
+
+> Mp
+
+)
+
+]
+
+∈ Rκ(n)×(l1+··· +lp), (12) which means a series of κ(n) tokens and each token is of dimension l1 + · · · + lp. The notations Φ 1
+
+> n
+
+and Φ 2 
+
+> n
+
+in Eq. (12) in fact depend on the dimension ki. To keep the presentation concise, we omit the dependency of notation here. To help the reader understand, here we show a very concrete example of MFE tokens. Consider the 2-d Poisson equation {−∇ · (k∇u) = f in Ω ,u = g on ∂Ω. (13) Assume that Ω is contained in [0 , 1] 2. All the inputs of this problem can be written as (Ω , k Ω, f Ω, ∂ Ω, g ∂Ω), (14) and the Legendre-based MFE tokens are 
+
+( ∫ 
+
+> Ω
+
+1 · ℓi1 (x) · ℓi2 (y)dxdy, 
+
+∫
+
+> Ω
+
+kΩ(x, y ) · ℓi1 (x) · ℓi2 (y)dxdy, 
+
+∫
+
+> Ω
+
+fΩ(x, y ) · ℓi1 (x) · ℓi2 (y)dxdy, 
+
+∫
+
+> ∂Ω
+
+1 · ℓi1 (x) · ℓi2 (y)ds, 
+
+∫
+
+> ∂Ω
+
+g∂Ω(x, y ) · ℓi1 (x) · ℓi2 (y)ds 
+
+)
+
+∈ R5, 0 ≤ i1, i 2 ≤ n − 1,
+
+(15) where ℓi is the L2-normalized Legendre polynomial of degree i on [0 , 1]. Eq. (15) shows a series of n2 tokens and each token is of dimension 5. In the architecture of MENO, the dimension of the tokens, i.e. 5, will be lifted to a larger dimension, while the length of the token sequence n2 remains unchanged. The MFE tokens play a key role in the construction of MENO. 43 Architecture of MENO 
+
+The architecture of MENO is composed of two branches: global branch and local branch, as well as an information transfer mechanism between the two branches. Here we consider the Legendre-based MFE as the example, and use the previous n modes of Legendre polynomials for encoding. 
+
+Global branch. The global branch is mainly composed of the Transformer blocks. Assume that the input manifold functions of Eq. (11) have been encoded to nd MFE tokens 
+
+Zin ∈ Rnd×(l1+··· lp), (16) we first apply a lifting layer to Zin together with a bias as 
+
+H0 = Lift(Z in ) + B(Pt) ∈ Rnd×h, (17) where Pt is the spectral position information with t frequency modes 
+
+Pt := 
+
+(
+
+i1η, ..., i dη, (cos(2 sπi 1η), sin(2 sπi 1η), ..., cos(2 sπi dη), sin(2 sπi dη)) t−1
+
+> s=0
+
+)
+
+> 0≤i1,...,i d≤n−1
+
+∈ Rnd×(2 t+1) d, η := 1 /(n − 1) ,
+
+(18) and Lift : Rl1+··· lp → Rh is a linear layer, B : R(2 t+1) d → Rh is an MLP (Multilayer Perceptron). Subsequently, we apply the classical Transformer block ˜Hl = Hl−1 + MHA l (LN( Hl−1)) ∈ Rnd×h, (19) 
+
+Hl = ˜Hl + MLP l
+
+(
+
+LN( ˜Hl)
+
+)
+
+∈ Rnd×h, l = 1 , ..., L, (20) where LN is the layer normalization and MHA is the multi-head attention. After that, we project the dimension of MFE token to the number of output solutions, denoted by lout , as 
+
+Zout = n− d 
+
+> 2
+
+· Proj(LN( HL)) ∈ Rnd×lout , (21) where Proj : Rh → Rlout is a linear layer, n− d 
+
+> 2
+
+is a scaling number for normalizing the variance of Legendre. Lastly, we decode the latent vectors Zout to lout preliminary solutions ˜ uglobal 1 , ..., ˜uglobal 
+
+> lout
+
+by MFE decoder (8), (˜ uglobal 1 , ..., ˜uglobal  
+
+> lout
+
+) = 
+
+(
+
+Ψ1
+
+> n
+
+([ Zout ]1), ..., Ψ1
+
+> n
+
+([ Zout ]lout )
+
+)
+
+∈ (C(V )) lout , (22) where [ Zout ]i means the i-th column of Zout .
+
+Injection. The subsequent layers are critical for the coming local branch, they receive and process the information from the global branch, and then inject the processed information into the local branch. Denote ˆHl = n− d 
+
+> 2
+
+· LL trans  
+
+> l
+
+(LN( Hl)) ∈ Rnd×ˆh, (23) where LL trans  
+
+> l
+
+: Rh → Rˆh are linear layers for l = 1 , ..., L , and Hl ∈ Rnd×h is from (20) in the global branch. Let ˜Tl(x) = (Ψ 1
+
+> n
+
+([ ˆHl]1)( x), ..., Ψ1
+
+> n
+
+([ ˆHl]ˆh)( x)) ∈ Rˆh, (24) ˜T il (x) = 
+
+( ∂∂x i
+
+(
+
+Ψ1
+
+> n
+
+([ ˆHl]1)
+
+)
+
+(x), ..., ∂∂x i
+
+(
+
+Ψ1
+
+> n
+
+([ ˆHl]ˆh)
+
+)
+
+(x)
+
+)
+
+∈ Rˆh, i = 1 , ..., d, (25) 5with x = ( x1, ..., x d) ∈ V . ˜Tl(x) and ˜T il (x) are exactly the decoded ˆHl and its derivatives evaluated at x. The global-to-local transfer information can be written as 
+
+Tl(x) = ˜Tl(x) + W grad 1 · ˜T 1 
+
+> l
+
+(x) + · · · + W grad  
+
+> d
+
+· ˜T dl (x) ∈ Rˆh, (26) where W grad  
+
+> i
+
+∈ Rˆh×ˆh are trainable matrices and all the L layers share the parameters. For brevity, here we only show the case where first-order derivative information is used; in fact, derivative information of arbitrary order can be incorporated if needed. 
+
+Local branch. Assume that the solutions u1, ..., u lout are defined on the output manifold M0,i.e. ui ∈ L2(M0). Note that M0 is not necessarily an element of {M1, ..., M p}. Let 
+
+x ∈ M0 (27) be a query point. We first need to evaluate the input information at x based on (11), (16) and the decoder. Denote the cross evaluation by ˜V(x) := 
+
+(
+
+Ψ1
+
+> n
+
+([ Zin ]1)( x), ..., Ψ1
+
+> n
+
+([ Zin ]l1+··· +lp )( x)
+
+)
+
+∈ Rl1+··· +lp . (28) The above ˜V(x) is built upon the premise that M0 /∈ { M1, ..., M p}. If M0 = Mj for a 1 ≤ j ≤ p,then the corresponding values in (28) can be replaced by the direct evaluation (1 , f 1 
+
+> Mj
+
+(x), ..., f lj −1 
+
+> Mj
+
+(x)) . (29) Therefore we denote the final evaluation as 
+
+V(x) = 
+
+(
+
+Modify( ˜V(x)) , P local  
+
+> t
+
+(x)
+
+)
+
+∈ Rl1+··· +lp+(2 t+1) d, (30) by checking the modification and additionally concatenating a position information 
+
+P local  
+
+> t
+
+(x) := 
+
+(
+
+x, (cos(2 sπx 1), sin(2 sπx 1), ..., cos(2 sπx d), sin(2 sπx d)) t−1
+
+> s=0
+
+)
+
+∈ R(2 t+1) d, (31) with x = ( x1, ..., x d). Similar to the global branch, we also apply a lifting layer to V(x) as 
+
+Hlocal 0 (x) = Lift local (V(x)) ∈ Rˆh, (32) and Lift local : Rl1+··· +lp+(2 t+1) d → Rˆh is a linear layer. With Tl(x) from (26), the information from the global branch can be injected into this local branch, and the next layers are shown as 
+
+Hlocal  
+
+> l
+
+(x) = σ
+
+(
+
+LL local  
+
+> l
+
+(LN( Hlocal  
+
+> l−1
+
+(x))) + Tl(x)
+
+)
+
+∈ Rˆh, l = 1 , ..., L, (33) and LL local  
+
+> l
+
+: Rˆh → Rˆh are linear layers, σ is the activation function. The final output is (˜ ulocal 1 (x), ..., ˜ulocal  
+
+> lout
+
+(x)) = Proj local (LN( Hlocal  
+
+> L
+
+(x))) ∈ Rlout , (34) where Proj local : Rˆh → Rlout is also a linear layer. 
+
+Merge and output. Lastly, we merge the global and local branches and output the result solutions as (˜ u1(x), ..., ˜ulout (x)) = (˜ uglobal 1 (x), ..., ˜uglobal  
+
+> lout
+
+(x)) + (˜ ulocal 1 (x), ..., ˜ulocal  
+
+> lout
+
+(x)) ∈ Rlout . (35) 6M1, f 1 
+
+> M1
+
+, ..., f l1−1 
+
+> M1
+
+,
+
+...
+
+Mp, f 1 
+
+> Mp
+
+, ..., f lp−1 
+
+> Mp
+
+.
+
+MFE Encoder 
+
+
+
+Φ1
+
+> n
+
+(M1)Φ2
+
+> n
+
+(f 1 
+
+> M1
+
+)
+
+...
+
+Φ1
+
+> n
+
+(Mp)
+
+...
+
+Φ2
+
+> n
+
+(f lp−1 
+
+> Mp
+
+)
+
+
+
+Global Lifting Additive Position Bias Global State 
+
+Query x ∈ M0
+
+Direct Evaluation Cross Evaluation (MFE Decoder) 
+
+[V(x)]
+
+Position Concatenation Local Lifting Local State 
+
+1 Encoding 2 Processing and Decoding 
+
+Global State Local State Attention MLP Linear +
+
+Injection 
+
+σ
+
+Global-to-Local Block ×L
+
+Global Projection MFE Decoder Global Prediction Local Projection Local Prediction 
+
++
+
+
+
+˜u1(x)
+
+...
+
+˜ulout (x)
+
+
+
+Figure 1: MENO architecture. The overall architecture is composed of a global branch and a local branch. In the repeated global-to-local blocks, the information of the global branch is injected into the local branch. The two branch outputs are summed to yield the final result. 
+
+Global Block Injection Block Local Block 
+
+Global State LayerNorm MHA 
+
++
+
+LayerNorm MLP 
+
++
+
+Updated Global State LayerNorm Linear Hidden Moment State MFE Value Decode MFE Derivatives Decode Linear +
+
+Local State LayerNorm Linear 
+
++
+
+σ
+
+Updated Local State 
+
+Figure 2: Global-to-local block. A unidirectional information injection mechanism. 7We provide a comprehensive illustration of the proposed MENO architecture in Figure 1. A detailed diagram of the global-to-local block is shown in Figure 2. 
+
+Statistical normalization (optional). We map the physical domains to V = [0 , 1] d using a common affine transformation, with scales either determined from prior knowledge of the dataset or estimated from the training data. In the latter case, we enlarge the enclosing box by a factor slightly larger than 1 (e.g. 1.02) to allow some margin for test geometries. We may further standardize the inputs using means and standard deviations computed from the training data and kept fixed thereafter. For the global branch, these statistics are computed across training examples separately for each mode and channel of Zin . For the local branch, the function values in V(x) are standardized channel-wise before lifting, with points weighted equally within each training example and examples weighted equally across the dataset. Normalization is optional, and selected channels, such as the local unit normal vectors, are left unchanged. Output statistics are computed in the same way as local function statistics for each solution channel. When output normalization is enabled, both branches contribute in the same normalized solution space, and their sum is transformed back to the original units: ˜ui(x) = μout  
+
+> i
+
++ sout 
+
+> i
+> (
+
+˜uglobal  
+
+> i
+
+(x) + ˜ ulocal  
+
+> i
+
+(x)
+
+> )
+
+, i = 1 , . . . , l out , (36) where μout  
+
+> i
+
+and sout  
+
+> i
+
+are the training mean and standard deviation of ui. Thus, inverse normalization is applied once after merging the two branches. 
+
+Why memory-efficient. The FNO series, the Transolver series, as well as others, are all constructed based on the integration mechanism, such as the kernel function integration or the physical attention integration. Since the integration will involve all the physical space points in the mesh or the point cloud, it causes an extremely large cache usage and computation cost. The overall architecture of MENO is without any integration operator at the training stage, thus the GPU memory usage is independent of the data resolution, and this significantly reduces the memory footprint, especially for large-scale problems. 
+
+Cross-geometry and general PDE neural solver. The setting of cross-geometry allows MENO to behave as a general PDE neural solver, which accepts all the possible PDE inputs. Tak-ing the real world elasticity problem as an example, the full inputs may contain: the geometry and material properties (3-d manifold function), the force boundary condition (0/1/2-d manifold func-tion), the displacement boundary condition (0/1/2-d manifold function), the contact and friction condition (2-d manifold function), and so on. All the inputs can be unified and efficiently encoded via the MFE in the MENO. An extension strategy like SDF also makes other neural operators possible to train a general PDE neural solver, however, this will be prohibitively expensive in terms of memory and training cost. 
+
+# 4 Numerical Experiments 
+
+In this section, we compare the MENO with the recent popular neural operators for varying ge-ometry setting, with a primary focus on the Transolver-3 and the PCNO. To rule out the effect of insufficient tuning, we directly compare against the results reported in the original papers of these neural operators. All the experiments are run on an NVIDIA A100 PCIe GPU. 
+
+Common setting. In the following experiments, we apply the Legendre-based MFE. The optimizer is chosen as AdamW [19], and the activation is chosen as GeLU [11]. For each case, we train the MENO for 500 epochs and select the model achieving the highest validation accuracy as the final checkpoint. If the dataset is without the validation set, we directly select the model achieving the highest test accuracy as the checkpoint. When comparing peak training GPU memory 8usage, we adopt the same batch size and the same number of query points, see Table 1. Other detailed training settings of MENO for each case can be found in Table 2.                          
+
+> Dataset Train Val Test Batch size Train queries Poisson (cross-geometry) 9000 01000 10 10000 (all) Poisson (single-geometry) 1000 200 400 42500 dynamic NASA–CRM 105 044 116384 dynamic AhmedML 400 50 50 116384 dynamic
+
+Table 1: Dataset partitions and training protocols. When comparing peak training GPU memory usage, we adopt the same batch size and the same number of query points.                                              
+
+> Case Modes nLayers LHidden dim. h/ˆhGF/LF #Heads Width SN Poisson (cross-geometry) 12 4128/128 4/6 8256 on Poisson (single-geometry) 32 4160/160 8/2 10 320 on NASA-CRM 86512/512 4/6 8512 on AhmedML 16 6512/512 4/6 8256 on AhmedML (small) 84256/256 4/6 8256 on
+
+Table 2: Setting of MENO for each case. Here “GF” and “LF” are global and local positional Fourier frequencies, “#Heads” is the number of heads in the MHA, “Width” is the width of MLP following MHA, “SN” is the statistical normalization. 
+
+4.1 Poisson equation. 
+
+The first case is the 2-d Poisson equation with variable coefficients 
+
+{−∇ · (k∇u) = f in Ω ,u = g on ∂Ω, (37) where the solution mapping is 
+
+Gcross Poisson : (Ω , k Ω, f Ω, ∂ Ω, g ∂Ω) 7 → uΩ. (38) This is a typical example of the cross-geometry situation, as its inputs include both the 2-d manifold functions Ω , k Ω, f Ω and the 1-d manifold functions ∂Ω, g ∂Ω. Since the information provided by ∂Ω is redundant with that by Ω, here we omit ∂Ω and only encode (Ω , k Ω, f Ω, g ∂Ω), so that the dimension of the initial MFE tokens is 4. The dataset is from [13], it includes 9000 training examples and 1000 test examples, whose domains Ω are all contained in [0 , 1] 2. Among these regions, half are disk-like domains and the other half are annulus-like domains, therefore the deformation-based operator learning methods will break down. We compare the MENO with the MFE-based MIONet from [13], and the results are shown in Table 3 and Figure 3. The relative error of MENO is 2.07%, one-third of MIONet’s 6 .49%. This case is mainly used to verify the MENO’s adaptability to cross-geometry scenarios, while Transolver-3 and PCNO are not applicable.             
+
+> Model Rel. error (%) Params (M) Peak GPU mem. (GB) Train time (h) MFE-MIONet [13] 6.49 2.54 1.16 4.70 MENO (ours) 2.07 0.721 0.912 8.40
+
+Table 3: Poisson equation (cross-geometry). The relative error of MENO is 2 .07%, one-third of MIONet’s 6 .49%. 9Reference       
+
+> 4.261
+> 3.350
+> 2.438
+> 1.527
+> 0.616
+> ×10 2
+> Prediction
+> 4.261
+> 3.350
+> 2.438
+> 1.527
+> 0.616
+> ×10 2
+> Residual
+> 8.47
+> 4.24
+> 0.00 4.24 8.47
+> ×10 4
+> Reference
+> 1.973
+> 1.029
+> 0.084
+> 0.860 1.804
+> ×10 2
+> Prediction
+> 1.973
+> 1.029
+> 0.084
+> 0.860 1.804
+> ×10 2
+> Residual
+> 1.113
+> 0.557
+> 0.000 0.557 1.113
+> ×10 3
+
+Figure 3: Prediction of Poisson equation (cross-geometry). 
+
+Another dataset of 2-d Poisson equation comes from the PCNO paper [33]. In their setting 
+
+f ≡ 1 and g ≡ 0, so that the solution mapping is 
+
+Gsingle Poisson : (Ω , k Ω) 7 → uΩ. (39) We refer to this as the Poisson equation (single-geometry), to distinguish it from the previous Pois-son equation (cross-geometry). The dataset is composed of 1000 training examples, 200 validation examples, and 400 test examples. The results are presented in Table 4, which show that MENO achieves slightly higher accuracy than PCNO, while having only 1 .7% of the parameters, 5 .1% of the peak GPU memory usage, and 8 .3% of the training time. 
+
+Model Rel. error (%) Params (M) Peak GPU mem. (GB) Train time (h) PCNO [33] 0.683 71.5 4.67 18.2 MENO (ours) 0.669 1.27 0.239 1.52 
+
+Table 4: Poisson equation (single-geometry). MENO achieves slightly higher accuracy than PCNO, while having only 1 .7% of the parameters, 5 .1% of the peak GPU memory usage, and 8 .3% of the training time. 
+
+4.2 NASA–CRM. 
+
+NASA–CRM is a dataset from [4], which is composed of 105 training examples and 44 test examples. This is an aerodynamic problems of aircraft, the solution mapping is 
+
+GNASA : (Γ , nΓ, μNASA ) 7 → (Cp, Cf ) ∣∣Γ, (40) 10 where Γ is the surface, nΓ is the unit outward normal vector, μNASA ∈ R6 contains, in order, the Mach number, angle of attack, inboard aileron deflection, outboard aileron deflection, elevator deflection, and horizontal tailplane setting angle. The outputs Cp and Cf = ( Cf,x , C f,y , C f,z )are the surface pressure coefficient and skin-friction coefficient vector, respectively. The results are shown in Table 5 and Figure 4. MENO achieves the errors 6 .69% for pressure and 4 .79% for friction, better than baselines. All results except for our own and PCNO are cited from the Transolver-3 paper. The hyperparameters of PCNO are identical to those used in the Ahmed body case in the original paper. 
+
+Model Pressure (%) Friction (%) Params (M) Peak GPU mem. (GB) Train time (h) Graph U-Net [7] 15.85 15.61 n.r. n.r. n.r. GINO [17] 12.39 11.51 n.r. n.r. n.r. MeshGraphNet [23] 14.80 9.81 n.r. n.r. n.r. GAOT [29] 30.38 59.79 n.r. n.r. n.r. UPT [2] 12.78 23.78 n.r. n.r. n.r. AB-UPT [1] 9.77 6.43 n.r. n.r. n.r. Transolver-3 [35] 8.71 5.85 n.r. n.r. n.r. PCNO [33] 8.20 19.5 322 66.8 33.6 MENO (ours) 6.69 4.79 13.7 1.07 2.75 
+
+Table 5: NASA-CRM. MENO achieves the errors 6 .69% for pressure and 4 .79% for friction, better than baselines. All results except for our own and PCNO are cited from the Transolver-3 paper. Here “n.r.” means the result is not reported. Reference 
+
+> 1.699
+> 0.991
+> 0.283
+> 0.425 1.133
+> Prediction
+> 1.699
+> 0.991
+> 0.283
+> 0.425 1.133
+> Residual
+> 0.1771
+> 0.0885
+> 0.0000 0.0885 0.1771
+
+Figure 4: Prediction of NASA-CRM. 
+
+4.3 AhmedML. 
+
+AhmedML is a dataset from [3], which is composed of 400 training examples, 50 validation examples and 50 test examples. This is an automotive aerodynamics problem, and the solution mapping is 
+
+GAhmed : (Γ , nΓ, μAhmed ) 7 → (Cp, τw) ∣∣Γ, (41) where Γ is the surface, nΓ is the unit outward normal vector, μAhmed ∈ R8 contains, in or-der, the body length, body height, body width, front-arc diameter, horizontal extent of the rear slant, vertical extent of the rear slant, slant-surface length, and slant angle. The outputs Cp and 
+
+τw = ( τw,x , τ w,y , τ w,z ) are the time-averaged surface pressure coefficient and wall-shear-stress vec-tor, respectively. The results are shown in Table 6 and Figure 5. Among all the models, MENO 11 achieves the second-best accuracy. We present another result of small size version of MENO, which also achieves the second-best accuracy, with a very small number of parameters and a very short training time. All results except for our own and PCNO are cited from the Transolver-3 paper. However, the peak memory usage of PCNO exceeds the 80 GB memory limit of a single GPU, resulting in an out-of-memory failure, where the hyperparameters are identical to those used in the Ahmed body case in the original paper. By reducing the number of integration points and decreasing the parameter scale, it is possible to make PCNO work. We will perform more extensive tests in the future. 
+
+Model Pressure (%) Friction (%) Params (M) Peak GPU mem. (GB) Train time (h) Graph U-Net [7] 6.46 7.29 n.r. n.r. n.r. GINO [17] 7.90 8.18 n.r. n.r. n.r. MeshGraphNet [23] 3.72 5.01 n.r. n.r. n.r. GAOT [29] 8.02 9.92 n.r. n.r. n.r. UPT [2] 4.25 5.80 n.r. n.r. n.r. AB-UPT [1] 3.97 5.60 n.r. n.r. n.r. Transolver-3 [35] 2.96 4.81 n.r. n.r. n.r. PCNO [33] / / / > 80 /MENO (ours, small) 3.61 5.07 2.40 0.425 1.75 MENO (ours) 3.37 4.88 12.1 1.94 30.5 
+
+Table 6: AhmedML. Among all the models, MENO achieves the second-best accuracy. All results except for our own and PCNO are cited from the Transolver-3 paper. Here “n.r.” means the result is not reported, “/” indicates not applicable. Reference 
+
+> 1.803
+> 1.091
+> 0.379
+> 0.332 1.044
+> Prediction
+> 1.803
+> 1.091
+> 0.379
+> 0.332 1.044
+> Residual
+> 0.2927
+> 0.1464
+> 0.0000 0.1464 0.2927
+
+Figure 5: Prediction of AhmedML. 
+
+# 5 Conclusion 
+
+By introducing the Manifold Function Encoder (MFE) for encoding different functions defined on different manifolds, we propose a novel neural operator architecture, the Memory-Efficient Neural Operator (MENO), which has a significantly smaller memory footprint and much faster training speed than other popular architectures, while also exhibiting strong generalization capability. Since the overall architecture of MENO is without any integration operator at the training stage, the GPU memory usage is independent of the data resolution, and this significantly reduces the mem-ory cost, especially for large-scale problems. MENO can handle PDE inputs of arbitrary form, including arbitrary geometric domains and arbitrary discretizations, and further available for the 12 cross-geometry scenarios. We test several benchmarks, where MENO achieves the best accuracy on Poisson equation and NASA-CRM, and the second-best accuracy on AhmedML. In all cases, the peak GPU memory usage of MENO is significantly lower than that of other architectures. In future work, we plan to develop general PDE neural solvers based on MENO, owing to its high memory efficiency, cross-geometry handling, and strong generalization capability. 
+
+# References 
+
+[1] B. Alkin, M. Bleeker, R. Kurle, T. Kronlachner, R. Sonnleitner, M. Dorfer, and J. Brandstetter. Ab-upt: Scaling neural cfd surrogates for high-fidelity automotive aerodynamics simulations via anchored-branched universal physics transformers. arXiv preprint arXiv:2502.09692 , 2025. [2] B. Alkin, A. F¨ urst, S. Schmid, L. Gruber, M. Holzleitner, and J. Brandstetter. Universal physics transformers: A framework for efficiently scaling neural operators. Advances in Neural Information Processing Systems , 37:25152–25194, 2024. [3] N. Ashton, D. C. Maddix, S. Gundry, and P. M. Shabestari. Ahmedml: High-fidelity compu-tational fluid dynamics dataset for incompressible, low-speed bluff body aerodynamics. arXiv preprint arXiv:2407.20801 , 2024. [4] P. Bekemeyer, N. Hariharan, A. M. Wissink, and J. Cornelius. Introduction of applied aero-dynamics surrogate modeling benchmark cases. In AIAA Scitech 2025 Forum , page 0036, 2025. [5] S. Cao. Choose a transformer: Fourier or galerkin. Advances in neural information processing systems , 34:24924–24940, 2021. [6] W. E and B. Yu. The deep Ritz method: a deep learning-based numerical algorithm for solving variational problems. Communications in Mathematics and Statistics , 6(1):1–12, 2018. [7] H. Gao and S. Ji. Graph u-nets. In international conference on machine learning , pages 2083–2092. PMLR, 2019. [8] S. Goswami, K. Kontolati, M. D. Shields, and G. E. Karniadakis. Deep transfer operator learning for partial differential equations under conditional shift. Nature Machine Intelligence ,4(12):1155–1164, 2022. [9] G. Gupta, X. Xiao, and P. Bogdan. Multiwavelet-based operator learning for differential equations. Advances in neural information processing systems , 34:24048–24062, 2021. [10] J. He, X. Liu, and J. Xu. MgNO: Efficient Parameterization of Linear Operators via Multigrid. 
+
+arXiv preprint arXiv:2310.19809 , 2023. [11] D. Hendrycks and K. Gimpel. Gaussian error linear units (gelus). arXiv preprint arXiv:1606.08415 , 2016. [12] J. Hu and P. Jin. A hybrid iterative method based on MIONet for PDEs: Theory and numerical examples. Mathematics of Computation , 95(359):1327–1359, 2026. [13] J. Hu, P. Jin, and W. Zhang. Manifold Function Encoder: Identifying Different Functions Defined on Different Manifolds. arXiv preprint arXiv:2512.20227 , 2025. 13 [14] P. Jin, S. Meng, and L. Lu. MIONet: Learning multiple-input operators via tensor product. 
+
+SIAM Journal on Scientific Computing , 44(6):A3490–A3514, 2022. [15] Z. Li, D. Z. Huang, B. Liu, and A. Anandkumar. Fourier neural operator with learned defor-mations for pdes on general geometries. arXiv preprint arXiv:2207.05209 , 2022. [16] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anand-kumar. Fourier neural operator for parametric partial differential equations. arXiv preprint arXiv:2010.08895 , 2020. [17] Z. Li, N. Kovachki, C. Choy, B. Li, J. Kossaifi, S. Otta, M. A. Nabian, M. Stadler, C. Hundt, K. Azizzadenesheli, et al. Geometry-informed neural operator for large-scale 3d pdes. Advances in Neural Information Processing Systems , 36:35836–35854, 2023. [18] N. Liu, S. Jafarzadeh, and Y. Yu. Domain agnostic fourier neural operators. Advances in neural information processing systems , 36:47438–47450, 2023. [19] I. Loshchilov and F. Hutter. Decoupled weight decay regularization. arXiv preprint arXiv:1711.05101 , 2017. [20] L. Lu, P. Jin, and G. E. Karniadakis. DeepONet: Learning nonlinear operators for identify-ing differential equations based on the universal approximation theorem of operators. arXiv preprint arXiv:1910.03193 , 2019. [21] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature machine intelligence , 3(3):218–229, 2021. [22] H. Luo, H. Wu, H. Zhou, L. Xing, Y. Di, J. Wang, and M. Long. Transolver++: An accurate neural solver for pdes on million-scale geometries. arXiv preprint arXiv:2502.02414 , 2025. [23] T. Pfaff, M. Fortunato, A. Sanchez-Gonzalez, and P. W. Battaglia. Learning mesh-based simulation with graph networks. arXiv preprint arXiv:2010.03409 , 2020. [24] M. A. Rahman, Z. E. Ross, and K. Azizzadenesheli. U-no: U-shaped neural operators. arXiv preprint arXiv:2204.11127 , 2022. [25] M. Raissi, P. Perdikaris, and G. E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial dif-ferential equations. Journal of Computational Physics , 378:686–707, 2019. [26] B. Raonic, R. Molinaro, T. De Ryck, T. Rohner, F. Bartolucci, R. Alaifari, S. Mishra, and E. De B´ ezenac. Convolutional neural operators for robust and accurate learning of pdes. 
+
+Advances in Neural Information Processing Systems , 36:77187–77200, 2023. [27] T. Tripura and S. Chakraborty. Wavelet neural operator for solving parametric partial differen-tial equations in computational mechanics problems. Computer Methods in Applied Mechanics and Engineering , 404:115783, 2023. [28] S. Wang, H. Wang, and P. Perdikaris. Learning the solution operator of parametric partial differential equations with physics-informed DeepONets. Science advances , 7(40):eabi8605, 2021. 14 [29] S. Wen, A. Kumbhat, L. Lingsch, S. Mousavi, Y. Zhao, P. Chandrashekar, and S. Mishra. Geometry aware operator transformer as an efficient and accurate neural surrogate for pdes on arbitrary domains. Advances in Neural Information Processing Systems , 38:155423–155501, 2026. [30] H. Wu, H. Luo, H. Wang, J. Wang, and M. Long. Transolver: A fast transformer solver for pdes on general geometries. arXiv preprint arXiv:2402.02366 , 2024. [31] S. Xiao, P. Jin, and Y. Tang. A deformation-based framework for learning solution mappings of pdes defined on varying domains. SIAM Journal on Numerical Analysis , 64(2):537–564, 2026. [32] M. Yin, N. Charon, R. Brody, L. Lu, N. Trayanova, and M. Maggioni. Dimon: Learning solution operators of partial differential equations on a diffeomorphic family of domains. arXiv preprint arXiv:2402.07250 , 2024. [33] C. Zeng, Y. Zhang, J. Zhou, Y. Wang, Z. Wang, Y. Liu, L. Wu, and D. Z. Huang. Point cloud neural operator for parametric PDEs on complex and variable geometries. Computer Methods in Applied Mechanics and Engineering , 443:118022, 2025. [34] E. Zhang, A. Kahana, E. Turkel, R. Ranade, J. Pathak, and G. E. Karniadakis. A hybrid iterative numerical transferable solver (HINTS) for PDEs based on deep operator network and relaxation methods. arXiv preprint arXiv:2208.13273 , 2022. [35] H. Zhou, H. Wu, H. Shangguan, Y. Ma, H. Weng, J. Wang, and M. Long. Transolver-3: Scaling up transformer solvers to industrial-scale geometries. arXiv preprint arXiv:2602.04940 , 2026. 15

@@ -1,0 +1,1282 @@
+Title: TinyUDE: Solver-Free Universal Differential Equations on Microcontrollers via Lie-Taylor Jet Matching
+
+URL Source: https://arxiv.org/pdf/2609.26972v1
+
+Published Time: Thu, 24 Sep 2026 00:10:03 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# TINY UDE: S OLVER -F REE UNIVERSAL DIFFERENTIAL 
+
+# EQUATIONS ON MICROCONTROLLERS VIA LIE –T AYLOR JET 
+
+# MATCHING 
+
+RESEARCH ARTICLE 
+
+Pranavanath Balamurali 
+
+Department of Electrical and Computer Engineering The University of Texas at Austin 
+
+pb27677@utexas.edu 
+
+Hrishi Kamireddy 
+
+Department of Computer Science The University of Texas at Austin 
+
+hk27965@utexas.edu 
+
+September 24, 2026 
+
+Abstract 
+
+Training Universal Differential Equations (UDEs) traditionally relies on backpropagating through numerical ODE solvers, creating memory footprints far exceeding the capabilities of edge microcontrollers. We present Lie–Taylor jet matching, a solver-free training framework that fits a hybrid vector field directly to the first and second time-derivatives of observed system states. These derivatives, the truncated Lie–Taylor jet, are estimated online via Savitzky–Golay filtering, yielding fully analytic gradients without automatic differentiation software. We evaluate whether eliminating the solver compromises accuracy against a conventional baseline (fixed-step RK4 integration, multiple shooting, exact discrete adjoints, Adam) sharing identical dynamics, noise models, network architectures, and metrics. While naive derivative matching degrades under sensor noise, our noise-adaptive mechanisms close and reverse this gap: full-rate phase-shifted sampling, a reservoir buffer, cosine-annealed optimization with weight averaging, on-device noise estimation, and polynomial-misfit quality gating. On a damped pendulum and chaotic double pendulum, our method matches or exceeds baseline accuracy at matched data windows and recovers unmodeled damping coefficients. Across noise levels from 0% to 5% , it attains a geometric-mean relative field error of 0.65 × that of the baseline within 108 kB of static memory, compared with megabytes of solver tape. On an ESP32 microcontroller, the on-device run reaches a field error of 
+
+0.0020 and recovers the damping coefficient to ˆc = 0 .400 (true 0.400 ) within 61 .3 kB of static memory and 7.24 ms per update ( 18 .1% duty cycle at 25 Hz), confirming real-time on-device training is feasible without a numerical solver. 
+
+Keywords: Universal Differential Equations · Solver-Free Training · Jet Matching · Savitzky–Golay Filtering · Embedded AI · Lie-Taylor Jet 
+
+1 Introduction 
+
+1.1 Motivation & Problem Statement 
+
+Physical systems operating in field conditions (robotic manipulators, unmanned aerial vehicles, electric motors, remote sensing nodes) frequently deviate from initial nominal models. Mechanical components wear over time, aerodynamic properties change, loads vary, and temperature shifts alter internal friction. Universal Differential Equations (UDEs), differential equations whose right-hand side is partly a neural network trained inside the equation, provide a powerful framework to address these variations by combining known physics, expressed as an analytic vector field fknown ,with a neural network residual Nθ designed to capture unmodeled dynamics [1]. This hybrid formulation preserves physical interpretability and structural extrapolation while granting the model sufficient capacity to capture unexpected disturbances, drag, and dissipation. Despite their advantages, the standard training pipeline for UDEs creates significant computational hurdles for edge deployments. Typically, the hybrid system is integrated inside an optimization loop, and gradients are computed arXiv:2609.26972v1 [cs.LG] 22 Sep 2026 Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+by backpropagating through the differential equation solver using unrolled automatic differentiation or continuous adjoint states (the adjoint method obtains parameter gradients by integrating a second, backward-in-time differential equation for the loss sensitivities) [2]. This is often stabilized over long time horizons using multiple shooting [3], which splits a long trajectory into short windows that are each re-initialized from data so the solver never integrates far from the observations. This standard workflow assumes workstation-class computational resources, requiring dedicated automatic differentiation libraries, megabytes of intermediate state storage (tapes), and full offline trajectory access. In this work, we investigate whether Ordinary Differential Equation (ODE) solvers and intermediate backpropagation tapes can be eliminated entirely. By matching estimated time-derivatives in a streaming framework, we examine how solver-free learning compares to traditional adjoint methods in terms of model accuracy. We demonstrate that when derivative estimates are processed with appropriate statistical filtering, direct derivative matching eliminates the collocation accuracy penalty. Specifically, noise-adaptive Lie–Taylor jet matching outperforms validated adjoint baselines while reducing training memory requirements by roughly two orders of magnitude. Because direct numerical differentiation inherently amplifies measurement noise as O(σ/ ∆t), standard least-squares regression on noisy targets produces biased estimates. The mechanisms introduced in Section 3 address this by creating statistically independent derivative targets, averaging over streaming samples, operating filters at noise-optimal parameters, and rejecting corrupted data points. 
+
+1.2 Edge Constraints: Memory Limitations and Solver Fragility 
+
+Two primary obstacles restrict traditional UDE training on resource-constrained microcontrollers: 1. Memory Footprint of Backpropagation. Differentiating through a K-step numerical solver requires storing intermediate solver stages and network activations for every step in the forward pass. In our baseline experiments (Section 4), a modest network with 354 parameters trained using a multiple shooting window of K = 40 requires 5.9 MB of memory tape and peaks at 9.1 MB of heap usage. Extending the window to K = 80 to handle higher noise increases memory usage to 11 .8 MB. Standard microcontrollers, which typically possess around 320 kB of static random-access memory (SRAM), cannot host these operations. Consequently, existing embedded ML frameworks focus almost exclusively on model inference [4, 5], while on-device training methods are generally restricted to fine-tuning final classification layers rather than updating dynamical systems [6]. 2. Numerical Integrator Divergence. Embedded numerical integration inside an optimization loop tightly couples model parameter updates to solver stability. Temporary parameter excursions during training can cause intermediate trajectories to diverge, leading to unstable gradient steps. Furthermore, computing each gradient requires 4K vector-field evaluations in both forward and reverse passes. Removing the solver avoids solver instability but introduces a different challenge: training targets must be estimated directly from noisy sensor data. Without adequate filtering, point-to-point collocation fails under noise, and in our experiments, single-step collocation ( K = 1 ) degraded to a relative field error of 0.82 under 5% noise. Therefore, solver-free methods require robust statistical filtering to generate reliable derivative targets. 
+
+1.3 Summary of Contributions 
+
+We propose noise-adaptive Lie–Taylor jet matching and present the following key contributions: • Solver-Free Training with Exact Analytic Gradients. We introduce a solver-free training approach that fits hybrid vector fields to first- and second-order time derivatives ( ˙ x, ¨x) derived from Savitzky–Golay (SG) filtering [7], a sliding-window least-squares polynomial fit whose derivatives at the window center serve as smoothed derivative estimates. The second derivative is modeled using the Lie derivative identity ¨x = JFθ Fθ ,where the Lie derivative is the rate of change of a quantity along the flow of the vector field [8]. Both terms yield closed-form analytic gradients, avoiding the need for automatic differentiation software. We validate these gradients against complex-step differentiation (a technique that recovers derivatives of a real function to machine precision by evaluating it at a small imaginary perturbation, free of the cancellation error of finite differences) across a 32-check suite, achieving agreement to machine precision. • On-Device Noise-Adaptive Processing. We implement five lightweight mechanisms designed for microcon-trollers to mitigate derivative noise: 1. Full-rate phase sampling : By sliding the filtering window every few clock ticks while maintaining tap spacing m, we extract approximately 50 × more statistically independent derivative targets from raw sensor streams, requiring only a 4.4 kB ring buffer. 2Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+2. Reservoir buffering : A 2048 –4096 sample buffer ( 48 –96 kB) maintained by reservoir sampling, which keeps a uniform random subset of an unbounded stream in fixed memory, replaces a small rolling minibatch and prevents the network from memorizing the noise on a handful of targets. 3. Averaged Adam optimization : We use Adam (adaptive moment estimation, a first-order optimizer with per-parameter step sizes) with a cosine-annealed learning rate (a step size that decays along a half cosine so that updates settle) and Polyak weight averaging implemented as an exponential moving average (EMA) of the iterates, which cancels residual optimization noise [9, 10], all within 4.2 kB of state memory. 4. Adaptive filter time-scaling : An on-device noise estimator computes sensor noise directly from fit residuals ( 0.04% empirical error) to set optimal filter time scales according to ∆t∗ ∝ σ1/5/ω c, while gating second-order derivative contributions based on signal-to-noise ratios. 5. Polynomial misfit quality gating : We reject sampling windows where local polynomial assumptions fail, preventing corrupted derivative targets during fast non-linear state transitions. • Experimental Validation and Performance Evaluation. We evaluate the approach against an exact discrete adjoint baseline sharing identical plants, noise models, neural networks, and evaluation metrics. Jet matching achieves a geometric-mean field error ratio of 0.65 × relative to the reference baseline across noise levels from 
+
+0% to 5% (0.82 × against a baseline configured with K = 80 ). On a chaotic double pendulum, the proposed method yields lower field error ( 0.0116 vs. 0.0137 ) and accurately recovers unmodeled damping coefficients (ˆc = 0 .388 –0.399 compared to the true value of 0.40 ), all within a static memory allocation of 108 kB. 
+
+2 Related Work 
+
+2.1 Universal Differential Equations and Neural ODEs 
+
+Neural ODEs place a neural network on the right-hand side of a differential equation and train it by differentiating through the numerical solution, either by unrolling the solver steps or by integrating a continuous adjoint equation backward in time [2]. The framework has been extended to irregularly sampled time series [11], augmented with auxiliary dimensions to relax topological constraints on the learned flow [12], and surveyed comprehensively by a recent study [13]. UDEs refine the idea for scientific settings by combining a known mechanistic vector field with a neural term that models only the unknown dynamics [1], retaining interpretability and extrapolation where the physics is trusted. A parallel line builds physical structure into the network itself: Hamiltonian neural networks learn a scalar energy whose symplectic gradient gives the dynamics [14], and Lagrangian formulations do the same through the Euler–Lagrange equations [15, 16]. Physics-informed neural networks (PINNs) instead penalize the residual of the governing equations at collocation points using automatic differentiation of a neural representation of the solution [17, 18]. All of these approaches share the training obstacle that motivates this work: the gradient is obtained by reverse-mode differentiation through a numerical integration, whose memory grows with the number of solver steps. The literature has attacked the cost from several directions. Checkpointing and adaptive-checkpoint adjoints trade recomputation for memory [19, 20]. The distinction between discretize-then-optimize versus optimize-then-discretize clarifies when a continuous adjoint yield exact gradients for the discrete solver used in practice [21]. Meanwhile, multiple shooting splits long trajectories into short windows, allowing solver-based training to tolerate noisy records [3, 22]. Collocation-style training of neural ODEs, which fits the field to smoothed derivative estimates rather than integrating, has been studied as a fast initialization or alternative to adjoint training [23]. Our baseline (Section 4) is a careful instance of the adjoint recipe: fixed-step Runge–Kutta integration [24, 25], multiple shooting, an exact discrete adjoint, and its own shooting-length sweep quantifies the memory that noise robustness costs. Jet matching keeps the UDE decomposition but abandons the solve-inside-the-loss construction entirely. Our chaotic test bed, the damped double pendulum, is a standard benchmark for sensitive dependence on initial conditions [26, 27]. 
+
+2.2 On-Device Machine Learning and Memory Constraints 
+
+Deploying machine learning on microcontroller units (MCUs) has matured into a distinct field, TinyML, with interpreter runtimes that execute quantized networks in tens of kilobytes [4, 28, 29]. Additionally, hardware-aware architecture search fits large classifiers into microcontroller flash [5], and standardized benchmarks for inference latency and energy [30]. On-device training is far less developed [31]. Memory-efficient transfer learning freezes the weights and updates only biases and small adapter modules to avoid storing activations [32]. Sparse-update training under a 256 kB budget selects which layers and channels may change at all [6], and online learning on microcontrollers has been demonstrated for incremental classifier adaptation [28, 29]. These systems target classification and adapt final layers, and none trains a dynamics model whose gradient passes through an integrator. Derivative-free simultaneous perturbation stochastic 3Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+approximation (SPSA) [33, 34] estimates a gradient from two randomly perturbed loss evaluations and therefore needs no backpropagation tape, but its gradient variance grows with the parameter count, limiting it to very small networks on microcontroller-class hardware. Jet matching is complementary and stronger where sensors stream densely: it retains exact analytic gradients of its loss with no zeroth-order variance penalty, while remaining allocation-free and solver-free, and it scales to the hundreds of parameters where perturbation methods degrade. 
+
+2.3 Derivative Estimation, System Identification, and Collocation 
+
+Fitting a vector field directly to estimated state derivatives, ˙x ≈ Fθ (x), is the oldest idea in system identification [35, 36]. Spline and generalized-smoothing methods estimate the trajectory and its derivatives first and then regress the parameters [37, 38], symbolic regression distills closed-form laws from derivative data [39], and sparse identification of nonlinear dynamics (SINDy) selects a few terms from a candidate library by sparse regression on numerically differentiated data [40, 41], with extensions to learned coordinates [42] and implicit dynamics [43]. The known weakness of this entire family is what our baseline’s K = 1 ablation exhibits: numerical differentiation amplifies measurement noise, and least squares against corrupted targets is biased. Regularized differentiation methods [44, 45] and Savitzky–Golay filtering [7, 46] control the amplification through local polynomial fits, whose first-derivative bias scales as O(∆ t4eff ) and noise as O(σ/ ∆teff ) at polynomial order four. Our work builds on this line in three ways: 1. We introduce a second-order jet loss term with exact analytic gradients, using acceleration estimates to constrain the Jacobian of the vector field rather than only its value. 2. We observe that the standard decimated SG pipeline discards (m − 1) /m of the stream and correlates adjacent windows, and we recover the discarded independent samples with full-rate phase sampling at negligible device cost. 3. We introduce closed-form on-device rules that place the filter at its noise-dependent optimum and reject windows where the polynomial model itself fails. The quality gate is in the spirit of robust statistics [47], but acts on the targets’ diagnosable failure mode rather than on loss residuals, a distinction our double-pendulum analysis shows to be decisive because a flexible network fits biased targets with small residuals. Unlike PINNs, which evaluate differential equations across continuous spatio-temporal grids via automatic differentia-tion, jet matching processes discrete time-series data using localized filtering and closed-form gradient evaluations. Table 1 summarizes the key differences. Table 1: Taxonomy of differential equation learning frameworks. Memory figures for the adjoint baseline reflect measured usage, while jet matching figures represent static memory allocations.                            
+
+> Framework Optimization Paradigm Noise Handling MCU Training Training Memory Adjoint UDE [1] Solver in loss, reverse-mode Multiple shooting Non-viable 5.9–11 .8MB (tape) PINN [17] Autodiff on implicit repr. Loss regularization Offline only High (grid-dependent) SINDy [40] Direct numerical diff. Smoothing +sparsity Feasible (linear) Low Jet Matching (Ours) Lie–Taylor jet, analytic grads Full-rate SG +adaptive gates Microcontroller 108 kB (static)
+
+2.4 Gradient Computation, Optimization, and Verification 
+
+The two gradient primitives of Section 3, the vector–Jacobian product and the Jacobian–vector product, are the elementary operations of reverse- and forward-mode automatic differentiation respectively [48, 49]. Composing reverse mode over a forward-mode pass is the classical technique for exact Hessian-vector, and in this case Jacobian-derivative products without materializing matrices [50]. We verify both our gradients and the baseline’s adjoint against complex-step differentiation, which evaluates a real function at a small imaginary perturbation and reads the derivative from the imaginary part, avoiding the subtractive cancellation of finite differences and attaining machine precision [51, 52]. On the optimization side, our trainer combines stochastic approximation [53] in the form of Adam [9] with a cosine learning-rate schedule [54] and Polyak–Ruppert iterate averaging [10], whose modern weight-space form is known to find flatter minima and generalize better [55]. The fixed-memory sample buffer is maintained by reservoir sampling [56], which keeps a uniform random subset of an unbounded stream. Each of these components is standard, and the contribution of this paper is showing that, arranged into a streaming, allocation-free pipeline, they eliminate the accuracy penalty that has historically separated derivative-matching from solver-based training. 4Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+3 Methodology 
+
+3.1 Problem Formulation and Dynamical Systems 
+
+We consider a state observation stream given by x(tk)+ ηk ∈ Rn sampled at frequency fs = 1 kHz, where ηk represents independent and identically distributed (i.i.d.) Gaussian sensor noise. The true physical system follows ˙x = f ∗(x),which we decompose into: 
+
+f ∗(x) = fknown (x) + ∆( x), (1) where fknown denotes the modeled physical dynamics and ∆ represents unknown dynamics. The target learning model is structured as: 
+
+˙x = Fθ (x) = fknown (x) + Nθ (x), (2) where Nθ is a multilayer perceptron using tanh activation functions. The neural network architecture uses a 
+
+2→16 →16 →2 configuration (354 parameters) for the single pendulum and a 4→16 →16 →4 configuration (420 parameters) for the double pendulum. Input and output layers are normalized using scale factors determined during an initial calibration phase. We evaluate performance on two physical systems: 1. Damped Single Pendulum: Defined by state vector x = [ θ, ω ]⊤ with governing equations: 
+
+˙θ = ω, (3) 
+
+˙ω = − gL sin θ − c ω, (4) where g = 9 .81 m /s2, L = 1 m , and true damping coefficient c = 0 .40 . The system is initialized from 
+
+(θ0, ω 0) = (1 .2, 0) with periodic random re-excitation forces. 2. Chaotic Damped Double Pendulum: Defined by state vector x = [ θ1, θ 2, ω 1, ω 2]⊤, with link masses 
+
+m1 = m2 = 1 kg and lengths l1 = l2 = 1 m. Defining the angular difference δ = θ1 − θ2 and common denominator term D = 2 m1 + m2 − m2 cos(2 δ), the equations of motion are: 
+
+˙θ1 = ω1, (5) 
+
+˙θ2 = ω2, (6) 
+
+˙ω1 = −g(2 m1+m2) sin θ1 − m2g sin( θ1−2θ2) − 2 sin δ m 2
+
+ ω22 l2 + ω21 l1 cos δ
+
+l1 D − c1 ω1, (7) 
+
+˙ω2 = 2 sin δ  ω21 l1(m1+m2) + g(m1+m2) cos θ1 + ω22 l2m2 cos δ
+
+l2 D − c2 ω2, (8) with damping parameters c1 = c2 = 0 .150 . Initial conditions are set to (2 .0, 2.4, 0, 0) within the chaotic regime. To evaluate model identification, we construct three UDE experimental configurations: • Case A: Damping terms are omitted from fknown , requiring Nθ to learn the full damping effect. • Case B: Damping is included in fknown , but gravity is mis-specified as gmodel = 0 .90 g. Here, the correct learned damping residual is zero. • Case C: Both structural errors are present simultaneously (mis-specified gravity and omitted damping). Model accuracy is quantified using the relative vector field error over state domain X :
+
+efield = ∥Fθ − f ∗∥L2(X )
+
+∥f ∗∥L2(X )
+
+, (9) evaluated over a 41 ×41 grid for the single pendulum and over trajectories visited during evaluation for the double pendulum. Recovered damping coefficients ˆc are computed by linear regression of the learned network outputs against state velocities. 5Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+3.2 Lie–Taylor Jet Matching Loss and Analytic Gradients 
+
+For any smooth system following (2), the first and second time derivatives satisfy ˙x = Fθ (x) and ¨x = JFθ (x) Fθ (x)
+
+via the chain rule. These are the first terms of the Lie–Taylor expansion of the local flow, which is the Taylor series in time whose coefficients are successive Lie derivatives of the state along the vector field [8]. Truncating it at second order gives the jet that the method matches. Jet matching minimizes the discrepancy between these expressions and filtered derivative estimates (ˆ x, ˆ˙x, ˆ¨x):We define the first-derivative residual vector r1 ∈ Rn as: 
+
+r1 = ˆ˙x − Fθ (ˆ x)
+
+s1
+
+, (10) where s1 is the calibration Root Mean Square (RMS) scale for the first derivative. Similarly, the second-order model prediction Gθ (ˆ x) ∈ Rn is defined as: 
+
+Gθ (ˆ x) = JFθ (ˆ x) Fθ (ˆ x), (11) and the second-derivative residual vector r2 ∈ Rn is given by: 
+
+r2 = ˆ¨x − Gθ (ˆ x)
+
+s2
+
+, (12) where s2 is the calibration RMS scale for the second derivative. Combining these components yields the complete jet matching loss function: 
+
+L(θ) = λ1∥r1∥22 + λ2∥r2∥22, (13) where λ1 and λ2 represent scalar loss weights. Because parameters θ enter solely through Nθ , the exact per-sample loss gradient can be computed analytically without numerical differential equation solvers. We define the backpropagated cotangent vector ¯u ∈ Rn as: 
+
+¯u = −2
+
+
+
+λ1
+
+r1
+
+s1
+
++ λ2 JFθ (ˆ x)⊤ r2
+
+s2
+
+
+
+, (14) and the second-order weight vector w ∈ Rn as: 
+
+w = −2 r2
+
+s2
+
+. (15) The full gradient of the loss function with respect to θ is then: 
+
+∇θ L =
+
+ ∂N θ (ˆ x)
+
+∂θ 
+
+⊤
+
+¯u + λ2 ∇θ w, J Nθ (ˆ x) v v=sg[ Fθ (ˆ x)] 
+
+, (16) where sg[ ·] denotes a stop-gradient operator holding vector v constant during derivative evaluation. This formulation needs only two primitive operations: a vector–Jacobian product (VJP, a reverse-mode pass that propagates an output cotangent back to the parameters) through the network for the first term, and reverse-mode differentiation over a Jacobian–vector product (JVP, a forward-mode pass that propagates a tangent direction v through the network) for the second term [49, 50]. Both are evaluated within fixed layer buffers, so the n × p Jacobian ∂N θ /∂θ is never formed and no dynamic memory is allocated during training. Detailed mathematical derivations are provided in Appendix A. 
+
+3.3 Streaming Derivative Estimation: Full-Rate Phase Sampling 
+
+Derivative targets are derived from an 11 -tap ( M = 5 ), 4th -order polynomial ( P = 4 ) Savitzky–Golay filter operating with tap stride m. The effective sampling step is given by: 
+
+∆teff = mfs
+
+. (17) Using relative tap indices τ ∈ {− M, . . . , M }, we construct the Vandermonde matrix A ∈ R(2 M +1) ×(P +1) (the design matrix of the local polynomial fit, whose columns are the monomials τ j evaluated at the tap positions) with elements: 
+
+Aij = τ ji , i ∈ { 1, . . . , 2M + 1 }, j ∈ { 0, . . . , P }. (18) The row vectors Dd for derivative order d ∈ { 0, 1, 2} are given by: 
+
+Dd = d! (A⊤A)−1A⊤ 
+
+> d:
+
+, (19) 6Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+where index d : selects the corresponding row of the pseudoinverse. Given a sampled data vector y ∈ R2M +1 , state and derivative estimates are calculated as: 
+
+ˆx = D⊤ 
+
+> 0
+
+y, (20) 
+
+ˆ˙x = D⊤ 
+
+> 1
+
+y
+
+∆teff 
+
+, (21) 
+
+ˆ¨x = D⊤ 
+
+> 2
+
+y
+
+∆t2eff 
+
+. (22) Standard decimation updates filtering windows every m steps, discarding intermediate samples and generating correlated outputs across adjacent windows. To address this, we implement full-rate phase sampling by sliding the filtering window by a small stride s = 5 while maintaining tap spacing m. Because interleaved window phases do not share raw measurement samples, their noise distributions are statistically independent. This increases the effective volume of unique training targets by approximately m/s without requiring additional sensors. The required buffer footprint is limited to 11 m floating-point values per channel ( 4.4 kB for single pendulum experiments at m = 50 ). Figure 1 illustrates this sampling approach. Filtered outputs are collected into a reservoir buffer of size B (B = 4096 for single pendulum, B = 2048 for double pendulum), from which minibatches of size 64 are drawn for optimization. A Decimated sampling (one phase, v1)       
+
+> 020 40 60 80 raw sensor ticks (rate fs)
+> BFull-rate phase sampling (v2)
+
+Figure 1: Overview of standard decimated sampling versus full-rate phase sampling. Maintaining tap spacing m while sliding the filter window by stride s yields m/s independent derivative estimation streams. 
+
+3.4 Noise-Adaptive Filter Tuning and Quality Gating 
+
+We employ three adaptive mechanisms to automatically adjust filter settings based on operational noise conditions: 
+
+On-Device Noise Estimation. Let D0 represent the smoothing row vector and μ denote the center tap index. For a signal corrupted by zero-mean Gaussian noise with variance σ2, the scalar residual e = yμ − D⊤ 
+
+> 0
+
+y has expected variance σ2(1 − 2[ D0]μ + ∥D0∥22). Averaging squared residuals over W sliding windows yields an estimator for noise variance: 
+
+ˆσ2 =
+
+> 1
+> W
+
+PWk=1 e 2
+
+> k
+
+1 − 2 [ D0]μ + ∥D0∥22
+
+, (23) which incurs minimal overhead (one multiply-accumulate operation per tap). 
+
+Adaptive Time-Scale Selection. Balancing polynomial approximation bias O(∆ t4eff ) against noise variance O(σ/ ∆teff )
+
+yields an optimal time step ∆t∗ 
+
+> eff
+
+∝ σ1/5. Scaling this relationship inversely with the characteristic signal frequency 
+
+ωc = s2/s 1 gives: 
+
+∆t∗ 
+
+> eff
+
+= 0.09 
+
+ωc
+
+ ˆσrel 
+
+0.01 
+
+1/5
+
+, (24) where ˆσrel is the estimated relative noise standard deviation. The constant 0.09 serves as a baseline scaling factor determined from single pendulum calibration experiments. 7Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+Second-Order Derivative Gating. Second derivative estimates ˆ¨x carry higher noise standard deviations (∥D2∥2 ˆσ/ ∆t2eff ). To prevent noise amplification from degrading optimization, we compute the channel Signal-to-Noise Ratio (SNR): 
+
+SNR 2 = min 
+
+> channels
+
+s2
+
+∥D2∥2 ˆσ/ ∆t2eff 
+
+. (25) The second-order loss weight λ2 is adaptively assigned based on threshold τSNR = 12 :
+
+λ2 =
+
+(λ 02 if SNR 2 ≥ τSNR ,
+
+0 if SNR 2 < τ SNR , (26) where λ 02 = 0 .1. If SNR 2 drops below the threshold, second-order derivative matching is disabled to protect gradient updates from high variance. 
+
+Polynomial Misfit Quality Gating. High-frequency non-linear dynamics can violate local polynomial assumptions during rapid state transitions. To detect these conditions, we form the residual projection matrix R = I − AA +, where 
+
+A+ is the pseudoinverse of A. The fit residual norm ∥R y∥2 quantifies polynomial deviation. Samples are rejected if they exceed a dynamic threshold: 
+
+∥R y∥2 > 6 · median  ∥R y∥2
+
+ + 0 .02 · RMS( y), (27) where the median is computed over recent windows and the RMS term establishes a baseline floor. Rejected samples are excluded from the training buffer. Algorithm 1 outlines the complete training procedure. 
+
+Algorithm 1 Noise-Adaptive Lie–Taylor Jet Matching Routine 
+
+Require: Sensor stream yk at fs = 1 kHz; baseline model fknown ; parameters from Table 5 
+
+Ensure: Optimized weights θEMA  
+
+> 1:
+
+Calibration: Measure scales xrms , s 1, s 2 using SG estimates (20)–(22)  
+
+> 2:
+
+Adaptation: Estimate noise ˆσ using (23); set ωc ← s2/s 1, m ← fs∆t∗ 
+
+> eff
+
+via (24), and weight λ2 via (26)  
+
+> 3:
+
+for each incoming sample tick k do  
+
+> 4:
+
+Store yk in circular buffer of length (2 M +1) m per channel  
+
+> 5:
+
+if k mod s == 0 then  
+
+> 6:
+
+Construct window vector y; evaluate estimates (ˆ x, ˆ˙x, ˆ¨x) via (20)–(22)  
+
+> 7:
+
+if ∥R y∥2 satisfies condition (27) across all channels then  
+
+> 8:
+
+Add sample (ˆ x, ˆ˙x, ˆ¨x) to reservoir buffer of capacity B 
+
+> 9:
+
+end if  
+
+> 10:
+
+end if  
+
+> 11:
+
+if k mod ( fs/f train ) == 0 and buffer is filled then  
+
+> 12:
+
+Draw minibatch of 64 samples; evaluate gradient ∇θ L using (14)–(16)  
+
+> 13:
+
+Apply Adam update with cosine learning rate schedule; clip gradient norm at 5.0 
+
+> 14:
+
+Update exponential moving average: θEMA ← βθ EMA + (1 −β)θ 
+
+> 15:
+
+end if  
+
+> 16:
+
+end for  
+
+> 17:
+
+Continue training updates on stored reservoir buffer until reaching total iteration limit  
+
+> 18:
+
+return θEMA 
+
+3.5 Static Memory Allocation 
+
+The training algorithm relies entirely on static memory allocations: network parameters, gradient buffers, Adam optimizer states, and EMA copies require 5 × 354 floating-point values for the single pendulum. Including the sample reservoir ( B × 3n), circular input buffers ( 11 m values/channel), filter coefficients, scale vectors, and projection matrix 
+
+R, total static memory usage is 108 .1 kB. This memory footprint remains constant throughout execution, avoiding dynamic allocations during online training. Section 5.6 reports an on-device measurement of this footprint at a reduced reservoir capacity ( B = 2048 , the same capacity used for the double pendulum in Table 5), adopted to fit the target board’s available DRAM alongside the Arduino/ESP-IDF runtime. 
+
+4 Experimental Setup 
+
+4.1 Adjoint Baseline Configuration 
+
+We compare the proposed method against a standard solver-based UDE training pipeline: fixed-step 4th-order Runge– Kutta (RK4) integration inside the loss function, multiple shooting over K-step windows initialized from trajectory data 8Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+[3], exact hand-derived discrete adjoint backpropagation across integration steps (reverse-mode differentiation applied to the discretized solver steps, as opposed to the continuous adjoint), and full-batch Adam optimization [9]. The discrete adjoint implementation was validated against complex-step differentiation, matching numerical gradients to within 
+
+1.8×10 −15 to 5.2×10 −13 across test cases and shooting window lengths K ∈ { 1, 3, 5, 10 }. The baseline reference configuration ( K = 40 , 128 windows, 1,200 iterations, 50 Hz observation rate) requires a 5.9 MB intermediate tape, 
+
+9.1 MB peak heap usage, and 26 .2 million multiply-accumulate (MAC) operations per iteration. 
+
+4.2 Experimental Control and Data Matching 
+
+Both jet matching and adjoint baseline implementations share common evaluation components: physical dynamics routines, synthetic noise generation, initial conditions, network architectures, weight initializations, and field error calculation code. Experimental conditions are matched across tests using identical dataset durations ( 60 s for single pendulum, 20 s for double pendulum). Sensitivity checks were performed on baseline parameters: increasing the baseline observation sampling rate to 100 Hz resulted in higher error ( 0.0033 vs. 0.0028 at the reference 50 Hz rate, 1% noise), while increasing the shooting window to K = 80 doubled tape size to 11 .8 MB. Single pendulum experiments were evaluated across 3 random seeds, and double pendulum experiments across 4 seeds. 
+
+4.3 Execution Environment and Resource Projections 
+
+Accuracy evaluations were conducted using 64-bit floating-point simulations in Python/NumPy to isolate algorithmic behavior under controlled numerical precision. Microcontroller hardware projections target an ESP32 microcontroller (Xtensa LX6 dual-core processor running at 240 MHz, 320 kB internal SRAM, single-precision floating-point unit (FPU)). Memory figures reflect static compiler allocations. Computation times are projected based on counted operations (184 ,960 MACs per update cycle) assuming an execution throughput of 3 clock cycles per MAC and 60 cycles per transcendental function call ( tanhf ), compared against desktop baseline measurements. Section 5.6 replaces this projection with a direct on-device measurement from the same training algorithm running on physical ESP32 hardware. 
+
+5 Experiments and Results 
+
+5.1 Accuracy Across Sensor Noise Levels 
+
+Table 2 presents relative field error results across varying sensor noise levels. An unadapted jet matching baseline (v1: decimated sampling, minibatch size 32, fixed learning rates, constant λ2) produces a relative field error of 0.0090 at 1% noise, a 3.2× higher error than the adjoint baseline ( 0.0028 ). Incorporating the adaptive mechanisms described in Section 3 (v2) reduces the relative field error to 0.0022 under identical 60 s data windows. Across noise levels from 0% to 5%, the proposed method achieves lower mean field error than the reference baseline in five out of six evaluated conditions, yielding a geometric-mean error ratio of 0.65 × (0.82 × compared to the baseline using K = 80 ). Parameter estimation accuracy remains consistent across noise levels, recovering single pendulum damping parameters within 
+
+ˆc ∈ [0 .388 , 0.399] (true value 0.40 ), while baseline estimates drift to 0.434 under 5% noise. Table 2: Relative field error ( μ ± σ over 3 seeds), single pendulum Case A, matched 60 s data window. Bold text indicates lowest error per noise level. †: 1–3 seeds. Error ratios < 1.0 indicate lower relative error for jet matching.                                                                                 
+
+> Noise Adjoint Baseline Baseline ( K= 80 )Jet Matching (v2) Ratio (Ref.) Ratio ( K= 80 )Jet ˆc(True: 0.40)
+> 0% 0.00133 ±0.00013 0.00133 ±0.00013 0.00068 ±0.00022 0.51 0.51 0.399
+> 0.1% 0.00123 ±0.00012 0.00123 ±0.00012 0.00223 ±0.00060 1.81 1.81 0.394
+> 0.5% 0.00158 ±0.00019 0.00158 ±0.00019 0.00155 ±0.00022 0.98 0.98 0.398
+> 1% 0.00283 ±0.00134 0.00283 ±0.00134 0.00218 ±0.00017 0.77 0.77 0.397
+> 2% 0.00695 ±0.00328 0.00355 †0.00266 ±0.00031 0.38 0.75 0.395
+> 5% 0.02477 ±0.00925 0.01180 †0.00642 ±0.00151 0.26 0.54 0.388 Geometric Mean 0.65 0.82
+
+Figure 2 illustrates the solver-based training loop whose solver and tape jet matching removes. Table 3 summarizes the operational head-to-head comparison, while Figure 3 illustrates the relationship between shooting window length K,memory usage, and noise performance in the baseline model. 9Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT Plant 
+
+(RK4  Truth) 
+
+Observations 
+
+yk + η
+
+Training Path Complexity: 
+
+4K field evaluations forward 
+
+4K field evaluations backward 
+
+Multiple 
+
+Shooting 
+
+Windows x w
+
+RK4 unroll 
+
+(K steps) 
+
+Optimization Loop 
+
+Checkpoint 
+
+Tape 
+
+Discrete Adjoint 
+
+(BPTT)  → Adam 
+
+Storage Requirement: 
+
+ape of every stage and 
+
+activation, all K steps, 
+
+kept live 
+
+Figure 2: The solver-based training loop that jet matching removes. Each gradient requires 4K vector-field evaluations forward and again in reverse, and the checkpoint tape retains every solver stage and activation for all K steps. Jet matching replaces the entire dashed optimization loop and the tape with the streaming pipeline of Algorithm 1. Table 3: Detailed comparison under matched physical plants, neural network structures, noise models, and evaluation routines. 
+
+Metric Solver-Based Baseline Jet Matching (Ours) Relative field error @ 1% noise 0.0028 0.0022 Relative field error @ 5% noise 0.0248 0.0064 Double pendulum field error @ 1% 0.0137 0.0115 Recovered damping ˆc (true: 0.40) 0.398 0.397 Gradient error vs. complex-step 1e −13 1e −13 
+
+Numerical ODE solver in loop Yes (RK4, 4K evaluations) No Backpropagation tape storage Yes, O(K) intermediate states No Training memory allocation 5.9 MB dynamic tape 108 kB static *
+
+Execution time per update step 93 ms (Desktop CPU) 2.9 ms (ESP32 proj.) *
+
+Data processing mode Offline trajectory batches Online streaming Derivative estimation method Solver differentiation Adaptive SG filtering 
+
+*Projected for the B = 4096 reference configuration (Table 5). Section 5.6 measures the same algorithm on physical ESP32 hardware at a reduced reservoir ( B = 2048 , fit to the target board’s DRAM): 61 .3 kB static memory and 7.24 ms per update. 10 3 10 2                                   
+
+> measurement noise (fraction of clean RMS)
+> 10 3
+> 10 2
+> 10 1
+> relative field error
+> AAccuracy vs noise ( K= 40 )
+> known physics only solver-based UDE
+> 1510 20 40
+> multiple-shooting window K
+> 5% 1% 0.5% 0.1%
+> noise
+> 0.822 0.152 0.068 0.030 0.014 0.080 0.023 0.007 0.003 0.002 0.022 0.004 0.003 0.002 0.001 0.006 0.002 0.002 0.002 0.001
+> BField error vs shooting length
+> 10 1
+> wall-clock training time (s)
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> relative field error
+> CCost / accuracy frontier
+> noise 0.1% 0.5% 1% 5%
+> 3.0
+> 2.5
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> log 10  relative field error
+
+Figure 3: Evaluation of the adjoint baseline: field error versus noise level at K = 40 (A), accuracy across various shooting window lengths K (B), and trade-offs between computational cost and field accuracy (C). 10 Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+5.2 Evaluation on Chaotic Double Pendulum Dynamics 
+
+Under 1% sensor noise over a 20 s dataset, jet matching achieves a mean relative field error of 0.0115 (median 0.0083 
+
+across 4 seeds) on the chaotic double pendulum, compared to 0.0137 for the adjoint baseline (spread 0.0088 to 0.0198 
+
+across 3 seeds). Evaluating jet matching models on trajectory states generated by the baseline yields a consistent field error of 0.0116 (median 0.0078 ). The model recovers unmodeled damping coefficients at ˆc1 = 0 .141 (true value 0.150 ), compared to the baseline’s estimate of 0.160 .Occasional error outliers were observed on this system, where 1 out of 4 seeds produced an error of 0.025 . Analysis indicates that during rapid chaotic flips, higher-order Taylor series terms exceed the approximation capacity of 4th-order polynomial filters over fixed window lengths. This causes local derivative estimation errors that pass through the quality gate, temporarily distorting the learned field in high-velocity states ( |ω| ≫ 0). 
+
+5.3 System Identification and Long-Term Rollout Dynamics 
+
+Figure 4 illustrates identification performance across different UDE structural formulations under 1% noise. Case A recovers a damping coefficient of ˆc = 0 .397 , Case C yields ˆc = 0 .387 , and Case B, where true damping is fully included in fknown , returns an estimated residual coefficient of −0.001 , confirming that the network does not introduce unnecessary corrections when physical models are accurate. Figure 5 evaluates long-term predictive stability. When integrated over an 8 s trajectory window, the trained hybrid field maintains a trajectory error of 0.0068 , representing a 393 × reduction in error compared to unaugmented baseline models ( fknown alone) and a 10 × improvement over unadapted jet matching implementations ( 0.068 ). 3 2 1 0 1 2 3                    
+
+> (rad/s)
+> 1.0
+> 0.5
+> 0.0 0.5 1.0
+> N , 2
+> ACase A: slices in
+> =1.2
+> =0.4
+> = +0.4
+> = +1.2
+> truth c
+> 3210123
+> (rad/s)
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0
+> N , 2
+> BAll cases at = 0.8
+> case A case B case C learned truth
+> case A case B case C 0.1
+> 0.0 0.1 0.2 0.3 0.4 0.5
+> recovered  c
+> CRecovered c(3 seeds)
+
+Figure 4: System identification across UDE configurations under 1% noise: reconstructed residual functions versus true dynamics (A, B) and estimated damping parameters across random seeds (C). 0 2 4 6 8
+
+> time (s)
+> 1
+> 01
+> (rad)
+
+A Forecast, x0 = (1.2, 0)      
+
+> truth known only UDE 101
+> (rad)
+> 4
+> 2
+> 024
+> (rad/s)
+
+B Phase portrait, 4 ICs        
+
+> 02468
+> forecast horizon (s)
+> 10 3
+> 10 1
+> 10 1
+> state RMSE  393 ×lower at 8 s
+
+C Error vs horizon  
+
+> known only UDE
+
+Figure 5: Autonomous trajectory rollouts over an 8 s horizon (A), phase space trajectories across multiple initial conditions (B), and relative state error progression over time (C). 11 Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+5.4 Ablation Study and Performance Drivers 
+
+Table 4 breaks down performance improvements by adding individual adaptive mechanisms under 1% noise. The largest accuracy gains stem from full-rate phase sampling and larger sample buffer sizes, which increase sample independence. Dynamic time-scale adaptation and quality gating provide additional refinements, particularly in low-noise settings where fixed filter parameters introduce truncation errors. Table 4: Ablation study showing cumulative relative field error improvements on the single pendulum under 1% noise across 3 random seeds. 
+
+Configuration Field Error Error vs. Baseline ( 0.0028 )v1: Decimated SG, minibatch size 32, basic SGD 0.0090 3.2× higher 
+
++ Reservoir buffer ( B = 2048 ) + Cosine Adam + EMA 0.0070 2.5× higher 
+
++ Full-rate phase sampling 0.0037–0.0045 1.3–1.6× higher 
+
++ Extended update steps ( 8,000 ) on matched dataset 0.0023 0.81 × (lower) 
+
++ Adaptive filtering, SNR gating, and quality gating (v2) 0.0022 0.77 × (lower) 
+
+Figure 6 illustrates the impact of second-order derivative gating ( λ2). Under 1% noise, the second-order loss component remains pinned near its noise floor ( ∼ 2×10 −2) for the entire run, while the first-order loss component drops to 
+
+1.8×10 −3. Disabling second-order matching when SNR is low prevents high-variance derivative estimates from impacting parameter updates. Figure 7 shows performance ratios across different noise levels and filter settings, confirming that second-order matching provides minimal benefit when first-order sample density is sufficient. 10 0 10 1 10 2 10 3 10 4
+
+update 
+
+10 3
+
+10 2
+
+> loss component
+> v2: full-rate sampling + Adam + EMA median, IQR band
+
+A Jet loss components ( 2 = 0.1 , 5 seeds)       
+
+> 1|xF|2(1st-order)
+> 2|xJFF|2(2nd-order)
+> total jet loss
+
+10 0 10 1 10 2 10 3 10 4
+
+update 
+
+10 2
+
+> total jet loss  at 1% noise the 2nd-order channel is noise-dominated: its residual pins the floor -- why the v2 SNR gate turns it off
+
+B With vs without the 2nd-order term   
+
+> 2= 0 (1st-order only)
+> 2= 0.1 (1st+2nd)
+
+Figure 6: Evaluation of derivative loss components during training at 1% noise. The second-order loss term remains near a noise floor (A), and disabling it yields equivalent performance (B), supporting the SNR gating strategy. 0 0.1% 1% 2%                                                
+
+> measurement noise
+> 10 2
+> 10 1
+> relative field error
+> AAccuracy vs noise ( teff = 50 ms)
+> known physics only
+> 2= 0.0
+> 2= 0.03
+> 2= 0.1
+> 2= 0.3
+> 510 20 50 100
+> SG decimation
+> 2% 1% 0.5% 0.2% 0.1%
+> noise
+> 1.22 1.05 1.17 1.12 1.00 1.11 1.11 1.23 1.07 1.01 1.26 1.20 1.39 1.09 1.01 1.34 1.38 1.14 1.06 1.01 1.06 1.51 1.14 1.07 1.00
+> B2= 0.1 vs 0: error ratio
+> jet-channel SNR = 1
+> 0.00 0.05 0.10 0.15
+> log 10  error ratio
+> 10 110 010 110 2
+> jet-channel SNR of x
+> 1.0 1.2 1.4 1.6
+> error ratio  2 = 0.1 /  2 = 0
+> hurts
+> CCrossover set by SNR alone
+> noise
+> 0.1% 0.2% 0.5% 1% 2%
+
+Figure 7: Performance comparison of second-order loss contributions across noise levels and filter decimation steps: field error ratios ( λ2 = 0 .1 vs. λ2 = 0 ) relative to calculated SNR thresholds. 
+
+5.5 Resource Usage and Memory Requirements 
+
+The baseline model requires 5.9 MB of intermediate tape storage ( 11 .8 MB at K = 80 ), peaks at 9.1 MB of heap allocation, and processes 26 .2 M MACs per iteration. In contrast, jet matching operates within a static memory 12 Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+allocation of 108 .1 kB, representing a 55 to 109 × reduction in memory usage. Per-update computational requirements are 184 ,960 MACs (batch size 64), corresponding to a cycle-counted estimate of 2.85 ms per step on a 240 MHz ESP32 microcontroller ( 7.1% duty cycle at 25 Hz). Figure 8C summarizes this projection alongside the corresponding measurement from physical ESP32 hardware, detailed in Section 5.6. full method no I/O scaling (.ino verbatim) Adam float32 no grad clip 
+
+> 0.0018 0.0019 0.0020 0.0021 0.0022 0.0023 0.0024
+> relative field error
+
+A Ablations (1% noise)      
+
+> 21012
+> 1
+
+(rad/s) 
+
+> 0.3
+> 0.2
+> 0.1
+> 0.0 0.1 0.2 0.3
+> N , 3
+
+B Double pendulum damping     
+
+> truth c11
+> fit c1= 0.150
+
+C ESP32 feasibility (projected)                   
+
+> net 2-16-16-2 (354 params)
+> MACs / sample 2,890
+> forward + JVP 640
+> term A + B 1,920
+> MACs / update 184,960
+> cycles / update 683,490
+> time / update 2.85 ms
+> budget @ 25 Hz 40 ms
+> duty cycle 7.1 %
+> static RAM (f32) 108.1 kB
+> measured (NumPy) 0.24 ms
+
+C ESP32: projected vs. measured                               
+
+> projected measured
+> net 2-16-16-2 (354p)
+> MACs / sample 2,890
+> MACs / update 184,960
+> cycles / update 683,490
+> reservoir B4,096 (ref.) 2,048
+> static RAM (f32) 108.1 kB 61.3 kB
+> time / update 2.85 ms 7.24 ms
+> budget @ 25 Hz 40 ms 40 ms
+> duty cycle 7.1 %18.1 %
+> Measured on physical ESP32 hardware at B= 2048 (Sec. 5.6); reservoir reduced from the B= 4096 reference to fit target DRAM.
+
+C ESP32: projected vs. measured                                    
+
+> projected measured
+> net 2-16-16-2 (354p) (same)
+> MACs / sample 2,890 (same)
+> MACs / update 184,960 (same)
+> cycles / update 683,490 (same)
+> reservoir B4,096 (ref.) 2,048
+> static RAM (f32) 108.1 kB 61.3 kB
+> time / update 2.85 ms 7.24 ms
+> budget @ 25 Hz 40 ms 40 ms
+> duty cycle 7.1 %18.1 %
+> Measured on physical ESP32 hardware at B= 2048 (Sec. 5.6); reservoir reduced from the B= 4096 reference to fit target DRAM. (same): unaffected by B, set by network architecture and batch size.
+
+C ESP32: projected vs. measured                         
+
+> projected measured
+> net 2-16-16-2 (354p) 2-16-16-2 MACs / sample 2,890 2,890 MACs / update 184,960 184,960 cycles / update 683,490 683,490 reservoir B4,096 (ref.) 2,048 static RAM (f32) 108.1 kB 61.3 kB time / update 2.85 ms 7.24 ms budget @ 25 Hz 40 ms 40 ms duty cycle 7.1 % 18.1 %
+> Measured on physical ESP32 hardware at B= 2048 (Sec. 5.6); reservoir reduced from the B= 4096 reference to fit target DRAM.
+
+Figure 8: Ablation analysis under 1% noise (A), noise-free parameter recovery performance (B), and the ESP32 resource account, projected alongside the physical measurement of Section 5.6 (C). 
+
+5.6 On-Device Validation on ESP32 Hardware 
+
+We implemented the complete training algorithm, including all mechanisms of Section 3, in single-precision C on an ESP32 (dual-core Xtensa LX6, 240 MHz, no floating-point coprocessor for transcendental functions) and ran it end-to-end on physical hardware at 1% sensor noise on the single pendulum. The target board’s available DRAM could not accommodate the reference reservoir capacity ( B = 4096 , Table 5) alongside the Arduino/ESP-IDF runtime’s own static allocations, so the reservoir was set to B = 2048 , the identical capacity already used for the double pendulum in simulation. The on-device noise estimator measured ˆσrel = 0 .0086 and selected a decimation of m = 26 
+
+(versus m ≈ 39 in the float64 simulation at the same noise level). Equation (24) depends only on ωc and ˆσrel , not on reservoir capacity, so this shift reflects estimation variance in ωc and ˆσrel over the shorter on-device calibration window together with single-precision arithmetic, rather than the change in B itself. The second-order term remained gated off (SNR 2 = 2 .5 < τ SNR ), consistent with Section 4. Figure 9 reports the result. The on-device run reaches a relative field error of 0.0020 and recovers the damping coefficient to ˆc = 0 .400 (true 0.400 ), matching the accuracy of the float64 simulation at the corresponding operating point despite the smaller reservoir and reduced numerical precision; the quality gate rejected 6.5% of candidate windows (780 of 12 ,000 ), consistent with the rate reported in Appendix C. Measured static memory usage is 61 .3 kB, exactly matching the value computed from sizeof on the deployed arrays at B = 2048 , and a 96 × reduction relative to the adjoint baseline’s 5.9 MB tape (consistent with the 55 –109 × range of Section 5). The measured update time is 7.24 ms, against the 2.85 ms cycle-counted projection of Section 4, a gap we attribute to the projection’s idealized cost model: it counts multiply-accumulates and tanhf calls but not the floating-point divisions the algorithm performs per sample (normalizing by sx, s1, s2) or ordinary loop and function-call overhead the compiler does not fully eliminate. The measured time is highly consistent across all 8,000 updates of the run (interquartile range under 0.2 ms; inset of Figure 9B), indicating that the gap is a fixed constant-factor cost rather than variable jitter. At 7.24 ms per update the training loop occupies an 18 .1% duty cycle at the paper’s 25 Hz training rate, still comfortably within budget. We report the measured value as the operative timing figure and retain the projection only for its decomposition into MAC and transcendental-call counts. 13 Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 10 3                                                       
+
+> update
+> 10 2
+> 10 1
+> relative field error
+> AOn-device learning curve
+> field error (ESP32) known physics only
+> c(ESP32)
+> true c= 0.40
+> 10 1
+> time per update (ms)
+> 01000 2000 3000 4000 5000 6000 7000 8000
+> count
+> BMeasured update latency
+> 7.0 7.2 7.4 7.6 02000 4000 6000 8000 zoom: 7.00-7.60 ms
+> projected 2.85 ms measured mean 7.24 ms budget @ 25 Hz (40 ms)
+> network 2-16-16-2 (354 params)
+> static training state 61.3 kB
+> projected 108.1 kB
+> time / update 7.24 ms
+> projected 2.85 ms
+> duty cycle @ 25 Hz 18.10 %
+> decimation m (auto) 26
+> 2(SNR gate) 0.00
+> windows kept / rejected 11220 /780
+> final field error 0.0020
+> final c(true 0.40) 0.400
+> solver baseline tape 5.9 MB
+> memory reduction 96x
+> CMeasured on-device cost
+> 0.0 0.1 0.2 0.3 0.4 0.5
+> recovered  c
+> CMeasured on-device cost
+> network 2-16-16-2 (354 params)
+> static training state 61.3 kB
+> projected 108.1 kB
+> time / update 7.24 ms
+> projected 2.85 ms
+> duty cycle @ 25 Hz 18.10 %
+> decimation m (auto) 26
+> 2(SNR gate) 0.00
+> windows kept / rejected 11220 / 780
+> final field error 0.0020
+> final c(true 0.40) 0.400
+> solver baseline tape 5.9 MB
+> memory reduction 96x
+
+Figure 9: On-device validation on ESP32 hardware at 1% noise, B = 2048 : relative field error and recovered ˆc over training (A), measured per-update latency against the projected value and the 25 Hz timing budget, with a zoomed inset on the measured spread (B), and the measured resource account against the simulated projection (C). 
+
+6 Conclusion 
+
+6.1 Summary 
+
+This work evaluates whether numerical differential equation solvers can be removed from UDE training pipelines without sacrificing model accuracy. By replacing internal solver integrations with noise-adaptive Lie–Taylor jet matching, we achieve comparable or superior vector field accuracy across multiple test systems while reducing training memory requirements by roughly two orders of magnitude ( 55 to 109 ×). Full-rate phase sampling, reservoir buffering, adaptive filter tuning, and quality gating allow direct derivative matching to maintain robust performance under measurement noise. The resulting approach operates within 108 kB of statically allocated memory, enabling online physics-informed model learning on edge microcontrollers. 
+
+6.2 Limitations and Future Work 
+
+We highlight several operational constraints of the current approach: 1. We validated the complete algorithm on physical ESP32 hardware (Section 5.6) at a single operating point (1% noise, single pendulum, B = 2048 ). Extending on-device measurement across the full noise sweep, to the double pendulum, and to power consumption remains future work. 2. In low-noise scenarios ( 0.1% noise), traditional adjoint methods maintain an accuracy advantage ( 1.8× lower absolute error). 3. On complex chaotic systems, rapid state transitions can occasionally exceed polynomial filter assumptions, requiring further refinements such as variable window lengths or dynamic filter ordering. 4. Testing has focused on simulated physical systems under Gaussian noise assumptions, so evaluating perfor-mance on hardware platforms with non-Gaussian noise, sensor latency, and quantization effects remains future work. 
+
+7 Acknowledgments 
+
+The authors acknowledge the use of AI tools during the preparation of this manuscript for assistance with rephrasing and paraphrasing text. All AI-generated content was thoroughly reviewed, verified, and edited by the authors, who take full responsibility for the accuracy and integrity of the work presented. 
+
+References 
+
+[1] Christopher Rackauckas, Yingbo Ma, Julius Martensen, Collin Warner, Kirill Zubov, Rohit Supekar, Dominic Skinner, Ali Ramadhan, and Alan Edelman. Universal differential equations for scientific machine learning. arXiv, 2021. URL https://arxiv.org/abs/2001.04385v4 .14 Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+[2] Ricky T. Q. Chen, Yulia Rubanova, Jesse Bettencourt, and David K. Duvenaud. Neural ordinary differ-ential equations. In Advances in Neural Information Processing Systems (NeurIPS) , volume 31, pages 6571–6583. Curran Associates, Inc., 2018. URL https://proceedings.neurips.cc/paper/2018/hash/ 69386f6bb1dfed68692a24c8686939b9-Abstract.html .[3] H. G. Bock and K. J. Plitt. A multiple shooting algorithm for direct solution of optimal control problems. 
+
+IFAC Proceedings Volumes , 17(2):1603–1608, 1984. ISSN 1474-6670. doi:10.1016/S1474-6670(17)61205-9. URL https://www.sciencedirect.com/science/article/pii/S1474667017612059 . 9th IFAC World Congress: A Bridge Between Control Science and Technology, Budapest, Hungary, 2–6 July 1984. [4] Robert David, Jared Duke, Advait Jain, Vijay Janapa Reddi, Nat Jeffries, Jian Li, Nick Kreeger, Ian Nappier, Meghna Natraj, Shlomi Regev, Rocky Rhodes, Tiezhen Wang, and Pete Warden. TensorFlow Lite Micro: Embedded machine learning on TinyML systems. arXiv, 2021. URL https://arxiv.org/abs/2010.08678v3 .[5] Ji Lin, Wei-Ming Chen, Yujun Lin, John Cohn, Chuang Gan, and Song Han. MCUNet: Tiny deep learning on IoT devices. arXiv, 2020. URL https://arxiv.org/abs/2007.10319 .[6] Ji Lin, Ligeng Zhu, Wei-Ming Chen, Wei-Chen Wang, Chuang Gan, and Song Han. On-device training under 256KB memory. arXiv, 2024. URL https://arxiv.org/abs/2206.15472v4 .[7] Jean Steinier, Yves Termonia, and Jules Deltour. Smoothing and differentiation of data by simplified least square procedure. Analytical Chemistry , 44(11):1906–1909, September 1972. ISSN 0003-2700. doi:10.1021/ac60319a045. URL https://doi.org/10.1021/ac60319a045 .[8] Alberto Isidori. Nonlinear Control Systems . Communications and Control Engineering. Springer London, 3 edition, 1995. ISBN 978-3-540-19916-8. doi:10.1007/978-1-84628-615-5. [9] Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In 3rd International Conference on Learning Representations (ICLR) , 2015. doi:10.48550/arXiv.1412.6980. [10] B. T. Polyak and A. B. Juditsky. Acceleration of stochastic approximation by averaging. SIAM Journal on Control and Optimization , 30(4):838–855, 1992. doi:10.1137/0330046. [11] Yulia Rubanova, Ricky T. Q. Chen, and David Duvenaud. Latent ODEs for irregularly-sampled time series. arXiv, 2019. URL https://arxiv.org/abs/1907.03907 .[12] Emilien Dupont, Arnaud Doucet, and Yee Whye Teh. Augmented neural ODEs. arXiv, 2019. URL https: //arxiv.org/abs/1904.01681 .[13] Patrick Kidger. On neural differential equations. arXiv, 2022. URL https://arxiv.org/abs/2202.02435 .[14] Sam Greydanus, Misko Dzamba, and Jason Yosinski. Hamiltonian neural networks. arXiv, 2019. URL 
+
+https://arxiv.org/abs/1906.01563 .[15] Miles Cranmer, Sam Greydanus, Stephan Hoyer, Peter Battaglia, David Spergel, and Shirley Ho. Lagrangian neural networks. arXiv, 2020. URL https://arxiv.org/abs/2003.04630 .[16] Michael Lutter, Christian Ritter, and Jan Peters. Deep Lagrangian networks: Using physics as model prior for deep learning. arXiv, 2019. URL https://arxiv.org/abs/1907.04490 .[17] Maziar Raissi, Paris Perdikaris, and George Em Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. doi:10.1016/j.jcp.2018.10.045. [18] George Em Karniadakis, Ioannis G. Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , 3(6):422–440, 2021. ISSN 2522-5820. doi:10.1038/s42254-021-00314-5. URL https://doi.org/10.1038/s42254-021-00314-5 .[19] Amir Gholami, Kurt Keutzer, and George Biros. ANODE: Unconditionally accurate memory-efficient gradients for neural ODEs. arXiv, 2019. URL https://arxiv.org/abs/1902.10298 .[20] Juntang Zhuang, Nicha Dvornek, Xiaoxiao Li, Sekhar Tatikonda, Xenophon Papademetris, and James Duncan. Adaptive checkpoint adjoint method for gradient estimation in neural ODE. arXiv, 2020. URL https://arxiv. org/abs/2006.02493 .[21] Derek Onken and Lars Ruthotto. Discretize-optimize vs. optimize-discretize for time-series regression and continuous normalizing flows. arXiv, 2020. URL https://arxiv.org/abs/2005.13420 .[22] Evren Mert Turan and Johannes Jäschke. Multiple shooting for training neural differential equations on time series. IEEE Control Systems Letters , 6:1897–1902, 2022. doi:10.1109/LCSYS.2021.3135835. 15 Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+[23] Elisabeth Roesch, Christopher Rackauckas, and Michael P. H. Stumpf. Collocation based training of neural ordinary differential equations. Statistical Applications in Genetics and Molecular Biology , 20(2):37–49, 2021. doi:10.1515/sagmb-2020-0025. URL https://doi.org/10.1515/sagmb-2020-0025 .[24] J. C. Butcher. Numerical Methods for Ordinary Differential Equations . John Wiley & Sons, Ltd, 2 edition, 2008. ISBN 978-0-470-72335-7. doi:10.1002/9780470753767. [25] Ernst Hairer, Christian Lubich, and Gerhard Wanner. Geometric Numerical Integration: Structure-Preserving Algorithms for Ordinary Differential Equations , volume 31 of Springer Series in Computational Mathematics .Springer Berlin, Heidelberg, 2 edition, 2006. ISBN 978-3-540-30663-4. doi:10.1007/3-540-30666-8. [26] Troy Shinbrot, Celso Grebogi, Jack Wisdom, and James A. Yorke. Chaos in a double pendulum. American Journal of Physics , 60(6):491–499, 1992. doi:10.1119/1.16860. [27] Steven H. Strogatz. Nonlinear Dynamics and Chaos: With Applications to Physics, Biology, Chemistry, and Engineering . CRC Press, 2 edition, 2018. ISBN 978-0-8133-4910-7. URL https://www.biodyn.ro/course/ literatura/Nonlinear_Dynamics_and_Chaos_2018_Steven_H._Strogatz.pdf .[28] Pete Warden and Daniel Situnayake. TinyML: Machine Learning with TensorFlow Lite on Arduino and Ultra-Low-Power Microcontrollers . O’Reilly Media, 1 edition, 2020. ISBN 978-1-4920-5204-3. URL https: //www.oreilly.com/library/view/tinyml/9781492052036/ .[29] Haoyu Ren, Darko Anicic, and Thomas A. Runkler. TinyOL: TinyML with online-learning on microcontrollers. In 2021 International Joint Conference on Neural Networks (IJCNN) , pages 1–8. IEEE, 2021. ISBN 978-1-6654-3900-8. doi:10.1109/IJCNN52387.2021.9533927. URL https://doi.org/10.1109/IJCNN52387. 2021.9533927 .[30] Colby Banbury, Vijay Janapa Reddi, Peter Torelli, Jeremy Holleman, Nat Jeffries, Csaba Kiraly, Pietro Montino, David Kanter, Sebastian Ahmed, Danilo Pau, Urmish Thakker, Antonio Torrini, Peter Warden, Jay Cordaro, Giuseppe Di Guglielmo, Javier Duarte, Stephen Gibellini, Videet Parekh, Honson Tran, Nhan Tran, Wenxu Niu, and Xuesong Xu. MLPerf tiny benchmark. arXiv, 2021. URL https://arxiv.org/abs/2106.07597 .[31] Sauptik Dhar, Junyao Guo, Jiayi Liu, Samarth Tripathi, Unmesh Kurup, and Mohak Shah. A survey of on-device machine learning. ACM Transactions on Internet of Things , 2(3), 2021. doi:10.1145/3450494. [32] Han Cai, Chuang Gan, Ligeng Zhu, and Song Han. TinyTL: Reduce memory, not parameters for ef-ficient on-device learning. In Advances in Neural Information Processing Systems , volume 33, pages 11285–11297. Curran Associates, Inc., 2020. URL https://proceedings.neurips.cc/paper/2020/hash/ 81f7acabd411274fcf65ce2070ed568a-Abstract.html .[33] J. C. Spall. Multivariate stochastic approximation using a simultaneous perturbation gradient approximation. 
+
+IEEE Transactions on Automatic Control , 37(3):332–341, 1992. doi:10.1109/9.119632. [34] James C. Spall. An overview of the simultaneous perturbation method for efficient optimization. Johns Hopkins APL Technical Digest , 19(4):482–492, 1998. URL https://www.jhuapl.edu/Content/techdigest/pdf/ V19-N04/19-04-Spall.pdf .[35] Venkataramanan Balakrishnan. System identification: theory for the user (second edition): Lennart Ljung; Prentice-Hall, Englewood Cliffs, NJ, 1999, ISBN 0-13-656695-2. Automatica , 38(2):375–378, 2002. ISSN 0005-1098. doi:10.1016/S0005-1098(01)00214-X. URL https://www.sciencedirect.com/science/article/ pii/S000510980100214X .[36] Oliver Nelles. Nonlinear System Identification: From Classical Approaches to Neural Networks and Fuzzy Models .Springer Berlin, Heidelberg, 1 edition, 2001. ISBN 978-3-540-67369-9. doi:10.1007/978-3-662-04323-3. [37] J. M. Varah. A spline least squares method for numerical parameter estimation in differential equations. SIAM Journal on Scientific and Statistical Computing , 3(1):28–46, 1982. doi:10.1137/0903003. [38] J. O. Ramsay, G. Hooker, D. Campbell, and J. Cao. Parameter estimation for differential equations: a generalized smoothing approach. Journal of the Royal Statistical Society Series B: Statistical Methodology , 69(5):741–796, November 2007. ISSN 1369-7412. doi:10.1111/j.1467-9868.2007.00610.x. URL https://doi.org/10.1111/ j.1467-9868.2007.00610.x .[39] Michael Schmidt and Hod Lipson. Distilling free-form natural laws from experimental data. Science , 324(5923): 81–85, 2009. doi:10.1126/science.1165893. URL https://www.science.org/doi/abs/10.1126/science. 1165893 .[40] Steven L. Brunton, Joshua L. Proctor, and J. Nathan Kutz. Discovering governing equations from data by sparse identification of nonlinear dynamical systems. Proceedings of the National Academy of Sciences , 113(15): 3932–3937, 2016. doi:10.1073/pnas.1517384113. URL https://www.pnas.org/doi/abs/10.1073/pnas. 1517384113 .16 Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+[41] Steven L. Brunton and J. Nathan Kutz. Data-Driven Science and Engineering: Machine Learning, Dy-namical Systems, and Control . Cambridge University Press, Cambridge, 2 edition, 2022. ISBN 978-1-009-09848-9. doi:10.1017/9781009089517. URL https://www.cambridge.org/highereducation/isbn/ 9781009089517 .[42] Kathleen Champion, Bethany Lusch, J. Nathan Kutz, and Steven L. Brunton. Data-driven discovery of coordinates and governing equations. Proceedings of the National Academy of Sciences , 116(45):22445–22451, 2019. doi:10.1073/pnas.1906995116. URL https://www.pnas.org/doi/abs/10.1073/pnas.1906995116 .[43] Kadierdan Kaheman, J. Nathan Kutz, and Steven L. Brunton. SINDy-PI: a robust algorithm for parallel implicit sparse identification of nonlinear dynamics. Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sciences , 476(2242):20200279, October 2020. ISSN 1471-2946. doi:10.1098/rspa.2020.0279. URL 
+
+https://doi.org/10.1098/rspa.2020.0279 .[44] Rick Chartrand. Numerical differentiation of noisy, nonsmooth data. ISRN Applied Mathematics , 2011:164564, 2011. doi:10.5402/2011/164564. URL https://onlinelibrary.wiley.com/doi/abs/10.5402/2011/ 164564 .[45] Floris van Breugel, J. Nathan Kutz, and Bingni W. Brunton. Numerical differentiation of noisy data: A unifying multi-objective optimization framework. IEEE Access , 8:196865–196877, 2020. doi:10.1109/ACCESS.2020.3034077. [46] Ronald W. Schafer. What is a Savitzky-Golay filter? [lecture notes]. IEEE Signal Processing Magazine , 28(4): 111–117, 2011. doi:10.1109/MSP.2011.941097. [47] Peter J. Huber. Robust Estimation of a Location Parameter. The Annals of Mathematical Statistics , 35(1):73–101, 1964. doi:10.1214/aoms/1177703732. URL https://doi.org/10.1214/aoms/1177703732 .[48] Andreas Griewank and Andrea Walther. Evaluating Derivatives: Principles and Techniques of Algorithmic Differentiation . Other Titles in Applied Mathematics. Society for Industrial and Applied Mathematics, 2 edition, 2008. ISBN 978-0-89871-659-7. doi:10.1137/1.9780898717761. [49] Atilim Gunes Baydin, Barak A. Pearlmutter, Alexey Andreyevich Radul, and Jeffrey Mark Siskind. Automatic differentiation in machine learning: a survey. arXiv, 2018. URL https://arxiv.org/abs/1502.05767v4 .[50] Barak A. Pearlmutter. Fast exact multiplication by the Hessian. Neural Computation , 6(1):147–160, 1994. doi:10.1162/neco.1994.6.1.147. [51] William Squire and George Trapp. Using complex variables to estimate derivatives of real functions. SIAM Review , 40(1):110–112, 1998. doi:10.1137/S003614459631241X. [52] Joaquim R. R. A. Martins, Peter Sturdza, and Juan J. Alonso. The complex-step derivative approxima-tion. ACM Transactions on Mathematical Software , 29(3):245–262, September 2003. ISSN 0098-3500. doi:10.1145/838250.838251. URL https://doi.org/10.1145/838250.838251 .[53] Naresh K. Sinha and Michael P. Griscik. A stochastic approximation method. IEEE Transactions on Systems, Man, and Cybernetics , SMC-1(4):338–344, 1971. doi:10.1109/TSMC.1971.4308316. [54] Ilya Loshchilov and Frank Hutter. SGDR: Stochastic gradient descent with warm restarts. arXiv, 2017. URL 
+
+https://arxiv.org/abs/1608.03983v5 .[55] Pavel Izmailov, Dmitrii Podoprikhin, Timur Garipov, Dmitry Vetrov, and Andrew Gordon Wilson. Averaging weights leads to wider optima and better generalization. arXiv, 2019. URL https://arxiv.org/abs/1803. 05407v3 .[56] Jeffrey S. Vitter. Random sampling with a reservoir. ACM Transactions on Mathematical Software , 11(1):37–57, March 1985. ISSN 0098-3500. doi:10.1145/3147.3165. 
+
+A Derivations 
+
+A.1 Reverse-over-JVP Derivation for Second-Order Jet Gradients 
+
+The second-order derivative loss term is given by: 
+
+L2 = λ2∥r2∥22, (28) where residual r2 and predicted second derivative Gθ are defined as: 
+
+r2 = ˆ¨x − Gθ (ˆ x)
+
+s2
+
+, (29) 17 Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+Gθ (ˆ x) = JFθ (ˆ x) Fθ (ˆ x). (30) Differentiating L2 with respect to parameters θ yields: 
+
+dL2 = −2λ2
+
+ r2
+
+s2
+
+⊤
+
+dGθ , (31) where the differential dGθ expands to: 
+
+dGθ = (d JNθ ) Fθ (ˆ x) + JFθ (ˆ x) d Nθ . (32) Substituting weight vector w = −2( r2/s 2), we separate the gradient into two parts: 
+
+dL2 = λ2
+
+w⊤(d JNθ )v + w⊤JFθ (ˆ x) d Nθ
+
+ , (33) where v = Fθ (ˆ x). Using the vectorization identity a⊤Xb = vec( X)⊤(b ⊗ a), the first term transforms to: 
+
+w⊤(d JNθ )v = vec(d JNθ )⊤(v ⊗ w). (34) This allows computing parameter gradients by reverse-mode differentiation over the Jacobian–vector product JNθ v (the forward-mode tangent pass) without explicitly forming higher-order Jacobian matrices. 
+
+A.2 Noise Estimator Variance Identity 
+
+Let a local signal window be represented as y = s + η, where noise η ∼ N (0 , σ 2I) and s = Ac represents an exact polynomial sequence. Because Savitzky–Golay smoothing taps D0 preserve polynomials at the center index μ, we have 
+
+D⊤ 
+
+> 0
+
+Ac = sμ. The scalar fit residual is: 
+
+e = yμ − D⊤ 
+
+> 0
+
+y = ημ − D⊤ 
+
+> 0
+
+η. (35) Taking the variance yields: 
+
+Var( e) = Var( ημ) − 2Cov( ημ, D ⊤ 
+
+> 0
+
+η) + Var( D⊤ 
+
+> 0
+
+η). (36) Substituting component variances Var( ημ) = σ2, Cov( ημ, D ⊤ 
+
+> 0
+
+η) = σ2[D0]μ, and Var( D⊤ 
+
+> 0
+
+η) = σ2∥D0∥22 gives: 
+
+Var( e) = σ2  1 − 2[ D0]μ + ∥D0∥22
+
+ . (37) Inverting this expression provides the noise variance estimator in (23). 
+
+A.3 Derivation of Damped Single Pendulum Dynamics 
+
+Consider a pendulum of mass m attached to a rigid rod of length L pivoted at the origin (0 , 0) , with angular displacement 
+
+θ measured relative to the downward vertical axis. The Cartesian position vector of the pendulum bob is ⃗r =(L sin θ)ˆ i + ( −L cos θ)ˆ j. Taking the time derivative gives the velocity vector ⃗v = ˙ x ˆi + ˙ yˆj, where application of the chain rule yields: 
+
+˙x = ddt (L sin θ) = L ˙θ cos θ, (38) 
+
+˙y = ddt (−L cos θ) = L ˙θ sin θ. (39) The magnitude squared of the velocity vector is ∥⃗v∥ 2 = ˙ x2 + ˙ y2. Substituting these velocity components into the kinetic energy formulation T and applying the identity cos 2 θ + sin 2 θ = 1 gives: 
+
+T = 12 m( ˙ x2 + ˙ y2) = 12 m
+
+
+
+L2 ˙θ2 cos 2 θ + L2 ˙θ2 sin 2 θ
+
+
+
+= 12 mL 2 ˙θ2. (40) Taking y = 0 as the reference plane, the potential energy is V = mgy = −mgL cos θ. The system Lagrangian 
+
+Lg = T − V is thus formulated as: 
+
+Lg = 12 mL 2 ˙θ2 + mgL cos θ. (41) To model mechanical dissipation, we introduce a generalized non-conservative viscous damping force Qnc = −b ˙θ,where b is the rotational damping coefficient. Applying the generalized Euler-Lagrange equation with dissipation: 
+
+ddt 
+
+ ∂L g
+
+∂ ˙θ
+
+
+
+− ∂L g
+
+∂θ = Qnc . (42) 18 Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+Evaluating the partial derivatives yields ∂L g  
+
+> ∂˙θ
+
+= mL 2 ˙θ =⇒ ddt 
+
+ ∂L g 
+
+> ∂˙θ
+
+
+
+= mL 2 ¨θ and ∂L g 
+
+> ∂θ
+
+= −mgL sin θ. Substituting these terms into the Euler-Lagrange equation produces: 
+
+mL 2 ¨θ − (−mgL sin θ) = −b ˙θ =⇒ ¨θ + gL sin θ = − bmL 2 ˙θ. (43) Defining state variables x1 = θ and x2 = ω = ˙θ, alongside the normalized damping factor c = bmL 2 , reduces the second-order differential equation to the first-order autonomous state-space system: 
+
+˙θ = ω, (44) 
+
+˙ω = − gL sin θ − cω. (45) 
+
+A.4 Derivation of Damped Double Pendulum Dynamics 
+
+Consider a double pendulum composed of two point masses m1 and m2 suspended by rigid, massless rods of lengths 
+
+l1 and l2, respectively. Let θ1 and θ2 denote the angular displacements of the upper and lower links relative to the downward vertical axis. The Cartesian coordinates of m1 and m2 are given by: 
+
+x1 = l1 sin θ1, y1 = −l1 cos θ1 (46) 
+
+x2 = l1 sin θ1 + l2 sin θ2, y2 = −l1 cos θ1 − l2 cos θ2 (47) Differentiating with respect to time t yields the linear velocity components ( ˙ x1, ˙y1) and ( ˙ x2, ˙y2). Substituting these components into the total kinetic energy expression T = 12 m1( ˙ x21 + ˙ y21 ) + 12 m2( ˙ x22 + ˙ y22 ) and applying trigonometric angle addition identities produces: 
+
+T = 12 (m1 + m2)l21 ˙θ21 + 12 m2l22 ˙θ22 + m2l1l2 ˙θ1 ˙θ2 cos( θ1 − θ2) (48) Taking the fixed pivot at the origin (0 , 0) as the potential energy reference plane ( y = 0 ), the potential energy V is: 
+
+V = m1gy 1 + m2gy 2 = −(m1 + m2)gl 1 cos θ1 − m2gl 2 cos θ2 (49) Formulating the system Lagrangian Lg = T − V and introducing Rayleigh dissipation forces Qnc ,1 = −c1 ˙θ1 and 
+
+Qnc ,2 = −c2 ˙θ2, we evaluate the coupled Euler-Lagrange equations ddt 
+
+ ∂L g 
+
+> ∂˙θi
+
+
+
+− ∂L g 
+
+> ∂θ i
+
+= Qnc ,i for i ∈ { 1, 2}.Defining angular velocities ω1 = ˙θ1, ω2 = ˙θ2, and the angular difference δ = θ1 − θ2, the resulting system can be expressed as a linear matrix equation in angular accelerations ( ˙ ω1, ˙ω2):
+
+(m1 + m2)l1 m2l2 cos δm2l1 cos δ m2l2
+
+  ˙ω1
+
+˙ω2
+
+
+
+=
+
+−m2l2ω22 sin δ − (m1 + m2)g sin θ1 − c1ω1
+
+m2l1ω21 sin δ − m2g sin θ2 − c2ω2
+
+
+
+(50) Solving the 2 × 2 linear system via Cramer’s Rule requires the determinant of the mass matrix M :
+
+det( M ) = m2l1l2
+
+ m1 + m2 − m2 cos 2 δ (51) Using the double-angle identity cos 2 δ = 1+cos(2 δ)2 , we define the common denominator parameter D:
+
+D = 2( m1 + m2 − m2 cos 2 δ) = 2 m1 + m2 − m2 cos(2 δ) (52) Inverting the matrix system and isolating ˙ω1 and ˙ω2 yields the explicit state-space system equations: 
+
+˙θ1 = ω1 (53) 
+
+˙θ2 = ω2 (54) 
+
+˙ω1 = −g(2 m1 + m2) sin θ1 − m2g sin( θ1 − 2θ2) − 2 sin δ m 2
+
+ ω22 l2 + ω21 l1 cos δ
+
+l1D − c1ω1 (55) 
+
+˙ω2 = 2 sin δ  ω21 l1(m1 + m2) + g(m1 + m2) cos θ1 + ω22 l2m2 cos δ
+
+l2D − c2ω2 (56) 19 Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 
+
+B Hyperparameter Reference 
+
+Table 5 lists all configuration parameters used across single and double pendulum experiments. Table 5: System parameters and configuration settings. 
+
+Parameter Single Pendulum Double Pendulum State dimension n / Network n = 2 , 2→16 →16 →2 (p = 354 ) n = 4 , 4→16 →16 →4 (p = 420 )Sensor rate / Training rate fs = 1 kHz, ftrain = 25 Hz, 8,000 updates SG window / Order / Stride 2M +1 = 11 , P = 4 , s = 5 
+
+Decimation step m Automatic ( m ≈ 39 at 1% noise) Automatic ( m ≈ 17 –18 at 1% noise) Reservoir capacity B / Batch 4096 / 64 2048 / 64 
+
+Optimizer / Schedule Adam (lr = 0 .02 ), Cosine decay to 2%, Norm clip 5.0
+
+EMA decay rate β 0.999 
+
+Loss weights λ1/λ 02 /τ SNR 1.0 / 0.1 / 12 
+
+Quality gate parameters 6 × median + 0 .02 × RMS , per channel Dataset duration 60 s 20 sStatic memory footprint 108 .1 kB ≈104 kB ( B = 2048 )
+
+C Analysis of High-Velocity Error Outliers 
+
+Experimental runs on the double pendulum identified localized error increases during rapid state transitions ( m =24 ). In failing seeds, training loss remained low ( 5.9×10 −3) while field errors exceeded 0.11 . Evaluating error distributions across state space showed that localized discrepancies occurred primarily at high angular velocities (e.g., 
+
+x = [ −0.73 , −0.30 , 4.67 , −7.80] ), where high derivative magnitudes caused polynomial filter approximation errors. Because neural networks can fit biased targets tightly, standard robust loss functions (such as Huber losses) do not automatically reject these points. Quality gating via polynomial misfit verification (27) detects these violations directly from raw sensor windows, reducing peak field errors from 0.135 to 0.025 .
+
+D Extended Per-Seed Results 
+
+Table 6 provides detailed numerical results across individual random seeds. Table 6: Individual per-seed relative field error values across test configurations. 
+
+Test Case Individual Seed Values Mean Jet v2, 0% noise 0.00048, 0.00091, 0.00064 0.00068 Jet v2, 0.1% noise 0.00163, 0.00284, 0.00222 0.00223 Jet v2, 0.5% noise 0.00163, 0.00172, 0.00131 0.00155 Jet v2, 1% noise 0.00205, 0.00212, 0.00236 0.00218 Jet v2, 2% noise 0.00249, 0.00302, 0.00247 0.00266 Jet v2, 5% noise 0.00810, 0.00603, 0.00515 0.00642 Jet v2, Double Pendulum 1% (Native grid) 0.0254, 0.0054, 0.0112, 0.0038 0.0115 Jet v2, Double Pendulum 1% (baseline evaluation sets, mean over 3) 0.0270, 0.0051, 0.0105, 0.0040 0.0116 Baseline, Double Pendulum 1% noise 0.0088, 0.0198, 0.0124 0.0137 Baseline K = 80 , 5% noise 0.0096, 0.0059, 0.0198 0.0118 Baseline K = 80 , 2% noise 0.0048, 0.0023 0.0036 Baseline K = 80 , 1% noise 0.0030 0.0030 
+
+E Supplementary Gradient and Estimator Validation Plots 
+
+This section contains supplementary validation plots for numerical gradient checks, Savitzky–Golay filter characteristics, and baseline sensitivity evaluations. 20 Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 10 9 10 7 10 5 10 3 10 1 10 1
+
+| L/ i| complex-step 
+
+10 9
+
+10 7
+
+10 5
+
+10 3
+
+10 1
+
+10 1
+
+> | L/ i| analytic
+
+A Per-coordinate agreement 
+
+pendulum (354 p) double pend. (420 p) 
+
+10 14 10 11 10 8 10 5
+
+relative error vs complex-step 
+
+020 40 60 80 100 120 
+
+> count
+
+B Error distribution 
+
+analytic central FD 
+
+C Validation suite 
+
+Worst case over 6 system/case combinations 
+
+check worst tol. 
+
+T1 SG taps vs. tables 4.9e-12 1e-10 
+
+T2 SG accuracy 2.3e-04 1e-02 
+
+T3 JVP vs. FD 1.7e-11 1e-08 
+
+T4 jet identity G = JFF 2.7e-09 1e-06 
+
+T5 exact gradient 3.2e-14 1e-12 
+
+T6 directional gradient 4.6e-10 1e-06 
+
+T7 term-B detected 1.9e-02 >1e-3 
+
+All 32 checks satisfy tolerance (worst case per category shown). 
+
+C Validation suite 
+
+Worst case over 6 system/case combinations 
+
+check worst tol. 
+
+T1 SG taps vs. tables 4.9e-12 1e-10 T2 SG accuracy 2.3e-04 1e-02 T3 JVP vs. FD 1.7e-11 1e-08 T4 jet identity G = JFF 2.7e-09 1e-06 T5 exact gradient 3.2e-14 1e-12 T6 directional gradient 4.6e-10 1e-06 T7 term-B detected 1.9e-02 >1e-3 
+
+All 32 checks satisfy tolerance (worst case per category shown). 
+
+Figure 10: Validation of analytic jet matching gradients against complex-step differentiation across 32 test conditions. 10 9 10 7 10 5 10 3 10 1 10 1
+
+| L/ i| complex-step 
+
+10 9
+
+10 7
+
+10 5
+
+10 3
+
+10 1
+
+10 1
+
+> | L/ i| adjoint
+
+A Per-coordinate agreement 
+
+pendulum (354 p) double pend. (420 p) 
+
+10 15 10 13 10 11 10 9 10 7 10 5 10 3
+
+relative error vs complex-step 
+
+020 40 60 80 100 
+
+> count
+
+B Error distribution 
+
+discrete adjoint central FD 
+
+C Validation suite 
+
+Discrete adjoint vs. complex-step, all system/case combinations 
+
+check worst tol. 
+
+V1 pend/A adjoint vs. complex-step 1.1e-15 1e-09 
+
+V2 pend/B adjoint vs. complex-step 2.5e-15 1e-09 
+
+V3 pend/C adjoint vs. complex-step 1.1e-14 1e-09 
+
+V4 doub/A adjoint vs. complex-step 1.3e-13 1e-09 
+
+V5 doub/B adjoint vs. complex-step 1.5e-13 1e-09 
+
+V6 doub/C adjoint vs. complex-step 3.9e-13 1e-09 
+
+V7 complex-step vs. central FD (sanity) 2.6e-06 1e-04 
+
+V8 adjoint vs. complex-step, K=1 1.8e-15 1e-09 
+
+V9 adjoint vs. complex-step, K=3 1.3e-15 1e-09 
+
+V10 adjoint vs. complex-step, K=5 2.0e-15 1e-09 
+
+V11 adjoint vs. complex-step, K=10 1.2e-15 1e-09 
+
+V12 RK4 observed order (target 4) 4.0e+00 4e+00 
+
+V13 double pendulum energy drift, 20 s 7.6e-14 1e-08 
+
+V14 DP adjoint, FD Jknown (see text) 6.2e-07 1e-03 
+
+All 14 checks satisfy tolerance (worst case shown). 
+
+C Validation suite 
+
+Discrete adjoint vs. complex-step, all system/case combinations 
+
+check worst tol. 
+
+V1 pend/A adjoint vs. complex-step 1.1e-15 1e-09 V2 pend/B adjoint vs. complex-step 2.5e-15 1e-09 V3 pend/C adjoint vs. complex-step 1.1e-14 1e-09 V4 doub/A adjoint vs. complex-step 1.3e-13 1e-09 V5 doub/B adjoint vs. complex-step 1.5e-13 1e-09 V6 doub/C adjoint vs. complex-step 3.9e-13 1e-09 V7 complex-step vs. central FD (sanity) 2.6e-06 1e-04 V8 adjoint vs. complex-step, K=1 1.8e-15 1e-09 V9 adjoint vs. complex-step, K=3 1.3e-15 1e-09 V10 adjoint vs. complex-step, K=5 2.0e-15 1e-09 V11 adjoint vs. complex-step, K=10 1.2e-15 1e-09 V12 RK4 observed order (target 4) 4.0e+00 4e+00 V13 double pendulum energy drift, 20 s 7.6e-14 1e-08 V14 DP adjoint, FD Jknown (see text) 6.2e-07 1e-03 
+
+All 14 checks satisfy tolerance (worst case shown). 
+
+Figure 11: Validation of baseline discrete adjoint gradients against complex-step differentiation across 14 test conditions. 10 2 10 1
+
+teff (s) 
+
+10 6
+
+10 5
+
+10 4
+
+10 3
+
+10 2
+
+10 1
+
+10 0
+
+10 1
+
+> relative RMS error
+
+A Pendulum 
+
+10 2 10 1
+
+teff (s) 
+
+B Double pendulum 
+
+10 2 10 1
+
+teff (s) 
+
+C Acceleration: bias vs noise 
+
+noise 0% 0.2% 0.5% 1% 2% velocity acceleration 
+
+truncation bias (noise-free) total, 0.2% total, 0.5% total, 1% total, 2% predicted noise floor 
+
+Figure 12: Savitzky–Golay derivative estimation error across effective step sizes ∆teff and noise levels. 21 Solver-Free UDE Training by Noise-Adaptive Jet Matching A P REPRINT 10 2 10 1
+
+observation step t (s) 
+
+10 2
+
+> relative field error
+
+A Field error vs step size 
+
+10 2 10 1
+
+observation step t (s) 
+
+0.3825 0.3850 0.3875 0.3900 0.3925 0.3950 0.3975 0.4000 0.4025 
+
+> recovered  c
+
+true c = 0.40 
+
+B Damping recovery vs step size 
+
+10 2 10 1
+
+observation step t (s) 
+
+10 2
+
+> relative field error
+
+C Truncation vs noise 
+
+noise 0% 0.5% 1% 2% 
+
+noise-free (truncation) total, 0.5% total, 1% total, 2% 
+
+Figure 13: Effect of observation sampling rate on baseline adjoint field error. 22
