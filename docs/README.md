@@ -6,60 +6,53 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-24
-- 运行时间：2026-09-24 22:24:09 UTC
+- 最新运行日期：2026-09-25
+- 运行时间：2026-09-25 22:49:15 UTC
 - 运行状态：成功
-- 本次总论文数：12
-- 精读区：1
-- 速读区：11
+- 本次总论文数：11
+- 精读区：3
+- 速读区：8
 
 ### 今日简报（AI）
-2026-09-24 日报：从 12 篇新论文中精读 1 篇、速读 11 篇，主打"省内存的神经算子"。
-
-最值得看的是拿下 8.0 分的《MENO: Memory-Efficient Neural Operator》，想拓展视野可顺带看 7.0 分的《CodeMidas》（用代码本身扩展智能体编程 RL 环境）和《TinyUDE》（让微控制器免求解器跑通用微分方程）。
-
-普通读者建议先花时间啃 MENO 这一篇精读，再按自己关心的方向从三篇速读里挑一篇翻翻摘要即可。
-- 详情：[/202609/24/README](/202609/24/README)
+今日共筛出11篇AI论文，3篇精读、8篇速读，重点落在LLM自动架构发现与物理数据融合建模两条线上。最值得看的是两篇8分工作：EvoTreeNAD用“家谱式进化”让LLM自主发现神经网络架构，以及Transformer-Mamba物理+数据框架用于流场建模。普通读者可优先从这两篇的摘要和方法图入手，若关注数值求解再补看7分的无扩散多层神经网络双曲方程方法。
+- 详情：[/202609/25/README](/202609/25/README)
 
 ### 精读区论文标签
-1. [MENO: Memory-Efficient Neural Operator](/202609/24/2609.27739v1-meno-memory-efficient-neural-operator)  
+1. [EvoTreeNAD: Genealogy-Guided Evolution for LLM-Driven Neural Architecture Discovery](/202609/25/2609.29016v1-evotreenad-genealogy-guided-evolution-for-llm-driven-neural-architecture-discovery)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：内存高效神经算子作为高性能PDE神经求解器
+   evidence：LLM驱动的演化算法自动发现神经架构，无需人工指定搜索空间
+2. [Physics and Data Driven Transformer-Mamba Framework for Flow Field](/202609/25/2609.29087v1-physics-and-data-driven-transformer-mamba-framework-for-flow-field)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：面向CFD流场的物理约束算子学习代理模型
+3. [A Physics-Driven Framework for Parametric Periodic-Flow Modeling and Finite-Amplitude Aeroelastic Response Analysis](/202609/25/2609.29280v1-a-physics-driven-framework-for-parametric-periodic-flow-modeling-and-finite-amplitude-aeroelastic-response-analysis)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：周期性物理信息神经网络求解参数化周期流动与气弹响应
 
 ### 速读区论文标签
-1. [CodeMidas: Scaling Agentic Coding RL Environments from Code Itself](/202609/24/2609.22068v1-codemidas-scaling-agentic-coding-rl-environments-from-code-itself)  
+1. [A diffusion-free multi-layer neural-network method for multidimensional nonlinear hyperbolic equations](/202609/25/2609.28971v1-a-diffusion-free-multi-layer-neural-network-method-for-multidimensional-nonlinear-hyperbolic-equations)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：智能体流水线从代码构建带执行验证器的可执行强化学习环境
-2. [TinyUDE: Solver-Free Universal Differential Equations on Microcontrollers via Lie-Taylor Jet Matching](/202609/24/2609.26972v1-tinyude-solver-free-universal-differential-equations-on-microcontrollers-via-lie-taylor-jet-matching)  
+   evidence：求解非线性双曲PDE的物理信息神经网络算法
+2. [Learning Operators of Geometry with an Interface Autoencoder](/202609/25/2609.29437v1-learning-operators-of-geometry-with-an-interface-autoencoder)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：无求解器训练通用微分方程，属科学机器学习方法
-3. [ChipMEM: Verification-Grounded Memory for EDA Agents](/202609/24/2609.27067v1-chipmem-verification-grounded-memory-for-eda-agents)  
-   标签：评分：7.0/10、query:sci-ml-agent
-   evidence：验证驱动的记忆层，从执行反馈中蒸馏可复用智能体技能
-4. [Verified Learning for Compiler Optimization: An LLM-Guided Architecture with Formal Control](/202609/24/2609.27214v1-verified-learning-for-compiler-optimization-an-llm-guided-architecture-with-formal-control)  
-   标签：评分：7.0/10、query:sci-ml-agent
-   evidence：大模型引导的生成式重写，结合形式等价性检查与可执行验证回路
-5. [KATOsuper: Surrogate-accelerated neural topology optimization with sensitivity-consistent Fourier neural operators](/202609/24/2609.27216v1-katosuper-surrogate-accelerated-neural-topology-optimization-with-sensitivity-consistent-fourier-neural-operators)  
-   标签：评分：7.0/10、query:sci-ml-agent
-   evidence：面向PDE拓扑优化的敏感性一致傅里叶神经算子代理
-6. [Learning Lyapunov Operators for Nonlinear Systems](/202609/24/2609.18894v1-learning-lyapunov-operators-for-nonlinear-systems)  
+   evidence：面向几何相关PDE的神经算子学习
+3. [RRSI: Regularized Recursive Self-Improvement of Agent Harnesses](/202609/25/2609.24972v2-rrsi-regularized-recursive-self-improvement-of-agent-harnesses)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：学习非线性系统Lyapunov偏微分方程的解算子
-7. [RRSI: Regularized Recursive Self-Improvement of Agent Harnesses](/202609/24/2609.24972v1-rrsi-regularized-recursive-self-improvement-of-agent-harnesses)  
+   evidence：LLM智能体框架的正则化自动自改进
+4. [Stable time-stepping via residual minimization: finite-element and neural-network approximations for transient parabolic problems](/202609/25/2609.27548v1-stable-time-stepping-via-residual-minimization-finite-element-and-neural-network-approximations-for-transient-parabolic-problems)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：大模型引导的智能体框架组件迭代演化与正则化
-8. [High-Order Variable-Scaled Energetic Variational Neural Networks for Phase-Field Gradient Flows](/202609/24/2609.25489v1-high-order-variable-scaled-energetic-variational-neural-networks-for-phase-field-gradient-flows)  
+   evidence：神经网络逼近抛物型PDE的稳定性估计
+5. [The Mechanics of Delta Learning: Target Design for Generalizable Scientific Machine Learning](/202609/25/2609.28782v1-the-mechanics-of-delta-learning-target-design-for-generalizable-scientific-machine-learning)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：求解相场PDE的神经网络方法
-9. [Learning Stiffness Dependent Fluid Structure Dynamics from Coarse Flow Representations](/202609/24/2609.26816v1-learning-stiffness-dependent-fluid-structure-dynamics-from-coarse-flow-representations)  
+   evidence：面向可泛化科学机器学习的靶标设计
+6. [Automatic Harness Evolution for Hardware Design Verification: Can LLMs Consolidate Gains Across Discovered Harnesses?](/202609/25/2609.28908v1-automatic-harness-evolution-for-hardware-design-verification-can-llms-consolidate-gains-across-discovered-harnesses)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向流固耦合动力学的神经算子代理模型
-10. [A Hybrid Iterative Deep Ritz Method for Elliptic Interface Problems](/202609/24/2609.27325v1-a-hybrid-iterative-deep-ritz-method-for-elliptic-interface-problems)  
+   evidence：LLM驱动的自动测试框架演化，属于对LLM生成物的演化搜索
+7. [Elucidating the Conformal Structure of the Brinkman Penalisation Method for Geometry-Adapted, Structure-Preserving Operator Learning of Hamiltonian PDEs](/202609/25/2609.29847v1-elucidating-the-conformal-structure-of-the-brinkman-penalisation-method-for-geometry-adapted-structure-preserving-operator-learning-of-hamiltonian-pdes)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：神经网络求解椭圆界面问题
-11. [PhyMo: A Physical-Field Modality for Multimodal AI4Physics](/202609/24/2609.27554v1-phymo-a-physical-field-modality-for-multimodal-ai4physics)  
+   evidence：Hamilton PDE的保结构算子学习
+8. [SciWalker: Synthesizing Scientific Coding Problems with Operator Graphs and Execution Feedback](/202609/25/2609.30054v1-sciwalker-synthesizing-scientific-coding-problems-with-operator-graphs-and-execution-feedback)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：以PDE相关算子组织异构测量的物理驱动多模态框架
+   evidence：结合执行反馈合成科学编程问题
 
 
 <div class="dpr-home-promo-card">
