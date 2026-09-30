@@ -6,74 +6,65 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-29
-- 运行时间：2026-09-29 23:25:20 UTC
+- 最新运行日期：2026-09-30
+- 运行时间：2026-09-30 23:17:42 UTC
 - 运行状态：成功
-- 本次总论文数：17
-- 精读区：6
+- 本次总论文数：15
+- 精读区：4
 - 速读区：11
 
 ### 今日简报（AI）
-- 今日共生成 17 篇推荐（精读 6 篇，速读 11 篇）
-- 精读：《AutoPDEBench: Benchmarking LLM Auto-Research for Neural PDE Solver Design》（10.0/10）, 《PINNMorph: Evolving Online Adaptation Policies for Physics-Informed Neural Networks》（10.0/10）
-- 速读：《NEXT: Physics-Informed Neuro-Spectral Exponential Time Differencing Architectures》（8.0/10）, 《Distance-Residual Physics-Informed Neural Networks: A Deep Learning Framework for Differential and Partial Differential Inclusions》（8.0/10）, 《Physics-Informed Learning of Feedback-Linearizing Representations》（8.0/10）
-- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202609/29/README](/202609/29/README)
+1) 今日15篇AI科研速递：精读4篇、
+- 详情：[/202609/30/README](/202609/30/README)
 
 ### 精读区论文标签
-1. [AutoPDEBench: Benchmarking LLM Auto-Research for Neural PDE Solver Design](/202609/29/2609.32245v1-autopdebench-benchmarking-llm-auto-research-for-neural-pde-solver-design)  
-   标签：评分：10.0/10、query:sci-ml-agent
-   evidence：评测LLM自主研究智能体自动设计神经PDE求解器
-2. [PINNMorph: Evolving Online Adaptation Policies for Physics-Informed Neural Networks](/202609/29/2609.32685v1-pinnmorph-evolving-online-adaptation-policies-for-physics-informed-neural-networks)  
-   标签：评分：10.0/10、query:sci-ml-agent
-   evidence：LLM引导的PINN在线自适应策略演化，实现自动化PINN设计
-3. [Deep-Learning Solvers and Surrogates for Infinity and p-Laplace Problems](/202609/29/2609.30809v1-deep-learning-solvers-and-surrogates-for-infinity-and-p-laplace-problems)  
-   标签：评分：9.0/10、query:sci-ml-agent
-   evidence：PINN与DeepONet作为Laplace类PDE的求解器与代理模型
-4. [GAC-PINN: Geometry-Adaptive and Constraint-Enhanced Physics-Informed Neural Networks](/202609/29/2609.35196v1-gac-pinn-geometry-adaptive-and-constraint-enhanced-physics-informed-neural-networks)  
-   标签：评分：9.0/10、query:sci-ml-agent
-   evidence：几何自适应与约束增强的PINN设计以克服谱偏差与边界冲突
-5. [Physics and Data Driven Transformer-Mamba Framework for Flow Field](/202609/29/2609.29087v2-physics-and-data-driven-transformer-mamba-framework-for-flow-field)  
+1. [Reconstruction of Molten Pool Flow Fields from High-Speed Video Using Physics-Informed Neural Networks](/202609/30/2609.32126v1-reconstruction-of-molten-pool-flow-fields-from-high-speed-video-using-physics-informed-neural-networks)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：面向CFD流场的物理约束算子学习代理模型
-6. [Gradient Surgery for Physics-Informed Neural Networks](/202609/29/2609.30966v1-gradient-surgery-for-physics-informed-neural-networks)  
+   evidence：物理信息神经网络重建物理约束流场
+2. [Towards Certificate-Driven Software Porting: A Self-Improving Agentic Harness for Scientific Program Optimization](/202609/30/2609.34069v1-towards-certificate-driven-software-porting-a-self-improving-agentic-harness-for-scientific-program-optimization)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：面向PDE的PINN训练中梯度冲突分析与多任务优化
+   evidence：带可执行证书与检查器证据的LLM演化搜索用于科学程序优化
+3. [Latent Twin Operator](/202609/30/2609.35531v1-latent-twin-operator)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：时间演化PDE的潜空间代理模型，分辨率无关神经算子
+4. [Neural Harmonic Measure Operator](/202609/30/2609.35752v1-neural-harmonic-measure-operator)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：面向变形状区域椭圆PDE的基于Transformer的神经算子求解器
 
 ### 速读区论文标签
-1. [NEXT: Physics-Informed Neuro-Spectral Exponential Time Differencing Architectures](/202609/29/2609.31539v1-next-physics-informed-neuro-spectral-exponential-time-differencing-architectures)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：结合谱表示与指数积分器的物理信息神经架构求解偏微分方程
-2. [Distance-Residual Physics-Informed Neural Networks: A Deep Learning Framework for Differential and Partial Differential Inclusions](/202609/29/2609.32043v1-distance-residual-physics-informed-neural-networks-a-deep-learning-framework-for-differential-and-partial-differential-inclusions)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：面向微分包含的物理信息神经网络
-3. [Physics-Informed Learning of Feedback-Linearizing Representations](/202609/29/2609.32223v1-physics-informed-learning-of-feedback-linearizing-representations)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：级联PINN求解反馈线性化所对应的偏微分方程
-4. [Derivative-Informed Training of Neural Operators On-the-Fly via Sketched Tangent Consistency](/202609/29/2609.32797v1-derivative-informed-training-of-neural-operators-on-the-fly-via-sketched-tangent-consistency)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：面向PDE的神经算子代理模型在线导数感知训练
-5. [Learning Operators of Geometry with an Interface Autoencoder](/202609/29/2609.29437v2-learning-operators-of-geometry-with-an-interface-autoencoder)  
+1. [Grow the Harness, Not the Context: From Strategy-Free Scaffolds to Reusable Specialist Agents](/202609/30/2609.26760v2-grow-the-harness-not-the-context-from-strategy-free-scaffolds-to-reusable-specialist-agents)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：用界面自编码器学习几何相关偏微分方程的算子
-6. [Physics-Informed Neural Networks for Static Black-Hole Exterior Metrics: Charge and Cosmological-Constant Sweeps](/202609/29/2609.30332v1-physics-informed-neural-networks-for-static-black-hole-exterior-metrics-charge-and-cosmological-constant-sweeps)  
+   evidence：通过失败引导修复将智能体执行框架学习为可执行代码，近似LLM引导程序合成与验证
+2. [Deep learning methods for stochastic Galerkin approximations of random domain problems](/202609/30/2609.32508v1-deep-learning-methods-for-stochastic-galerkin-approximations-of-random-domain-problems)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：用PINN求解黑洞度规的爱因斯坦场方程
-7. [Sparsely connected rank-inspired neural network](/202609/29/2609.30750v1-sparsely-connected-rank-inspired-neural-network)  
+   evidence：物理信息神经网络与Deep Ritz作为PDE代理模型
+3. [A Spectral Model-Informed Neural Network for Inverse Source Problems](/202609/30/2609.33062v1-a-spectral-model-informed-neural-network-for-inverse-source-problems)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：面向PDE求解的结构化神经网络架构
-8. [SPO: Discovering Adaptive Large Neighborhood Search Operators via Stackelberg Program Optimization](/202609/29/2609.31179v1-spo-discovering-adaptive-large-neighborhood-search-operators-via-stackelberg-program-optimization)  
+   evidence：用于求解PDE逆源问题的模型驱动神经网络
+4. [The limits of exactness: On the failure of automatic differentiation in physics-informed machine learning](/202609/30/2609.33078v1-the-limits-of-exactness-on-the-failure-of-automatic-differentiation-in-physics-informed-machine-learning)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：基于LLM的程序发现自动生成自适应搜索算子
-9. [ALF: An Active Learning Framework for Scientific Discovery](/202609/29/2609.31197v1-alf-an-active-learning-framework-for-scientific-discovery)  
+   evidence：PINN中自动微分的物理保真度与结构局限
+5. [SMORE: Stability-Promoting Mesh-Agnostic Model Reduction for Time-Dependent PDEs](/202609/30/2609.33205v1-smore-stability-promoting-mesh-agnostic-model-reduction-for-time-dependent-pdes)  
+   标签：评分：7.0/10、query:sci-ml-agent
+   evidence：面向时变PDE的稳定且网格无关的降阶代理模型
+6. [Dynamic Kuramoto-Hodge Operators for PDEs on Complex Geometries and Topologies](/202609/30/2609.33693v1-dynamic-kuramoto-hodge-operators-for-pdes-on-complex-geometries-and-topologies)  
+   标签：评分：7.0/10、query:sci-ml-agent
+   evidence：复杂几何上PDE的神经算子学习
+7. [Mapped Multi-Patch Spectral Extreme Learning Machine for Partial Differential Equations](/202609/30/2609.31909v1-mapped-multi-patch-spectral-extreme-learning-machine-for-partial-differential-equations)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向科学发现的模块化主动学习框架，覆盖完整数据获取闭环
-10. [BioDyad: Synchronize Biomedical Discovery and Machine Learning Engineering](/202609/29/2609.31939v1-biodyad-synchronize-biomedical-discovery-and-machine-learning-engineering)  
+   evidence：用于PDE求解的固定特征谱极限学习机
+8. [Finite Expression Approximation of High-Dimensional PDEs Without the Curse of Dimensionality](/202609/30/2609.32229v1-finite-expression-approximation-of-high-dimensional-pdes-without-the-curse-of-dimensionality)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：高维PDE的符号有限表达式逼近
+9. [Active Subspace-Guided Free-Form Deformation with Sinkhorn Autoencoders for Reduced-Order Modelling of Parametrised Shape Problems](/202609/30/2609.32373v1-active-subspace-guided-free-form-deformation-with-sinkhorn-autoencoders-for-reduced-order-modelling-of-parametrised-shape-problems)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向科学发现的智能体可执行程序搜索
-11. [Stabilizing Autoregressive PDE Foundation Model Rollouts with Event-Triggered Context Healing](/202609/29/2609.32321v1-stabilizing-autoregressive-pde-foundation-model-rollouts-with-event-triggered-context-healing)  
+   evidence：参数化PDE的降阶代理建模
+10. [PluginRSI: Recursive Improvement of Agent Harnesses with Reusable Plugins](/202609/30/2609.32423v1-pluginrsi-recursive-improvement-of-agent-harnesses-with-reusable-plugins)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：稳定神经PDE基础模型推演，属PDE神经代理预测
+   evidence：通过可复用插件对智能体框架进行演化式优化
+11. [SkillVine: Agent Skill Evolution via Branching Exploration](/202609/30/2609.32731v1-skillvine-agent-skill-evolution-via-branching-exploration)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：面向LLM智能体的自动技能演化
 
 
 <div class="dpr-home-promo-card">
