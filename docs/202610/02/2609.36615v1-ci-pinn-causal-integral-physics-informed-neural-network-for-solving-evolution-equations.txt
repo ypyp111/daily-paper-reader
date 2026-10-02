@@ -1,0 +1,843 @@
+Title: CI-PINN: Causal Integral Physics-Informed Neural Network for Solving Evolution Equations
+
+URL Source: https://arxiv.org/pdf/2609.36615v1
+
+Published Time: Wed, 30 Sep 2026 00:49:52 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# CI-PINN: Causal Integral Physics-Informed Neural Network for Solving Evolution Equations 
+
+Xiaodong Feng ∗ Ziyu Sun † Tao Tang ‡ Xiaoliang Wan § Tao Zhou ¶
+
+Abstract 
+
+Physics-informed neural networks (PINNs) solve partial differential equations (PDEs) by incorporating governing physical laws into the training loss. For evolution equations, however, their conventional pointwise space–time representation does not explicitly encode temporal dependence, which can hinder accurate prediction. To mitigate this limitation, this work proposes a novel neural architecture termed a causal integral neural network (CinNet). The core module of CinNet is a Volterra-type causal integral term, which aggregates historical features to encode temporal dependence, thereby incorporating temporal causality at the architectural level rather than through training-level modifications as in many existing methods. Building on CinNet, we further develop a causal integral physics-informed neural network (CI-PINN) for solving evolution equations. Extensive numerical experiments on benchmark evolution equations demonstrate that the presented method outperforms various baseline PINN variants in terms of solution accuracy, with pronounced superiority under sparse-collocation scenarios. Additional empirical analyses show that CI-PINN exhibits low sensitivity to hyperparameter choices, while ablation studies confirm the effectiveness of the proposed network components. 
+
+Keywords: Scientific machine learning, physics-informed neural networks, temporal causality, causal integral neural network, sparse collocation 
+
+# 1 Introduction 
+
+In recent years, deep learning methods, especially physics-informed neural networks (PINNs) [1], have shown great potential for solving partial differential equations (PDEs), including evolution equations. PINNs approximate the solution by a neural network and incorporate the governing equations, initial conditions, and boundary conditions into the training objective. This formulation has several appealing advantages, such as mesh-free representation, automatic differentiation of differential operators, flexible incorporation of observational data, the ability to evaluate the learned solution at arbitrary space–time points, and potential applicability to high-dimensional problems. 
+
+> ∗
+
+Institute for Advanced Study, Beijing Normal-Hong Kong Baptist University, Zhuhai, Guangdong, China. 
+
+xiaodongfeng@bnbu.edu.cn 
+
+> †
+
+School of Mathematical Sciences, Beijing Normal University, Beijing 100875, China. zysun@mail.bnu.edu.cn 
+
+> ‡
+
+Institute for Advanced Study, Beijing Normal-Hong Kong Baptist University, Zhuhai, Guangdong, China; and School of Mathematics and Statistics, Guangzhou Nanfang College, Guangzhou, Guangdong, China. ttang@bnbu.edu.cn 
+
+> §
+
+Department of Mathematics and Center for Computation and Technology, Louisiana State University, Baton Rouge 70803, USA. xlwan@lsu.edu 
+
+> ¶
+
+SKLMS & Institute of Computational Mathematics and Scientific/Engineering Computing, Academy of Mathe-matics and Systems Science, Chinese Academy of Sciences. tzhou@lsec.cc.ac.cn 
+
+1arXiv:2609.36615v1 [math.NA] 29 Sep 2026 Despite these advantages, standard PINNs still face serious difficulties when solving time-dependent PDEs. In the vanilla formulation, the solution is usually parameterized as a pointwise mapping from space–time coordinates to the solution value, (t, x) 7 −→ ˆu(t, x; θ).
+
+In this representation, time is treated as an additional input coordinate, and the prediction at a later time is not structurally generated from earlier states. This is inconsistent with the intrinsic temporal causality of evolution equations, where the state at time t is determined by the initial condition and the evolution history before t. As a result, standard PINNs may fail to propagate initial information effectively and may converge to low-residual but dynamically inaccurate solutions, especially in long-time prediction, stiff dynamics, or sparse-collocation regimes. To improve the temporal behavior of neural solvers for time-dependent PDEs, existing studies have explored several directions. One class of methods reformulates the problem through domain decomposition [2, 3], sequential training [4–8], or discrete time-stepping formulations [9]. Another class modifies the training objective or optimization procedure, for example through curriculum learning [5], pretraining [10], causally biased sampling [11], causal loss weighting [12], directional irreversibility regularization [13], or integral-form residual regularization [14]. There are also problem-formulation methods that exploit special structures of the underlying PDE, such as characteristic or Lagrangian coordinates for convection-dominated problems [15]. More recently, representation-level methods have been proposed to improve temporal information propagation, including space– time separated representations [16, 17], recurrent [18], Transformer-based [19], state-space [20], autoregressive [21], kernel-based [22], and parameter-evolution architectures [23–25]. These methods provide important ways of incorporating temporal structure into neural PDE solvers. In this work, we focus on methods with continuous space–time neural representations, because they retain the main advantages of PINNs: the learned solution is a continuous function of ( t, x), and the required derivatives can be computed by automatic differentiation wherever they exist, scattered space–time data can be naturally incorporated, and the solution can be evaluated at arbitrary time points without a discrete autoregressive rollout. Within this setting, several representative approaches have been developed to alleviate the temporal training difficulty of PINNs. PPINN [3] decomposes a long-time evolution problem into multiple short-time subproblems, where a fast coarse solver provides sequential predictions and independent fine PINNs correct the solution in parallel. Wight and Zhao [4] proposed adaptive sampling and time-marching strategies to reduce optimization difficulties and improve the accuracy of PINNs for phase-field equations. Krishnapriyan et al. [5] introduced curriculum and sequence-to-sequence training strategies to mitigate failure modes of PINNs in time-dependent problems. Mattey and Ghosh [6] proposed a backward-compatible PINN that solves time-dependent PDEs sequentially over successive time segments using a single neural network, while penalizing deviations from previously learned solutions to preserve consistency over earlier time intervals. Guo et al. [10] developed a pretraining strategy that first trains PINNs on short early-time intervals and then uses the learned parameters and pseudo-labels to initialize and regularize full-domain training for challenging evolution PDEs. Penwarden et al. [7] proposed a unified causal sweeping framework that combines temporal domain decomposition, window-based collocation propagation, and transfer initialization to enforce causal information flow from early to later times. Causal PINNs [12] enforce temporal causality through loss reweighting, so that earlier-time residuals are reduced before later-time residuals are emphasized. IR-PINNs [14] introduce an additional integral-form residual term into the loss function, which acts as a regularization mechanism and enhances temporal correlation during training. Although these methods significantly improve the performance of PINNs for evolution equations, most of them introduce temporal causality indirectly. Time-marching and domain-decomposition 2methods rely on splitting the time interval and solving a sequence of subproblems, while causal training, pretraining, and integral-residual methods mainly modify the training objective or opti-mization process. In these approaches, the underlying neural representation is still essentially the standard pointwise space–time mapping ˆ u(t, x; θ). Therefore, temporal causality is imposed mostly through the training procedure rather than being embedded directly into the solution representation itself. This motivates us to design a neural architecture that retains the continuous space–time PINN formulation while introducing causal historical dependence at the representation level. Motivated by this observation, we propose a new network suitable for evolution systems, known as a causal integral neural network (CinNet), which introduces a history-dependent integral term and a learnable gating mechanism into each network layer. The representation at time t explicitly depends on historical features over [ t0, t ], where t0 is the initial time, thereby introducing a causal inductive bias into the solution approximation. Building on this architecture, we develop a causal integral physics-informed neural network (CI-PINN) for solving time-dependent PDEs without requiring time-domain decomposition or discrete autoregressive rollout. Numerical experiments show consistent accuracy improvements over standard PINN and competitive performance relative to Causal PINN. The sparse-collocation results suggest an implicit regularization effect, while sensitivity and ablation studies assess the quadrature resolution, loss weighting, and contributions of the main architectural components. The remainder of this paper is organized as follows. In Section 2, we introduce the standard formulation of PINNs and illustrate one of their most important failure modes in solving evolution equations through numerical experiments on the classical Allen–Cahn equation. In Section 3, we present the proposed CinNet architecture, discuss the roles of its components, provide the practical implementation of CinNet, and describe the CI-PINN framework for solving evolution equations. In Section 4, we conduct numerical experiments to evaluate the performance of CI-PINN on several representative evolution equations by comparing it with baseline methods and analyze the results. Finally, Section 5 concludes the paper and discusses future research directions. 
+
+# 2 Preliminaries 
+
+This section first reviews the standard formulation of physics-informed neural networks for nonlinear evolution equations. We then discuss the inherent temporal causality of evolution problems and illustrate a representative failure mode of PINNs, which motivates the causal integral representation developed in the next section. 
+
+2.1 Physics-informed neural networks 
+
+We consider nonlinear time-dependent partial differential equations of the form 
+
+ut(t, x) + N [u]( t, x) = 0 , (t, x) ∈ [t0, T ] × Ω,u(t0, x) = g(x), x ∈ Ω,
+
+B[u]( t, x) = h(t, x), (t, x) ∈ [t0, T ] × ∂Ω,
+
+(2.1) where u(t, x) is the unknown solution, Ω ⊂ Rd is the spatial domain, and [ t0, T ] is the time interval. The operators N and B are the nonlinear spatial differential operator and the boundary operator, respectively, while g and h prescribe the initial and boundary conditions. 3A multilayer perceptron (MLP) constructs a pointwise mapping from the space–time coordinates to the solution value through a sequence of affine transformations and nonlinear activation functions. An L-layer MLP can be written as 
+
+y(0) (t, x) = ( t, x) ,
+
+y(ℓ) (t, x) = σ
+
+(
+
+y(ℓ−1) (t, x) W(ℓ) + b(ℓ))
+
+, ℓ = 1 , . . . , L − 1,
+
+y(L) (t, x) = y(L−1) (t, x) W(L) + b(L).
+
+(2.2) Here, y(ℓ)(t, x) ∈ RDℓ is the output of the ℓ-th layer, W(ℓ) ∈ RDℓ−1×Dℓ and b(ℓ) ∈ RDℓ are the weights and biases of the ℓ-th layer, and σ(·) is the activation function. The output of the MLP is given by ˆ u(t, x; θ) = y(L)(t, x), where θ = {W(ℓ), b(ℓ) : ℓ = 1 , . . . , L } collects all trainable parameters. A physics-informed neural network (PINN) [1] approximates the solution of (2.1) by the neural surrogate ˆ u(t, x; θ). The network parameters are determined by minimizing an empirical loss consisting of the PDE residual loss and the penalties associated with the initial and boundary conditions: 
+
+L(θ) = ωres Lres (θ) + ωic Lic (θ) + ωbc Lbc (θ), (2.3) where ωres , ωic , and ωbc are nonnegative weights balancing the three loss components. The PDE residual associated with ˆ u is defined by 
+
+r(t, x; θ) = ˆ ut(t, x; θ) + N [ˆ u]( t, x; θ). (2.4) Given the residual collocation points Dres = {(ti
+
+> res
+
+, xi
+
+> res
+
+)}Nres  
+
+> i=1
+
+, initial points {xi
+
+> ic
+
+}Nic 
+
+> i=1
+
+, and boundary points {(ti
+
+> bc
+
+, xi
+
+> bc
+
+)}Nbc  
+
+> i=1
+
+, the loss components are defined by 
+
+Lres (θ) = 1
+
+Nres 
+
+> Nres
+
+∑
+
+> i=1
+
+∣∣∣ˆut(ti
+
+> res
+
+, xi
+
+> res
+
+; θ) + N [ˆ u]( ti
+
+> res
+
+, xi
+
+> res
+
+; θ)
+
+∣∣∣2
+
+,
+
+Lic (θ) = 1
+
+Nic 
+
+> Nic
+
+∑
+
+> i=1
+
+∣∣∣ˆu(t0, xi
+
+> ic
+
+; θ) − g(xi
+
+> ic
+
+)
+
+∣∣∣2
+
+,
+
+Lbc (θ) = 1
+
+Nbc 
+
+> Nbc
+
+∑
+
+> i=1
+
+∣∣∣B[ˆ u]( ti
+
+> bc
+
+, xi
+
+> bc
+
+; θ) − h(ti
+
+> bc
+
+, xi
+
+> bc
+
+)
+
+∣∣∣2
+
+.
+
+(2.5) In practice, the network parameters are determined by approximately minimizing L(θ) using a gradient-based optimizer, and the resulting parameter vector θ⋆ defines the trained PINN approxi-mation ˆ u(t, x; θ⋆). The formulation above provides a flexible mesh-free framework for solving (2.1). Nevertheless, the MLP in (2.2) accepts time and space simply as coordinate inputs and does not explicitly encode the directional temporal structure of an evolution equation. The implications of this point are discussed next. 
+
+2.2 Temporal causality and a failure mode of PINNs 
+
+To make the temporal dependence explicit, we integrate (2.1) over [ t0, t ] and use the initial condition to obtain 
+
+u(t, x) = g(x) −
+
+∫ tt0
+
+N [u]( s, x) d s. (2.6) Equation (2.6) shows that the solution at time t is determined by the initial condition together with the preceding evolution over [ t0, t ]. Errors introduced near the initial time may therefore influence the entire subsequent trajectory. 4By contrast, a conventional PINN represents the solution through the pointwise coordinate mapping ( t, x) 7 → ˆu(t, x; θ). Although predictions at different times are coupled through the shared network parameters, the representation at time t is not explicitly constructed from the preceding evolution. Consequently, satisfying the residual constraints at a finite set of space–time collocation points does not necessarily recover the correct temporal trajectory, particularly when temporal data are limited. A standard energy estimate characterizes how the temporal distribution of the residual enters the error bound. Define 
+
+E(t, x; θ) = ˆ u(t, x; θ) − u(t, x), ˜Lres (t; θ) = 1
+
+|Ω| ∥r(t, ·; θ)∥2 
+
+> L2(Ω)
+
+.
+
+Under standard regularity assumptions and a one-sided L2(Ω) stability condition on the evolution operator −N , a Grönwall argument gives the error estimate [26] 
+
+∥E (t, ·; θ)∥2 
+
+> L2(Ω)
+
+≤ e(α+1)( t−t0) ∥E (t0, ·; θ)∥2 
+
+> L2(Ω)
+
++ |Ω|
+
+∫ tt0
+
+e(α+1)( t−s) ˜Lres (s; θ) d s. (2.7) Here α ≥ 0 denotes the constant in the associated one-sided L2(Ω) stability bound. Estimate (2.7) shows that the prediction error at time t is controlled by the initial mismatch and a time-weighted accumulation of the residual over [ t0, t ]. Since the contribution of the residual at time s is weighted by e(α+1)( t−s), its effect on the bound depends on when it occurs. Thus, the temporal distribution of the residual is relevant in addition to its global magnitude. To examine this behavior numerically, we consider the Allen–Cahn equation (4.2) and compute the following time-resolved diagnostics on the spatial test grid: 
+
+Lres (t; θ) = 1
+
+NxNx∑
+
+> j=1
+
+|r(t, x j ; θ)|2 , RL2E( t) = 
+
+(∑Nx 
+
+> j=1
+
+|u(t, x j ) − ˆu(t, x j ; θ)|2)1/2
+
+(∑Nx 
+
+> j=1
+
+|u(t, x j )|2
+
+)1/2 .0.0 0.2 0.4 0.6 0.8 1.0          
+
+> t
+> 10 −5
+> 10 −3
+> 10 −1
+> Lres (t, θ )PINN CI-PINN
+> (a) Residual loss 0.00.20.40.60.81.0
+> t
+> 10 −3
+> 10 −2
+> 10 −1
+> Relative  L2 error PINN CI-PINN (b) Relative L2error
+
+Figure 1: Allen–Cahn equation. Time-dependent residual loss and relative L2 error for PINN and CI-PINN. Both methods are trained on the same fixed grid with ( Nt, N x) = (20 , 256). The CI-PINN result is included as a preview, and the method is introduced in Section 3. 
+
+As shown in Figure 1(a), the standard PINN exhibits a pronounced residual peak near the initial time, followed by a rapid increase in the relative L2 error in Figure 1(b). Although its residual decreases at later times, the solution error remains large. This behavior is consistent with the 5time-weighted error accumulation described by (2.7). In comparison, CI-PINN produces a smaller early-time residual and maintains a substantially lower prediction error. Taken together, the error estimate and the Allen–Cahn example show that the temporal distribu-tion of the residual is relevant to trajectory accuracy. This motivates the history-dependent neural representation introduced in the next section. 
+
+# 3 Methodology 
+
+In this section, we develop the causal integral neural representation underlying CI-PINN. We begin by introducing CinNet, which extends the standard MLP with history-dependent integral features. We then describe how these features are evaluated using a prescribed temporal weight and fixed-mesh quadrature. Finally, we embed CinNet into the standard physics-informed training framework. 
+
+3.1 Causal integral neural network 
+
+The integral representation in (2.6) suggests that the preceding evolution should enter the network representation explicitly. Based on this observation, we introduce the causal integral neural network (CinNet), which augments each layer with a history-dependent integral pathway while retaining a direct pathway at the current coordinates. Set y(0) (t, x) = ( t, x). For ℓ = 1 , . . . , L , we define the local and historical features by 
+
+F(ℓ)(t, x) = y(ℓ−1) (t, x)W(ℓ) 
+
+> F
+
++ b(ℓ) 
+
+> F
+
+,
+
+V(ℓ)(s, x) = y(ℓ−1) (s, x)W(ℓ) 
+
+> V
+
++ b(ℓ) 
+
+> V
+
+.
+
+Here, W(ℓ) 
+
+> F
+
+and W(ℓ) 
+
+> V
+
+are trainable weight matrices, while b(ℓ) 
+
+> F
+
+and b(ℓ) 
+
+> V
+
+are the corresponding bias vectors. The local feature F(ℓ) transforms the representation at the current coordinates ( t, x), whereas the historical feature V(ℓ) maps representations at earlier times into the feature space used for temporal aggregation. The historical information available at time t is then represented by the causal integral 
+
+I(ℓ)(t, x) =  
+
+> ∫tt0
+
+A(ℓ)(t, s )V(ℓ)(s, x) d s, (3.1) where A(ℓ)(t, s ) is a scalar temporal weight that controls the contribution of the feature evaluated at time s to the representation at time t. Since the integration is restricted to [ t0, t ], the resulting integral feature depends only on information available up to the current time. The local and integral features carry complementary information. Rather than combining them with fixed coefficients, CinNet introduces the learnable gating vector 
+
+z(ℓ) = sigmoid 
+
+> (
+
+η(ℓ))
+
+,
+
+where η(ℓ) is a trainable parameter vector. Each component of z(ℓ) therefore lies in (0 , 1) and controls the balance between the corresponding channels of the local and integral features. The layer output is then defined by 
+
+y(ℓ)(t, x) = σℓ
+
+> (
+
+z(ℓ) ⊙ F(ℓ)(t, x) + 
+
+> (
+
+1 − z(ℓ))
+
+⊙ I(ℓ)(t, x)
+
+> )
+
+. (3.2) Here, ⊙ denotes componentwise multiplication, and σℓ acts componentwise, with σL the identity. For ℓ > 1, V(ℓ)(s, x) is built from the already aggregated representation y(ℓ−1) (s, x), propagating history dependence through successive layers. 6The CinNet output is ˆ u(t, x; θ) = y(L)(t, x), where θ collects all trainable parameters. Its causal integral (3.1) accumulates historical features in analogy with (2.6). The whole architecture is illustrated in Figure 2. (a) Overall CinNet architecture 
+
+Current-time feature stream 
+
+Causal integral layer 1 
+
+Causal integral layer 2 
+
+Output 
+
+!𝑢(𝑡, 𝐱; 𝜃) ··· 
+
+(b) CinNet layer 
+
+Local branch: current time 
+
+History branch: depends on past times in [𝑡₀, 𝑡] 
+
+Causal integral layer L
+
+Input 
+
+(𝑡, 𝐱)   
+
+> 𝑡 != 𝑠 !𝑠₁
+
+⋯ 
+
+> 𝑠₂ 𝑡 = 𝑠 "!
+
+Historical stream 
+
+> Local (current-time) flow Historical information flow Fusion flow
+
+⋯ 𝐲 (#$%) (𝑠 '!, 𝐱) 𝐲 ("#$) (𝑠 &, 𝐱) 𝐲 ("#$) (𝑠 $, 𝐱) 𝐲 ("#$) (𝑠 ', 𝐱)   
+
+> 𝑡 != 𝑠 !𝑠₁
+
+⋯ 
+
+> 𝑠₂ 𝑡 = 𝑠 "!
+
+Causal integral feature 𝐈 ' 𝑡, 𝐱 
+
+Local feature 𝐅 ($) (𝑡, 𝐱) 𝐖 ((#) , 𝐛 ((#) 
+
+𝜎(·)  
+
+> 𝐲 ($&') (𝑡, 𝐱)
+> Layer input
+> 𝐖 𝐕 (#) , 𝐛 𝐕 (#)
+> 𝐖 𝐕 (#) , 𝐛 𝐕 (#) 𝐖 𝐕 (#) , 𝐛 𝐕 (#)
+> 𝐖 𝐕 (#) , 𝐛 𝐕 (#)
+
+1 − 𝐳 (.) 
+
+⊙⊙
+
+𝐳 (.) 
+
+> 𝐲 ($) (𝑡, 𝐱)
+> Layer output
+
+Figure 2: Schematic of CinNet. (a) Overall propagation of the current-time and historical feature streams through successive causal integral layers. (b) Construction of a single CinNet layer, in which the local feature and the history-dependent integral feature are combined through a learnable gate. 
+
+3.2 Practical implementation 
+
+In this subsection, we describe the practical implementation of the causal integral term in CinNet, focusing on the choice of the temporal weight A(ℓ)(t, s ) and the numerical approximation of the integral feature I(ℓ)(t, x). 
+
+Choice of the temporal weight. The general form (3.1) allows flexible choices of the temporal weight A(ℓ)(t, s ). Although one may use a learnable weighting function depending on ( t, s, x), in this 7work we adopt a simple fixed temporal weight based on the temporal distance t − s. Specifically, for 
+
+t0 ≤ s ≤ t ≤ T , we use the monomial form 
+
+A(ℓ)(t, s ) =  
+
+> (
+
+t − sT − t0
+
+> )q
+
+, q = 2 , ∀ℓ. (3.3) The temporal weight (3.3) is independent of x and introduces no additional trainable parameters. It assigns greater weight to features farther in the past, with the aim of preserving their contribution during temporal propagation. The exponent q controls this preference: q = 0 gives a constant weight, whereas any q > 0 yields a weight that increases with the temporal distance t − s. We use q = 2 as a fixed architectural choice throughout the numerical experiments. 
+
+Fixed-mesh quadrature. The integration interval in I(ℓ)(t, x) varies with the query time t. To evaluate this integral using a common set of temporal nodes, we introduce a uniform mesh on [ t0, T ], 
+
+t0 = s0 < s 1 < · · · < s Ns = T, 
+
+where sk+1 − sk = ∆ s for k = 0 , . . . , N s − 1. For a query time t ∈ (sm, s m+1 ], the first m mesh intervals are fully contained in [ t0, t ], while [ sm, t ] provides the final contribution. We therefore define the effective length of the kth mesh interval by 
+
+rk(t) = max(0 , t − sk) − max(0 , t − sk+1 ) = clip( t − sk, 0, ∆s),
+
+where clip( a, 0, ∆s) = min {max {a, 0}, ∆s}. Consequently, rk(t) = ∆ s for k < m , rm(t) = t − sm,and rk(t) = 0 for k > m . Approximating the integrand on each active mesh interval by its value at the left endpoint gives 
+
+I(ℓ)(t, x) ≈
+
+> Ns−1∑
+> k=0
+
+rk(t)A(ℓ)(t, s k)V(ℓ)(sk, x). (3.4) Here, rk(t) specifies the portion of the kth mesh interval assigned to its left endpoint sk, while 
+
+A(ℓ)(t, s k) weights the value V(ℓ)(sk, x) in the quadrature sum. The quadrature rule is incorporated into the network architecture for constructing historical features, rather than for obtaining a high-order approximation of a prescribed physical integral. This is also one reason for adopting the left-rectangle rule in our implementation. The quadrature node locations determine the past time instances at which historical features are sampled, whereas the node count Ns controls the temporal resolution of the history representation. The fixed mesh is particularly useful across layers. Computing V(ℓ)(sk, x) requires y(ℓ−1) (sk, x), whose integral term involves only the nodes sj ≤ sk. All such integrals can therefore be evaluated on the same temporal mesh by restricting the quadrature sum to nodes no later than sk. If a separate set of quadrature nodes were generated for every upper limit, each layer could introduce additional evaluation points required by the preceding layer, causing the number of nodes to grow with the network depth. The fixed mesh avoids this growth and provides a common quadrature structure across layers. To evaluate (3.4) at the ℓth layer, CinNet evaluates the preceding-layer output y(ℓ−1) at both the query point ( t, x) and the fixed quadrature points {(sk, x)}Ns−1 
+
+> k=0
+
+. The value y(ℓ−1) (t, x) is used to compute the local term F(ℓ)(t, x), while the values y(ℓ−1) (sk, x) are used to compute V(ℓ)(sk, x)in the quadrature sum. These evaluations are performed at every layer. The fixed temporal nodes are used only for numerical quadrature and do not define an autoregressive time-stepping procedure. The surrogate ˆ u(t, x; θ) can therefore be evaluated directly at arbitrary query times. 83.3 Causal integral physics-informed neural network 
+
+In this subsection, we formulate CI-PINN for the evolution equation (2.1). We represent the approximate solution using CinNet, ˆu(t, x; θ) = CinNet( t, x; θ),
+
+and determine the network parameters by minimizing the physics-informed objective in (2.3). Initial and boundary conditions are imposed through the corresponding loss terms. In the experiments below, periodic boundary conditions are imposed exactly by the input embedding in Appendix A, so the boundary loss is identically zero. Rather than processing each space–time coordinate independently, CI-PINN constructs the solution representation at time t by combining the current input with hidden representations from preceding times. For each query point ( t, x), a CinNet layer evaluates the representation from the preceding layer at the fixed temporal nodes {(sk, x)}Ns−1 
+
+> k=0
+
+. These values define the causal integral term in (3.4), which is combined with the local term through (3.2). Repeating this update across the L layers gives ˆ u(t, x; θ). These intermediate evaluations involve only hidden representations and do not introduce ad-ditional residual collocation constraints. The residual collocation points and the initial- and boundary-condition points are used only in their corresponding loss terms. The complete procedure is summarized in Algorithm 1. 
+
+Algorithm 1 CI-PINN 
+
+Require: Residual collocation set Dres , initial- and boundary-condition point sets, fixed temporal mesh {sk}Ns
+
+> k=0
+
+, and number of iterations Niter 
+
+Ensure: Approximate solution ˆ u(t, x; θ⋆) 
+
+> 1:
+
+Initialize the CinNet parameters θ 
+
+> 2:
+
+for n = 0 , . . . , N iter − 1 do  
+
+> 3:
+
+Evaluate ˆ u at the residual collocation points and the initial- and boundary-condition points using (3.2) and (3.4)  
+
+> 4:
+
+Compute the required derivatives by automatic differentiation and form the loss using (2.3) and (2.5)  
+
+> 5:
+
+Update θ using a gradient-based optimizer  
+
+> 6:
+
+end for  
+
+> 7:
+
+Set θ⋆ = θ 
+
+> 8:
+
+return ˆu(t, x; θ⋆)
+
+# 4 Numerical results 
+
+In this section, we present a series of numerical experiments to comprehensively evaluate the perfor-mance of the proposed CI-PINN for nonlinear evolution equations. The standard PINN is included as a canonical reference baseline, allowing us to quantify the improvement achieved by explicitly incorporating temporal causality into the network architecture. To provide a more competitive evaluation, we further compare CI-PINN with Causal PINN [12], a representative causality-aware method that enforces temporal causality at the training level through adaptive temporal weight-ing of the residual loss. A detailed description of Causal PINN is provided in Appendix B. This comparison enables us to assess the proposed architecture-level causal representation against an 9established training-level strategy for time-dependent problems. Through these experiments, we investigate predictive accuracy, training robustness, the effect of training-set size, sensitivity to selected hyperparameters, and the contributions of the main components of CinNet. We first summarize the common computational settings used throughout the numerical ex-periments. Following [12], for the one-dimensional problems, the residual collocation points and initial-condition points are selected from fixed uniform grids and remain unchanged throughout training. For the two-dimensional problem, the temporal points are uniformly spaced, while the spatial points are generated by Latin hypercube sampling, as specified in Section 4.4. Unless other-wise stated, neither adaptive resampling nor a time-marching strategy is employed. The reference solutions for the PDE test problems are generated using the Chebfun package, with a Fourier spectral discretization using 512 modes in space and the fourth-order exponential time-differencing Runge–Kutta scheme (ETDRK4) with a time step of 10 −5. All experiments are implemented in JAX and conducted on a workstation equipped with an NVIDIA Tesla V100 GPU. Regarding the neural network architectures, all methods employ networks with four hidden layers, each containing 128 neurons, and use the tanh activation function. For CI-PINN, the default number of quadrature nodes is set to Ns = 4 Nt, except in the experiments specifically examining the effect of Ns ∈ { 4Nt, 5Nt, 6Nt, 7Nt, 8Nt}. All periodic boundary conditions are imposed exactly using the periodic feature embedding described in Appendix A. For two-dimensional problems, we set Mx = My = 2. For one-dimensional problems, we set M = 5 for fourth-order equations and 
+
+M = 10 for all other equations. Unless otherwise specified, all models are trained for 300,000 epochs using the Adam optimizer. The initial learning rate is set to 10 −3 and decayed by a factor of 0 .9 every 5,000 epochs. The loss weights in (2.3) are set to ωres = 1 and ωic = 100, which we found to provide stable and comparable training across all methods. To assess run-to-run variability, each experimental configuration is independently repeated five times using different random seeds. Unless otherwise specified, all quantitative results are reported as the mean and standard deviation over these five runs. For Causal PINN, unless the effect of the causality parameter ϵ in (B.3) is specifically investigated, we report the best result obtained over ϵ ∈ { 10 −4, 10 −3, 10 −2, 10 −1, 10 0, 10 1, 10 2, 10 3, 10 4}.For all experiments, prediction accuracy is quantified using the relative L2 error (RL2E) evaluated on the test set: RL2E =  
+
+> (∑Ntest
+> i=1
+
+∥u(ti, xi) − ˆu(ti, xi; θ)∥22 
+
+> )1/2
+> (∑Ntest
+> i=1
+
+∥u(ti, xi)∥22 
+
+> )1/2
+
+, (4.1) where u(t, x) is the reference solution and ˆ u(t, x; θ) denotes the solution predicted by the corresponding method. 
+
+4.1 Allen–Cahn equation 
+
+We first consider the one-dimensional Allen–Cahn problem used as an illustrative example in [12]: 
+
+ut − 0.0001 uxx + 5( u3 − u) = 0 , (t, x ) ∈ [0 , 1] × [−1, 1] ,u(0 , x ) = x2 cos( πx ), x ∈ [−1, 1] ,u(t, −1) = u(t, 1) , t ∈ [0 , 1] .
+
+(4.2) This problem is challenging for the standard continuous-time PINN formulation of Raissi et al. [1]. To improve the resulting PINN predictions, Wight and Zhao [4] and McClenny and Braga-Neto [27] proposed adaptive resampling and self-adaptive weighting strategies, respectively. 10 We first examine the sensitivity of Causal PINN and CI-PINN to their respective method-specific hyperparameters, as shown in Figure 3. For Causal PINN, the additional hyperparameter of interest is the causality parameter ϵ in (B.3), which controls the strength of temporal weighting in the residual loss. For CI-PINN, the additional hyperparameter of interest is the number of quadrature nodes Ns in (3.4), which determines the temporal resolution of the historical information available to the network. In both cases, we vary one hyperparameter while keeping all other hyperparameters fixed, and both methods are trained using the same fixed training set with ( Nt, N x) = (20 , 256). 10 −3 10 −1 10 1 10 3                
+
+> 
+> 10 −2
+> 10 −1
+> Relative  L2 error
+> PINN CI-PINN Causal PINN
+> (a) Causal PINN: causality parameter ϵ80 100 120 140 160
+> Ns
+> 10 −3
+> 10 −2
+> 10 −1
+> Relative  L2 error PINN Causal PINN CI-PINN (b) CI-PINN: number of quadrature nodes Ns
+> Figure 3: Allen–Cahn equation. Relative L2errors (4.1) versus the causality parameter ϵin (B.3) for Causal PINN and the number of quadrature nodes Nsin (3.4) for CI-PINN.
+
+Figure 3 reveals a marked difference in the hyperparameter sensitivity of the two methods. Causal PINN is highly sensitive to the causality parameter ϵ and therefore requires careful tuning. Without an appropriate choice of ϵ, its performance can fall back to a level comparable to that of the standard PINN. In contrast, the performance of CI-PINN becomes stable once the number of quadrature nodes reaches a moderate level. In the present example, the error shows only minor variation for Ns ≥ 4Nt,indicating that Ns does not require delicate tuning once the temporal history is resolved with sufficient quadrature resolution. Moreover, CI-PINN consistently outperforms both the standard PINN and Causal PINN with its best-performing tested value ϵ = 10 2. Thus, although both methods introduce an additional method-specific hyperparameter, CI-PINN incurs a substantially smaller hyperparameter-tuning burden. Accordingly, we set Ns = 4 Nt for CI-PINN and ϵ = 10 2 for Causal PINN in the remainder of this example. We next investigate the influence of training grid resolution by varying Nt and Nx. The relative 
+
+L2 errors are reported in Table 1. As shown in Table 1, the standard PINN remains inaccurate across all training grid sizes considered. While Causal PINN reduces the error to varying degrees, CI-PINN consistently achieves the smallest relative L2 error for every tested ( Nt, N x) pair. This consistent performance advantage demonstrates the efficacy of incorporating temporal causality at the representation level, rather than solely at the training level as implemented in the baseline methods. The advantage of CI-PINN is particularly pronounced in the sparse-collocation regime. For example, when ( Nt, N x) = (10 , 64), the baseline methods still produce dynamically inaccurate solutions with large errors, whereas CI-PINN gives a reasonably accurate prediction. This behavior suggests an implicit regularization effect of the causal integral representation under sparse collocation. 11 Table 1: Allen–Cahn equation. Relative L2 errors of different methods for different training grid sizes (Nt, N x). The reported values are the mean and standard deviation over five independent runs. For Causal PINN, the selected parameter ϵ = 10 2 is used. 
+
+Nt Nx PINN Causal PINN CI-PINN 10 64 (6 .98 ± 0.17) × 10 −1 (2 .45 ± 0.32) × 10 −1 (1 .35 ± 0.54) × 10 −2
+
+128 (5 .16 ± 0.04) × 10 −1 (1 .98 ± 1.29) × 10 −2 (2 .99 ± 0.31) × 10 −3
+
+256 (5 .16 ± 0.03) × 10 −1 (1 .13 ± 0.33) × 10 −2 (3 .96 ± 0.53) × 10 −3
+
+20 64 (6 .96 ± 0.19) × 10 −1 (9 .40 ± 4.10) × 10 −2 (1 .35 ± 0.51) × 10 −2
+
+128 (5 .13 ± 0.01) × 10 −1 (4 .15 ± 1.34) × 10 −3 (1 .80 ± 0.48) × 10 −3
+
+256 (5 .15 ± 0.01) × 10 −1 (2 .96 ± 0.29) × 10 −3 (1 .94 ± 0.39) × 10 −3
+
+To further assess collocation efficiency, we perform an additional dense-grid experiment with the standard PINN. Using ( Nt, N x) = (100 , 256), the standard PINN achieves a relative L2 error of 4.17 × 10 −3. In comparison, CI-PINN achieves a slightly smaller mean error of 2 .99 × 10 −3 using only (Nt, N x) = (10 , 128), which corresponds to a 20-fold reduction in the number of residual collocation points. This comparison demonstrates that CI-PINN makes more effective use of sparse space–time collocation points. Finally, we investigate the sensitivity of the three methods to the initial-condition loss weight 
+
+ωic . This parameter is important in PINN training because it controls the balance between fitting the initial condition and minimizing the PDE residual. In this experiment, we fix the training grid at ( Nt, N x) = (20 , 256) and vary ωic ∈ { 10 0, 10 1, 10 2, 10 3, 10 4}. The results are reported in Table 2. 
+
+Table 2: Allen–Cahn equation. Relative L2 errors of different methods for different initial-condition loss weights ωic . The reported values are the mean and standard deviation over five independent runs. For Causal PINN, the selected parameter ϵ = 10 2 is used. 
+
+ωic PINN Causal PINN CI-PINN 10 0 (6 .93 ± 3.82) × 10 −1 (3 .94 ± 1.85) × 10 −3 (1 .51 ± 0.36) × 10 −3
+
+10 1 (4 .79 ± 0.45) × 10 −1 (1 .35 ± 0.44) × 10 −3 (7 .05 ± 1.56) × 10 −4
+
+10 2 (5 .15 ± 0.01) × 10 −1 (2 .96 ± 0.29) × 10 −3 (1 .94 ± 0.39) × 10 −3
+
+10 3 (5 .16 ± 0.01) × 10 −1 (6 .35 ± 1.28) × 10 −3 (3 .07 ± 0.75) × 10 −3
+
+10 4 (5 .49 ± 0.03) × 10 −1 (4 .33 ± 0.26) × 10 −1 (6 .54 ± 1.95) × 10 −3
+
+As shown in Table 2, CI-PINN yields the smallest relative L2 error for every tested value of 
+
+ωic and maintains accuracy consistently across the entire range. Causal PINN performs well for moderate values of ωic , but its error increases sharply when ωic = 10 4. The standard PINN remains inaccurate for all tested weights. These results indicate that CI-PINN is more robust to the choice of ωic , which is a desirable property in practical applications because the optimal loss weighting may not be known a priori. 
+
+4.2 Korteweg–de Vries equation 
+
+We next consider the Korteweg–de Vries (KdV) equation as a nonlinear dispersive evolution problem. Unlike the dissipative dynamics of the Allen–Cahn equation, the KdV equation describes nonlinear wave propagation governed by a balance between nonlinearity and dispersion. The problem is given by 12 ut + ηuu x + μ2uxxx = 0 , (t, x ) ∈ [0 , 1] × [−1, 1] ,u(0 , x ) = cos( πx ), x ∈ [−1, 1] ,u(t, −1) = u(t, 1) , t ∈ [0 , 1] .
+
+(4.3) Here, η controls the strength of the nonlinear term, whereas μ determines the strength of dispersion. Under the KdV dynamics (4.3), the prescribed initial profile evolves into a train of solitary-wave structures. Following the parameter setting in [28], we set η = 1 and μ = 0 .022. We first compare the reference solution of the KdV equation with the predictions obtained by PINN and CI-PINN, as shown in Figure 4. Both methods are trained on the same fixed space–time grid with ( Nt, N x) = (20 , 256), and CI-PINN uses Ns = 4 Nt = 80 quadrature nodes. −1 0 1                    
+
+> x
+> −1012
+> u(t, x )
+> t= 0
+> −101
+> xt= 0 .5
+> −101
+> xt= 1 Reference PINN CI-PINN
+> Figure 4: KdV equation. Comparison of the reference solution with the PINN and CI-PINN solution profiles at t= 0, 0 .5, and 1. For each method, the prediction from the best-performing run among five independent runs is shown. The corresponding relative L2errors are 1 .87 ×10 −1for PINN and 6 .94 ×10 −3for CI-PINN.
+
+As shown in Figure 4, the solution develops increasingly complex oscillatory wave structures as time evolves. Although PINN captures the overall evolution pattern, noticeable discrepancies appear in the amplitudes and phases of the oscillations, particularly at later times. These local errors accumulate across the rapidly varying wave structures, resulting in a substantial deviation from the reference solution. In contrast, CI-PINN closely follows the reference profiles and accurately captures both the locations and amplitudes of the oscillatory structures throughout the evolution. Over five independent runs, the mean relative L2 error is reduced from (4 .74 ± 2.76) × 10 −1 for PINN to (7 .81 ± 0.68) × 10 −3 for CI-PINN. These results demonstrate that the causal integral representation substantially improves the approximation of the nonlinear dispersive dynamics under the same limited space–time collocation setting. Figure 5 compares the sensitivity of Causal PINN and CI-PINN to their respective method-specific hyperparameters for the KdV equation. All methods are trained on the same fixed training grid with ( Nt, N x) = (20 , 256), and the reported errors are the mean and standard deviation over five independent runs. As shown in Figure 5(a), Causal PINN yields relatively large errors for all the tested values of the causality parameter ϵ, and its performance remains broadly comparable to that of the standard PINN. Even at its best-performing tested value, ϵ = 10 −1, Causal PINN attains a relative L2 error of (1 .60 ± 0.27) × 10 −1, whereas the standard PINN yields (4 .74 ± 2.76) × 10 −1. By comparison, CI-PINN with Ns = 80 achieves a substantially smaller error of (7 .81 ± 0.68) × 10 −3. Thus, even after tuning ϵ, Causal PINN provides only a limited improvement over the standard PINN, while 13 10 −3 10 −1 10 1 10 3         
+
+> 
+> 10 −2
+> 10 −1
+> Relative  L2 error
+> PINN CI-PINN Causal PINN (a) Causal PINN: causality parameter ϵ80 100 120 140 160
+> Ns
+> 10 −2
+> 10 −1
+> Relative  L2 error PINN Causal PINN CI-PINN (b) CI-PINN: number of quadrature nodes Ns
+
+Figure 5: KdV equation. Relative L2 errors (4.1) versus the causality parameter ϵ in (B.3) for Causal PINN and the number of quadrature nodes Ns in (3.4) for CI-PINN. 
+
+CI-PINN improves the prediction accuracy by more than one order of magnitude relative to both baseline methods. Consistent with the Allen–Cahn results in Figure 3(b), Figure 5(b) shows that CI-PINN maintains stable accuracy over Ns ∈ { 80 , 100 , 120 , 140 , 160 }. This further confirms that no delicate tuning of 
+
+Ns is required once a moderate quadrature resolution is reached. 
+
+4.3 Cahn–Hilliard equation 
+
+We next consider the Cahn–Hilliard equation, which introduces additional challenges through the combination of nonlinear phase-separation dynamics and a fourth-order spatial derivative. The resulting evolution involves sharp interfacial structures and places greater demands on the approximation of high-order nonlinear space–time dynamics. The governing equation is 
+
+ut + 10 −6uxxxx − 10 −2(u3 − u)xx = 0 , (t, x ) ∈ (0 , 1] × [−1, 1] ,u(0 , x ) = − cos(2 πx ), x ∈ [−1, 1] ,u(t, −1) = u(t, 1) , t ∈ [0 , 1] .
+
+(4.4) For the Cahn–Hilliard problem (4.4), we first compare the reference solution with the predictions obtained by PINN and CI-PINN, as shown in Figure 6. Both methods are trained on the same fixed space–time grid with ( Nt, N x) = (40 , 256), and CI-PINN uses Ns = 4 Nt = 160 quadrature nodes. As shown in Figure 6, PINN captures the overall solution pattern but exhibits pronounced discrepancies near the sharp interfaces, particularly at later times. In contrast, CI-PINN closely follows the reference profiles and substantially improves the resolution of the interfacial structures. Over five independent runs, the mean relative L2 error is reduced from (4 .26 ± 0.18) × 10 −1 for PINN to (6 .06 ± 0.28) × 10 −3 for CI-PINN. These results indicate that the causal integral representation enables CI-PINN to capture the nonlinear phase-separation dynamics much more accurately under the same limited space–time collocation setting. We next examine the dependence of Causal PINN and CI-PINN on their respective method-specific hyperparameters, as shown in Figure 7. All methods are trained on the same fixed training grid with ( Nt, N x) = (40 , 256). As shown in Figure 7(a), Causal PINN is highly sensitive to the causality parameter ϵ. For most of the tested values, its performance remains comparable to that of the standard PINN, which yields 14 −1 0 1         
+
+> x
+> −1.0
+> −0.50.00.51.0
+> u(t, x )
+> t= 0
+> −101
+> xt= 0 .5
+> −101
+> xt= 1 Reference PINN CI-PINN
+
+Figure 6: Cahn–Hilliard equation. Comparison of the reference solution with the PINN and CI-PINN solution profiles at t = 0, 0 .5, and 1. For each method, the prediction from the best-performing run among five independent runs is shown. The corresponding relative L2 errors are 4 .07 × 10 −1 for PINN and 5 .68 × 10 −3
+
+for CI-PINN. 10 −3 10 −1 10 1 10 3         
+
+> 
+> 10 −3
+> 10 −2
+> 10 −1
+> Relative  L2 error
+> PINN CI-PINN Causal PINN
+> (a) Causal PINN: causality parameter ϵ160 200 240 280 320
+> Ns
+> 10 −3
+> 10 −2
+> 10 −1
+> Relative  L2 error PINN Causal PINN CI-PINN (b) CI-PINN: number of quadrature nodes Ns
+
+Figure 7: Cahn–Hilliard equation. Relative L2 errors (4.1) versus the causality parameter ϵ in (B.3) for Causal PINN and the number of quadrature nodes Ns in (3.4) for CI-PINN. 
+
+a relative L2 error of (4 .26 ± 0.18) × 10 −1. A substantial improvement is obtained only within a relatively narrow range of ϵ. At the best-performing tested value ϵ = 10, Causal PINN achieves a relative L2 error of (8 .78 ± 5.22) × 10 −4. By comparison, CI-PINN with Ns = 160 achieves an error of (6 .06 ± 0.28) × 10 −3. Thus, although Causal PINN with its best tested parameter attains the highest accuracy in this example, this performance relies strongly on a carefully selected causality parameter, whereas inappropriate choices of ϵ lead to a pronounced degradation in accuracy. In contrast, Figure 7(b) shows that CI-PINN maintains stable accuracy across different values of 
+
+Ns, and consistently achieves errors on the order of 10 −3, substantially below those of the standard PINN. Consistent with the Allen–Cahn and KdV results in Figures 3(b) and 5(b), only minor variations are observed as Ns changes. This further confirms that CI-PINN does not require delicate tuning of the quadrature resolution once a moderate number of quadrature nodes is used. Finally, we conduct an ablation study to evaluate the contribution of the architectural components in CinNet for the Cahn–Hilliard equation. The results are summarized in Table 3. As shown in Table 3, only the CI-PINN variant retaining both the temporal weight and gating mechanism achieves a relatively low relative L2 error. Removing either component causes a substantial 15 Table 3: Cahn–Hilliard equation. Ablation study of the architectural components in CinNet with ωic = 100, (Nt, N x) = (40 , 256), and Ns = 160. For the temporal weight, ✗ denotes A(ℓ)(t, s ) = 1. For the gating mechanism, ✗ denotes that z(ℓ) and 1 − z(ℓ) are both fixed to 0.5 in (3.2). 
+
+Temporal weight Gating mechanism Relative L2 error 
+
+✓ ✓ (6 .06 ± 0.28) × 10 −3
+
+✓ ✗ (1 .95 ± 0.52) × 10 −1
+
+✗ ✓ (3 .35 ± 0.39) × 10 −1
+
+✗ ✗ (4 .31 ± 0.22) × 10 −1
+
+increase in the error, indicating that both components are essential for obtaining a reliable prediction of the Cahn–Hilliard dynamics. 
+
+4.4 Two-dimensional Allen–Cahn equation 
+
+As the final benchmark, we consider a two-dimensional Allen–Cahn equation to further assess the capability of CI-PINN for nonlinear evolution problems in higher-dimensional spatial domains. Compared with the one-dimensional examples considered above, this problem involves substantially richer spatial structures and requires the network to resolve the temporal evolution of sharp interfaces over a two-dimensional domain. The governing equation is 
+
+ut − 10 −4∆u + 5( u3 − u) = 0 , (t, x, y ) ∈ [0 , 1] × [−1, 1] 2,u(0 , x, y ) = cos( πx ) cos( πy )(1 − exp( −(x2 + y2))) , (x, y ) ∈ [−1, 1] 2,u(t, −1, y ) = u(t, 1, y ), u(t, x, −1) = u(t, x, 1) , t ∈ [0 , 1] , x, y ∈ [−1, 1] .
+
+(4.5) We first examine the CI-PINN prediction for (4.5). The model is trained on a fixed space–time training set with ( Nt, N xy ) = (20 , 1024), where Nxy denotes the number of spatial collocation points. The temporal points are taken from a uniform grid, while a fixed set of Nxy = 1024 spatial collocation points is generated by Latin hypercube sampling over [ −1, 1] 2 and shared across all temporal levels. CI-PINN uses Ns = 4 Nt = 80 quadrature nodes. Figure 8 compares the CI-PINN prediction with the reference solution and shows the pointwise absolute error. Figure 8(a) shows two-dimensional spatial snapshots at t = 0, 0 .5, and 1, together with the corresponding pointwise absolute errors, whereas Figure 8(b) displays the space–time cross section on y = 0. As shown in Figure 8(a), the solution undergoes a pronounced nonlinear evolution from the smooth initial profile toward states characterized by increasingly sharp interfacial structures. CI-PINN accurately reproduces both the large-scale spatial pattern and the localized interfaces at all three displayed times. The pointwise errors remain small over most of the spatial domain and are primarily concentrated near the rapidly varying interfaces, where the solution is most difficult to approximate. The space–time cross sections in Figure 8(b) further show that CI-PINN closely tracks the temporal evolution of the reference solution throughout the interval t ∈ [0 , 1]. These results demonstrate that the causal integral representation remains effective when extended to a two-dimensional spatial domain and can accurately capture nonlinear interfacial dynamics under sparse space–time collocation. We next investigate the dependence of Causal PINN and CI-PINN on their respective method-specific hyperparameters. All methods use the same fixed training set with ( Nt, N xy ) = (20 , 1024). The results are shown in Figure 9. As shown in Figure 9(a), the performance of Causal PINN depends strongly on the causality parameter ϵ. For small values of ϵ, its accuracy remains close to that of the standard PINN, whose 16 −1.0        
+
+> −0.50.00.51.0
+> t = 0
+> y
+> Reference CI-PINN Absolute error
+> −1.0
+> −0.50.00.51.0
+> t = 0 .5
+> y
+> −101
+> x
+> −1.0
+> −0.50.00.51.0
+> t = 1
+> y
+> −101
+> x
+> −101
+> x
+> −0.50.00.5
+> −0.50.00.5
+> 0.0000 0.0025 0.0050 0.0075 0.0100
+> −0.50.00.5
+> −0.50.00.5
+> 0.0000 0.0025 0.0050 0.0075 0.0100
+> −1.0
+> −0.50.00.51.0
+> −1.0
+> −0.50.00.51.0
+> 0.00 0.05 0.10
+
+(a) Spatial snapshots at t = 0 , 0.5, 1.0. 0.0 0.5 1.0    
+
+> t
+> −1.0
+> −0.50.00.51.0
+> x
+> Reference
+> 0.00.51.0
+> t
+> CI-PINN
+> 0.00.51.0
+> t
+> Absolute error
+> −1.0
+> −0.50.00.5
+> −1.0
+> −0.50.00.5
+> 0.00 0.01 0.02
+
+(b) Space–time cross sections at y = 0. 
+
+Figure 8: Two-dimensional Allen–Cahn equation. Comparison of the reference solution with the CI-PINN prediction and pointwise absolute error. CI-PINN is trained with ( Nt, N xy ) = (20 , 1024) and uses Ns = 80 quadrature nodes. Panel (a) shows the two-dimensional spatial snapshots at t = 0, 0 .5, and 1 .0, where each row corresponds to one time level and the three columns show the reference solution, prediction, and pointwise absolute error, respectively. Panel (b) shows the corresponding space–time cross sections on the plane y = 0, with t on the horizontal axis and x on the vertical axis. The relative L2 error of CI-PINN is 4 .29 × 10 −3 from the best-performing run among five independent runs. 
+
+17 10 −3 10 −1 10 1 10 3         
+
+> 
+> 10 −2
+> 10 −1
+> 10 0
+> Relative  L2 error
+> PINN CI-PINN Causal PINN (a) Causal PINN: causality parameter ϵ80 100 120 140 160
+> Ns
+> 10 −2
+> 10 −1
+> 10 0
+> Relative  L2 error PINN Causal PINN CI-PINN (b) CI-PINN: number of quadrature nodes Ns
+
+Figure 9: Two-dimensional Allen–Cahn equation. Relative L2 errors (4.1) versus the causality parameter ϵ
+
+in (B.3) for Causal PINN and the quadrature node counts Ns in (3.4) for CI-PINN. 
+
+relative L2 error is (8 .53 ± 0.03) × 10 −1. A substantial improvement is obtained only when ϵ is sufficiently large. Among the tested values, the best performance is achieved at ϵ = 10 3, for which Causal PINN attains a relative L2 error of (5 .12 ± 1.00) × 10 −2. By comparison, CI-PINN with 
+
+Ns = 80 achieves a markedly smaller error of (5 .09 ± 0.54) × 10 −3. Thus, even after tuning the causality parameter, Causal PINN remains about one order of magnitude less accurate than CI-PINN for this two-dimensional problem. Consistent with the one-dimensional results, Figure 9(b) shows that CI-PINN remains insensitive to the choice of Ns in the two-dimensional setting once Ns ≥ 4Nt.
+
+# 5 Conclusions 
+
+We have presented CI-PINN, a causal integral physics-informed neural network for evolution equations, which introduces a Volterra-type causal integral term at the representation level to embed temporal causality directly into the solution representation. We have also provided a rationale for the proposed architecture and detailed its practical implementation. Numerical comparisons with standard PINN and Causal PINN demonstrate improvements in solution accuracy and training robustness, while the sensitivity studies show that the quadrature node count requires little tuning once a sufficient temporal resolution is reached. The sparse-collocation results further suggest an implicit regularization effect of the proposed representation. Systematic ablation studies verify the contributions of both the temporally weighted causal integral term and the gating mechanism. These results demonstrate the effectiveness of incorporating temporal causality directly into the neural representation for solving evolution equations. Future work will investigate adaptive strategies for selecting quadrature nodes and temporal weights, with the aim of improving both efficiency and flexibility in history aggregation. Because the causal integral is taken only over time, extending the proposed architecture to higher-dimensional spatial problems beyond the one- and two-dimensional cases considered here is an important direction for future work. It would also be of interest to combine the proposed representation with alternative training strategies, adaptive sampling methods, and advanced optimization techniques, as well as to further characterize the theoretical effect of the causal integral representation on the approximation and optimization properties of physics-informed neural networks. 18 Code and data availability 
+
+The code and data supporting the findings of this study are available from the authors upon reasonable request. 
+
+# Appendix A Periodic feature embedding for exact boundary enforcement 
+
+Following [12, 29], periodic boundary conditions can be enforced exactly by using periodic feature embeddings for the spatial inputs. We first describe the one-dimensional case. For a spatial input 
+
+x ∈ [xl, x r], we replace x with 
+
+v(x) = (1 , cos( ωxx), sin( ωxx), . . . , cos( M ω xx), sin( M ω xx)) , (A.1) where ωx = 2 π/ (xr − xl) is the fundamental frequency and M is the number of harmonics. The neural network then takes ( t, v (x)) as input instead of ( t, x ). Since the embedding (A.1) is periodic with period xr − xl, the resulting network output is periodic in x by construction. For two-dimensional spatial domains, the periodic feature embedding is constructed by using tensor products of trigonometric features in the two coordinate directions. Let ( x, y ) ∈ [xl, x r]×[yl, y r]. The two-dimensional periodic feature embedding is given by 
+
+v(x, y ) = 
+
+> 
+
+cos( ωxx) cos( ωyy), cos( ωxx) cos(2 ωyy), · · · cos( Mxωxx) cos( Myωyy)cos( ωxx) sin( ωyy), cos( ωxx) sin(2 ωyy), · · · cos( Mxωxx) sin( Myωyy)sin( ωxx) cos( ωyy), sin( ωxx) cos(2 ωyy), · · · sin( Mxωxx) cos( Myωyy)sin( ωxx) sin( ωyy), sin( ωxx) sin(2 ωyy), · · · sin( Mxωxx) sin( Myωyy) 
+
+> 
+
+, (A.2) where ωx = 2 π/ (xr − xl), ωy = 2 π/ (yr − yl), and Mx, M y are positive integers. The neural network then takes ( t, v (x, y )) as input instead of ( t, x, y ). Since all components of the embedding (A.2) are periodic in x with period xr − xl and periodic in y with period yr − yl, the resulting network output is periodic in both spatial directions by construction. Moreover, if the activation functions are sufficiently smooth, the spatial derivatives obtained by automatic differentiation inherit the same periodicity from the sine and cosine features through the chain rule. Consequently, for the derivative orders required by the governing equation, including the zeroth-order case, we have 
+
+∂kx ˆu(t, x l, y ; θ) = ∂kx ˆu(t, x r, y ; θ), ∂ky ˆu(t, x, y l; θ) = ∂ky ˆu(t, x, y r; θ),
+
+where k = 0 corresponds to the periodicity of the function value itself. Thus, the periodic boundary conditions are enforced exactly at both the function and derivative levels. 
+
+# B Causal PINN 
+
+Conventional continuous-time PINNs typically minimize a residual loss aggregated over all space– time collocation points, which implicitly treats residuals at all time instants as equally learnable throughout optimization. Wang et al. [12] show that, for evolution equations, this practice can lead to a violation of temporal causality during training: residuals at later times may be reduced before the solution at earlier times is accurately resolved, allowing errors to propagate forward in time and trapping optimization in erroneous solutions. To enforce temporal precedence, they propose a simple 19 reweighting of the residual loss that activates later-time residual terms only after earlier-time losses become sufficiently small. Let 0 = t0 < t 1 < · · · < t Nt = T be a sequence of temporal points and {xj }Nx 
+
+> j=1
+
+be spatial collocation points. Based on the residual-loss definition in (2.5) and the residual in (2.4), define the temporal residual loss at time ti as 
+
+Lres (ti, θ ) = 1
+
+NxNx∑
+
+> j=1
+> ∣∣∣
+
+ˆut(ti, xj ; θ) + N [ˆ u]( ti, xj ; θ)
+
+> ∣∣∣2
+
+. (B.1) Using (B.1), we incorporate the initial condition into the temporal ordering by treating the initial-condition loss as the first temporal constraint: 
+
+L(t0, θ ) = ωic Lic (θ), L(ti, θ ) = ωres Lres (ti, θ ) (i ⩾ 1) , (B.2) where ωic , ω res > 0 are the usual loss weights. In the numerical experiments considered in this work, boundary conditions are imposed as hard constraints. If boundary conditions are enforced weakly, one may incorporate them analogously by adding a term ωbc Lbc (ti; θ) to L(ti; θ) for the relevant time levels. Based on the temporal loss (B.2), we define the weights {wi}Nt 
+
+> i=0
+
+by 
+
+w0 = 1 , wi = exp 
+
+> (
+
+−ϵ
+
+> i−1∑
+> j=0
+
+L(tj , θ )
+
+> )
+
+, i = 1 , 2, . . . , N t, (B.3) where ϵ > 0 is a causality parameter controlling the steepness of the temporal gating. The resulting causal training objective is 
+
+Lcausal (θ) = 1
+
+Nt + 1 
+
+> Nt∑
+> i=0
+
+wi L(ti, θ ). (B.4) Because the weights (B.3) decay exponentially with the cumulative loss at earlier times, residual terms at ti receive negligible weight until all preceding constraints {L (tj , θ )}j<i are sufficiently small; thus, optimization proceeds in a causality-respecting manner from early to late times. The PINN that is trained by minimizing (B.4) is referred to as Causal PINN. In the original implementation of Causal PINN, an annealing schedule for the causality parameter ϵ
+
+is used to gradually strengthen the temporal weighting. In our preliminary experiments, the annealing schedule did not consistently yield the best accuracy for the benchmark problems considered in this work. Therefore, to provide a stronger and more transparent baseline, we perform an independent sweep over fixed values of ϵ in the set 
+
+ϵ ∈ { 10 −4, 10 −3, 10 −2, 10 −1, 10 0, 10 1, 10 2, 10 3, 10 4},
+
+while keeping all other hyperparameters unchanged. This procedure can be viewed as a one-dimensional parameter sweep over the causality parameter. 
+
+# References 
+
+[1] M. Raissi, P. Perdikaris, G. E. Karniadakis, Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations, J. Comput. Phys. 378 (2019) 686–707. 20 [2] A. D. Jagtap, G. E. Karniadakis, Extended physics-informed neural networks (XPINNs): A generalized space-time domain decomposition based deep learning framework for nonlinear partial differential equations, Commun. Comput. Phys. 28 (2020) 2002–2041. [3] X. Meng, Z. Li, D. Zhang, G. E. Karniadakis, PPINN: Parareal physics-informed neural network for time-dependent PDEs, Comput. Methods Appl. Mech. Eng. 370 (2020) 113250. [4] C. L. Wight, J. Zhao, Solving Allen–Cahn and Cahn–Hilliard equations using the adaptive physics informed neural networks, Commun. Comput. Phys. 29 (2021) 930–954. [5] A. Krishnapriyan, A. Gholami, S. Zhe, R. Kirby, M. W. Mahoney, Characterizing possible failure modes in physics-informed neural networks, in: Advances in Neural Information Processing Systems, Vol. 34, Curran Associates, Inc., 2021, pp. 26548–26560. [6] R. Mattey, S. Ghosh, A novel sequential method to train physics informed neural networks for Allen–Cahn and Cahn–Hilliard equations, Comput. Methods Appl. Mech. Eng. 390 (2022) 114474. [7] M. Penwarden, A. D. Jagtap, S. Zhe, G. E. Karniadakis, R. M. Kirby, A unified scalable framework for causal sweeping strategies for physics-informed neural networks (PINNs) and their temporal decompositions, J. Comput. Phys. 493 (2023) 112464. [8] P. Roy, S. T. Castonguay, Exact enforcement of temporal continuity in sequential physics-informed neural networks, Comput. Methods Appl. Mech. Eng. 430 (2024) 117197. [9] J. Jung, H. Kim, H. Shin, M. Choi, CEENs: Causality-enforced evolutional networks for solving time-dependent partial differential equations, Comput. Methods Appl. Mech. Eng. 427 (2024) 117036. [10] J. Guo, Y. Yao, H. Wang, T. Gu, Pre-training strategy for solving evolution equations based on physics-informed neural networks, J. Comput. Phys. 489 (2023) 112258. [11] A. Daw, J. Bu, S. Wang, P. Perdikaris, A. Karpatne, Mitigating propagation failures in physics-informed neural networks using retain-resample-release (R3) sampling, in: Proceedings of the 40th International Conference on Machine Learning, PMLR, 2023, pp. 7264–7302. [12] S. Wang, S. Sankaran, P. Perdikaris, Respecting causality for training physics-informed neural networks, Comput. Methods Appl. Mech. Eng. 421 (2024) 116813. [13] N. Chen, S. Wang, R. Ma, A. Chen, C. Cui, Enforcing hidden physics in physics-informed neural networks, arXiv preprint arXiv:2511.14348 (2025). [14] X. Feng, H. Shangguan, T. Tang, X. Wan, Integral regularization PINNs for evolution equations, Commun. Comput. Phys. 39 (2026) 356–386. [15] R. Mojgani, M. Balajewicz, P. Hassanzadeh, Kolmogorov n-width and Lagrangian physics-informed neural networks: A causality-conforming manifold for convection-dominated PDEs, Comput. Methods Appl. Mech. Eng. 404 (2023) 115810. [16] Y. Gu, M. K. Ng, Deep adaptive basis Galerkin method for high-dimensional evolution equations with oscillatory solutions, SIAM J. Sci. Comput. 44 (2022) A3130–A3157. [17] X. Feng, H. Shangguan, T. Tang, X. Wan, T. Zhou, A hybrid FEM-PINN method for time-dependent partial differential equations, arXiv preprint arXiv:2409.02810 (2024). 21 [18] P. Ren, C. Rao, Y. Liu, J.-X. Wang, H. Sun, PhyCRNet: Physics-informed convolutional-recurrent network for solving spatiotemporal PDEs, Comput. Methods Appl. Mech. Eng. 389 (2022) 114399. [19] Z. Zhao, X. Ding, B. A. Prakash, PINNsFormer: A Transformer-based framework for physics-informed neural networks, in: The Twelfth International Conference on Learning Representations, 2024. [20] C. Xu, D. Liu, Y. Hu, J. Li, R. Qin, Q. Zheng, J. Xiong, Sub-sequential physics-informed learning with state space model, in: Proceedings of the 42nd International Conference on Machine Learning, PMLR, 2025, pp. 69507–69525. [21] M. Nagda, J. Abijuru, P. Ostheimer, M. Kloft, S. Fellenz, PIANO: Physics informed autoregres-sive network, arXiv preprint arXiv:2508.16235 (2025). [22] H. Su, L. Zhang, J. Zhao, SPIKE: Stable physics-informed kernel evolution method for solving hyperbolic conservation laws, arXiv preprint arXiv:2510.18266 (2025). [23] Y. Du, T. A. Zaki, Evolutional deep neural network, Phys. Rev. E 104 (2021) 045303. [24] J. Bruna, B. Peherstorfer, E. Vanden-Eijnden, Neural Galerkin schemes with active learning for high-dimensional evolution equations, J. Comput. Phys. 496 (2024) 112588. [25] Z. Chen, J. McCarran, E. Vizcaino, M. Soljačić, D. Luo, TENG: Time-evolving natural gradient for solving PDEs with deep neural nets toward machine precision, in: Proceedings of the 41st International Conference on Machine Learning, PMLR, 2024, pp. 7143–7162. [26] X. Zhang, F. Wu, X. Zhang, Y. Wang, H. Wu, Solving time-dependent partial differential equations via hard-constrained physics-informed neural networks with adaptive causal weighting, J. Comput. Phys. 563 (2026) 115119. [27] L. D. McClenny, U. M. Braga-Neto, Self-adaptive physics-informed neural networks, J. Comput. Phys. 474 (2023) 111722. [28] N. J. Zabusky, M. D. Kruskal, Interaction of “solitons” in a collisionless plasma and the recurrence of initial states, Phys. Rev. Lett. 15 (1965) 240–243. [29] S. Dong, N. Ni, A method for representing periodic functions and enforcing exactly periodic boundary conditions with deep neural networks, J. Comput. Phys. 435 (2021) 110242. 22
