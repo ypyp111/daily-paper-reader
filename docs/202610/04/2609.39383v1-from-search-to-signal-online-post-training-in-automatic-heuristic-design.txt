@@ -1,0 +1,737 @@
+Title: From Search to Signal: Online Post-Training in Automatic Heuristic Design
+
+URL Source: https://arxiv.org/pdf/2609.39383v1
+
+Published Time: Thu, 01 Oct 2026 01:22:32 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# From Search to Signal: Online Post-Training in Automatic Heuristic Design 
+
+## Yilun Yuan, Tianyu Zhou, and Zhenzhou Tang ∗
+
+Wenzhou University 
+
+25451354046@stu.wzu.edu.cn , 25451354054@stu.wzu.edu.cn , tzz@wzu.edu.cn 
+
+Abstract 
+
+Large language model (LLM)-based automatic heuristic de-sign (AHD) iteratively proposes and refines heuristics, often pairing design rationales with executable code. Task-specific evaluators assess programs; execution outcomes and perfor-mance scores guide subsequent search. Many AHD systems keep the generator frozen; EvoTune and Co-Evolution of Al-gorithms and Language Model (CALM) instead update it from evaluated candidates. When such outcomes drive re-inforcement learning with verifiable rewards (RLVR), they create a search-coupled loop: the same evaluated candidate stream supplies both search-state updates and training signals for the model that generates future candidates. Yet validity and performance do not uniquely determine useful model up-dates; converting them into learning signals must account for the prompt and evolving search state that produced each candidate. We formulate online post-training of small open-weight LLMs in AHD as context-dependent signal construc-tion and develop alternative mappings from program validity, task performance, and generation context to update signals. Using shared evaluated rollouts and matched update bud-gets, controlled experiments across AHD tasks and model families compare these mappings with online post-training baselines, testing their effects on validity, performance among valid proposals, and the yield of valid proposals that improve under pre-specified contextual comparisons. Complementary checkpoint, frozen-search, and live-system evaluations assess whether proposal-level gains appear in updated checkpoint be-havior and subsequent search, rather than arising solely from accumulated search state. A resource-matched comparison under pre-specified cost accounting tests whether online up-dating adds value beyond additional search with a frozen gen-erator. Together, this design avoids treating end-to-end search gains alone as evidence of stronger heuristic-design capabili-ties. 
+
+## 1 Introduction 
+
+Automatic heuristic design (AHD) searches for executable heuristics for a target optimization problem, extending a long line of work on generating and selecting heuristics from per-formance feedback (Burke et al. 2013). Large language model (LLM)-based systems generate programs, evaluate them on task instances, and use the resulting feedback to form later proposals. Population evolution, program databases, reflec-tion, and tree search organize this process in different ways 
+
+> ∗
+
+Corresponding author. 
+
+(Romera-Paredes et al. 2024; Liu et al. 2024a; Ye et al. 2024; Zheng et al. 2025; Novikov et al. 2025). Many such systems keep the generator parameters frozen during search. This choice accommodates black-box models and avoids training overhead, but confines adaptation to external state—such as retained programs, reflections, populations, and the prompts constructed from them. Recurring execution failures, inef-fective modifications, or task-specific design patterns cannot accumulate in the generator parameters and must instead be filtered or represented by the search procedure. Search experience can instead update the model, either after data collection (Liu et al. 2026a; Lee et al. 2026) or during the search itself (Šurina et al. 2025; Huang et al. 2026). Within-search updating allows recurring execution and performance feedback to alter future proposal distribu-tions through the model as well as through external search memory. It also gives each evaluated candidate two con-sumers. Search may admit it to the population and use it in later prompts; learning assigns credit to the tokens that produced it. These consumers share evidence but need not assign it the same value. Executable evaluation makes AHD amenable to reinforce-ment learning with verifiable rewards (RLVR), but verifica-tion reports what happened rather than how the policy should be updated. Program validity, failure type, and task score must still be mapped to reward, and the meaning of a score can depend on its parent and search state. Group Relative Policy Optimization (GRPO) then converts rewards into ad-vantages relative to completions from the same prompt (Shao et al. 2024). Numerically different rewards can therefore be-come learner-equivalent after normalization, while ordering, gating, and non-affine spacing can change the update. We isolate this search-to-signal transformation in Co-Evolution of Algorithms and Language Model (CALM; Fig-ure 1). Evolutionary operators, context construction, parent selection, population transitions, evaluation, grouping, nor-malization, and optimization are shared; only the mapping from evaluated records to learner rewards varies. We com-pare Native CALM, a validity–quality factorization, a pre-generation tail-weighted construction, and a search-exposure residual. These constructions instantiate controlled credit-assignment hypotheses inside one search-and-learning sys-tem; they are not separate search algorithms. Because live search couples a changing checkpoint with arXiv:2609.39383v1 [cs.LG] 30 Sep 2026 an accumulating population, endpoint performance cannot localize an effect. We trace reward differences through shared-record advantages, matched updates, proposal be-havior, restarted frozen-checkpoint search, live co-evolution, and a timing-derived frozen-search anchor. Our contributions are: 
+
+• Two-consumer formulation separates search-state up-dates from learner credit for the same evaluated stream. 
+
+• Normalizer-aware intervention tests which record dis-tinctions survive the actual learner pipeline. 
+
+• Layered attribution protocol separates checkpoint, ac-cumulated search-state, and resource-allocation effects. The reward constructions instantiate this audit rather than constituting a claim of universal superiority. At a common 500-group horizon, every trained condition improves live search over Frozen, but the mappings trade validity, valid-only performance, contextual improvement yield, and cov-erage. Base-rate calibration shows that most positive advan-tage mass follows the dominant class of valid non-improvers, while immediate improvements are strongly enriched relative to their frequency. After population reset, the Tail-weighted checkpoint remains better than the initial Frozen model in all three seeds, but its relation to its own live endpoint is mixed. Under timing-derived budgets for additional Frozen search, Native and Factorized each win only one of three seeds. In this CALM cohort, archive utility, peer-relative learner credit, and strict discovery are therefore not interchangeable. 
+
+## 2 Related Work 
+
+Search Procedures for LLM-Based AHD 
+
+LLM-based AHD instantiates a broader generate–evaluate paradigm that also underlies scored-solution prompting and executable reward evolution (Yang et al. 2024; Ma et al. 2024). Search procedures differ primarily in the state retained between generations and the way that state conditions new programs. FunSearch maintains high-scoring programs in a database (Romera-Paredes et al. 2024); EoH evolves natural-language heuristic ideas together with their implementations, and ReEvo augments evolution with reflective feedback (Liu et al. 2024a; Ye et al. 2024). LLaMEA places LLM-generated algorithms in an evolutionary loop (van Stein and Bäck 2025), whereas MCTS-AHD organizes heuristic lineages as a search tree (Zheng et al. 2025). AlphaEvolve scales evaluator-guided program evolution with model ensembles and a large program database (Novikov et al. 2025). LLM4AD provides common interfaces for search methods, model backends, algorithm-design tasks, and evaluation (Liu et al. 2024b); a complementary benchmark studies the contribution of evo-lutionary search across AHD methods, problems, and model backends (Zhang et al. 2024). Related search spaces include complete agent code and graph-structured multi-agent work-flows (Hu, Lu, and Clune 2025; Zhuge et al. 2024). Although their search memories and prompting strategies differ, these systems improve candidates without updating the generator during a run. 
+
+Model Adaptation from Search Experience 
+
+Search experience can also serve as training data, as in Ex-pert Iteration, AlphaZero, and Reinforced Self-Training (An-thony, Tian, and Barber 2017; Silver et al. 2018; Gulcehre et al. 2023). In AHD, Liu et al. form rank-based preference pairs from collected algorithms and apply direct preference optimization (DPO) before deployment (Rafailov et al. 2023; Liu et al. 2026a), while Evolution Fine-Tuning aggregates trajectories across tasks for mid-training (Lee et al. 2026). The trained component need not be the program genera-tor: HeurAgenix trains a heuristic selector, whereas AHD Agent trains a multi-turn, tool-using policy (Yang et al. 2025; Lv et al. 2026). A distinct setting adapts a model during the search that supplies its training data. EvoTune performs off-policy DPO over an expanding program database, and CALM applies GRPO to groups sampled from a shared evo-lutionary context (Šurina et al. 2025; Huang et al. 2026). ThetaEvolve likewise trains a mutation generator during pro-gram evolution and evaluates the resulting checkpoint under inference-only search (Wang et al. 2026). PACEvolve++ in-stead trains a strategic advisor, delegates code implementa-tion to a separate model, and changes the source of credit from group-relative feedback to frontier contribution across search phases (Yan et al. 2026). These systems establish online adaptation, checkpoint evaluation, and search-aware credit as close precedents. Our intervention keeps CALM’s search transition, end-to-end generator role, and GRPO nor-malizer fixed so that record-to-reward mappings and their downstream attribution can be compared directly. 
+
+Verifiable Feedback and Reward Construction 
+
+Executable evaluation supplies automatically checked out-comes for reinforcement learning with verifiable rewards: parsing and execution expose interface violations and run-time failures, while task evaluators score valid programs. Related systems train code generation from unit-test feed-back (Le et al. 2022; Liu et al. 2023) and rank reasoning with learned or rule-based verifiers (Cobbe et al. 2021; Guo et al. 2025). These observations still require a reward function be-fore they can update a policy. GRPO estimates a completion’s advantage relative to other samples from the same prompt (Shao et al. 2024), so reward construction and group nor-malization jointly determine the credit seen by the learner. GDPO further shows that changing the order of reward aggre-gation and normalization changes multi-reward optimization (Liu et al. 2026b). For discovery objectives, TTT-Discover combines state reuse with adaptive exponential weighting toward high-reward attempts (Yuksekgonul et al. 2026). Our tail-weighted construction explicitly reuses its concentration rule; our primary question is different: with the search proce-dure and GRPO estimator fixed, which distinctions in AHD evaluation records remain in the learner’s effective advan-tage? 
+
+## 3 Search-Coupled Online AHD 
+
+At round t, let St denote CALM’s pre-generation popula-tion state and let κt contain the sampled operator and base heuristics. Their prompt xt = C(St, κ t) produces a group (a) Search-coupled online post-training   
+
+> next search state and generation context
+> Search state
+> 𝑆 𝑡
+> Context
+> operator + parents
+> LLM candidates
+> 𝑦 𝑡, 1: 𝐺 ∼𝜋 𝜃 𝑡
+
+> _     
+
+> Execute & evaluate
+> validity + task score
+> Records 𝐷 𝑡
+> shared evidence
+> Search update
+> population / archive
+> Learner update
+> 𝑟 →ˆ𝐴 →𝜃
+> updated generator
+
+Ó search rules • fixed 
+
+8 reward mapping 𝜙 𝑎 • varied 
+
+L GRPO / update • fixed 
+
+(b) Expanded learner path                     
+
+> EVALUATED EVIDENCE
+> Outcome Task score Search context
+> VARIED
+> Reward construction
+> 𝑑 𝑡,𝑖 →𝑐 𝑎 𝑡,𝑖 →𝑟 𝑎 𝑡,𝑖
+> FIXED GROUP NORMALIZER
+> Effective learner advantage
+> ˆ𝐴 𝑎 𝑡,𝑖 =NGRPO (𝑟 𝑎 𝑡 )
+> FIXED UPDATE BACKEND
+> Policy update
+> 𝜃 𝑡 +1=U ( 𝜃 𝑡 ,ˆ𝐴 𝑎 𝑡 )
+> SIGNAL CONSTRUCTION
+> Only 𝜙 𝑎 varies across comparisons.
+
+Figure 1: Search-coupled online post-training and our intervention boundary. Each evaluated group updates the search state and supplies learner rewards. We keep search, group normalization, and optimization fixed and vary only ϕa. Live arms generate different future evidence once their models diverge. 
+
+yt,i ∼ πθt (· | xt), i = 1, . . . , G . Execution yields an outcome ot,i (valid or a typed failure) and, for valid pro-grams, a task score ft,i . We collect the pre-generation con-text and evaluation in dt,i = ( St, κ t, y t,i , o t,i , f t,i ) and write 
+
+Dt = ( dt, 1, . . . , d t,G ).The same record group has two consumers. CALM’s fixed transition T updates the population, whereas a reward con-struction ϕa maps the records to learner rewards. The first line below describes the search consumer; the remaining lines describe the learner path through reward components 
+
+cat , scalar rewards rat , normalized advantages Aat , and the optimizer U:
+
+St+1 ∼ T (St, D t),
+
+cat = ψa(Dt), rat = σa(cat ) = ϕa(Dt),
+
+Aat = N (rat ), θat+1 = U(θat , D t, Aat ).
+
+(1) Thus, evaluation outcomes and search events are evidence; they become learner credit only through ϕa. Across compar-isons we hold T , grouping, token masks, N , and U fixed and vary only ϕa. In shared-record experiments, Dt is also fixed. In live search, trajectories diverge after the first distinct update even though the procedures remain identical. CALM’s implementation standardizes rewards within each group, 
+
+Aat,i = rat,i − ¯rat
+
+s(rat ) + 10 −4 , (2) where s is the sample standard deviation. We call two mappings learner-equivalent on Dt when N (ϕa(Dt)) = 
+
+N (ϕb(Dt)) . A group-shared additive offset is removed ex-actly; positive rescaling is nearly removed when reward vari-ance dominates the numerical stabilizer, but can leave a small scale-dependent difference in low-variance groups. Beyond this numerical edge case, context changes the effective sig-nal through ordering, gating, ties, or non-affine spacing. We therefore audit both normalized advantages and matched pa-rameter updates rather than treating a different reward for-mula as sufficient evidence of a different learning signal. 
+
+## 4 Reward Constructions 
+
+Table 1 summarizes four constructions embedded in the same CALM loop. Here bt is the best prompt-base score, Ft the pre-generation frontier, ∆t,i = ft,i − bt, and ctr( ·) denotes within-set centering. Frozen CALM is the no-update control, not a fifth reward construction. 
+
+Native CALM. The released mapping assigns missing ra-tionale, missing code, interface failure, runtime failure, and detected randomness rewards of −1, −0.95 , −0.90 , −0.85 ,and −0.75 . Valid initialization candidates receive zero. Oth-erwise, with δ = clip( |f − b|/ min {| f |, |b|} , 10 −10 , 1) , an improvement receives 1 + δ, equality receives zero, and a degradation receives −3δ/ 8; a candidate identified as one of the prompt bases receives −3/5. Native therefore combines failure severity, validity, and context-relative quality in one piecewise scale. 
+
+Factorized Validity–Quality. Let vt,i ∈ {− 1, 1} encode invalid versus valid output. Among valid non-initialization candidates, define qt,i = ∆ t,i / RMS( ∆t), and set qt,i = 0 
+
+otherwise or when the eligible-set RMS is numerically zero. The reward 
+
+rF 
+
+> t,i
+
+= 12 vt,i + 12 qt,i (3) Table 1: Reward constructions compared with search, evaluation, grouping, and GRPO held fixed. The tail-weighted construction uses the group-concentration rule of TTT-Discover (Yuksekgonul et al. 2026); Search-Exposure Residual is evaluated only as a mechanism probe.                               
+
+> Construction Evidence and reference Reward supplied to GRPO Role
+> Native CALM Typed failures; nonlinear comparison with bt
+> Released piecewise reward rNOnline baseline Factorized Validity–Quality Binary validity; signed, RMS-scaled
+> ∆t,i for valid candidates
+> rF
+> t,i =12vt,i +12qt,i Separate feasibility from quality Pre-Generation Tail-Weighted Typed outcomes; pre-generation score novelty, repetition, and gap above Ft
+> rT
+> t,i =Gω t,i Emphasize the group upper tail Search-Exposure Residual Typed validity; ∆t,i ; counterfactual one-step parent exposure ρt,i
+> rS
+> t,i =aVt,i +aQt,i +aSt,i Search-derived mechanism probe Frozen CALM Same search and evaluator; updates disabled —No-update control
+
+is followed by one joint GRPO normalization. It is a scalar reward construction, not a two-loss or separately normalized multi-reward objective. 
+
+Pre-Generation Tail Weighting. For each group, a tie-aware midrank ut,i ∈ [0 , 1] places typed failures below valid candidates. Among valid candidates, it favors scores absent from the pre-generation archive and responses not repeated within the group. We retain magnitude only for positive fron-tier gaps, gt,i = [ ft,i − Ft]+/ RMS([ ft − Ft]+), and set 
+
+wt,i = ut,i + 12 gt,i . Following TTT-Discover’s concentra-tion rule, but not its PUCT or leave-one-out objective, we choose βt so that 
+
+ωt,i = eβtwt,i 
+
+. X 
+
+> j
+
+eβtwt,j ,DKL (ωt∥UG) = γt, γt = min {log 2 , log( G/k t)},
+
+(4) where kt counts tied maxima, and return rT 
+
+> t,i
+
+= Gω t,i . If the target equals the largest KL attainable under tied maxima, the implementation returns the limiting distribution that is uniform over those maxima; a constant group returns the uniform distribution. This KL controls concentration over the completion group; it is not policy–reference KL. 
+
+Search-Exposure Residual. This mechanism probe asks whether CALM’s fixed parent-selection rule supplies infor-mation beyond immediate quality. After counterfactually in-serting candidate i into the pre-generation archive, ρt,i ap-proximates its one-step exposure through CALM’s primary and secondary parent slots. On eligible valid candidates, we residualize ctr( ρt ⊙ ∆t) against the centered quality direc-tion: 
+
+est = ctr( ρt ⊙ ∆t) − proj ctr( ∆t) ctr( ρt ⊙ ∆t), (5) then combine centered, RMS-scaled validity aVt , quality aQt ,and a bounded rescaling aSt of est. A channel is set to zero when its centered scale is numerically zero. This changes learner credit only; parent selection and population transi-tions remain unchanged. Edge-case handling and scaling are fixed before the matched-update probe. 
+
+## 5 Controlled Evaluation 
+
+Scope. We separate mechanism, live-system, and attribu-tion evidence. Shared-record audits span four tasks, and matched updates span two tasks and two 7B model fami-lies with one seed per cell. The complete live cohort uses TSP and Qwen2.5-7B-Instruct with three seeds (42, 3407, 1926000), G = 4 , a population of ten, and 500 groups (2,000 completions) per run. Native, Factorized, Tail-weighted, and Frozen enter this cohort; Search-Exposure Residual remains a mechanism-only comparison. Trained conditions use rank-32 LoRA (Hu et al. 2022) and equal update opportunities. The run seed is the statistical unit, and we report seed-level values without asymptotic significance tests. 
+
+Implementation. We pin the released CALM implemen-tation and preserve its TSP operators, parent sampling, pop-ulation transition, collapse behavior, and evaluator across conditions. Prompts and completions are capped at 2,048 and 1,024 tokens, respectively, with a 4,096-token model context. The live horizon is 500 evaluated groups and the stagnation threshold is 25. Each online condition receives one optimizer opportunity per group; generated-token counts can still dif-fer because completion lengths differ, so we do not claim equal training-token budgets for live runs. Resolved configu-rations, source bundles, checkpoint hashes, and completion-level records are retained for every reported run; software and hardware details are provided in the supplementary material. 
+
+Attribution protocol. We first replay mappings on shared evaluated records and compare normalized advantages, including learner-equivalent and zero-advantage groups. Matched updates then hold the initial adapter, response to-kens, masks, reference log probabilities, optimizer steps, and training tokens fixed; adapter deltas and log probabilities on withheld contexts test whether a signal difference reaches the checkpoint. Live runs match initial conditions, seeds, and generation budgets but necessarily diverge after updating. Restarted runs load final adapters, reset the population, and disable further training. Frozen runs retain the same search with the initial model. For the resource comparison, setup-excluded loop times determine preregistered Frozen-search group budgets without using efficacy outcomes; endpoint (a) What survives group normalization?              
+
+> Additive shift
+> r0=r+b
+> (r0) = (r)
+> removed exactly
+> Positive rescaling
+> r0=ar ,a> 0
+> (r0) ≈ (r)
+> nearly removed
+> Gating / nonlinear spacing
+> r0=g(r)
+> (r0) ≠ (r)
+> can survive
+
+(b) Learner-path propagation Native–Factorized Native–Residual degenerate         
+
+> 10 −5 10 −3 10 −1
+> Max. |Δ̂ A|
+> TSP CVRP OBP OP
+> 0.98 0.17 9.7e-05 3.3e-05
+> 10 −3 threshold
+> Advantage separation
+> 0.0 0.5 1.0
+> Cosine
+> TSP · Qwen TSP · DS-Coder CVRP · Qwen† CVRP · DS-Coder TSP · Qwen (res.)
+> 0.977 0.405 0.015 0.815 0.885
+> Update direction
+> 0.008 .016
+> Max. |Δlog p|
+> 0.0053 0.0044 0.0155 0.0084 0.0118
+> Fixed-context change
+
+(c) Candidate prevalence and positive learner credit            
+
+> Invalid Valid, no gain Parent gain Frontier gain
+> 025 50 75 100
+> Share (%)
+> Native Factorized Tail-weighted
+> 90.9% 92.0% 80.5%
+> Candidate prevalence
+> 025 50 75 100
+> Share (%)
+> 83.3% 83.5% 85.5%
+> Positive advantage mass
+
+Figure 2: Learner-path audit. (a) Group standardization removes additive shifts and nearly removes positive rescaling, while gating and nonlinear spacing can survive. (b) Shared-record advantage separation, matched-update cosine, and fixed-context log-probability changes trace signal propagation; open markers denote a degenerate cell and green denotes Search-Exposure Residual. (c) Candidate prevalence calibrates positive-advantage mass by class base rate. Panel (b) establishes mechanism separation, not efficacy. metrics are recomputed from exact stored prefixes. Because prefix records lack timestamps, these are timing-derived bud-get anchors rather than exact realized-time matches. The con-tract was frozen for Native and Factorized before efficacy results, so Tail-weighted was not added post hoc. Native and Frozen are the principal baselines because the causal ques-tion requires the surrounding CALM loop to remain identi-cal; comparisons with other end-to-end AHD systems would change search and learning simultaneously. 
+
+Metrics. For N completions, valid set V, and comparison-eligible set I, we report 
+
+ValidRate = |V| /N, 
+
+ValidPerf = 
+
+P 
+
+> i∈V
+
+fi
+
+|V| ,
+
+ImproveYield = 
+
+P 
+
+> i∈I
+
+I[fi > b i]
+
+N .
+
+(6) Validity requires a finite task score and is distinct from eval-uator dispatch. In live runs, bi is induced by each condition’s evolving search state, so ImproveYield describes the con-textual proposal stream rather than context-free checkpoint capability. To compare credit with immediate search util-ity, we classify candidates as invalid, valid non-improving, parent-improving, or strict-frontier-improving and report class prevalence, positive advantage mass, its enrichment over prevalence, and the within-class positive-credit rate: 
+
+PD (c) = |{ i : zi = c}| 
+
+N ,PA(c) = 
+
+P
+
+> i
+
+[Ai]+I[zi = c]
+
+P
+
+> i
+
+[Ai]+
+
+,EA(c) = PA(c)/P D (c).
+
+(7) Here zi is the candidate class; ratios are reported only when their denominators are positive. We also report the within-class fraction receiving positive advantage. Archive admis-sions that beat the pre-generation frontier and exact-response, prompt, and parent-context uniqueness provide further diag-nostics; the latter are coverage proxies, not semantic diver-sity. CALM represents TSP fitness as negative tour length, so higher is better. Search quality is final best BT and trajectory 
+
+AUC =   
+
+> P
+> tBt
+> T
+
+for equal-horizon runs. For unequal resource-anchor horizons, final best at the preregistered group budget is primary; AUC is descriptive only. 
+
+## 6 Results 
+
+Signal-Propagation Analysis 
+
+The normalizer audit identifies apparent context dependence that cannot affect training. In 387 groups, both prompt com-parator and frontier were constant within the group, so adding either as a reward offset is eliminated by Equation 2. 0 50 100           
+
+> Completion share (%)
+> Frozen Native Factorized Tail-weighted
+> 60.9 93.9 95.6 85.1
+> (a) Execution outcomes
+> 0100 200 300 400 500
+> Generation groups
+> 0.00 0.02 0.04 0.06 0.08 0.10
+> Best-so-far gain
+> (b) Live-search progress
+> Frozen Native Factorized Tail-weighted
+> Live Restart Live Restart −0.04 −0.02 0.00 0.02 0.04 0.06
+> Gain over Frozen
+> (c) Live and restarted search
+> Valid Missing rationale Missing function Missing code Runtime failure Nondeterministic Final best Trajectory AUC
+
+Figure 3: Proposal and search outcomes. (a) Execution outcomes across three TSP–Qwen seeds. (b) Mean best-so-far gain; bands show the observed seed range. (c) Same-seed gains over Frozen under live updating (filled) and restarted, update-disabled search (open); lines connect seeds. Native/Factorized and Tail-weighted use independently matched restart cohorts. Table 2: Core TSP–Qwen2.5-7B live-search results over three matched seeds. Entries are mean ± sample standard deviation, and higher is better throughout. Bold marks the highest descriptive mean in each column, not statistical significance. Validity requires an executable completion with a finite task score and is distinct from evaluator dispatch. 
+
+Search outcomes Proposal stream Condition Final best Trajectory AUC Valid (%) Valid-only perf. Improve yield (%) Frozen -6.2329 ± 0.0105 -6.2417 ± 0.0046 60.85 ± 0.55 -9.8800 ± 0.8639 2.83 ± 0.50 Native -6.2090 ± 0.0289 -6.2203 ± 0.0196 93.92 ± 1.68 -6.4966 ± 0.0986 2.98 ± 1.16 Factorized -6.2041 ± 0.0116 -6.2179 ± 0.0087 95.60 ± 0.64 -6.7488 ± 0.1168 3.60 ± 1.25 Tail-weighted -6.1963 ± 0.0248 -6.2123 ± 0.0148 85.12 ± 2.50 -7.0468 ± 0.2214 4.63 ± 0.33 
+
+Among 422 midrank groups, comparator and frontier indica-tors changed no ordering when score remained the secondary key; pre-generation score novelty and response repetition re-ordered 159 ( 37 .7% ) and 20 ( 4.7% ), respectively. Native and Factorized produce distinct shared-record ad-vantages on TSP and CVRP-ACO but are nearly equivalent on OBP and OP (Figure 2(b)). Of the 12 audited groups, eight have maximum advantage difference at most 0.001 and three yield zero advantage under both mappings; the median group maximum is 0.0000672 , despite a mean of 0.1216 driven by the separated TSP and CVRP groups. On TSP–Qwen, five matched updates use 20 common completions and 5,957 to-kens per condition. Their adapter deltas have cosine 0.9769 ,and the maximum withheld-context log-probability differ-ence is 0.00526 . Three of four task–model cells yield gen-uine update differences; CVRP–Qwen is degenerate. Search-Exposure Residual changes advantages in 52/100 shared groups, has adapter-delta cosine 0.8851 with Native, and reaches 0.0118 maximum fixed-context difference. These re-sults establish mechanism separation, not search efficacy. 
+
+Proposal-Stream Analysis 
+
+Frozen yields 60 .85% valid completions; Native, Factor-ized, and Tail-weighted reach 93 .92% , 95 .60% , and 85 .12% 
+
+(Table 2). Every trained condition improves valid-only per-formance over Frozen in all seeds, but Native has the best trained-condition mean. Relative to Native, Factorized and Tail-weighted increase contextual improvement yield but reduce valid-only performance; Tail-weighted also reduces validity. Feasibility, conditional quality, and contextual im-provement are therefore distinct outcomes. The feasibility gain is operator dependent. Injection shows the largest paired changes: Native, Factorized, and Tail-weighted raise validity over Frozen by 86 .73 , 91 .75 , and 
+
+58 .13 points, respectively. This shows adaptation to a dif-ficult output contract, but does not alone establish stronger algorithmic reasoning. 
+
+Credit–Utility Alignment Analysis 
+
+The valid non-improver class accounts for 90 .93% of Native candidates, 92 .00% of Factorized candidates, and 80 .48% of Tail-weighted candidates. Its corresponding shares of posi-tive advantage mass are 83 .30% , 83 .50% , and 85 .51% (Fig-ure 2(c)). The resulting mass-to-prevalence ratios are 0.916 ,
+
+0.908 , and 1.062 , while parent- and frontier-improving candidates are enriched by 2.83 –6.72 ×. Within the non-improver class, 29 .34% , 22 .59% , and 26 .32% receive posi-tive advantage. A non-improver also receives positive credit when its entire group fails to improve in 42 .53% , 31 .33% ,and 78 .07% of rounds. Thus, most absolute credit follows the dominant candidate class, but mappings redistribute credit relative to that base rate. Group centering necessarily as-signs positive advantage within any nonconstant group, so these values do not show that such credit is erroneous or harmful; they show that peer-relative credit is not immediate comparator improvement. Signal density also differs: Fac-torized yields zero advantage in 60 .73% of groups, versus 
+
+7.00% for Tail-weighted. Archive admission is different again. Only 32 of 1,282 Native admissions, 29 of 918 Factorized admissions, 54 of 3,819 Tail-weighted admissions, and 17 of 2,540 Frozen ad-missions beat the pre-generation frontier. Admissions may preserve future stepping stones; the point is that archive util-ity, learner credit, and strict discovery are not interchangeable labels. 
+
+Live-Search Results 
+
+At the common 500-group horizon, every trained condition improves final best and AUC over Frozen in every matched seed (Figure 3(b)). Mean final/AUC gains are +0 .0240 / +0.0214 for Native, +0 .0289 / + 0 .0238 for Factorized, and 
+
++0 .0366 / + 0 .0294 for Tail-weighted. When each online trajectory is truncated at the same-seed number of evaluator calls made by Frozen, Native and Factorized remain ahead in every seed. Additional evaluator calls are therefore not the sole explanation, although earlier validity and archive changes remain possible mediators. No trained mapping uniformly dominates Native: both Factorized and Tail-weighted have mixed paired directions across seeds. Relative to Frozen, exact-response uniqueness changes by −10 .98 , −7.32 , and +0 .57 points for Native, Factorized, and Tail-weighted; prompt uniqueness changes by −9.20 , −15 .40 , and +11 .00 . These reproducible cover-age proxies are not semantic diversity measures. Single-seed live comparisons on the remaining task–model cells are directionally mixed, so we do not pool them with the three-seed cohort. In an independent Native/Factorized cohort, final heuristics were also evaluated on held-out TSP instances at three problem sizes; Factorized has lower mean optimality gap at every size, but the observed seed ranges overlap. These checks support scope and failure-mode anal-ysis rather than a general superiority claim. 
+
+Checkpoint and Search-State Attribution Analysis 
+
+After resetting the population and disabling further updates, Factorized changes final score/AUC relative to Native by 
+
+−0.0098 / − 0.0139 on average, with mixed seed direc-tions (Figure 3(c)); its valid-only performance is lower in all three seeds. We therefore find no consistent evidence that the Factorized–Native live ordering persists after reset. In the independently matched Tail-weighted cohort, restarted search improves final score and AUC over the initial Frozen model in all three seeds, by +0 .0191 and +0 .0205 on av-erage; validity rises by 18 .60 points and valid-only perfor-mance by 3.009 . Relative to its own live parent, however, the restart has mixed final-score directions and mean final/AUC changes of −0.0175 /−0.0089 . The updated checkpoint thus retains measurable value over the initial generator, while the live endpoint still reflects accumulated search state and its interaction with online updates. Under preregistered Frozen-search budgets derived from measured loop times, endpoint differences are mixed. Native and Factorized each outperform the corresponding Frozen prefix in one of three seeds; their mean online-minus-Frozen final-best differences are −0.0113 and +0 .0035 , respec-tively. Both online conditions nevertheless yield higher va-lidity and valid-only proposal performance in every paired seed. Mean validity gains are 33 .78 and 33 .45 percentage points, and mean valid-only gains are 1.382 and 1.388 , for Native and Factorized, respectively. These are budget an-chors, not exact time matches: full-trajectory Frozen time differs from the Native online target by +1 .61% , −13 .56% ,and −12 .48% across seeds, while timestamps are unavailable for the shorter Factorized prefixes. Online updating therefore changes the observed proposal stream consistently in this co-hort, but does not reliably dominate additional Frozen search at the endpoint. 
+
+## 7 Discussion, Limitations, and Conclusion 
+
+At the common horizon, all trained conditions improve live search over Frozen, but reward mappings trade validity, valid-only quality, signal density, and coverage. Tail-weighted re-tains an advantage over the initial model after reset with-out consistently reproducing its live endpoint. No mapping uniformly dominates, and timing-derived anchors show no consistent endpoint advantage over additional Frozen search. The two-consumer view explains these differences. Search may retain a stepping stone without immediate frontier gain, while GRPO may reinforce the best member of an unproduc-tive group. Archive admission, positive advantage, and strict discovery therefore answer different questions. Our residual construction shows that search-derived information can sur-vive the normalizer, but establishes mechanism rather than efficacy. Our conclusions are limited to one co-evolutionary host. Multi-seed efficacy covers TSP and one 7B model; other task–model cells provide mechanism breadth only. Four-sample groups amplify ties, completion rewards cannot sep-arate rationale from code, and coverage hashes are not se-mantic diversity. Matched updates test token probabilities on common contexts, while a supplementary two-seed CVRP probe evaluates final checkpoints with executable comple-tions on a shared prompt bank but yields no stable order-ing. Executable restarts subsequently diverge in context and therefore remain attribution tests rather than fixed-context capability estimates. Realized timing drift and missing pre-fix timestamps also preclude exact multiseed time-matched inference. Online AHD should therefore be evaluated as a search-to-signal system: evaluated records separately reshape search and become learner credit through reward construction and normalization. Tracing both paths distinguishes parameter changes, reset-search behavior, and live gains. Reward con-struction is thus a testable component of search-coupled AHD rather than an implementation detail. References 
+
+Anthony, T.; Tian, Z.; and Barber, D. 2017. Thinking Fast and Slow with Deep Learning and Tree Search. In Advances in Neural Information Processing Systems , volume 30. Burke, E. K.; Gendreau, M.; Hyde, M.; Kendall, G.; Ochoa, G.; Özcan, E.; and Qu, R. 2013. Hyper-Heuristics: A Survey of the State of the Art. Journal of the Operational Research Society , 64(12): 1695–1724. Cobbe, K.; Kosaraju, V.; Bavarian, M.; Chen, M.; Jun, H.; Kaiser, L.; Plappert, M.; Tworek, J.; Hilton, J.; Nakano, R.; Hesse, C.; and Schulman, J. 2021. Training Verifiers to Solve Math Word Problems. arXiv:2110.14168. Gulcehre, C.; Paine, T. L.; Srinivasan, S.; Konyushkova, K.; Weerts, L.; Sharma, A.; Siddhant, A.; Ahern, A.; Wang, M.; Gu, C.; Macherey, W.; Doucet, A.; Firat, O.; and de Fre-itas, N. 2023. Reinforced Self-Training (ReST) for Language Modeling. arXiv:2308.08998. Guo, D.; Yang, D.; Zhang, H.; Song, J.; Wang, P.; Zhu, Q.; Xu, R.; Zhang, R.; Ma, S.; Bi, X.; Zhang, X.; Yu, X.; Wu, Y.; Wu, Z. F.; Gou, Z.; Shao, Z.; Li, Z.; Gao, Z.; et al. 2025. DeepSeek-R1 Incentivizes Reasoning in LLMs through Re-inforcement Learning. Nature , 645: 633–638. Hu, E. J.; Shen, Y.; Wallis, P.; Allen-Zhu, Z.; Li, Y.; Wang, S.; Wang, L.; and Chen, W. 2022. LoRA: Low-Rank Adaptation of Large Language Models. In International Conference on Learning Representations .Hu, S.; Lu, C.; and Clune, J. 2025. Automated Design of Agentic Systems. In The Thirteenth International Conference on Learning Representations .Huang, Z.; Wu, W.; Wu, K.; Wang, J.; and Lee, W.-B. 2026. CALM: Co-Evolution of Algorithms and Language Model for Automatic Heuristic Design. In The Fourteenth Interna-tional Conference on Learning Representations .Le, H.; Wang, Y.; Gotmare, A. D.; Savarese, S.; and Hoi, S. C. H. 2022. CodeRL: Mastering Code Generation through Pretrained Models and Deep Reinforcement Learning. In 
+
+Advances in Neural Information Processing Systems , vol-ume 35. Lee, Y.-J.; Kim, S.; Kang, M.; Chuen, A. C. L.; Chen, Z.; Han, S.; Jung, T.; and Kang, D. 2026. Evolution Fine-Tuning: Learning to Discover Across 371 Optimization Tasks. arXiv:2606.29082. Liu, F.; Tong, X.; Yuan, M.; Lin, X.; Luo, F.; Wang, Z.; Lu, Z.; and Zhang, Q. 2024a. Evolution of Heuristics: To-wards Efficient Automatic Algorithm Design Using Large Language Model. In Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceed-ings of Machine Learning Research , 32201–32223. PMLR. Liu, F.; Zhang, R.; Lin, X.; Lu, Z.; and Zhang, Q. 2026a. Fine-Tuning Large Language Model for Automated Algo-rithm Design. In The Fourteenth International Conference on Learning Representations .Liu, F.; Zhang, R.; Xie, Z.; Sun, R.; Li, K.; Lin, X.; Wang, Z.; Lu, Z.; and Zhang, Q. 2024b. LLM4AD: A Platform for Large Language Model-Based Automatic Algorithm Design. arXiv:2412.17287. Liu, J.; Zhu, Y.; Xiao, K.; Fu, Q.; Han, X.; Yang, W.; and Ye, D. 2023. RLTF: Reinforcement Learning from Unit Test Feedback. Transactions on Machine Learning Research .Liu, S.-Y.; Dong, X.; Lu, X.; Diao, S.; Belcak, P.; Liu, M.; Chen, M.-H.; Yin, H.; Wang, Y.-C. F.; Cheng, K.-T.; Choi, Y.; Kautz, J.; and Molchanov, P. 2026b. GDPO: Group Reward-Decoupled Normalization Policy Optimization for Multi-Reward RL Optimization. In Proceedings of the 43rd International Conference on Machine Learning .Lv, H.; Lu, N.; Zhou, Z.; and Liu, S. 2026. AHD Agent: Agen-tic Reinforcement Learning for Automatic Heuristic Design. arXiv:2605.08756. Ma, Y. J.; Liang, W.; Wang, G.; Huang, D.-A.; Bastani, O.; Jayaraman, D.; Zhu, Y.; Fan, L.; and Anandkumar, A. 2024. Eureka: Human-Level Reward Design via Coding Large Lan-guage Models. In The Twelfth International Conference on Learning Representations .Novikov, A.; V˜ u, N.; Eisenberger, M.; Dupont, E.; Huang, P.-S.; Wagner, A. Z.; Shirobokov, S.; Kozlovskii, B.; Ruiz, F. J. R.; Mehrabian, A.; Kumar, M. P.; See, A.; Chaudhuri, S.; Holland, G.; Davies, A.; Nowozin, S.; Kohli, P.; and Balog, M. 2025. AlphaEvolve: A Coding Agent for Scientific and Algorithmic Discovery. arXiv:2506.13131. Rafailov, R.; Sharma, A.; Mitchell, E.; Ermon, S.; Manning, C. D.; and Finn, C. 2023. Direct Preference Optimization: Your Language Model Is Secretly a Reward Model. In 
+
+Advances in Neural Information Processing Systems , vol-ume 36, 53728–53741. Romera-Paredes, B.; Barekatain, M.; Novikov, A.; Balog, M.; Kumar, M. P.; Dupont, E.; Ruiz, F. J. R.; Ellenberg, J. S.; Wang, P.; Fawzi, O.; Kohli, P.; and Fawzi, A. 2024. Mathematical Discoveries from Program Search with Large Language Models. Nature , 625(7995): 468–475. Shao, Z.; Wang, P.; Zhu, Q.; Xu, R.; Song, J.; Bi, X.; Zhang, H.; Zhang, M.; Li, Y. K.; Wu, Y.; and Guo, D. 2024. DeepSeekMath: Pushing the Limits of Mathematical Rea-soning in Open Language Models. arXiv:2402.03300. Silver, D.; Hubert, T.; Schrittwieser, J.; Antonoglou, I.; Lai, M.; Guez, A.; Lanctot, M.; Sifre, L.; Kumaran, D.; Grae-pel, T.; Lillicrap, T.; Simonyan, K.; and Hassabis, D. 2018. A General Reinforcement Learning Algorithm that Masters Chess, Shogi, and Go through Self-Play. Science , 362(6419): 1140–1144. Šurina, A.; Mansouri, A.; Quaedvlieg, L. C. P. M.; Seddas, A.; Viazovska, M.; Abbe, E.; and Gulcehre, C. 2025. Al-gorithm Discovery with LLMs: Evolutionary Search Meets Reinforcement Learning. In The 2nd Conference on Lan-guage Modeling .van Stein, N.; and Bäck, T. 2025. LLaMEA: A Large Language Model Evolutionary Algorithm for Automatically Generating Metaheuristics. IEEE Transactions on Evolu-tionary Computation , 29(2): 331–345. Wang, Y.; Su, S.-R.; Zeng, Z.; Xu, E.; Ren, L.; Yang, X.; Huang, Z.; He, X.; Ma, L.; Peng, B.; Cheng, H.; He, P.; Chen, W.; Wang, S.; Du, S. S.; and Shen, Y. 2026. ThetaEvolve: Test-Time Learning on Open Problems. In Proceedings of the 43rd International Conference on Machine Learning .Yan, M.; Peng, B.; Coleman, B.; Chen, Z.; Xie, Z.; Chen, S.; He, Z.; Sachdeva, N.; Wang, W.; Chi, E. H.; Venkatara-man, S.; Kang, W.-C.; Cheng, D. Z.; and Wang, B. 2026. PACEvolve++: Improving Test-Time Learning for Evolution-ary Search Agents. arXiv:2605.07039. Yang, C.; Wang, X.; Lu, Y.; Liu, H.; Le, Q. V.; Zhou, D.; and Chen, X. 2024. Large Language Models as Optimiz-ers. In The Twelfth International Conference on Learning Representations .Yang, X.; Zhang, L.; Qian, H.; Song, L.; and Bian, J. 2025. HeurAgenix: Leveraging LLMs for Solving Complex Com-binatorial Optimization Challenges. arXiv:2506.15196. Ye, H.; Wang, J.; Cao, Z.; Berto, F.; Hua, C.; Kim, H.; Park, J.; and Song, G. 2024. ReEvo: Large Language Models as Hyper-Heuristics with Reflective Evolution. In Advances in Neural Information Processing Systems , volume 37, 43571– 43608. Yuksekgonul, M.; Koceja, D.; Li, X.; Bianchi, F.; McCaleb, J.; Wang, X.; Kautz, J.; Choi, Y.; Zou, J.; Guestrin, C.; and Sun, Y. 2026. Learning to Discover at Test Time. In Pro-ceedings of the 43rd International Conference on Machine Learning .Zhang, R.; Liu, F.; Lin, X.; Wang, Z.; Lu, Z.; and Zhang, Q. 2024. Understanding the Importance of Evolutionary Search in Automated Heuristic Design with Large Language Models. In Parallel Problem Solving from Nature – PPSN XVIII , volume 15149 of Lecture Notes in Computer Science ,185–202. Springer. Zheng, Z.; Xie, Z.; Wang, Z.; and Hooi, B. 2025. Monte Carlo Tree Search for Comprehensive Exploration in LLM-Based Automatic Heuristic Design. In Proceedings of the 42nd In-ternational Conference on Machine Learning , volume 267 of 
+
+Proceedings of Machine Learning Research , 78338–78373. PMLR. Zhuge, M.; Wang, W.; Kirsch, L.; Faccio, F.; Khizbullin, D.; and Schmidhuber, J. 2024. GPTSwarm: Language Agents as Optimizable Graphs. In Proceedings of the 41st Inter-national Conference on Machine Learning , volume 235 of 
+
+Proceedings of Machine Learning Research , 62743–62767. A Evidence Scope and Claim Hierarchy 
+
+The experiments are deliberately layered because live search couples a changing generator to an accumulating population. Table 3 states the statistical unit and the strongest claim sup-ported by each layer. The three-seed TSP–Qwen cohort is the only full multi-seed live efficacy study; other task/model cells establish mechanism or directional breadth. No result is pooled across these evidence roles as if the layers were repeated estimates of a single estimand. 
+
+## B Reward Construction and Normalizer Details 
+
+Native CALM branch semantics 
+
+For completion i in group t, Native CALM first assigns typed invalid rewards 
+
+rN 
+
+> t,i
+
+∈ {− 1, −0.95 , −0.90 , −0.85 , −0.75 } (8) for missing rationale, missing code, missing required func-tion, runtime failure, and detected randomness, respectively. A valid initialization completion receives zero. Otherwise let 
+
+f be the task score and b the best prompt-base score. With 
+
+δ(f, b ) = clip 
+
+ |f − b|
+
+min {| f |, |b|} , 10 −10 , 1
+
+
+
+, (9) the released implementation assigns 1 + δ to an improve-ment, zero to numerical equality, −3δ/ 8 to a degradation, and −3/5 to the branch for a candidate identified as one of the prompt bases. Thus Native reward is already context-relative and nonlinear; it is not raw task performance. 
+
+Factorized Validity–Quality 
+
+Let vi = 1 for a valid executable completion and vi = −1
+
+otherwise. For the eligible valid subset Vt, let ∆i = fi − bt
+
+and 
+
+qi =
+
+(
+
+∆i/
+
+q
+
+|Vt|−1 P 
+
+> j∈Vt
+
+∆2 
+
+> j
+
+, i ∈ Vt,
+
+0, i / ∈ Vt. (10) The quality channel is set to zero when its RMS is nu-merically zero, for initialization without a comparator, or when no valid candidate is eligible. The scalar reward is 
+
+rF 
+
+> i
+
+= ( vi + qi)/2, followed by one joint GRPO normaliza-tion. The construction is factorized at the evidence level, not as two losses or two independently normalized objectives. 
+
+Pre-Generation Tail Weighting 
+
+The Tail-weighted construction uses only the population and frontier captured before generating the group. A tie-aware midrank utility orders typed failures below valid candidates; within valid candidates it encodes score novelty with respect to the pre-generation archive and exact repetition within the response group. It retains positive frontier-gap magnitude through 
+
+gi = [fi − Ft]+
+
+q
+
+|Vt|−1 P 
+
+> j∈Vt
+
+[fj − Ft]2+
+
+, wi = ui + 12 gi.
+
+(11) The gap channel is zero when its denominator is zero. We then use the adaptive concentration rule attributed and dis-cussed in the main paper: 
+
+ωi(β) = exp( βw i)
+
+P 
+
+> j
+
+exp( βw j ) ,DKL (ω(β)∥UG) = min {log 2 , log( G/k )}.
+
+(12) where k is the number of tied maxima. The returned reward is Gω i. When a tied maximum makes the target attainable only as β → ∞ , the implementation returns the limiting dis-tribution uniform over the maxima. A constant group returns the uniform distribution. This group-weight KL is unrelated to the policy–reference KL coefficient in GRPO. 
+
+Search-Exposure Residual 
+
+This mechanism probe counterfactually inserts one candi-date into the frozen pre-generation population and evaluates its one-step exposure through CALM’s primary-parent and crossover-secondary routes. Let ρi denote total exposure and 
+
+∆i = fi − bt. After centering on eligible valid rows, the search component removes the immediate-quality direction: 
+
+q = ctr( ∆)RMS(ctr( ∆)) + ϵ ,
+
+m = ctr( ρ ⊙ ∆),
+
+s⊥ = m − ⟨m, q⟩⟨q, q⟩ + ϵ q,
+
+aS = s⊥
+
+RMS(ctr( ∆)) + 2 RMS( s⊥) + ϵ .
+
+(13) Here ϵ = 10 −8. The quality and centered typed-validity channels use their respective RMS scales and are set to zero when that scale is at most ϵ. The residual is deliberately not normalized to unit RMS: the denominator above bounds its RMS below 1/2 and prevents a numerically tiny resid-ual from becoming a full-strength channel. The raw learner reward is the sum of the validity, quality, and aS channels before the fixed group normalizer. This probe changes nei-ther the actual parent sampler nor population transition, and is not assigned live-efficacy status in the paper. 
+
+Implemented learner equivalence 
+
+For group rewards r, the implementation uses 
+
+N (r) = r − ¯r1
+
+s(r) + 10 −4 . (14) For any shared offset b,
+
+N (r + b1) = N (r) (15) exactly. For a > 0,
+
+N (ar) = a(r − ¯r1)
+
+as (r) + 10 −4 , (16) so positive rescaling is approximately, rather than exactly, invariant when as (r) ≫ 10 −4. Low-variance groups can re-tain a small difference. Finally, a threshold tier that is itself Table 3: Evidence hierarchy and claim map. “Shared” identifies quantities held identical across conditions. A dash under seeds means that the unit is a shared record group rather than an independently generated search trajectory.                                    
+
+> Layer Tasks Models Seeds Shared evidence Claim supported
+> Normalizer replay TSP, CVRP, OBP, OP recorded generators –evaluated records whether reward differences survive group normalization Matched update TSP, CVRP Qwen2.5-7B, DeepSeek-Coder-7B 1/cell tokens, masks, reference log probabilities, update budget whether an advantage difference reaches parameter updates Formal live cohort TSP Qwen2.5-7B 3starts, seeds, 500 groups proposal-stream and equal-horizon live-search effects Frozen restart TSP Qwen2.5-7B 3final adapter, reset population, zero updates checkpoint effect after removing accumulated live population Directional breadth CVRP; TSP (DeepSeek only) Qwen2.5-7B (CVRP); DeepSeek-Coder-7B 1/cell task/model protocol within cell directional breadth across three task–model cells, not multi-seed efficacy Resource anchor TSP Qwen2.5-7B 3preregistered timing-derived group budgets endpoint sensitivity to allocating compute to extra Frozen search Common-context probe CVRP Qwen2.5-7B 264 prompts, four sampling positions executable checkpoint behavior on identical contexts API system reference TSP provider-reported GPT-4o-mini 32,000-completion budget only completion-matched frozen-system reference, not a causal model comparison
+
+Table 4: Principal software environment recorded by formal manifests.                
+
+> Python 3.10.20 PyTorch 2.5.1 Transformers 4.49.0 TRL 0.15.1 PEFT 0.14.0 Unsloth 2025.3.18 vLLM 0.7.3 Ray 2.40.0 NumPy 1.26.4 bitsandbytes 0.45.2
+
+monotone in performance and uses the same performance order inside each tier induces the same total order as per-formance alone. A subsequent midrank therefore leaves the learner signal unchanged. This no-op was verified on both synthetic and recorded groups before the final Tail-weighted construction represented frontier gap as a numeric compo-nent rather than a redundant tier. 
+
+## C Implementation and Reproducibility 
+
+Source boundary and software 
+
+The search host is pinned to the recorded CALM source revision ecb3cadcf4b0 . The intervention wrapper ex-ecutes the native evaluator and population transition be-fore replacing only the learner-facing scalar reward. Formal runs record resolved configuration, source-bundle identifier, source cleanliness, adapter checksums, and SHA-256 check-sums of completion and step records. 
+
+Hardware 
+
+The CALM evaluator is CPU-intensive. Historical shared-host records show periods of CPU contention on the shared GPU host; those observations are not used as model-speed evidence. Hardware identifiers and runtime snapshots are not reported; accelerator class and memory are sufficient to describe the resource context without exposing machine-specific details. 
+
+Final experimental parameters 
+
+Python random , NumPy, Hugging Face/TRL, and LoRA initialization receive the run seed. The ACO evaluators use fixed Torch generators. CUDA, vLLM, and Ray execution are not claimed to be bitwise deterministic; the independent run seed is therefore the statistical unit. Formal completion records retain outcome, score, prompt/operator context, raw reward components, scalar reward, normalized advantage, archive event, response hash, and pre-generation frontier. Prompt and parent hashes provide coverage diagnostics with-out claiming semantic diversity. 
+
+## D Complete Formal and Breadth Results 
+
+Seed-level formal cohort 
+
+## E Search–Learning Interaction Diagnostics 
+
+Task and model breadth 
+
+The breadth cells are single-seed directional evidence. Online updating raises validity in all six trained conditions across Table 5: Hardware used by reported experiments. CPU and operating-system fields were not consistently captured on the historical remote 3090 and A100 hosts; we report this absence instead of inferring their models. Wall-clock claims use only the preregistered timing-derived resource protocol and do not pool throughput across these heterogeneous hosts.          
+
+> Host class Accelerator CPU / memory / OS Evidence role
+> Local workstation 3×NVIDIA RTX 4090, 24,564 MiB each; driver 550.144.03 Intel Xeon w5-2455X, 12 cores/24 threads; 125 GiB RAM; Linux 5.15 most formal live runs, including at least one run from every condition; Qwen breadth; Gate-4 prefixes; API-served frozen runs; common-context probe Shared GPU host 4×NVIDIA RTX 3090, 24,576 MiB each CPU model, RAM, and OS not archived in formal manifests selected Tail-weighted live/restart runs; one Frozen formal seed; DeepSeek-Coder breadth; sequential Frozen references A100 host 1×NVIDIA A100, 40,960 MiB CPU model, RAM, and OS not archived in formal manifests selected mechanism and breadth cells; one Tail-weighted formal seed
+
+Table 6: Final parameters for the formal local-model experiments. Values not explicitly overridden in the runner are the recorded TRL 0.15.1 defaults shown here.                                    
+
+> Search / generation Value Optimization Value
+> Task / live model TSP / Qwen2.5-7B-Instruct Adapter LoRA rank 32, alpha 64 Seeds 42, 3407, 1926000 Target modules q, k, v, o, gate, up, down projections Groups / completions 500 / 2,000 Quantization 4-bit base model Prompts per step / group size 1 / 4 Learning rate 5×10 −5, constant Population size 10 Optimizer 8-bit AdamW Operator weights simplification 1; injection 1; replacement 2; crossover 4 Adam betas / weight decay 0.9, 0.99 / 0.1 Stagnation threshold 25 groups Warmup / max grad norm 0 / 0.1 Prompt / completion limit 2,048 / 1,024 tokens Batch / grad accumulation 1 / 1 Model context 4,096 tokens Epochs / optimizer opportunities 1 / 500 Sampling temperature 0.9 Policy–reference KL coefficient 0.04 vLLM memory utilization 0.8 Precision BF16 when supported, else FP16
+
+the three task–model cells relative to their Frozen control, but final-best and AUC directions vary. They therefore support the separation between feasibility learning and downstream search efficacy, not a cross-task superiority claim. 
+
+Operators and proposal outcomes 
+
+Against Frozen, Native and Factorized improve validity for every operator in all three matched seeds. Mean validity gains range from 19.1–86.7 percentage points for Native and 19.5–91.7 points for Factorized, with injection show-ing the largest increase because Frozen injection frequently fails before producing an executable program. Tail-weighted also raises operator-level validity, but by a smaller 14.2–58.1 points. These changes do not translate monotonically to par-ent improvement or strict-frontier improvement. For exam-ple, Native crossover increases parent-improvement rate by 1.62 points on average and is positive in 3/3 seeds, whereas its replacement and simplification differences are negative on average. Operator-conditioned validity is therefore one location of training gain, not a sufficient explanation of dis-covery. 
+
+Population admission is not learner credit 
+
+Across formal runs, archive admission is much more frequent than strict frontier improvement. Frontier precision among admissions is only 0.37 –4.95% for Native/Factorized/Frozen and 0.95 –2.14% for Tail-weighted. This is expected because CALM’s population supports search coverage and later par-ent construction, not only immediate frontier advances. It also demonstrates why added_to_archive cannot be treated as a synonym for positive learner credit or strict dis-covery. 
+
+Credit allocation and base rates 
+
+Valid non-improvers constitute 90 .9% , 92 .0% , and 80 .5% 
+
+of candidates under Native, Factorized, and Tail-weighted, and receive 83 .3% , 83 .5% , and 85 .5% of positive advan-tage mass. The corresponding mass-to-prevalence ratios are 
+
+0.916 , 0.908 , and 1.062 . Immediate parent improvements are rare but strongly enriched: their mass-to-prevalence ra-tios are 5.19 , 4.34 , and 2.83 ; the corresponding strict-frontier ratios are 6.72 , 6.10 , and 3.98 . Strict-frontier candidates re-ceive positive advantage in 100% , 100% , and 96 .15% of their occurrences, respectively. Thus the dominant class ab-sorbs most mass by volume, while immediate improvements Table 7: Complete three-seed TSP–Qwen live cohort. Panel (a) reports mean ± sample standard deviation; bold marks the highest descriptive mean in each column and does not imply statistical significance. Panel (b) lists all seed-level records. Higher is better for all performance columns; Valid and Improve are percentages, and every seed contains 2,000 completions. 
+
+(a) Aggregate comparison 
+
+Condition Final best Trajectory AUC Valid (%) Valid-only perf. Improve (%) Frozen -6.2329 ± 0.0105 -6.2417 ± 0.0046 60.85 ± 0.55 -9.8800 ± 0.8639 2.83 ± 0.50 Native -6.2090 ± 0.0289 -6.2203 ± 0.0196 93.92 ± 1.68 -6.4966 ± 0.0986 2.98 ± 1.16 Factorized -6.2041 ± 0.0116 -6.2179 ± 0.0087 95.60 ± 0.64 -6.7488 ± 0.1168 3.60 ± 1.25 Tail-weighted -6.1963 ± 0.0248 -6.2123 ± 0.0148 85.12 ± 2.50 -7.0468 ± 0.2214 4.63 ± 0.33                                                                                                         
+
+> (b) Seed-level records
+> Condition Seed Final best AUC Valid Valid-only Improve Frontier Training tokens Frozen 42 -6.2240 -6.2399 60.85 -10.7900 3.35 0.40 0Frozen 3407 -6.2303 -6.2384 60.30 -9.0710 2.35 0.30 0Frozen 1926000 -6.2445 -6.2470 61.40 -9.7790 2.80 0.15 0Native 42 -6.1771 -6.2015 94.60 -6.5016 2.55 0.80 1,197,560 Native 3407 -6.2163 -6.2189 95.15 -6.3956 4.30 0.30 638,135 Native 1926000 -6.2336 -6.2406 92.00 -6.5925 2.10 0.50 1,050,993 Factorized 42 -6.1973 -6.2172 95.45 -6.8650 3.70 0.45 954,138 Factorized 3407 -6.2174 -6.2270 95.05 -6.7501 4.80 0.50 976,358 Factorized 1926000 -6.1975 -6.2095 96.30 -6.6314 2.30 0.55 820,341 Tail-weighted 42 -6.2117 -6.2237 82.60 -7.2974 4.25 0.60 1,163,619 Tail-weighted 3407 -6.1677 -6.1956 87.60 -6.8776 4.85 1.55 1,246,899 Tail-weighted 1926000 -6.2095 -6.2176 85.15 -6.9655 4.80 0.70 1,149,907
+
+Table 8: Single-seed directional live-search breadth. These cells assess directional consistency across tasks and model families and do not support uncertainty or aggregate superiority claims. 
+
+Task Model Variant Final best Trajectory AUC Valid (%) Valid-only perf. Improve (%) CVRP DeepSeek Coder Frozen -9.0676 -9.3136 49.20 -12.2861 3.35 CVRP DeepSeek Coder Native -8.7337 -8.8805 81.00 -10.6994 3.45 CVRP DeepSeek Coder Factorized -8.9977 -9.0951 81.50 -11.2008 2.85 CVRP Qwen2.5 Frozen -9.1271 -9.4523 63.90 -11.0669 5.60 CVRP Qwen2.5 Native -9.1517 -9.4046 88.85 -10.3968 5.00 CVRP Qwen2.5 Factorized -9.1097 -9.4950 94.80 -10.5522 5.60 TSP DeepSeek Coder Frozen -6.2424 -6.2494 55.60 -8.4719 2.65 TSP DeepSeek Coder Native -6.2445 -6.2566 87.55 -8.8024 2.45 TSP DeepSeek Coder Factorized -6.2403 -6.2497 89.70 -7.1444 1.75 
+
+are disproportionately reinforced. The result is not evidence that the 83% mass is erroneous; it quantifies the difference between peer-relative credit and immediate search progress. 
+
+Collapse and exact recurrence 
+
+Collapse events reset the population but not the learned adapter. In collapse-centered windows, validity and valid-only performance changes are mixed and high variance; the analysis is observational because collapse timing depends on the preceding trajectory. Exact-response recurrence is higher for positive than nonpositive completions in most trained seeds. Within 25 later groups, the positive-minus-nonpositive recurrence difference ranges from 1.66 to 3.88 
+
+percentage points for Native, from −0.42 to 1.04 points for Factorized, and from 0.27 to 1.91 points for Tail-weighted. These hashes detect exact replay only; they do not measure semantic or algorithmic diversity. 
+
+## F Checkpoint, Search-State, Generalization, and Resources 
+
+Live versus population-reset search 
+
+For Tail-weighted, the restarted checkpoint beats the initial Frozen model in final best in all three seeds, with deltas 
+
++0 .0054 , +0 .0075 , and +0 .0444 (mean +0 .0191 ). Relative to its own live endpoint, however, restart deltas are −0.0069 ,
+
+−0.0551 , and +0 .0095 (mean −0.0175 ). The parent check-point checksum equals the restart initial checksum in every seed; restart runs have zero training tokens and zero optimizer steps. The checkpoint therefore retains useful behavior be-yond the initial model, while the live endpoint still contains substantial search-state contribution. −0.02 0.00 0.02 0.04 0.06 
+
+> Paired difference
+> Native − Frozen Factorized − Frozen Tail-weighted − Frozen Factorized − Native Tail-weighted − Native
+
+(a) Final-best difference    
+
+> −0.02 0.00 0.02 0.04
+> Paired difference
+> Native − Frozen Factorized − Frozen Tail-weighted − Frozen Factorized − Native Tail-weighted − Native
+
+(b) Trajectory-AUC difference     
+
+> −10 010 20 30
+> Paired difference
+> Native − Frozen Factorized − Frozen Tail-weighted − Frozen Factorized − Native Tail-weighted − Native
+
+(c) Valid-rate difference (pp)   
+
+> 012
+> Paired difference
+> Native − Frozen Factorized − Frozen Tail-weighted − Frozen Factorized − Native Tail-weighted − Native
+
+(d) Improvement-yield difference (pp)    
+
+> seed 42 seed 3407 seed 1926000 mean; bar = range
+
+Figure 4: Within-seed paired differences for the formal live cohort. Diamonds denote means and bars the observed three-seed range. Positive values favor the first condition. Differences against Frozen combine online updating with the named reward construction; differences against Native isolate reward construction within the same online-training host. 
+
+Held-out TSP sizes 
+
+Held-out artifact evaluation uses CALM’s native TSP eval-uator at all available problem sizes. Because search selects a final heuristic using the training evaluator, held-out perfor-mance is reported separately from live proposal validity and fixed-context checkpoint behavior. 
+
+Timing-derived Frozen-search anchors 
+
+Native and Factorized each beat the longer Frozen prefix in one of three seeds. Their mean online-minus-Frozen final-best deltas are −0.0113 and +0 .0035 , respectively. Online updating nevertheless increases validity and valid-only per-formance in every row. The measured full-run time gap is +1 .61% for seed 42 and −13 .56% /−12 .48% for seeds 3407/1926000; shorter Factorized prefixes lack timestamps. We consequently call these preregistered timing-derived group-budget anchors, not exact realized-time matches. Unequal-horizon AUC is not used for a causal comparison. 
+
+## G Common-Context Executable Checkpoint Probe 
+
+The main study’s matched-update probe shows that a reward difference reaches adapter parameters and fixed-context to-ken probabilities. To test executable behavior more directly, we additionally evaluate six final CVRP–Qwen checkpoints on a common bank of 64 prompts. Each checkpoint gen-erates four completions per prompt from the same prompt positions, for 256 completions and 1,536 total records. This probe uses two checkpoint seeds and was completed after the main experiment freeze; it is supplementary diagnostic evidence. Factorized has the highest validity and improvement rate in seed 3407 but the lowest validity in seed 1926000. Native is above Frozen in validity in both seeds, but only seed 3407 produces an improvement. The probe therefore confirms that executable checkpoint effects can be measured under iden-tical contexts, while providing no stable two-seed ordering among reward constructions. Its low absolute validity also shows that a fixed CVRP prompt bank can be more difficult than the endogenous live contexts generated by each search arm. 
+
+## H API-Served Frozen-System Reference 
+
+The external evidence directory contains several API di-agnostics. Only one cohort satisfies the precondition of three completed 2,000-completion runs: a provider-reported 
+
+gpt-4o-mini model used as a frozen generator in the CALM search loop. The API served one completion per re-quest and therefore used 2,000 sequential groups, whereas local conditions used 500 four-completion groups. The completion budget matches, but prompt grouping, latency, provider, and model are different. The model name is 100 200 300 400 500                   
+
+> Generation group (50-group windows)
+> 60 80 100
+> (a) Valid completions (%)
+> 100 200 300 400 500
+> Generation group (50-group windows)
+> −17.5 −15.0 −12.5 −10.0 −7.5
+> (b) Valid-only performance
+> 100 200 300 400 500
+> Generation group (50-group windows)
+> 0510 15
+> (c)
+> Contextual improvement yield (%)
+> 100 200 300 400 500
+> Generation group (50-group windows)
+> 020 40 60
+> (d) Within-group exact repeats (%)
+> Frozen Native Factorized Tail-weighted
+
+Figure 5: Stage-wise proposal behavior over early (groups 1–100), middle (101–250), and late (251–500) search. These values describe each condition’s endogenous live contexts; they are not fixed-prompt checkpoint evaluations. provider-reported and was not independently verified. We report this as a system reference, not as a causal model-only baseline or a claim against an official proprietary service. At the same total completion count, the API-served refer-ence has mean validity 82 .45% and final best −6.2188 . The grouped local three-seed means are 60 .85% / − 6.2329 for Frozen, 93 .92% / − 6.2090 for Native, 95 .60% / − 6.2041 for Factorized, and 85 .12% / − 6.1963 for Tail-weighted. These descriptive values do not isolate model strength: local condi-tions have four-way group generation and, for trained arms, online parameter updates. The comparison only shows where one completed API-served frozen system falls under its own CALM protocol. DeepSeek-v4-flash runs stopped at 845–1,281 of 2,000 completions because of repeated empty-content responses; DeepSeek-v4-pro and GPT-5.5 runs were also incomplete. They are excluded from every efficacy table. No partial end-point or best-so-far value from those runs is used to rank systems. 
+
+## I Provenance, Exclusions, and Reproduction Map 
+
+The arXiv source package accompanying this document con-tains the manuscript sources, bibliography, style files, figures, and tables needed to reproduce the submitted PDF. The un-derlying experiment code and raw records are not included in this LaTeX package. The reported results are based on the following materials retained during the study: 
+
+• the pinned CALM source revision, formal source-bundle patches, and intervention runner; 
+
+• formal and breadth configuration files with local model paths omitted from the public package; 
+
+• unit tests for reward mappings, permutation/tie invari-ance, record schemas, and evidence builders; 
+
+• completion- and step-level records for the 12 formal live runs, excluding adapter checkpoints; 
+
+• deterministic analysis scripts and aggregate CSV files used by the main paper and this supplement; 
+
+• sanitized common-context and API summaries with source-file hashes; 
+
+• the environment specification and figure/table build com-mands. Credentials, API endpoints, machine usernames, personal absolute paths, GPU UUIDs, raw provider responses, model weights, and multi-gigabyte adapter checkpoints are ex-cluded from the submitted package. Local model weights must be obtained from their original distributors. All incom-plete, killed, and smoke-only runs remain outside formal result builders. Native Factorized TSP / Qwen CVRP / Qwen TSP / DS-Coder CVRP / DS-Coder     
+
+> +46.9 +26.7 -24.6 +17.5 -2.1 +2.1 +333.8 +69.8
+
+(a) 
+
+Final-best gain vs. Frozen (×10 −3 )     
+
+> Native Factorized TSP / Qwen CVRP / Qwen TSP / DS-Coder CVRP / DS-Coder
+> +38.4 +22.6 +47.7 -42.6 -7.2 -0.4 +433.1 +218.5
+
+(b) 
+
+Trajectory-AUC gain vs. Frozen (×10 −3 )     
+
+> Native Factorized TSP / Qwen CVRP / Qwen TSP / DS-Coder CVRP / DS-Coder
+> +33.7 +34.6 +24.9 +30.9 +31.9 +34.1 +31.8 +32.3
+
+(c) 
+
+Valid-rate gain vs. Frozen (percentage points)      
+
+> Native Factorized TSP / Qwen CVRP / Qwen TSP / DS-Coder CVRP / DS-Coder
+> +4.29 +3.92 +0.67 +0.51 -0.33 +1.33 +1.59 +1.09
+
+(d) 
+
+Valid-only gain vs. Frozen (task score) Figure 6: Directional live breadth in three single-seed cells spanning TSP/CVRP-ACO and two 7B model families. Markers show observed directions rather than uncertainty estimates. Table 9: Three-seed Gate-4 endpoint comparisons under preregistered, timing-derived Frozen-search group budgets. ∆ is online minus Frozen, so higher values favor online updating. Frozen metrics are recomputed from exact stored prefixes. The budgets are not exact realized-time matches; full-run timing drift and unavailable timestamps for shorter prefixes are reported in the text. 
+
+Seed Online condition Groups (online/Frozen) Online final Frozen final ∆ final ∆ valid (pp) ∆ valid-only 42 Native 500/883 -6.2176 -6.2167 -0.0010 +27.01 +0.742 42 Factorized 500/762 -6.2221 -6.2167 -0.0055 +25.42 +0.545 3407 Native 500/572 -6.2217 -6.2303 +0.0086 +34.45 +2.360 3407 Factorized 500/536 -6.1939 -6.2303 +0.0365 +34.43 +2.004 1926000 Native 500/581 -6.2419 -6.2003 -0.0415 +39.88 +1.045 1926000 Factorized 500/500 -6.2208 -6.2003 -0.0205 +40.50 +1.617 
+
+Table 10: Common-context executable CVRP–Qwen checkpoint probe. The fixed prompt bank makes validity and contextual improvement directly comparable within a seed. “Improve | valid” conditions on valid completions; “Best-of-4 improve” is the fraction of the 64 prompts whose sampled group contains an improvement. Higher is better. 
+
+Seed Checkpoint Valid / 256 Valid (%) Valid-only perf. Improve | valid (%) Best-of-4 improve (%) 3407 Frozen 7 2.73 -8.9086 0.00 0.00 3407 Native 12 4.69 -8.8106 8.33 1.56 3407 Factorized 33 12.89 -9.5113 12.12 3.12 1926000 Frozen 7 2.73 -8.9086 0.00 0.00 1926000 Native 8 3.12 -8.8336 0.00 0.00 1926000 Factorized 3 1.17 -8.6397 0.00 0.00 Simplify Inject Replace Crossover 0200 400 600 800 
+
+> Events per 1,000 proposals
+
+(a) Operator-conditioned search funnel      
+
+> Valid Archive-admitted Parent-improving Frontier-improving
+> 020 40 60 80 100
+
+Share of positive advantage mass (%) 
+
+> Native Factorized Tail-weighted
+
+(b) Learner credit by candidate outcome   
+
+> Invalid Valid non-improving Parent-improving Frontier-improving
+> Early Middle Late 010 20 30 40 50 60
+> Prior-step exact repeats (%)
+
+(c) Exact recurrence across search phases 
+
+> Frozen Native Factorized Tail-weighted
+> Frozen Native Factorized Tail-weighted −1 0123
+> Positive minus non-positive 50-step recurrence (pp)
+
+(d) Credit--recurrence association Figure 7: Diagnostic atlas from the 12-run formal cohort. Panels decompose operator-conditioned proposal funnels, archive admission versus immediate frontier contribution, collapse-centered observational changes, and exact response recurrence. Coverage and collapse panels are descriptive and do not identify causal effects of individual search operators. Table 11: Completed provider-reported GPT-4o-mini frozen-system reference. Each row uses 2,000 sequential completions and zero updates. Higher is better for performance columns. Rows are repeated seeds rather than competing methods, so no best-seed value is highlighted. 
+
+Seed Valid (%) Valid-only Improve (%) Frontier (%) Final best AUC Prompt tok. Completion tok. 42 82.05 -9.0526 3.25 0.25 -6.2202 -6.2435 1,745,317 672,208 3407 82.15 -9.8845 4.30 0.30 -6.2254 -6.2395 1,890,022 713,864 1926000 83.15 -9.6897 4.65 0.75 -6.2109 -6.2518 1,842,358 711,707 Mean 82.45 -9.5423 4.07 0.43 -6.2188 -6.2449 1,825,899 699,260 Live search Frozen restart 0510 15 20 25 30 35 
+
+> pp
+
+(a) Validity gain vs. Frozen  
+
+> Live search Frozen restart −10.0 −7.5 −5.0 −2.5 0.0 2.5 5.0
+> score
+
+(b) Valid-only gain vs. Frozen  
+
+> Live search Frozen restart −2 024
+> pp
+
+(c) Improvement-yield gain vs. Frozen  
+
+> Live search Frozen restart −40 −20 020 40
+> ×10 −3
+
+(d) Final-best gain vs. Frozen  
+
+> Live search Frozen restart −30 −20 −10 010 20
+> ×10 −3
+
+(e) Trajectory-AUC gain vs. Frozen 
+
+> Native Factorized live system frozen restart zero = same-seed Frozen seed 42 seed 3407 seed 1926000
+
+Figure 8: Same-seed live and frozen-restart results. Restart conditions load a final adapter, reset the population, and execute zero optimizer steps. A live endpoint therefore includes both checkpoint and accumulated-population effects, whereas restart tests the checkpoint in a new search trajectory. n=50 n=100 n=200 
+
+Held-out TSP size 
+
+10 11 12 13 14 15 
+
+> Optimality gap (%) ↓
+
+## Held-out performance of final Gate-3 heuristics 
+
+Native Factorized 
+
+Figure 9: Held-out TSP evaluation of final heuristics at the available problem sizes. This evaluates discovered heuristic artifacts, not fixed-context checkpoint generation. Seed-level points remain visible.
