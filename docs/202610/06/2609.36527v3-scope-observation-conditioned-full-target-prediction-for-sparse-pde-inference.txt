@@ -1,0 +1,3059 @@
+SCOPE: OBSERVATION-CONDITIONED FULL-TARGET
+PREDICTION FOR SPARSE PDE INFERENCE
+A PREPRINT
+Ruichen Xu1,†,
+Siyao Wang2,
+Fang Wan1,
+Jiacheng Qiu1,
+Wenhan Gao1,
+Jiaxing Zhang3,
+Linsey Pang4,6,
+Ravid Shwartz-Ziv5,
+Prakhar Mehrotra4,
+Yann LeCun5,
+Yuefan Deng1,†
+1Stony Brook University
+2University of California, Davis
+3Independent Research
+4PayPal
+5New York University
+6Northeastern University
+Code: https://github.com/ru1ch3n/SCOPE
+ABSTRACT
+Recovering complete physical fields from sparse observations is challenging because the measure-
+ments may not uniquely determine the underlying state. Diffusion-based PDE solvers address this
+problem through iterative sampling whereas neural operators provide deterministic one-pass pre-
+dictions. We propose SCOPE (Sparse-Context Observability-aware Predictive Embeddings) to
+recover complete PDE fields from sparse observations by coupling full-field latent prediction with
+physical reconstruction. A shared decoder reconstructs fields from both predicted and complete-
+view representations so that representation learning is guided by both physical recovery and latent
+matching. We derive a quadratic risk decomposition at fixed teacher–decoder pairs showing why
+optimal latent prediction need not yield optimal field reconstruction. We also establish sufficient
+conditions for decoder improvements on complete inputs to transfer to recovery from partial obser-
+vations. Experiments across five PDE settings show that SCOPE outperforms mask-aware neural
+operators on all ten forward and inverse tasks and achieves lower errors than those reported for
+diffusion-based solvers including DiffusionPDE and FunDPS. Decoder-only adaptation further im-
+proves recovery without retraining the backbone while retaining deterministic single-pass inference.
+1
+Introduction
+Partial differential equations (PDEs) describe physical systems across science and engineering (Evans, 2010; Quar-
+teroni, 2017; Karniadakis et al., 2021). Forward problems predict responses from physical inputs, while inverse prob-
+lems recover unknown inputs from observed responses (Kaipio and Somersalo, 2005; Stuart, 2010). Neural operators
+learn surrogate mappings between function spaces, producing field predictions through a network evaluation after
+training (Li et al., 2021; Lu et al., 2021; Kovachki et al., 2023). With incomplete measurements, however, predictors
+must use partial observations of an input field, a response field, or both (Asch et al., 2016; Reichle, 2008). This creates
+two distinct challenges: ❶Incomplete information, because the evidence may not uniquely determine the fields; and
+❷Changing observation coverage, because measurement densities and layouts vary. We study paired-field recovery
+with one model per PDE setting and complete paired fields for training supervision.
+Diffusion-based methods condition field generation on partial observations (Huang et al., 2024; Yao et al., 2025).
+Predictive representation learning offers a complementary context–target approach (Assran et al., 2023), including
+prediction of contextualized full-input representations from partial inputs (Baevski et al., 2022). For physical recov-
+ery, the question is how to connect these representation targets to the observations and reconstructed fields. Spatial
+coverage does not generally identify latent recoverability: measurements may cover only part of a token’s foot-
+print, while spatially mixed features may depend on values elsewhere. We therefore use physical masks to condition
+†Corresponding authors: Ruichen Xu (ruichen.xu@stonybrook.edu) and Yuefan Deng (yuefan.deng@stonybrook.edu).
+arXiv:2609.36527v3  [cs.LG]  1 Oct 2026
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+1
+2
+3
+Observation coverage changes
+Prediction, not equality
+Predictions can change when more of the field is observed.
+Sparse
+Clustered
+Dense
+a
+u
+Less observed
+More observed
+Fewer observations
+More observations
+Observed �
+Predicted �
+Observed �
+Predicted �
+Observed �
+Predicted �
+Observed �
+Predicted �
+� (values)
+� (mask)
+� (values)
+� (mask)
+� (full)
+� (full)
+Latent representation
+�
+�
+Latent target (stop-gradient)
+�
+�
+We observe different fractions of the fields (�, �) at test time.
+Full-field targets guide recovery
+SCOPE uses sparse context inputs and full-field targets to learn a useful latent representation for field reconstruction.
+Additional observations can change the prediction, so cross-context equality need not be enforced.
+Full (all points)
+Full observations ��
+Predicted full fields ��   
+Full-field supervision target �
+Context
+encoder
+��
+Predictor 
+��
+Field
+decoder
+��
+EMA teacher
+��
+��
+�
+Sparse context input �� 
+Latent supervision
+(match representations)
+��
+Field supervision
+(match full fields)
+��
+Full observations provide the reconstruction target
+Figure 1: Overview of SCOPE. (1) Observation coverage varies across contexts: different densities and layouts
+provide alternative observations of the same physical realization. (2) Prediction, not equality: predictions may
+change with additional evidence despite a common complete-field target. (3) Full-field targets guide recovery:
+complete training pairs separately provide teacher representations for latent prediction LJ and physical fields for
+reconstruction LF . Joint recovery is illustrated. Figure 2 details the training pathways; Section 3.2 describes decoder
+adaptation. Field maps are schematic, not experimental results.
+prediction, not as recoverability labels for selecting latent targets. This motivates a common full-target objective
+across observation contexts, coupled to physical reconstruction, without assuming that every latent feature is exactly
+recoverable from every context.
+We propose SCOPE: Sparse-Context Observability-aware Predictive Embeddings. Here, observability-aware denotes
+conditioning on measurements and their availability, not estimating an observable latent subspace. A mask-conditioned
+student predicts the complete representation of an exponential-moving-average teacher with uniform relative coordi-
+nate weights. A shared nonlinear decoder reconstructs the paired fields from both the student’s prediction and the
+online encoder’s full-view representation, training both pathways for physical reconstruction. To refine the readout
+without retraining the representation, we freeze the encoder, predictor, and conditioner and fit a replacement decoder
+to their sparse-context representations. This sparse-path decoder-only adaptation separates decoder optimization from
+backbone training and uses complete training targets offline, without optimizing on test examples. Both native and
+adapted models retain deterministic, single-pass inference from the supplied context.
+Our contributions are threefold.
+(1) We develop a field-grounded predictive framework combining observation-
+conditioned full-target regression, shared physical reconstruction, and sparse-path decoder adaptation. (2) We for-
+malize latent recoverability and analyze recovery at fixed learned representations. A quadratic reference separates
+observation uncertainty, decoder incompatibility, and predictor excess risk; a separate physical-error bound gives suf-
+ficient conditions for complete-to-sparse decoder transfer (Section 3.3 and Appendices A–D). (3) We evaluate sparse
+forward and inverse recovery across elliptic and flow problems, separating backbone-recipe comparisons from adap-
+tation at a fixed Full backbone. The experiments demonstrate competitive results across the evaluated tasks; training
+settings, observation protocols, and decoder-adaptation costs are detailed in the appendix.
+2
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+2
+Problem Setting and Related Work
+2.1
+PDE Inference under Partial Observations
+PDE-based inverse problems recover unknown coefficients, sources, or initial states from response measure-
+ments (Kaipio and Somersalo, 2005; Stuart, 2010). Classically, y = O(F(a)) + ε, where F : A →U is the
+PDE solution operator, O the measurement process, and ε possible measurement noise. Partial measurements may
+admit multiple physical states, making recovery depend on both the observations and the field distribution (Stuart,
+2010; Asch et al., 2016). We consider conditional paired-field recovery from partial observations of either channel or
+both.
+Let X = (a, u) ∈R2N denote paired fields on a fixed grid Ωh, with one independently trained model per PDE
+setting handling its different observation tasks. The channels represent source/solution, permeability/pressure, or
+scalar flow snapshots, as specified with the grid in Appendix E.2. Flow channels are not velocity components; the
+setting concerns paired-field recovery rather than multi-PDE pretraining or autoregressive rollout.
+Write e
+X = N(X) = (ea, eu) for the pair under the fixed released normalization. For masks M = (Ma, Mu), the input
+is YM = (Ma ⊙ea, Ma, Mu ⊙eu, Mu), where Ma, Mu ∈{0, 1}N and ⊙denotes elementwise multiplication. One
+means observed; missing normalized entries are zero-filled, with explicit masks distinguishing them from measured
+zeros. The implemented observations are selected directly from the released fields using the specified masks. Complete
+training pairs supply latent and physical targets; inference receives only YM.
+Forward recovery observes a and evaluates u; inverse recovery observes u and evaluates a; joint recovery observes
+both and evaluates each. The model reconstructs both channels. These names specify recovery direction, not unique
+identifiability. Cylinder flow additionally supplies released disk values in both channels (Appendix E.4). Complete
+visibility of the active channel does not expose the hidden channel beyond this conditioning; observing the complete
+pair makes e
+X available.
+Tasks, budgets, and layouts vary while the complete-field target space stays fixed. Uniform points, regular grids,
+random lines, clusters, and blocks all belong to backbone training. Their construction and batch schedule are
+detailed in Appendix E.3. Held-out fields and fresh masks evaluate the reported observation conditions; the distinction
+between backbone training and adapted-model evaluation is specified in Appendix G.
+2.2
+Related Work
+Neural operators learn function-space mappings for PDE inference (Kovachki et al., 2023), including FNO (Li et al.,
+2021), DeepONet (Lu et al., 2021), CNO (Raoni´c et al., 2023), and attention-based GNOT and Transolver (Hao
+et al., 2023; Wu et al., 2024). Their treatment of spatial interactions and discretization is distinct from the obser-
+vation process: changing numerical representations need not remove measurements, whereas partial observations
+change the evidence for prediction (Gao et al., 2025). Sparse-context training also differs from zero-filling only at
+evaluation. LANO uses mask-to-predict learning and latent autoregressive reconstruction with incomplete training
+observations (Hou et al., 2026); SCOPE forms partial contexts from complete paired training fields.
+Generative methods combine learned field distributions with measurements during inference. DiffusionPDE condi-
+tions field generation on partial observations (Huang et al., 2024), while FunDPS uses guided diffusion sampling in
+function spaces (Yao et al., 2025). PISD, PRISMA, EquiReg, and DDIS study spectral representations, physics-
+informed attention, equivariance regularization, and decoupled prior-and-operator guidance, respectively (Gallon
+et al., 2026; Sawhney et al., 2025; Tolooshams et al., 2025; Lin et al., 2026). SCOPE instead learns a determin-
+istic observation-to-field predictor, using complete pairs for latent and physical supervision. Its output is a point
+estimate, not a posterior sample or calibrated uncertainty estimate.
+I-JEPA predicts target-block representations from an observed context (Assran et al., 2023), while data2vec predicts
+contextualized full-input representations from masked inputs (Baevski et al., 2022); masked autoencoding has also
+been studied for PDE representations (Zhou and Farimani, 2024). SCOPE couples observation-conditioned prediction
+to shared physical reconstruction, rather than introducing complete-input targets or teacher–student asymmetry alone.
+Its complete-field latent targets have mask-independent coordinate support and uniform relative weights; the overall
+auxiliary factor αt follows the gradient-balancing rule in Section 3.2. Its variance safeguard is inspired by VICReg’s
+variance regularization (Bardes et al., 2022). Complementing joint-embedding and reconstruction analyses centered
+on prediction spaces and view generation (Van Assel et al., 2025), our analysis concerns conditional recovery and
+physical readout at fixed representations.
+3
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Martingale-consistent self-supervision studies conditional coherence under information refinement (G¨ogl et al., 2026),
+while common-information learning studies information shared across views (Kleinman et al., 2023). These cross-
+view relations differ from selecting supervised coordinates within one context. SCOPE distinguishes common targets
+from identical predictions without adding a martingale or cross-view equality penalty. Section 2.3 and Appendix C.3
+formalize this distinction; Section 3.3 connects conditional prediction to physical readout.
+2.3
+Physical Coverage and Latent Recoverability
+Fix a deterministic teacher T and a joint field/observation law, with e
+X ∈L2(R2N) and Z = T( e
+X) ∈L2(Rr). For
+YM from Section 2.1, let GM = σ(YM) denote the completed observation sigma-field, µGM = E[Z | GM], and
+CGM = Cov(Z | GM). These are population quantities for the fixed target and observation law, not a trained student’s
+errors.
+A direction v ∈Rr is exactly recoverable if v⊤Z = g(YM) almost surely for a measurable g. Its minimum squared
+prediction error is v⊤E[CGM ]v, so exact recovery holds precisely when this vanishes. Positive uncertainty still permits
+informative approximation. Such a statistic may combine coordinates across tokens; spatial position alone does not
+certify recoverability (Appendix A).
+Size-weighted means over nonempty groups partitioning the latent coordinates reproduce the full-target loss. Other
+normalized group weights yield ℓΛ = r−1(ˆz −Z)⊤ΛM(ˆz −Z), where ΛM is a mask-dependent nonnegative diag-
+onal metric with tr(ΛM) = r. Appendix A gives the group-to-metric identity and distinguishes supervision groups
+from zero conditional uncertainty. SCOPE uses ΛM = Ir: the target coordinates receive equal relative weight with-
+out requiring identical predictions or exact recovery of every feature. Merely renaming groups does not change the
+objective.
+For nested observation sigma-fields, write µi = E[Z | Gi]. The tower property gives E[µℓ| Gk] = µk when
+Gk ⊆Gℓ(Kallenberg, 2021), allowing predictions to change with evidence. Complete invariance instead restricts
+predictions to information common to the views. Definition 1 and the corresponding excess-risk identity appear in
+Appendix C.3; these cross-context relations are distinct from within-target grouping.
+Squared field reconstruction has conditional target νGM = E[ e
+X | GM]. Even when D(Z) = e
+X almost surely,
+nonlinear decoding need not satisfy D(µGM ) = νGM . These squared-loss identities do not identify the optimum
+of the unsquared physical relative error used in training. Section 3.3 distinguishes the quadratic reference from its
+physical-error readout-transfer bounds.
+3
+SCOPE: Field-Grounded Full-Target Prediction
+SCOPE couples prediction of a complete-field representation with physical reconstruction from partial observations.
+Training comprises complete-view initialization, joint learning over mixed observation contexts, and offline decoder
+adaptation with a frozen backbone. Figure 2 illustrates the training and inference pathways; numerical settings are
+specified in Appendix E.
+3.1
+Observation-Conditioned Full-Target Prediction
+Let Eθ, Pψ, and Dω denote the online encoder, latent predictor, and nonlinear field decoder. The encoder processes
+the observation context YM from Section 2.1 as spatial tokens. A learned conditioner cη(M) embeds channel-wise
+patch visibility fractions into the same latent space. The context pathway computes zM = Pψ(Eθ(YM) + cη(M))
+and be
+XM = Dω(zM). Thus exact masks enter the encoder, while local availability summaries enter the predictor
+directly. The encoder and predictor use Transformer blocks; the decoder maps tokens to field tiles followed by residual
+convolutional refinement. The context predictor and teacher output the same latent coordinate space, allowing their
+representations to be compared without selecting mask-dependent target groups. Module dimensions are given in
+Appendix E.5.
+Following context–target predictive learning (Assran et al., 2023; Baevski et al., 2022), an EMA encoder receives YF =
+(ea, 1, eu, 1) and produces ¯z = sg( ¯E¯θ(YF )), where sg stops gradients. After each online update, ¯θ ←τt¯θ + (1 −τt)θ.
+A separate online pass computes zF = Eθ(YF ) and be
+XF = Dω(zF ). This full-view branch shares the encoder and
+decoder with context recovery but bypasses the predictor and conditioner.
+Write r for the flattened latent dimension. Empty patches remain present, and every context predicts the entire
+teacher representation. Masks condition the prediction without selecting supervised coordinates or changing their
+4
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+(a) Context prediction (train only)
+(b) JEPA target (train only)
+(c) Full-view grounding (train only)
+(d) One-pass inference (test time)
+Sparse context ��
+��⊙�
+��
+��⊙�
+��
+Full observation �� 
+(��= 1, ��= 1)
+Single context input ��
+Mask conditioning ��(�)
+Online
+encoder ��
+Predictor
+��
+��
+�× �
+Field
+decoder ��
+Normalized fields ��
+Field recovery
+supervision
+ℒ�
+EMA
+teacher ��
+�
+H × d
+Full-field latent target
+Latent prediction 
+loss ℒ�
+�
+��
+Batch variance
+regularization ℒ� 
+Normalized fields ��
+Full-view reconstruction
+�
+ℒ�
+Kept at test time
+• Encoder ��
+• Mask conditioning ��(�)
+• Predictor ��
+• Field decoder ��
+• Inverse normalization
+Removed at test time
+• EMA teacher ��
+• JEPA target branch
+• Full-view grounding branch
+• Training losses 
+   (ℒ�, ℒ�, ℒ�, ℒ�)
+Mask 
+conditioning 
+��(�)
+Inverse normalization
+Predicted fields
+Computation (forward)
+EMA update (�→�)
+Stop-gradient (no gradient flow)
+Online
+encoder ��
+Same
+encoder ��
+Field
+decoder ��
+Field
+decoder ��
+Predictor
+��
+�� from (a)
+�× �
+�× �
+Full observation �� 
+��
+��
+(��= 1, ��= 1)
+��⊙�
+��⊙�
+�
+EMA update (�→�)
+Figure 2: SCOPE training and inference. (a) Context prediction: the observation-conditioned pathway reconstructs
+the paired fields. (b) JEPA target: the EMA teacher supplies ¯z for comparison with zM through LJ; its parameters
+follow the online encoder. (c) Full-view grounding: the shared online encoder and decoder support LG, while zF
+receives variance regularization. (d) One-pass inference: only the context pathway and inverse normalization are
+used. Physical field losses include inverse normalization. SP replaces Dω with Dω′ before inference. Field maps are
+schematic.
+relative weights. This common target does not impose identical predictions across contexts or assume exact recovery
+of every feature.
+Native inference returns b
+XM = N −1(Dω(zM)) through the encoder, conditioner, predictor, and decoder. Within each
+PDE setting, the same backbone-stage checkpoint supports forward, inverse, and joint recovery. No teacher, auxiliary
+full-view pass, sampling, test-time optimization, or measured-value overwrite is used.
+3.2
+Joint Prediction and Physical Grounding
+Let ⟨·⟩B denote a batch average and dω = N −1 ◦Dω physical decoding. For nonzero target-channel norms, define
+ℓF ( b
+X, X) = 1
+2
+P
+c∈{a,u} ∥b
+Xc −Xc∥2/∥Xc∥2. Context reconstruction, latent prediction, and full-view grounding use
+LF = ⟨ℓF (dω(zM), X)⟩B ,
+LJ =
+
+r−1∥zM −¯z∥2
+2
+
+B ,
+LG = ⟨ℓF (dω(zF ), X)⟩B .
+Field supervision uses unsquared physical relative L2 on both channels and the complete grid, including observed
+locations. Appendix F.2 specifies the training extension for zero-energy targets. Grounding trains zF and the shared
+decoder for physical reconstruction; it does not directly supervise the EMA representation ¯z.
+We also use LV = r−1 Pr
+j=1[γ −sj(zF )]2
++, a squared-hinge variance penalty inspired by VICReg (Bardes et al.,
+2022). Here sj is the batch standard deviation, γ > 0 a margin, and [q]+ = max(q, 0). The penalty is inactive when
+every coordinate meets the margin. The objective is
+L = LF + αt
+ LJ + λGLG + λV LV
+
+.
+The fixed coefficients weight the auxiliary terms, and the detached factor αt ∈[0, 1] caps their summed component-
+gradient norms relative to the field gradient, both globally and on the encoder. Appendix E.7 gives the exact rule and
+numerical coefficients; this is not scalar-loss balancing. Omitting an auxiliary term can also change αt, so comparisons
+concern the resulting capped training recipes rather than holding the realized auxiliary scale fixed.
+5
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Complete-view initialization trains the encoder and decoder with LG + λV LV . Joint training then inherits their
+weights, initializes the teacher from the encoder, and trains all online modules over mixed observations. The predic-
+tor and conditioner enter at random initialization. Field reconstruction updates the entire inference pathway; latent
+prediction updates the encoder, predictor, and conditioner; grounding updates the encoder and decoder; and variance
+regularization updates the encoder. Each joint-training step evaluates the context prediction, teacher target, and online
+full-view representation before the online parameter update and subsequent EMA update. No PDE-residual penalty is
+used. Optimization schedules and initialization details are specified in Appendix E.6.
+Sparse-path decoder-only adaptation.
+After joint training, we freeze (θ, ψ, η) and replace Dω with a newly ini-
+tialized Dω′. SP optimizes only ω′ through LSP = ⟨ℓF (dω′(sg(zM)), X)⟩B, where dω′ = N −1 ◦Dω′. The frozen
+modules run without gradients. Both output fields are supervised using training pairs, without teacher evaluation or
+auxiliary losses. Complete held-out targets enter neither decoder fitting nor the inference pathway. Deployment uses
+dω′(zM), preserving deterministic, single-pass inference. The acquisition protocol and decoder configurations are
+given in Appendix E.8.
+The complete-path fitting (DP) control instead fits a decoder on detached zF and tests it on zM. It examines readout
+transfer between the representation pathways, whereas SP fits the deployment pathway directly. Section 3.3 analyzes
+this distinction at fixed representations.
+3.3
+Common Targets and Physical Readout Adaptation
+Fix a teacher–decoder snapshot, with Z = T( e
+X), D = Dω, and G = GM. For fixed α > 0 and β = 1/(2N), consider
+RG(f; D) = E[β∥D(f) −e
+X∥2 + α∥f −Z∥2]. This quadratic reference uses normalized fields, not the unsquared
+physical training loss; α is distinct from αt. Grounding and variance regularization shape the fixed snapshot rather
+than the free prediction f.
+Conditional recovery.
+Assume e
+X, Z ∈L2, continuous D, and standard Borel observations with completed infor-
+mation sigma-fields. Write µ = E[Z | G], ν = E[ e
+X | G], and ΨG(z) = β∥D(z) −ν∥2 + α∥z −µ∥2. Define
+VG = βE∥e
+X −ν∥2 + αE∥Z −µ∥2,
+AG(D) = E min
+z
+ΨG(z),
+eG(f; D) = E[ΨG(f) −min
+z
+ΨG(z)].
+Theorem 1 (Observation-conditioned risk under a common target). Every observation-measurable finite-risk predic-
+tor satisfies RG(f; D) = VG + AG(D) + eG(f; D). The optimal risk is R⋆
+G(D) = VG + AG(D), attained by a
+measurable minimizer of ΨG.
+The terms separate observation uncertainty, decoder incompatibility, and predictor excess risk (Appendix C). When
+D(µ) ∈L2, a joint reference minimizer has no greater squared field risk than decoding µ; the nonlinear example and
+strictness condition accompany Eq. (13). Under the same target, decoder, and loss, nested information cannot increase
+optimal reference risk; complete-pair observation gives zero optimal risk exactly when D(Z) = e
+X (Appendix C.3).
+Target weighting with shared features.
+Appendix A shows that positive-definite observation-measurable metrics
+with trace r preserve the unrestricted latent-only optimum µ. To examine restricted capacity, fix ϕ(YM) ∈L2(Rp)
+with E[ϕϕ⊤] ≻0, predictors fW = Wϕ for W ∈Rr×p, and D0(z) = Az + b. For the mask-dependent nonnegative
+diagonal metric ΛM with trace r, define J 0
+Λ(W) = E[β∥D0(Wϕ) −e
+X∥2 + α(Wϕ −Z)⊤ΛM(Wϕ −Z)]. Assume
+βA⊤A + αΛM ⪰cIr almost surely for c > 0. Let W0, WΛ be the identity-metric and reweighted minimizers, and
+F0(W) = E∥D0(Wϕ) −e
+X∥2.
+Theorem 2 (Reconstruction effect of a mask-dependent target metric). For ρ = ∥e
+X −D0(Z)∥L2 and dΛ = ∥A(WΛ−
+W0)ϕ∥L2, the stated assumptions imply F0(WΛ) −F0(W0) ≥d2
+Λ −2ρdΛ. When ρ = 0, the difference equals d2
+Λ.
+This compares target metrics within a common feature class, not complete training algorithms. Under exact teacher
+decoding, the displacement is driven by mask-weighted approximation residuals, not irreducible uncertainty alone
+(Appendix B); Appendix B.4 constructs a strict elliptic separation. Proposition 3 bounds how nonlinear approximation
+and fitting errors affect this margin. Appendix D also separates online grounding from teacher-decoding error and
+bounds loss changes caused by moving teacher targets. None of these conditions follows from grounding or EMA
+updates alone.
+6
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Physical readout transfer.
+Fix the backbone and a common joint law of fields and observations. For a nonzero
+physical target channel y, let d include inverse normalization and channel selection. Define RF (d) = E[∥d(zF ) −
+y∥2/∥y∥2], RM(d) = E[∥d(zM) −y∥2/∥y∥2], and BM(d) = E[∥d(zM) −d(zF )∥2/∥y∥2], with finite expectations.
+For original and replacement decoders d0, d1, the triangle inequality yields
+RM(d0) −RM(d1) ≥RF (d0) −RF (d1) −BM(d0) −BM(d1).
+(1)
+A complete-path gain transfers when it exceeds these discrepancies. Also, BM(d0) ≤RM(d0) + RF (d0) relates the
+shared decoder’s discrepancy to context reconstruction and grounding. With ∥v∥r = ∥v∥2/√r, let J = E∥zM −¯z∥2
+r
+and δEMA = (E∥¯z−zF ∥2
+r)1/2. If d is Ld-Lipschitz from this norm to physical field norm and κy = (E∥y∥−2
+2 )1/2 < ∞,
+then
+BM(d) ≤Ldκy
+ √
+J + δEMA
+
+.
+(2)
+Appendix D.4 proves both bounds, including their application to a declared nonzero-target cohort. They give sufficient
+conditions for DP transfer; SP instead fits the sparse-path empirical risk directly. They do not guarantee held-out
+improvements or joint-training convergence.
+4
+Experiments
+4.1
+Experimental Setup
+We use the released DiffusionPDE pairs used by FunDPS (Huang et al., 2024; Yao et al., 2025): Darcy, Poisson,
+Helmholtz, and Navier–Stokes with and without a cylinder. Splits, normalization, and observation families are spec-
+ified in Tables 3, 4, and 5. The primary test uniformly samples the active channel, with known-disk conditioning for
+cylinder flow (Appendix E.4). Forward evaluates u and inverse evaluates a, using physical relative L2 except Darcy
+inverse BER. Metric, zero-target, and regional conventions follow Appendices F and F.2.
+SCOPE–Full uses the native decoder; SCOPE–SP uses the primary adapted configuration in Table 6. Training budgets
+and architectures are listed in Tables 2, 18, and 19. Main-table operators share our observation/task protocol; literature
+entries retain their source protocols (Appendix F.3). Auxiliary objectives and control configurations are specified in
+Appendix I, and checkpoint, pairing, and release conventions in Appendix J.
+4.2
+Sparse Field Recovery
+SCOPE achieves competitive sparse forward and inverse recovery across the evaluated elliptic and flow problems
+(Table 1), using deterministic, single-pass inference. The channelwise comparison also shows lower mean errors for
+both outputs of the evaluated SP head relative to Full (Table 9): decoder adaptation improves reconstruction beyond
+the task’s primary hidden-field endpoint. Darcy inverse BER decreases alongside continuous reconstruction error,
+showing that the improvement extends to thresholded permeability classification rather than only continuous-valued
+predictions (Tables 9 and 14). Tables 12–13 report the corresponding per-record dispersion.
+4.3
+Grounding and Decoder Adaptation
+Grounding.
+Full has lower mean error than FJV at every primary endpoint (Table 7). Both share complete-view
+pretraining; FJV removes main-stage grounding and recomputes auxiliary scaling. Thus the comparison supports
+grounding within the predictive recipe: supervising online full-view reconstruction improves the resulting sparse re-
+covery, rather than merely fitting complete inputs (Figure 3; Appendices E.6–E.7).
+Field-only comparison.
+Full lowers all inverse mean errors relative to FO, while its forward advantage is task-
+dependent (Table 7). This supports the complete training pipeline for the evaluated inverse tasks. Because FO omits
+pretraining, the comparison does not isolate the latent objective.
+Additional operator supervision.
+Auxiliary +G lowers FNO’s Poisson and Helmholtz forward errors but raises
+Darcy and flow forward errors. For DeepONet, it lowers Darcy forward error but raises forward and inverse errors
+on Poisson and Helmholtz (Tables 12–14). Additional reconstruction therefore does not automatically improve sparse
+recovery. These within-family results complement Full–FJV without treating the auxiliary objective as identical to
+SCOPE grounding (Appendix I.2).
+7
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Table 1: Sparse recovery across PDE settings. Forward evaluates u; inverse evaluates a. Values are percentages:
+Darcy inverse BER, physical relative L2 otherwise. Bold/underline mark the best/second-best unrounded results within
+the main common-observation group. Literature rows retain their source protocols (Appendix F.3); training budgets
+and model sizes differ (Table 2).
+Method
+Darcy
+Poisson
+Helmholtz
+NS
+NS (BCs)†
+Fwd.↓Inv. (BER)↓
+Fwd.↓
+Inv.↓
+Fwd.↓
+Inv.↓
+Fwd.↓
+Inv.↓
+Fwd.↓
+Inv.↓
+Literature-Reported: Deterministic Methods
+FNO (Li et al., 2021)
+28.20
+49.30 100.90 232.70
+98.20 218.20 101.40
+96.00
+82.80
+69.60
+PINO (Li et al., 2024)
+35.20
+49.20 107.10 231.90 106.50 216.90 101.40
+96.00
+81.10
+69.50
+DeepONet (Lu et al., 2021)
+38.30
+41.10 155.50 105.80 123.10 132.80 103.20
+97.20
+97.70
+91.90
+PINN (Raissi et al., 2019)
+48.80
+59.70 128.10 130.00 142.30 160.00 142.70 146.80 100.10 105.50
+Mask-Aware Deterministic Baselines
+CNO
+12.78
+5.71
+35.33
+45.09
+33.99
+43.43
+26.42
+27.55
+33.74
+28.25
+Transolver
+3.20
+5.43
+4.19
+18.41
+3.89
+17.79
+16.39
+23.66
+5.26
+3.96
+FNO
+10.83
+13.10
+26.09
+49.31
+27.20
+49.17
+19.10
+31.66
+26.31
+21.94
+DeepONet
+11.03
+11.19
+16.65
+36.03
+17.03
+41.87
+39.59
+50.28
+34.35
+27.76
+Literature-Reported: Generative / Sampling Methods
+DiffusionPDE (Huang et al., 2024)
+6.07
+7.87
+4.88
+21.10
+12.64
+19.07
+3.78
+9.63
+9.69
+4.18
+FunDPS (200 steps) (Yao et al., 2025)
+2.88
+6.78
+2.04
+24.04
+2.20
+20.07
+3.99
+9.87
+5.91
+4.31
+FunDPS (500 steps) (Yao et al., 2025)
+2.49
+5.18
+1.99
+20.47
+2.13
+17.16
+3.32
+8.48
+4.90
+4.08
+PRISMA-50 (Sawhney et al., 2025)
+2.90
+6.56
+—
+—
+—
+—
+—
+—
+—
+—
+Equi-FunDPS (Tolooshams et al., 2025)
+—
+—
+—
+—
+2.12
+15.91
+3.06
+7.84
+—
+—
+PISD (Gallon et al., 2026)
+—
+—
+3.08
+13.81
+3.47
+12.76
+—
+—
+—
+—
+DDIS (Lin et al., 2026)
+—
+—
+—
+12.32
+—
+12.20
+—
+7.81
+—
+—
+Our Work
+SCOPE–Full
+2.17
+1.56
+1.68
+9.50
+1.64
+8.70
+2.58
+6.97
+2.11
+0.65
+SCOPE–SP-10M
+2.17
+1.55
+1.67
+9.43
+1.63
+8.64
+2.57
+6.94
+1.97
+0.45
+† Cylinder flow includes known-disk values on both channels; forward error uses nonzero targets (Appendix F.2). SCOPE–SP-10M
+is the primary adapted model (Appendix E.5). Dashes denote unreported literature entries. The ranking excludes literature rows
+and separate backbone ablations; shading does not denote significance.
+Fixed-backbone adaptation.
+The primary SP head lowers Full’s mean error at every primary endpoint, demon-
+strating that physical readout can improve without changing the learned context representation (Table 8). Both DP
+and SP improve cylinder recovery over the native decoder, while SP has lower primary mean errors than DP at every
+matched head size (Table 10). The latter comparison holds architecture and training budget fixed and supports fitting
+the decoder on the context representations used at deployment. Native-to-adapted comparisons additionally change
+capacity and optimization (Appendices E.8 and F.4).
+Decoder capacity.
+Larger heads reduce cylinder forward and inverse errors under both DP and SP, whereas changes
+on other settings are small and sometimes nonmonotone (Table 10). Thus readout capacity is more consequential for
+cylinder recovery in these runs, rather than uniformly improving every PDE as the head grows.
+Record-level changes.
+Most records improve in every reported SP–Full forward comparison, with still larger
+improved-record fractions for inverse recovery on Poisson, Helmholtz, and periodic NS (Tables 15–16). Lower ag-
+gregate means therefore accompany improvements across a majority of records. Darcy’s paired continuous-error
+diagnostic also favors SP (Table 17); this is distinct from BER, and all paired statistics concern fixed models rather
+than training-seed variability.
+4.4
+Changed Observation Conditions
+Under Bernoulli fluid observations, the unchanged adapted cylinder heads have higher forward and inverse errors than
+under the primary uniform condition, while larger heads retain lower mean errors (Tables 11 and 10). The capacity
+trend thus persists beyond the adaptation acquisition law, but recovery remains sensitive to the supplied measure-
+ments. Both sensor count and sampling change, so this comparison does not isolate layout effects (Appendix E.4).
+Appendix G specifies the reported evaluation coverage.
+8
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Poisson Helmholtz Darcy
+NS
+0.5
+1
+2
+3
+5
+Relative L2 error (%)
+(a) Forward: recover u
+Poisson Helmholtz Darcy
+NS
+0.5
+1
+2
+5
+10
+20
+Target error (%)
+(b) Inverse: recover a
+DeepONet + G
+DeepONet
+FNO + G
+FNO
+F
+F + J + V
+SCOPE
+SCOPE-SP-5m
+SCOPE-SP-10m
+SCOPE-SP-15m
+Neural operators
+Ablations
+SCOPE series
+Figure 3: Grounding and readout comparisons. Bars show mean errors with per-record SD on logarithmic axes.
+Forward evaluates u; inverse evaluates a, using Darcy BER. Auxiliary operators use their own protocols and metric
+units (Appendix I.2); additional supervision is compared within each family. SCOPE denotes Full; all SP heads use
+its frozen backbone.
+5
+Conclusion
+SCOPE combines full-target latent prediction, shared physical reconstruction, and offline decoder adaptation for com-
+petitive sparse recovery. Complete training pairs supply latent and physical targets, while measurements and masks
+condition prediction. A shared nonlinear decoder connects context-predicted and online full-view representations to
+physical reconstruction. The reported comparisons support main-stage grounding and decoder fitting on Full. SP
+fits a replacement decoder on frozen, context-predicted representations, retaining deterministic, single-pass inference
+without test-time optimization. Matched DP–SP comparisons further support fitting the readout on the representations
+used at deployment. The quadratic analysis separates observation uncertainty, decoder incompatibility, and predictor
+excess risk at fixed teacher–decoder snapshots, while separate physical-error bounds characterize sufficient conditions
+for readout transfer. Together, these results distinguish representation learning from decoder fitting and clarify why
+common targets do not require identical predictions across observation contexts.
+Future Work.
+Future work will extend SCOPE beyond fixed grids and assess robustness across multiple training
+seeds and a broader range of observation conditions for adapted models. Matched-budget, capacity-controlled com-
+parisons can help disentangle the effects of decoder adaptation, added capacity, and additional optimization. Further
+theoretical work will study joint-training convergence and characterize conditions for held-out improvement beyond
+the current fixed-representation setting.
+9
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Reproducibility Statement
+Data sources, preprocessing, observation sampling, architecture, optimization, and evaluation are specified in Ap-
+pendices E–F, with operator configurations in Appendix I.1. Theoretical assumptions and proofs are provided in
+Appendices A–D. We use existing DiffusionPDE paired-field datasets (Huang et al., 2024; Yao et al., 2025). Public
+code and data-download instructions are available at https://github.com/ru1ch3n/SCOPE; pretrained-model
+availability and checksums are documented in that repository.
+Statement on AI Usage
+AI tools, including large language models, were used to support manuscript language refinement, literature search
+and discovery, and aspects of research development and execution, such as discussing experimental design, analysis
+procedures, and implementation approaches. The authors independently reviewed, validated, and revised all AI-
+assisted material and remain fully responsible for the accuracy and integrity of the methods, results, references, and
+conclusions reported in this paper.
+References
+Mark Asch, Marc Bocquet, and Ma¨elle Nodet. Data Assimilation: Methods, Algorithms, and Applications. Society
+for Industrial and Applied Mathematics, 2016. doi: 10.1137/1.9781611974546. URL https://doi.org/10.113
+7/1.9781611974546.
+Mahmoud Assran, Quentin Duval, Ishan Misra, Piotr Bojanowski, Pascal Vincent, Michael Rabbat, Yann LeCun, and
+Nicolas Ballas. Self-supervised learning from images with a joint-embedding predictive architecture. In Proceed-
+ings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 15619–15629, 2023. URL
+https://openaccess.thecvf.com/content/CVPR2023/html/Assran_Self-Supervised_Learning_Fro
+m_Images_With_a_Joint-Embedding_Predictive_Architecture_CVPR_2023_paper.html.
+Alexei Baevski, Wei-Ning Hsu, Qiantong Xu, Arun Babu, Jiatao Gu, and Michael Auli. data2vec: A general frame-
+work for self-supervised learning in speech, vision and language. In Proceedings of the 39th International Confer-
+ence on Machine Learning, volume 162 of Proceedings of Machine Learning Research, pages 1298–1312. PMLR,
+2022. URL https://proceedings.mlr.press/v162/baevski22a.html.
+Adrien Bardes, Jean Ponce, and Yann LeCun.
+VICReg: Variance-invariance-covariance regularization for self-
+supervised learning. In International Conference on Learning Representations, 2022. URL https://openre
+view.net/forum?id=xm6YD62D1Ub.
+Lawrence C. Evans. Partial Differential Equations, volume 19 of Graduate Studies in Mathematics. American Math-
+ematical Society, 2 edition, 2010. ISBN 978-0-8218-4974-3. URL https://bookstore.ams.org/gsm-19-r.
+Davide Gallon, Philippe von Wurstemberger, Patrick Cheridito, and Arnulf Jentzen. Physics-informed diffusion mod-
+els in spectral space. In Proceedings of the 43rd International Conference on Machine Learning, volume 306 of
+Proceedings of Machine Learning Research, 2026. URL https://arxiv.org/abs/2602.09708v2.
+Wenhan Gao, Ruichen Xu, Yuefan Deng, and Yi Liu. Discretization-invariance? on the discretization mismatch errors
+in neural operators. In International Conference on Learning Representations, 2025. URL https://proceeding
+s.iclr.cc/paper_files/paper/2025/hash/313829757739365201b5adb3a1cbd9bd-Abstract-Confere
+nce.html.
+Moritz G¨ogl, Hanwen Xing, and Christopher Yau. Martingale-consistent self-supervised learning. arXiv preprint
+arXiv:2605.11846, 2026. doi: 10.48550/arXiv.2605.11846. URL https://arxiv.org/abs/2605.11846v1.
+Version 1, submitted May 12, 2026.
+Zhongkai Hao, Zhengyi Wang, Hang Su, Chengyang Ying, Yinpeng Dong, Songming Liu, Ze Cheng, Jian Song,
+and Jun Zhu. GNOT: A general neural operator transformer for operator learning. In Proceedings of the 40th
+International Conference on Machine Learning, volume 202 of Proceedings of Machine Learning Research, pages
+12556–12569. PMLR, 2023. URL https://proceedings.mlr.press/v202/hao23c.html.
+Jingren Hou, Hong Wang, Pengyu Xu, Chang Gao, Huafeng Liu, and Liping Jing. Learning neural operators from
+partial observations via latent autoregressive modeling. Proceedings of the AAAI Conference on Artificial Intelli-
+gence, 40(1):390–398, 2026. doi: 10.1609/aaai.v40i1.37001. URL https://ojs.aaai.org/index.php/AAAI/
+article/view/37001.
+Jiahe Huang, Guandao Yang, Zichen Wang, and Jeong Joon Park. DiffusionPDE: Generative PDE-solving under
+partial observation. In Advances in Neural Information Processing Systems, volume 37, 2024. doi: 10.52202/079
+10
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+017-4140. URL https://proceedings.neurips.cc/paper_files/paper/2024/hash/eb3878c1dcbfff9
+ee95d5d033e5f5942-Abstract-Conference.html.
+Jari P. Kaipio and Erkki Somersalo. Statistical and Computational Inverse Problems, volume 160 of Applied Mathe-
+matical Sciences. Springer, 2005. doi: 10.1007/b138659. URL https://doi.org/10.1007/b138659.
+Olav Kallenberg. Foundations of Modern Probability. Probability Theory and Stochastic Modelling. Springer, 3
+edition, 2021. doi: 10.1007/978-3-030-61871-1. URL https://doi.org/10.1007/978-3-030-61871-1.
+George Em Karniadakis, Ioannis G. Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed
+machine learning. Nature Reviews Physics, 3(6):422–440, 2021. doi: 10.1038/s42254-021-00314-5. URL
+https://doi.org/10.1038/s42254-021-00314-5.
+Michael Kleinman, Alessandro Achille, Stefano Soatto, and Jonathan Kao.
+G´acs–k¨orner common information
+variational autoencoder.
+In Advances in Neural Information Processing Systems, volume 36, 2023.
+doi:
+10.52202/075280-2883. URL https://proceedings.neurips.cc/paper_files/paper/2023/hash
+/d04f08ccf582011f43af91ee1c1956d2-Abstract-Conference.html.
+Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and
+Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to PDEs. Journal
+of Machine Learning Research, 24(89):1–97, 2023. URL https://jmlr.org/papers/v24/21-1524.html.
+Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and An-
+ima Anandkumar. Fourier neural operator for parametric partial differential equations. In International Conference
+on Learning Representations, 2021. URL https://openreview.net/forum?id=c8P9NQVtmnO.
+Zongyi Li, Hongkai Zheng, Nikola Kovachki, David Jin, Haoxuan Chen, Burigede Liu, Kamyar Azizzadenesheli,
+and Anima Anandkumar. Physics-informed neural operator for learning partial differential equations. ACM / IMS
+Journal of Data Science, 1(3):1–27, 2024. doi: 10.1145/3648506. URL https://doi.org/10.1145/3648506.
+Thomas Y. L. Lin, Jiachen Yao, Lufang Chiang, Julius Berner, and Anima Anandkumar. Decoupled diffusion sampling
+for inverse problems on function spaces. arXiv preprint arXiv:2601.23280, 2026. doi: 10.48550/arXiv.2601.23280.
+URL https://arxiv.org/abs/2601.23280v3. Version 3, revised March 2, 2026; oral presentation at the ICLR
+2026 Workshop on AI and PDEs.
+Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via
+DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence, 3(3):218–229,
+2021. doi: 10.1038/s42256-021-00302-5. URL https://doi.org/10.1038/s42256-021-00302-5.
+Alfio Quarteroni. Numerical Models for Differential Problems, volume 16 of MS&A. Springer, 3 edition, 2017. ISBN
+978-3-319-49315-2. doi: 10.1007/978-3-319-49316-9. URL https://doi.org/10.1007/978-3-319-49316
+-9.
+Maziar Raissi, Paris Perdikaris, and George E. Karniadakis. Physics-informed neural networks: A deep learning
+framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of
+Computational Physics, 378:686–707, 2019. doi: 10.1016/j.jcp.2018.10.045. URL https://doi.org/10.1016/
+j.jcp.2018.10.045.
+Bogdan Raoni´c, Roberto Molinaro, Tim De Ryck, Tobias Rohner, Francesca Bartolucci, Rima Alaifari, Siddhartha
+Mishra, and Emmanuel de B´ezenac. Convolutional neural operators for robust and accurate learning of PDEs.
+In Advances in Neural Information Processing Systems, volume 36, 2023. doi: 10.52202/075280-3376. URL
+https://proceedings.neurips.cc/paper_files/paper/2023/hash/f3c1951b34f7f55ffaecada7fde
+6bd5a-Abstract-Conference.html.
+Rolf H. Reichle. Data assimilation methods in the Earth sciences. Advances in Water Resources, 31(11):1411–1418,
+2008. doi: 10.1016/j.advwatres.2008.01.001. URL https://doi.org/10.1016/j.advwatres.2008.01.001.
+Medha Sawhney, Abhilash Neog, Mridul Khurana, and Anuj Karpatne. PRISMA: Improving the accuracy-latency
+frontier of diffusion-based PDE solvers using physics-informed spectral attention. arXiv preprint arXiv:2512.01370,
+2025. doi: 10.48550/arXiv.2512.01370. URL https://arxiv.org/abs/2512.01370v2. Version 2, revised
+August 3, 2026.
+Andrew M. Stuart. Inverse problems: A Bayesian perspective. Acta Numerica, 19:451–559, 2010. doi: 10.1017/S096
+2492910000061. URL https://doi.org/10.1017/S0962492910000061.
+Bahareh Tolooshams, Aditi Chandrashekar, Rayhan Zirvi, Abbas Mammadov, Jiachen Yao, Chuwei Wang, and Anima
+Anandkumar. EquiReg: Equivariance regularized diffusion for inverse problems. arXiv preprint arXiv:2505.22973,
+2025. doi: 10.48550/arXiv.2505.22973. URL https://arxiv.org/abs/2505.22973v3. Version 3, revised
+August 30, 2026.
+11
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Hugues Van Assel, Mark Ibrahim, Tommaso Biancalani, Aviv Regev, and Randall Balestriero. Joint-embedding vs
+reconstruction: Provable benefits of latent space prediction for self-supervised learning. In Advances in Neural
+Information Processing Systems, volume 38, 2025. doi: 10.52202/085713-0740. URL https://papers.neuri
+ps.cc/paper_files/paper/2025/hash/1fa81061d6d4d7fea88f803d89ae9d6e-Abstract-Conference.
+html.
+Haixu Wu, Huakun Luo, Haowen Wang, Jianmin Wang, and Mingsheng Long. Transolver: A fast transformer solver
+for PDEs on general geometries. In Proceedings of the 41st International Conference on Machine Learning, volume
+235 of Proceedings of Machine Learning Research, pages 53681–53705. PMLR, 2024. URL https://proceedi
+ngs.mlr.press/v235/wu24r.html.
+Jiachen Yao, Abbas Mammadov, Julius Berner, Gavin Kerrigan, Jong Chul Ye, Kamyar Azizzadenesheli, and
+Animashree Anandkumar.
+Guided diffusion sampling on function spaces with applications to PDEs.
+In Ad-
+vances in Neural Information Processing Systems, volume 38, 2025.
+doi: 10.52202/085713-4233.
+URL
+https://proceedings.neurips.cc/paper_files/paper/2025/hash/b8a28baaa25cebfa9345a8a
+2edf7f19d-Abstract-Conference.html.
+Anthony Zhou and Amir Barati Farimani. Masked autoencoders are PDE learners. Transactions on Machine Learning
+Research, 2024. URL https://openreview.net/forum?id=rZNuiFwXVs.
+12
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+A
+Recoverability and the Full-Target Supervision Rule
+All expectations concern a fixed population law for the complete normalized pair and its observation. The deterministic
+teacher produces Z = T( e
+X). Observations take values in standard Borel spaces, and information sigma-fields are
+completed. For a random vector U, write ∥U∥L2 = (E∥U∥2)1/2. This notation denotes population error, not a
+measured validation statistic.
+A.1
+Conditional Error and Recoverable Statistics
+Let µ = E[Z | G] and C = E[(Z −µ)(Z −µ)⊤| G]. For a fixed direction v and a square-integrable observation-
+measurable scalar prediction q, conditional orthogonality gives
+E|v⊤Z −q|2 = E|v⊤Z −v⊤µ|2 + E|v⊤µ −q|2
+= v⊤E[C]v + E|v⊤µ −q|2.
+(3)
+The cross term vanishes because E[Z −µ | G] = 0. Taking q = v⊤µ proves the minimum-risk formula. It is
+zero exactly when v⊤Z = v⊤µ almost surely, equivalently when v⊤Z is observation-measurable. Thus the exactly
+recoverable fixed linear directions form ker E[C].
+For a mask-measurable orthogonal projector PM, E[PMZ | G] = PMµ. The vector-valued projection identity yields
+inf
+q E∥PMZ −q(YM)∥2 = E tr(PMCPM).
+(4)
+Since PMCPM ⪰0, the right-hand side is zero exactly when PMCPM = 0 almost surely. A rule selecting spatial
+token coordinates supplies PM but does not establish this condition.
+For two views, a fixed direction recoverable from both lies in
+ker(E[CG1] + E[CG2]) .
+This follows because the sum of the two nonnegative directional residual errors vanishes exactly when each vanishes.
+Recoverability is stronger than agreement of conditional means: an unobserved independent centered coordinate can
+have equal zero predictions in both views while retaining positive uncertainty.
+When masks are random, these are almost-sure statements under their joint law with the fields. A result for one
+fixed mask instead uses that fixed-mask law. The characterization concerns fixed linear statistics of the target, not a
+per-record classifier of observed and missing latent tokens.
+A.2
+Partitioning versus Reweighting
+For nonempty coordinate groups Is(M), Im(M) with projectors Ps, Pm and sizes ns, nm, we have
+1
+r ∥f −Z∥2 = ns
+r
+∥Ps(f −Z)∥2
+ns
++ nm
+r
+∥Pm(f −Z)∥2
+nm
+.
+Thus the size-weighted grouped loss equals the full-target loss for every prediction and target.
+Using coefficients λs, λm ≥0 with λs + λm = 1 instead gives
+ΛM = rλs
+ns
+Ps + rλm
+nm
+Pm.
+The loss is r−1(f −Z)⊤ΛM(f −Z) and tr(ΛM) = r. Equal group coefficients are generally not equal coordinate
+coefficients when group sizes differ. At an empty-group endpoint, the rule must be specified on the remaining group
+without division by zero.
+For any observation-measurable positive-semidefinite metric with trace r,
+E[(f −Z)⊤ΛM(f −Z) | G] = tr(ΛMC) + (f −µ)⊤ΛM(f −µ).
+(5)
+To prove this, write f −Z = (f −µ) −(Z −µ) and condition on G. The cross term vanishes, and the residual
+quadratic has conditional expectation tr(ΛMC). The trace bound implies ∥ΛM∥op ≤r, ensuring integrability for
+square-integrable f and Z.
+13
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+If ΛM ≻0 almost surely, the unrestricted latent-only optimum remains µ. If it is singular, deviations in its kernel are
+not penalized. These statements distinguish loss equivalence, positive reweighting, and omitted supervision; they do
+not identify target groups with recoverable information.
+For the identity metric, the same calculation gives
+E∥f −Z∥2 = E tr(C) + E∥f −µ∥2.
+(6)
+In particular, if v⊤Z is exactly recoverable, E|v⊤f −v⊤Z|2 ≤∥v∥2E∥f −µ∥2. The identity criterion therefore
+controls all recoverable directions without requiring their explicit selection, although it does not guarantee that the
+trained predictor has small excess.
+B
+Physical Effects of Mask-Dependent Target Weighting
+This section fixes the same features, teacher, decoder, field loss, and observation law in both comparisons. Its rectan-
+gular class fW = Wϕ contains all coefficient matrices W ∈Rr×p. It is a reduced model of shared prediction capacity,
+not a claim that the complete SCOPE network is linear or trained by least squares.
+B.1
+Existence and Normal Equations
+Under the assumptions of Theorem 2, define
+S = E[ϕϕ⊤],
+WZ = E[Zϕ⊤]S−1,
+and
+R = e
+X −AZ −b,
+WR = E[Rϕ⊤]S−1.
+Feature-projection residuals satisfy
+E[(Z −WZϕ)ϕ⊤] = 0,
+E[(R −WRϕ)ϕ⊤] = 0.
+(7)
+Let KM = βA⊤A + αΛM and define
+TΛ(U) = E[KMUϕϕ⊤].
+This operator is self-adjoint under the Frobenius inner product. Moreover,
+⟨U, TΛ(U)⟩F = E[(Uϕ)⊤KM(Uϕ)] ≥c tr(USU ⊤).
+Because S ≻0, the lower bound is positive for every nonzero U. The objective is therefore a strictly convex coercive
+quadratic in W, with a unique minimizer. All its coefficients are finite under the stated second-moment assumptions
+and the bounded metric.
+For the identity metric, let K0 = βA⊤A + αIr. Its normal equation gives
+K0W0S = E[{βA⊤( e
+X −b) + αZ}ϕ⊤].
+Substitution of e
+X −b = AZ + R yields
+W0 = WZ + βK−1
+0 A⊤WR.
+(8)
+B.2
+Proof of the Reconstruction Comparison
+Proof of Theorem 2. Set ∆= WΛ −W0 and
+H = I2N −βAK−1
+0 A⊤=
+
+I2N + β
+αAA⊤
+−1
+.
+A singular-value decomposition of A verifies the equality. In particular, H ≻0 and ∥H∥op ≤1.
+Expanding the field-risk difference gives
+F0(WΛ) −F0(W0) = E∥A∆ϕ∥2
++ 2E⟨A∆ϕ, AW0ϕ + b −e
+X⟩.
+(9)
+14
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+By (8),
+AW0ϕ + b −e
+X = A(WZϕ −Z) + βAK−1
+0 A⊤WRϕ −R.
+The cross term involving WZϕ −Z vanishes by (7). The same orthogonality permits replacing WRϕ with R in the
+remaining cross expectation. Hence
+F0(WΛ) −F0(W0) = d2
+Λ −2E⟨A∆ϕ, HR⟩.
+(10)
+Cauchy–Schwarz and the contraction of H give the stated lower bound. When R = 0 almost surely, the cross term is
+zero, proving the exact equality and its strictness condition.
+The exact-grounding conclusion is a projection result within the common feature class: the identity-metric predictor
+also minimizes field risk in that class. Its relevance to mask-dependent supervision comes from the displacement
+equation below, which identifies when a reweighted fit departs from that projection. It is not a guarantee that adding
+latent supervision improves a field-only predictor.
+B.3
+Approximation Residuals Drive the Displacement
+Subtracting the full-target normal equation from the reweighted normal equation gives
+TΛ(∆) = αE[(ΛM −Ir)(Z −W0ϕ)ϕ⊤].
+(11)
+Under exact grounding, W0 = WZ. Since ΛM and ϕ are observation-measurable,
+E[(ΛM −Ir)(Z −WZϕ)ϕ⊤] = E[(ΛM −Ir)(µ −WZϕ)ϕ⊤].
+The irreducible residual Z −µ has zero conditional mean and contributes no term. Thus the population shift arises
+from the interaction of mask-dependent weights with approximation residuals of the common feature class.
+If ΛM is constant, the right-hand side vanishes by feature orthogonality. If µ = WZϕ, it vanishes for every observation-
+measurable metric. If the reweighting produces only a displacement annihilated by A, there is no field-risk difference.
+These are explicit boundary cases, not exceptions hidden by the strict-improvement statement.
+B.4
+A Sparse Elliptic Illustration
+Let s, t be independent Rademacher variables and a = (s, t)⊤. Consider the two-node elliptic system
+Lu = a,
+L =
+
+2
+−1
+−1
+2
+
+,
+K = L−1,
+e
+X =
+
+a
+Ka
+
+.
+Define
+O =
+1
+√
+2
+
+1
+1
+1
+−1
+
+,
+Z = Oa,
+A =
+
+O⊤
+KO⊤
+
+.
+Then D0(z) = Az exactly decodes the deterministic teacher target, and A⊤A = diag(2, 10/9).
+Independently draw M ∈{0, 1} with equal probabilities. Observe V = s when M = 0 and V = t when M = 1. Use
+common features ϕ = (1, M, V )⊤, whose second-moment matrix is
+S =
+ 1
+1/2
+0
+1/2
+1/2
+0
+0
+0
+1
+!
+≻0.
+The mask is available to the predictor, but the feature class omits the interaction MV .
+For arbitrary α, β > 0, compare the identity metric with
+Λ0 = diag(3/2, 1/2),
+Λ1 = diag(1/2, 3/2).
+Both latent coordinates and the field loss remain supervised. Solving the normal equations gives
+W0ϕ =
+
+V/
+√
+2
+0
+
+,
+WΛϕ =
+
+
+V/
+√
+2
+−
+αV
+2
+√
+2(α + 10β/9)
+
+.
+15
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Indeed, the weighted coefficient equation for V has diagonal matrix diag(α + 2β, α + 10β/9) and right-hand side
+((α + 2β)/
+√
+2, −α/(2
+√
+2))⊤. The intercept and mask-only coefficients are zero. Consequently,
+F0(WΛ) −F0(W0) =
+45α2
+4(9α + 10β)2 > 0.
+(12)
+The example also illustrates why coordinate labels do not certify recoverability. For M = 0,
+CG = 1
+2
+
+1
+−1
+−1
+1
+
+.
+Each coordinate is conditionally uncertain, yet (Z1 + Z2)/
+√
+2 = s is exactly recoverable.
+This is an analytical construction, not a measured PDE benchmark result. Adding MV makes the conditional latent
+mean representable and removes this particular distortion. The example demonstrates a finite-capacity mechanism,
+not universal inferiority of separated supervision.
+C
+Nonlinear Risk and Observation Information
+This appendix analyzes the full-target objective with the fixed continuous nonlinear decoder, without restricting pre-
+dictors to the feature class used in Appendix B.
+C.1
+Proof of the Common-Objective Decomposition
+Proof of Theorem 1. For observation-measurable f of finite risk, conditional orthogonality gives
+E∥D(f) −e
+X∥2 = E∥e
+X −ν∥2 + E∥D(f) −ν∥2
+and
+E∥f −Z∥2 = E∥Z −µ∥2 + E∥f −µ∥2.
+Combining the two identities yields
+RG(f; D) = VG + EΨG(f).
+To justify an attained optimum, define
+Q = (
+p
+β e
+X, √α Z),
+HD(z) = (
+p
+β D(z), √α z),
+m = E[Q | G].
+Then ΨG(z) = ∥HD(z) −m∥2. For every finite m, this is continuous and coercive in z because α > 0. It therefore
+has a nonempty compact minimizer set. The continuous criterion has a measurable minimum and admits a measurable
+minimizing selection in the stated standard Borel setting.
+For integrability, define dD(m)2 = minz ∥HD(z) −m∥2. Comparison with z = 0 gives
+dD(m)2 ≤∥HD(0) −m∥2,
+whose expectation is finite. For a minimizing selection f ⋆,
+∥HD(f ⋆)∥2 ≤2dD(m)2 + 2∥m∥2.
+Thus it has finite risk. Integrating the minimum proves R⋆
+G = VG + AG. Subtracting this minimum gives the stated
+expression for predictor excess. Existence does not imply uniqueness or convexity of the nonlinear conditional prob-
+lem.
+The uncertainty term depends on the fixed teacher and loss coefficients. Decoder incompatibility concerns whether
+the conditional latent and physical targets can be represented by the same code; it is not identical to complete-field
+teacher reconstruction error.
+16
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+C.2
+Comparison with Latent-Mean Decoding
+Assume additionally D(µ) ∈L2. Let
+FG(f; D) = E∥D(f) −e
+X∥2,
+ΓG(D) = RG(µ; D) −R⋆
+G(D).
+Using (6),
+RG(f; D) −RG(µ; D) = β{FG(f; D) −FG(µ; D)} + αE∥f −µ∥2.
+Therefore,
+β{FG(f; D) −FG(µ; D)} = eG(f; D) −ΓG(D) −αE∥f −µ∥2.
+(13)
+At a joint optimum, the field-risk difference is nonpositive, and it is negative when ΓG > 0. For continuously differ-
+entiable D, a sufficient condition is JD(µ)⊤(D(µ) −ν)̸ = 0 on a positive-probability set. The conditional criterion
+then has nonzero gradient at µ, so its nonnegative minimum gap is positive on that set and has positive expectation.
+This compares two prediction rules for the same snapshot. For the same admissible class,
+inf
+f FG(f; D) ≤FG(f ⋆; D) ≤FG(µ; D).
+The result therefore does not establish that adding latent supervision improves field-only learning.
+An exactly decodable deterministic teacher.
+Let e
+X equal 1 or 4 with equal probabilities, set T(x) = √x on that
+support, and let D(z) = z2. Then Z = T( e
+X) and D(Z) = e
+X almost surely. With uninformative observations,
+µ = 3/2, ν = 5/2, and D(µ) = 9/4̸ = ν. Moreover, D′(µ)(D(µ) −ν) = −3/4̸ = 0. This is a valid deterministic-
+teacher example of the nonlinear mismatch, not an experimental result.
+C.3
+Additional Information and Equality across Contexts
+Definition 1 (Prediction across observation contexts). Let Yi be observations of the same physical realization, let
+Gi = σ(Yi) be completed observation sigma-fields, and let fi(Yi) be square-integrable predictions in a common
+target space. ❶Complete invariance requires f1(Y1) = f2(Y2) almost surely. ❷Conditional predictive coherence
+requires E[fℓ(Yℓ) | Gk] = fk(Yk) almost surely whenever Gk ⊆Gℓ.
+For fixed targets, decoder, coefficients, and population law, suppose Gk ⊆Gℓ. The admissible predictors under the
+smaller information set form a subset of those under the larger set, so R⋆
+ℓ(D) ≤R⋆
+k(D). Writing mi = E[Q | Gi],
+conditional orthogonality gives
+Vk = Vℓ+ E∥mℓ−mk∥2
+and hence
+R⋆
+k(D) −R⋆
+ℓ(D) = E∥mℓ−mk∥2 + Ak(D) −Aℓ(D).
+The incompatibility difference is not separately nonnegative. For fitted predictions, their excess-risk difference must
+also be included; ideal information gain need not yield a decrease in every learned error.
+At complete paired-field observation, both e
+X and Z are measurable. The optimal joint risk is zero if and only if
+D(Z) = e
+X almost surely. Sufficiency follows from the choice f = Z; necessity follows from the attained nonnegative
+minimum and the positivity of both loss coefficients. A larger sensor count alone does not establish information
+nesting: a random unordered mask may not reveal a smaller prefix unless the acquisition ordering is fixed or otherwise
+available.
+For cross-view equality, let C = G1 ∩G2, µi = E[Z | Gi], and µC = E[Z | C]. Because the observation sigma-fields
+are completed, an identical prediction available from both views has a C-measurable version. Its optimal value is µC.
+Applying conditional orthogonality for each view yields
+inf
+fi∈L2(Gi)
+f1=f2
+1
+2
+2
+X
+i=1
+E∥Z −fi∥2 −1
+2
+2
+X
+i=1
+E∥Z −µi∥2 = 1
+2
+2
+X
+i=1
+E∥µi −µC∥2.
+The cost is positive precisely when one of the conditional means contains target-predictive information outside the
+intersection. This equality restriction is different from partitioning target coordinates within one context.
+17
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+D
+Grounding and Stability beyond the Affine Comparison
+The comparative theorem uses a common affine decoder. This appendix states explicit conditions under which its
+reconstruction margin persists for a nonlinear decoder and inexact fitting. It does not infer these conditions merely
+from the presence of grounding or EMA updates.
+D.1
+A Uniform Nonlinear Extension
+Let D be a fixed nonlinear decoder and D0(z) = Az + b an affine reference. Let W be a common compact convex
+coefficient class containing the unconstrained affine optima W0, WΛ. Both methods retain the same feature map and
+nonlinear decoder. Define
+FD(W) = E∥D(Wϕ) −e
+X∥2
+and let J D
+j
+replace the affine field term in J 0
+j by βFD, for j ∈{0, Λ}. Assume uniformly over W ∈W that
+∥D(Wϕ) −D0(Wϕ)∥L2 ≤εD,
+∥D0(Wϕ) −e
+X∥L2 ≤BF .
+Put qD = 2BF εD + ε2
+D. For each objective, assume βA⊤A + αΛj,M ⪰cjIr, with cj > 0 and Λ0,M = Ir.
+Proposition 3 (Persistence of a reconstruction margin). Suppose c
+Wj ∈W satisfies
+J D
+j (c
+Wj) ≤inf
+W ∈W J D
+j (W) + ηj.
+Define
+ζj = qD + 2BF ∥A∥op
+s
+2βqD + ηj
+cj
+.
+Then, using the affine comparison quantities ρ and dΛ,
+FD(c
+WΛ) −FD(c
+W0) ≥d2
+Λ −2ρdΛ −ζΛ −ζ0.
+A positive right-hand side is sufficient for a strict nonlinear field-risk advantage in this common class.
+Proof. Expanding squared field errors gives
+|FD(W) −F0(W)| ≤qD
+uniformly on W. The latent terms are unchanged, so the corresponding objectives differ by at most βqD. Comparing
+the returned predictor to the affine optimum gives
+J 0
+j (c
+Wj) −J 0
+j (Wj) ≤2βqD + ηj.
+The affine objective is quadratic with vanishing first derivative at Wj. Its coercivity therefore implies
+E∥(c
+Wj −Wj)ϕ∥2 ≤2βqD + ηj
+cj
+.
+The two affine field residuals have L2 norms at most BF . Their squared-norm difference is consequently bounded by
+|F0(c
+Wj) −F0(Wj)| ≤2BF ∥A∥op
+s
+2βqD + ηj
+cj
+.
+Adding the nonlinear-approximation error gives |FD(c
+Wj) −F0(Wj)| ≤ζj. Subtract the two comparisons and apply
+Theorem 2.
+A sufficient approximation condition follows from a κ-Lipschitz decoder Jacobian on a convex domain containing the
+relevant code segments. For D0(z) = D(z⋆) + JD(z⋆)(z −z⋆), Taylor’s theorem gives
+εD ≤κ
+2 sup
+W ∈W
+
+E∥Wϕ −z⋆∥4	1/2 ,
+when the right-hand side is finite. Smoothness alone does not make this bound small. A pointwise approximation at a
+single code is insufficient for the uniform comparison.
+The fitting tolerances above are population quantities. If an empirical optimization tolerance is bηj and a valid uniform
+objective-deviation bound is uj, then ηj ≤bηj + 2uj. A small training objective alone supplies no such deviation
+bound.
+18
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+D.2
+Online Grounding, Teacher Mismatch, and Moving Targets
+Let Zo = Eθ(YF ) and Z = T( e
+X) = ¯E¯θ(YF ). Define
+ρo = ∥D(Zo) −e
+X∥L2,
+∆EMA = ∥Z −Zo∥L2.
+If D is LD-Lipschitz on the relevant code domain and the quantities are finite, the triangle inequality gives
+∥D(Z) −e
+X∥L2 ≤ρo + LD∆EMA.
+For the affine-reference residual in Theorem 2,
+ρ ≤ρo + LD∆EMA + ∥D(Z) −D0(Z)∥L2.
+Thus online grounding, teacher compatibility, and affine approximation contribute separately. The method directly
+trains the first reconstruction pathway, not all three quantities.
+The common latent rule is also distinct from a fixed numerical target over training. For two teacher snapshots Zs, Zt
+and the same prediction f, set ∆T = ∥Zt −Zs∥L2. Expanding the squared losses gives
+E∥f −Zt∥2 −E∥f −Zs∥2 ≤2∥f −Zs∥L2∆T + ∆2
+T .
+The coordinate support and weights can remain unchanged even while target values move. This inequality does not
+bound the whole training trajectory, which also changes the predictor and decoder.
+D.3
+Scope of the Theoretical Conclusions
+The quadratic reference in Section 3.3 separates observation uncertainty, decoder compatibility, and predictor excess
+risk at a fixed teacher–decoder snapshot. The target-weighting comparison additionally fixes common features and
+an affine decoder. Appendix D extends the comparison under explicit nonlinear-approximation and fitting conditions.
+The reference coefficients are fixed analytical quantities, distinct from the dynamically scaled unsquared physical field
+objective used in training.
+The physical transfer analysis below applies to a fixed backbone and compares complete-view and context-predicted
+representations through a decoder. Its inequalities provide sufficient conditions for DP transfer. SP instead trains the
+replacement decoder directly on context representations. The empirical decoder comparisons use the Full backbone;
+the mathematical claims retain the assumptions stated for each result.
+D.4
+Physical Readout Transfer
+Fix a backbone, a field/observation law, and a nonzero target channel y. Let RF (d), RM(d), and BM(d) be defined
+as in Section 3.3, with finite expectations. For each record, the reverse triangle inequality gives
+
+∥d(zM) −y∥2
+∥y∥2
+−∥d(zF ) −y∥2
+∥y∥2
+ ≤∥d(zM) −d(zF )∥2
+∥y∥2
+.
+Taking expectations yields |RM(d) −RF (d)| ≤BM(d). Combining RM(d0) ≥RF (d0) −BM(d0) with RM(d1) ≤
+RF (d1) + BM(d1) proves Eq. (1). The triangle inequality also gives BM(d0) ≤RM(d0) + RF (d0) for the shared
+decoder.
+For the latent bound, write ∥v∥r = ∥v∥2/√r. If d is Ld-Lipschitz from this norm to physical field norm and κy =
+(E∥y∥−2
+2 )1/2 < ∞, then
+BM(d) ≤LdE∥zM −zF ∥r
+∥y∥2
+≤Ldκy
+ E∥zM −zF ∥2
+r
+1/2 .
+Minkowski’s inequality gives
+ E∥zM −zF ∥2
+r
+1/2 ≤
+ E∥zM −¯z∥2
+r
+1/2 +
+ E∥¯z −zF ∥2
+r
+1/2 =
+√
+J + δEMA.
+Substitution proves Eq. (2). The argument applies channelwise or to a declared nonzero-target evaluation cohort,
+subject to the stated moment and Lipschitz assumptions.
+19
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Table 2: Training settings by experiment group. The main-table operators share SCOPE’s observation/task protocol
+and physical field objective. The auxiliary operator pairs are a separate experiment.
+Setting
+SCOPE backbones
+Main-table operators
+Auxiliary operators
+Models
+Full, FO, FJV
+FNO, DeepONet, CNO,
+Transolver
+FNO/DeepONet, each with
+and without G
+Inputs / outputs
+Four masked-field/mask inputs;
+two fields
+Six inputs including coordinates;
+two fields
+Mask-aware inputs; one
+hidden-field head
+Data exposure and observation contexts
+Pretraining
+10 epochs; none for FO
+None
+None
+Main training
+500 epochs
+100 epochs
+100 epochs
+Batch size
+32
+125
+32
+Task schedule
+Forward/inverse/joint: 40/40/20
+Same as SCOPE
+Alternating forward/inverse:
+50/50
+Observation
+Five balanced families; exact
+budgets in Table 5
+Same families, budgets, and
+homogeneous batches
+Per-pixel Bernoulli p = 0.03;
+masks refresh every five
+epochs
+Objectives and optimization
+Field objective
+Both fields; unsquared physical
+relative L2
+Same two-field objective
+Hidden field only;
+channel-normalized L1
+Auxiliary terms
+Recipe-dependent J, G, V with
+gradient cap
+None
+Optional 0.25 G using the
+same L1
+Optimizer
+AdamW; decay 0.05
+AdamW; decay 0.05
+AdamW; decay 10−5
+Learning rate
+Peak 1.25 × 10−4;
+warmup/cosine to 10−6
+Peak 1.25 × 10−4;
+warmup/cosine
+Constant 10−4
+Warmup
+Five epochs per stage
+Five epochs
+None
+Gradient clip
+Norm 1
+Norm 1
+Norm 1
+Forward precision
+BF16; losses float32
+BF16; field scores float32
+Float32; TF32 disabled
+The columns specify distinct model sizes and training budgets. Full-backbone decoder adaptation uses 100 epochs, batch 32, five-
+epoch warmup, the SCOPE optimizer, and alternating uniform/500 forward/inverse contexts. Only the new 5M/10M/15M head is
+trainable; its objective is field loss alone, with no teacher or auxiliary forward pass.
+E
+Experimental Settings
+E.1
+Experiment groups
+We distinguish SCOPE backbone training, the mask-aware operators in the main comparison, and the auxiliary
+FNO/DeepONet pairs with additional reconstruction supervision. Table 2 records their model sizes, objectives, ob-
+servations, and optimization. SCOPE backbone comparisons use Full, FO, and FJV before decoder adaptation. All
+reported DP and SP comparisons start from the Full backbone. Operator configurations are specified in Appendix I.
+E.2
+Data, splits, and physical normalization
+We
+use
+the
+normalized
+paired
+fields
+in
+jcy20/DiffusionPDE-normalized,
+at
+revision
+3ededc4f2d8a1592a52a7a865cb903dab7647820.
+Each float32 record has shape 2 × 128 × 128.
+The re-
+leased training and test splits are retained.
+Training uses shuffled training records; held-out records do not
+enter backbone optimization or decoder adaptation.
+Reported SCOPE results use terminal checkpoints without
+validation-based checkpoint selection.
+Darcy pairs permeability a with pressure u. Poisson and Helmholtz use source/response pairs. Obstacle-free NS uses
+paired vorticity snapshots, whereas cylinder NS uses earlier/later scalar speed snapshots. Physical values are recovered
+from the stored representation by
+xc = 2σcexc + µc.
+(14)
+SCOPE and the main-comparison operators evaluate field errors after this inverse normalization. Missing inputs are
+zero-filled in stored coordinates and accompanied by explicit masks. The auxiliary operators’ normalization and
+scoring conventions are specified separately in Appendix I.2.
+20
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Table 3: Data and training exposure. An epoch is one training-set-equivalent number of draws. Main training and
+decoder adaptation use 500 and 100 epochs, respectively. Full and FJV additionally use complete-view pretraining.
+PDE
+Train pairs
+Test pairs
+Main draws
+Adaptation draws
+Darcy
+50,000
+10,000
+25,000,000
+5,000,000
+Poisson
+50,000
+1,024
+25,000,000
+5,000,000
+Helmholtz
+50,000
+10,000
+25,000,000
+5,000,000
+NS
+50,000
+1,000
+25,000,000
+5,000,000
+NS (BCs)
+14,000
+1,000
+7,000,000
+1,400,000
+Table 4: Normalization constants. Physical values use the factor of two in Eq. (14).
+PDE
+µa
+µu
+σa
+σu
+Darcy
+7.5
+0.00569201936
+4.5
+0.00379030361
+Poisson
+0
+9.67226952×10−6
+0.2919494
+0.00417478
+Helmholtz
+0
+1.05050595×10−5
+0.2844538
+0.00428004
+NS
+0
+0
+0.26211293
+0.2561266
+NS (BCs)
+1.80715032
+2.87310427
+1.00997056
+1.72194188
+E.3
+Observation masks and batch construction
+The input is [Ma⊙ea, Ma, Mu⊙eu, Mu], where one denotes an observed location. Forward observes a, inverse observes
+u, and joint recovery observes both, with the cylinder convention in Appendix E.4. Joint masks have independently
+seeded locations for the two channels and the same nominal budget. Mask locations depend on geometry and sampling
+seeds rather than hidden field values.
+Each batch shares one task, mask family, and budget, while sample-specific locations may differ. The schedule visits
+each of the five families once per five batches. Within each family, forward/inverse/joint tasks occur in proportions
+40/40/20. Uniform, regular-grid, and cluster families use the budget slots
+(500, 500, 1024, 2048, 4096, 8192, 12288, 16384),
+so the 500-point condition has conditional weight 1/4. Lines and blocks use 4,915 and 9,830 points, obtained by
+rounding 30% and 60% of the grid. Families have equal overall weight. Each training-set-sized sequence of draws is a
+fresh permutation; batch construction retains tail records and can cross an epoch boundary without mixing observation
+conditions.
+Training and test mask seeds are 20260913 and 20261013. Hash-derived seeds distinguish records and conditions.
+Uniform/500 means 500 unique whole-grid samples before geometric conditioning, or approximately 3.05% nominal
+coverage. Different sampled budgets need not produce nested masks.
+E.4
+Known-cylinder conditioning
+Released per-record geometry specifies a closed disk whose values are supplied on both channels, including the other-
+wise hidden task channel. The active channel’s sampled mask is unioned with the disk. No additional outer-boundary
+observations are introduced. Disk values are the released field values, rather than values inferred from the fields or
+overwritten with zero. Thus the nominal whole-grid sample budget and the number of visible fluid locations are
+distinct.
+The additional benchmark uniform/100 condition independently observes each fluid pixel with probability 0.01 and
+supplies the same known disk. The identifier 100 denotes basis points, not a fixed number of sensors. This is a held-out
+acquisition condition for the adapted models, whose training uses uniform/500.
+E.5
+Architecture and parameter accounting
+An 8 × 8 strided embedding maps the four input channels to 256 tokens. The encoder uses 12 pre-normalized Trans-
+former blocks with width 512, 8 heads, GELU activations, MLP ratio 4, learned absolute positions, and no dropout. A
+linear head maps each token to width 128, yielding 16 × 16 × 128 latent coordinates. Pooling is the identity because
+the patch and anchor grids coincide.
+21
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Table 5: Backbone observation families. Budgets count unique original-grid pixels before the cylinder union.
+Family
+Construction
+Uniform
+Uniform subset without replacement and with exact cardinality.
+Regular grid
+Cartesian original pixels with random phase and axis swap; no interpolation. Shapes are 20×25,
+32×32, 32×64, 64×64, 64×128, 96×128, and 128×128.
+Cluster
+2–4 equally weighted Gaussian components, center separation at least 0.30 domain units, and widths
+0.12–0.20; weighted sampling without replacement.
+Random lines
+Whole rows or columns in random order, with at most one partial final line to meet the exact count.
+Block
+Rectangle-ordered pixels about a center in [0.2, 0.8]2, aspect ratio in [2/3, 3/2], and random tie
+breaking.
+Table 6: Parameter accounting. Deployment excludes the EMA teacher. Decoder adaptation updates only the
+replacement head.
+Component
+Parameters
+Online encoder
+38,157,952
+Predictor
+1,711,488
+Mask conditioner
+384
+Native decoder
+171,010
+Native online model
+40,040,834
+EMA teacher, training-only
+38,157,952
+Frozen inference backbone
+39,869,824
+SP-5M decoder
+5,003,170
+SP-5M deployment total
+44,872,994
+SP-10M decoder
+10,010,658
+SP-10M deployment total
+49,880,482
+SP-15M decoder
+15,018,218
+SP-15M deployment total
+54,888,042
+The conditioner is a 2 →128 linear map applied to patchwise visibility fractions. The predictor projects width 128
+to 256, applies two Transformer blocks with 8 heads and MLP ratio 4, and projects back to 128. The native decoder
+applies a tokenwise 128 →256 →256 →128 MLP, forms two 8 × 8 field tiles per token, and uses residual
+refinement with three 3 × 3 convolutional layers of width 64. Hidden layers use GELU. No observed-field skip
+connection bypasses the latent representation.
+Replacement decoders use four linear layers, tiled reconstruction, and five convolutional layers with residual refine-
+ment. Their MLP/convolution widths are (1248, 240), (1760, 352), and (2168, 432) for the 5M, 10M, and 15M heads.
+SCOPE–SP in the main text denotes Full with SP-10M, used consistently across PDE settings. The other sizes are
+decoder-capacity comparisons.
+The stored frozen state can also contain the unused teacher, giving 78,027,776 non-decoder parameters. That stored-
+state count is distinct from the deployed model: the teacher is not evaluated during decoder adaptation or inference.
+E.6
+Optimization, initialization, and backbone recipes
+SCOPE stages use batch 32 and AdamW with (β1, β2) = (0.9, 0.999), ϵ = 10−8, peak learning rate 1.25 × 10−4, and
+weight decay 0.05. Biases, one-dimensional parameters, and positions receive no decay. Each stage has five warmup
+epochs starting at 10−6, followed by cosine decay ending at 10−6. Schedules follow cumulative data draws. Combined
+gradients are clipped to norm 1. Forward computation uses BF16 mixed precision and losses use float32. The training
+seed is 20260913.
+Full and FJV initialize the encoder and decoder with 10 epochs of complete-pair reconstruction plus the variance
+regularizer. The predictor and conditioner enter joint training at their random initialization. Main training lasts 500
+epochs, resets the optimizer, and initializes the EMA teacher from the pretrained online encoder. EMA momentum
+increases from 0.996 to 0.9999. FO trains the same online architecture from random initialization for 500 epochs using
+22
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+field loss only, without pretraining or a teacher. Full and FJV differ in the presence of grounding during main training;
+FJV retains the same complete-view pretraining objective.
+E.7
+Losses and auxiliary-gradient control
+The physical field objective averages the unsquared relative L2 error over both channels, all spatial locations, and the
+batch. Grounding evaluates this same physical objective on dω(zF ), including inverse normalization. Latent prediction
+is mean squared coordinate error between zM and the stop-gradient EMA target. The variance term is
+LV = 1
+r
+r
+X
+j=1
+[0.1 −sj(zF )]2
++,
+where sj is the batch standard deviation with divisor B. The main-text coefficients are λG = 0.25, λV = 0.01, and
+γ = 0.1. The backbone objectives are
+LFull = LF + αt(LJ + 0.25LG + 0.01LV ),
+LFJV = LF + αt(LJ + 0.01LV ),
+LFO = LF .
+For S equal to all online parameters or encoder parameters alone, write
+fS = ∥∇SLF ∥2,
+aS =
+X
+k∈{J,G,V }:wk>0
+∥wk∇SLk∥2,
+αt = min
+
+1, min
+S:aS>0
+fS
+aS
+
+.
+Here (wJ, wG, wV ) = (1, 0.25, 0.01) for Full and (1, 0, 0.01) for FJV. An empty inner minimum imposes no cap.
+A binding factor is multiplied by 1 −10−6 for roundoff safety. The scalar is detached, the weighted gradients are
+composed, and clipping precedes AdamW. This controls the field term’s share relative to the sum of component-
+gradient norms, both globally and on the encoder. The cap is recomputed for each recipe, so omitting grounding can
+also change the overall auxiliary scale.
+E.8
+Full-backbone SP adaptation and DP control
+Every reported decoder comparison starts from the Full epoch-500 backbone. Its native decoder is replaced with
+a newly initialized head. The encoder, predictor, and conditioner are frozen, and only the new decoder receives
+gradients. Adaptation lasts 100 epochs with a fresh optimizer and the schedule above. No teacher forward pass or
+latent, grounding, or variance loss is used.
+SP computes detached context representations zM with the frozen inference pathway. Batches alternate forward and
+inverse tasks with uniform/500 observations, retaining known-cylinder conditioning. The field objective supervises
+both output channels. DP instead trains the head on detached complete-pair online representations zF , bypassing the
+predictor and conditioner. Both are evaluated on context representations zM. Within a decoder size, DP and SP share
+architecture and optimization settings but use different decoder-training representations.
+The terminal epoch-100 heads are evaluated using the same held-out masks as their Full base. Adaptation masks
+use seed 20260913 in the training namespace; test masks use 20261013 in the test namespace. Test records do not
+enter adaptation. The common task, family, and nominal budget do not imply reuse of training examples or masks at
+evaluation.
+F
+Evaluation Metrics and Comparison Protocols
+F.1
+Physical errors and Darcy classification
+For channel c, we report the mean per-record physical relative error
+RelL2c = 100
+|Ic|
+X
+i∈Ic
+∥bxic −xic∥2
+∥xic∥2
+,
+Ic = {i : ∥xic∥2 > 0}.
+(15)
+Each norm flattens one spatial field. Forward evaluation selects u and inverse evaluation selects a. Both output
+channels are also reported separately in Table 9. These endpoint means are distinct from mixed-task, two-channel
+training losses.
+23
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Darcy permeability takes physical values 3 and 12. Predictions are thresholded at their midpoint, 7.5, to obtain
+binary labels. BER is the mean per-record fraction of misclassified pixels, reported as a percentage; pixel accuracy is
+100 −BER. Darcy inverse uses BER throughout the primary comparisons. Continuous relative L2 errors on Darcy a
+are explicitly labeled auxiliary diagnostics.
+F.2
+Zero-energy cylinder targets and regional evaluation
+The cylinder data contain 76 zero-u training fields and three zero-u test fields, with zero-based test indices 39, 163,
+and 710. No a targets have zero energy. Test relative-error means use the 997 nonzero u fields and all 1,000 a fields.
+Zero-energy targets are not assigned a zero relative error or evaluated with an arbitrary denominator. The tables report
+this defined-target relative-error endpoint; absolute-RMSE summaries for the zero-target subset are not included.
+Training retains all records. For a zero target, the channel loss is
+ℓ(0)
+ic = RMSE(bxic, 0)
+sc,train
+,
+(sa,train, su,train) = (2.070225306780491, 3.3495987840120813).
+The zero-target flag is determined from the target data. Nonzero targets use their own physical norms. Regional
+diagnostics distinguish the whole grid, fluid, a fluid-side band defined by a 5 × 5 dilation of the disk intersected with
+fluid, and the remaining fluid interior. Regional errors use their own target norms and validity masks and are separate
+from the primary whole-grid endpoint.
+F.3
+Numerical provenance and comparison groups
+The literature rows in Table 1 retain the source-specific data, observation, and evaluation protocols. Sampling-step la-
+bels describe inference iterations. The literature-reported FNO, PINO, DeepONet, PINN, DiffusionPDE, and FunDPS
+entries are transcribed from Table 1 of Yao et al. (2025); the DiffusionPDE row is their reproduced evaluation. Archi-
+tecture citations identify the underlying methods rather than the source of every measurement.
+PRISMA-50 uses the Darcy results in Table 10 of version 2 of Sawhney et al. (2025). Equi-FunDPS uses Table 5
+of arXiv version 3 of Tolooshams et al. (2025), with 500 sampling steps and 100 test samples. PISD uses the 500-
+observation results in Tables 1–2 of Gallon et al. (2026). DDIS uses the highest-runtime DDIS configuration in Table 2
+of Lin et al. (2026). These literature entries are excluded from the highlighted common-observation ranking and paired
+tests.
+Our main-table mask-aware operators use the observation/task protocol and physical field objective specified in Ap-
+pendix E, with their architecture sizes and budgets listed in Table 2. The auxiliary FNO/DeepONet pairs use a separate
+Bernoulli-observation experiment and are not substituted for the main-table models. Their test populations, additional
+reconstruction objective, and metric units are given in Appendix I.2.
+F.4
+Decoder training and deployment cost
+SP-10M trains 10,010,658 decoder parameters, approximately 20.07% of its 49,880,482 deployed parameters. The
+corresponding fractions are 11.15% for SP-5M and 27.36% for SP-15M. Each adaptation adds 100 epochs and uses
+a frozen-backbone forward pass to obtain context representations. Deployed totals include the replacement decoder
+and exclude the EMA teacher. Native and adapted inference each use a deterministic encoder–predictor–decoder pass.
+These counts report parameter and training exposure; no measured wall-clock speedup is claimed.
+G
+Additional Held-Out Results
+G.1
+Backbone recipes before adaptation
+Table 7 compares the native Full, FJV, and FO models. Full has lower mean error than FJV at all ten primary for-
+ward/inverse endpoints. Both use the same pretraining objective and duration; their main-stage objectives differ in
+the grounding term and the resulting auxiliary-gradient scale. FO is the direct field-supervised recipe described in
+Appendix E.6. Per-record statistics are provided in Appendix H.
+G.2
+Decoder adaptation on the Full backbone
+Table 8 holds the Full encoder, predictor, and conditioner fixed and compares the native decoder with replacement
+heads. All replacement heads are newly initialized. SP-10M, denoted SCOPE–SP in the main text, lowers the Full
+24
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Table 7: Backbone training recipes before decoder adaptation. All rows use their own 171,010-parameter decoder
+at main epoch 500, the same online architecture, training data, mask schedule, and test conditions. Full is compared
+with field-only training (FO) and full-target prediction without main-stage grounding (FJV).
+Method
+Darcy
+Poisson
+Helmholtz
+NS
+NS (BCs)†
+Fwd. Inv. (BER)
+Fwd.
+Inv.
+Fwd.
+Inv.
+Fwd.
+Inv.
+Fwd.
+Inv.
+FO
+2.1625
+1.5832 1.8322 11.2462 1.8306 10.7070 2.6269 7.3287 1.9829 0.7076
+FJV
+2.1788
+1.6502 2.0647 11.2334 2.1258 11.6476 2.7015 7.5940 2.3897 0.8209
+Full
+2.1737
+1.5564 1.6804
+9.5024 1.6361
+8.7023 2.5813 6.9732 2.1148 0.6491
+Full and FJV include 10 full-view pretraining epochs; FO starts randomly without pretraining. Thus FO is a recipe control rather
+than an initialization-matched single-term ablation. Nominal auxiliary weights and the gradient cap are held fixed when their terms
+are present. Metrics and † follow Table 1.
+Table 8: Readout adaptation at a fixed Full backbone. DP fits a new head on complete-view encoder latents; SP fits
+it on sparse predictor latents. Both use 100 additional epochs. Every row is tested through the sparse predictor path.
+Four decimal places expose small changes hidden by main-table rounding.
+Method
+Darcy
+Poisson
+Helmholtz
+NS
+NS (BCs)†
+Fwd. Inv. (BER)
+Fwd.
+Inv.
+Fwd.
+Inv.
+Fwd.
+Inv.
+Fwd.
+Inv.
+Full / original head 2.1737
+1.5564 1.6804 9.5024 1.6361 8.7023 2.5813 6.9732 2.1148 0.6491
+Full / DP-5M
+2.2066
+1.6425 1.6760 9.5222 1.6320 8.7066 2.5749 6.9797 2.0027 0.4789
+Full / SP-5M
+2.1687
+1.5509 1.6678 9.4277 1.6285 8.6436 2.5733 6.9402 1.9958 0.4773
+Full / SP-10M
+2.1684
+1.5503 1.6674 9.4260 1.6279 8.6425 2.5729 6.9384 1.9728 0.4524
+DP-5M and SP-5M use the same head architecture, base checkpoint, and optimizer schedule, but different decoder-training repre-
+sentations. Comparisons with the native decoder additionally change capacity and add 100 training epochs. SP-10M is the primary
+adapted model in Table 1; SP-5M and SP-15M provide capacity comparisons in Table 10. Metrics and † follow Table 1.
+model’s mean error on each primary endpoint. DP and SP use complete-view and context-predicted representations,
+respectively, during decoder fitting; every reported sparse test uses the context pathway.
+G.3
+Both reconstructed channels
+Table 9 reports both output channels under uniform/500. Forward and inverse identify the channel evaluated in the
+primary comparison, while training supervises both fields. Darcy inverse BER and continuous relative L2 are reported
+in separate columns. The SP rows here use the Full backbone and the 5M head; the full head-size comparison follows
+in Table 10.
+Table 9: Both reconstructed channels at uniform/500. All entries are held-
+out percentages, not training losses. Inverse a⋆uses BER for Darcy and relative
+L2 elsewhere; all other channel errors use relative L2. The final column retains
+Darcy inverse relative L2 only as an auxiliary diagnostic. Cylinder u means use
+997 defined targets.
+PDE
+Model / head
+Forward
+Inverse
+Darcy aux.
+a (L2)
+u (L2)
+a⋆
+u (L2)
+Inv. a (L2)
+Darcy
+FO
+15.6697
+2.1625
+1.5832
+0.4097
+10.7508
+Darcy
+FJV
+15.7062
+2.1788
+1.6502
+0.4502
+10.9896
+Darcy
+Full
+15.6970
+2.1737
+1.5564
+0.4213
+10.6789
+Darcy
+Full / SP-5M
+15.6806
+2.1687
+1.5509
+0.4008
+10.6478
+Poisson
+FO
+8.5021
+1.8322
+11.2462
+0.7304
+—
+Continued on next page
+25
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Table 9 (continued)
+PDE
+Model / head
+Forward
+Inverse
+Darcy aux.
+a (L2)
+u (L2)
+a⋆
+u (L2)
+Inv. a (L2)
+Poisson
+FJV
+9.2788
+2.0647
+11.2334
+0.8510
+—
+Poisson
+Full
+8.1587
+1.6804
+9.5024
+0.4730
+—
+Poisson
+Full / SP-5M
+8.1318
+1.6678
+9.4277
+0.4467
+—
+Helmholtz
+FO
+8.5624
+1.8306
+10.7070
+0.6712
+—
+Helmholtz
+FJV
+8.9854
+2.1258
+11.6476
+1.0201
+—
+Helmholtz
+Full
+8.1235
+1.6361
+8.7023
+0.3937
+—
+Helmholtz
+Full / SP-5M
+8.0989
+1.6285
+8.6436
+0.3755
+—
+NS
+FO
+7.4657
+2.6269
+7.3287
+0.7303
+—
+NS
+FJV
+7.6031
+2.7015
+7.5940
+0.8488
+—
+NS
+Full
+7.3645
+2.5813
+6.9732
+0.6419
+—
+NS
+Full / SP-5M
+7.3632
+2.5733
+6.9402
+0.6263
+—
+NS (BCs)
+FO
+0.6847
+1.9829
+0.7076
+1.4657
+—
+NS (BCs)
+FJV
+0.8283
+2.3897
+0.8209
+2.0319
+—
+NS (BCs)
+Full
+0.6480
+2.1148
+0.6491
+1.7350
+—
+NS (BCs)
+Full / SP-5M
+0.4749
+1.9958
+0.4773
+1.6237
+—
+G.4
+Decoder capacity and training representations
+Table 10 reports the Full-based DP and SP heads at each decoder size. All heads train for 100 epochs. On cylinder flow,
+the primary SP-10M configuration gives 1.9728% forward and 0.4524% inverse error, compared with 2.1148% and
+0.6491% for the native decoder. A dash denotes an unreported channel-specific measurement. All available primary
+endpoint values are retained.
+Table 10: Decoder size and training-view sensitivity on the Full backbone.
+All heads are newly initialized and trained for 100 epochs. Inverse a⋆uses BER
+for Darcy and relative L2 elsewhere; the final column retains Darcy inverse rel-
+ative L2 as auxiliary only. All values are percentages. A dash denotes an unre-
+ported channel-specific measurement.
+PDE
+Model / head
+Forward
+Inverse
+Darcy aux.
+a (L2)
+u (L2)
+a⋆
+u (L2)
+Inv. a (L2)
+Darcy
+DP-5M
+18.3474
+2.2066
+1.6425
+0.4874
+12.4596
+Darcy
+DP-10M
+18.4497
+2.2021
+1.6468
+0.4857
+12.4984
+Darcy
+DP-15M
+18.1494
+2.2016
+1.6316
+0.4837
+12.3332
+Darcy
+SP-5M
+15.6806
+2.1687
+1.5509
+0.4008
+10.6478
+Darcy
+SP-10M
+15.6781
+2.1684
+1.5503
+0.3998
+10.6458
+Darcy
+SP-15M
+—
+2.1683
+1.5498
+—
+10.6443
+Poisson
+DP-5M
+8.1732
+1.6760
+9.5222
+0.4630
+—
+Poisson
+DP-10M
+8.1736
+1.6753
+9.5230
+0.4611
+—
+Poisson
+DP-15M
+8.1741
+1.6756
+9.5235
+0.4624
+—
+Poisson
+SP-5M
+8.1318
+1.6678
+9.4277
+0.4467
+—
+Poisson
+SP-10M
+8.1318
+1.6674
+9.4260
+0.4453
+—
+Poisson
+SP-15M
+—
+1.6671
+9.4249
+—
+—
+Helmholtz
+DP-5M
+8.1268
+1.6320
+8.7066
+0.3836
+—
+Helmholtz
+DP-10M
+8.1267
+1.6318
+8.7067
+0.3836
+—
+Helmholtz
+DP-15M
+8.1268
+1.6316
+8.7068
+0.3828
+—
+Helmholtz
+SP-5M
+8.0989
+1.6285
+8.6436
+0.3755
+—
+Helmholtz
+SP-10M
+8.0984
+1.6279
+8.6425
+0.3741
+—
+Continued on next page
+26
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Table 10 (continued)
+PDE
+Model / head
+Forward
+Inverse
+Darcy aux.
+a (L2)
+u (L2)
+a⋆
+u (L2)
+Inv. a (L2)
+Helmholtz
+SP-15M
+—
+1.6277
+8.6417
+—
+—
+NS
+DP-5M
+7.3667
+2.5749
+6.9797
+0.6302
+—
+NS
+DP-10M
+7.3668
+2.5748
+6.9799
+0.6293
+—
+NS
+DP-15M
+7.3670
+2.5751
+6.9795
+0.6294
+—
+NS
+SP-5M
+7.3632
+2.5733
+6.9402
+0.6263
+—
+NS
+SP-10M
+7.3629
+2.5729
+6.9384
+0.6256
+—
+NS
+SP-15M
+—
+2.5732
+6.9383
+—
+—
+NS (BCs)
+DP-5M
+0.4769
+2.0027
+0.4789
+1.6318
+—
+NS (BCs)
+DP-10M
+0.4559
+1.9820
+0.4576
+1.6131
+—
+NS (BCs)
+DP-15M
+0.4433
+1.9784
+0.4452
+1.6077
+—
+NS (BCs)
+SP-5M
+0.4749
+1.9958
+0.4773
+1.6237
+—
+NS (BCs)
+SP-10M
+0.4500
+1.9728
+0.4524
+1.6025
+—
+NS (BCs)
+SP-15M
+0.4359
+1.9637
+0.4382
+1.5927
+—
+G.5
+A changed cylinder observation condition
+Table 11 applies the same adapted heads to known-disk conditioning with Bernoulli observations of 1% of the fluid
+region. The heads are trained under uniform/500 and evaluated here without further fitting. This acquisition law has a
+random fluid-sensor count and is specified in Appendix E.4.
+Table 11: A separate cylinder observation condition. SP is trained only on uniform/500. These held-out rows
+use known-disk conditioning plus 1% Bernoulli observations of the fluid region; “100” in the saved condition name
+denotes basis points, not 100 fixed sensors. Errors are relative L2 (%).
+Head
+Forward a
+Forward u
+Inverse a
+Inverse u
+SP-5M
+1.0278
+2.5322
+0.7664
+2.0122
+SP-10M
+1.0115
+2.5174
+0.7494
+1.9952
+SP-15M
+1.0044
+2.5137
+0.7402
+1.9895
+G.6
+Reported evaluation conditions
+The backbone protocol supports 75 distinct task/family/budget combinations, plus two cylinder-specific acquisition
+conditions. The adapted-model results reported here cover forward and inverse uniform/500 recovery and the addi-
+tional cylinder forward/inverse conditions. These reported conditions are distinct from the set of conditions supported
+by the observation generator.
+27
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+H
+Per-Record Errors and Paired Comparisons
+Tables 12–14 report the means and per-record standard deviations underlying Figure 3. The SCOPE groups contain
+native FO, FJV, and Full models and Full-based SP heads. Auxiliary operators form a separate experiment specified
+in Appendix I.2. Means, units, and scored populations are identified for each group. All SP rows in this appendix use
+the Full backbone.
+Table 12: Forward recovery of the hidden response u. Mean ± standard deviation of per-record relative L2 errors
+(%). SCOPE uses uniform/500 and physical units. Auxiliary operators use their own Bernoulli-3% protocol and the
+metric units specified below. These are not fully matched cross-family comparisons.
+Method
+Poisson
+Helmholtz
+Darcy
+NS (periodic)
+NS (cylinder)‡
+Operator references: 100 epochs; 3% Bernoulli masks
+DeepONet + G 3.4783 ± 1.0679 3.0379 ± 1.1545 2.5830 ± 0.8954 4.3536 ± 0.8093 13.9307 ± 11.0177
+DeepONet
+3.4458 ± 1.2496 2.3259 ± 1.0340 2.6641 ± 0.8977 4.4076 ± 0.8204
+13.0824 ± 9.6002
+FNO + G
+3.1172 ± 1.4950 3.1115 ± 1.5640 2.8842 ± 1.1010 3.4010 ± 0.8183 15.1163 ± 19.4803
+FNO
+3.6179 ± 1.6686 4.1611 ± 1.6845 2.7522 ± 1.0165 3.0042 ± 0.7315 14.3843 ± 17.5732
+SCOPE backbone recipes: 500 main epochs; uniform/500
+FO
+1.8322 ± 0.9686 1.8306 ± 0.9838 2.1625 ± 0.8977 2.6269 ± 0.6467
+1.9829 ± 9.9739
+FJV
+2.0647 ± 1.0983 2.1258 ± 1.0436 2.1788 ± 0.8988 2.7015 ± 0.6595
+2.3897 ± 10.8972
+Full
+1.6804 ± 0.9213 1.6361 ± 0.9242 2.1737 ± 0.8969 2.5813 ± 0.6454
+2.1148 ± 10.3418
+Sparse-path adaptation: frozen Full backbone; 100 head epochs
+SP-5M
+1.6678 ± 0.9166 1.6285 ± 0.9244 2.1687 ± 0.8966 2.5733 ± 0.6473
+1.9958 ± 10.4692
+SP-10M
+1.6674 ± 0.9170 1.6279 ± 0.9244 2.1684 ± 0.8967 2.5729 ± 0.6471
+1.9728 ± 10.4255
+SP-15M
+1.6671 ± 0.9174 1.6277 ± 0.9245 2.1683 ± 0.8967 2.5732 ± 0.6473
+1.9637 ± 10.4303
+SCOPE uses 1,024 / 10,000 / 10,000 / 1,000 / 997 scored fields in column order and physical-unit errors. Each auxiliary operator
+uses 1,000 records with five mask draws, giving 5,000 record–mask pairs. SD denotes dispersion over scored rows, not independent
+training runs. Auxiliary Darcy errors are converted per record to physical units; periodic-NS relative errors are unchanged by zero-
+mean scaling. Auxiliary Poisson and Helmholtz forward errors retain stored coordinates and nonzero response shifts. ‡: cylinder
+auxiliary scores also retain stored coordinates and omit SCOPE’s known-disk conditioning. The auxiliary norm guard excludes no
+records.
+28
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Table 13: Inverse recovery of the hidden input a. Mean ± standard deviation of per-record target errors (%): BER
+for Darcy, relative L2 for the other PDEs. Operators use their own Bernoulli 3% protocol; SCOPE uses exactly 500
+uniform points. These are not fully matched cross-family comparisons.
+Method
+Poisson
+Helmholtz
+Darcy (BER)
+NS (periodic)
+NS (cylinder)‡
+Operator references: 100 epochs; 3% Bernoulli masks
+DeepONet + G 12.7519 ± 3.1407 12.0210 ± 2.7818 5.8548 ± 2.1429 10.3008 ± 1.7708 13.4073 ± 7.0904
+DeepONet
+12.0413 ± 3.0069 11.6675 ± 2.7691 5.6359 ± 2.0694 10.3639 ± 1.8348 13.3365 ± 7.0118
+FNO + G
+15.0845 ± 3.8692 14.8467 ± 3.7329 3.4798 ± 1.6474
+9.3371 ± 1.6888
+11.6073 ± 6.9658
+FNO
+15.0947 ± 3.9014 14.4706 ± 3.5408 3.6251 ± 1.7206
+7.5056 ± 1.4283
+10.9079 ± 6.6674
+SCOPE backbone recipes: 500 main epochs; uniform/500
+FO
+11.2462 ± 2.8743 10.7070 ± 2.7732 1.5832 ± 0.7883
+7.3287 ± 1.3145
+0.7076 ± 1.0292
+FJV
+11.2334 ± 2.9060 11.6476 ± 2.8693 1.6502 ± 0.8179
+7.5940 ± 1.3622
+0.8209 ± 1.0048
+Full
+9.5024 ± 2.4330
+8.7023 ± 2.2587
+1.5564 ± 0.7748
+6.9732 ± 1.2552
+0.6491 ± 1.0402
+Sparse-path adaptation: frozen Full backbone; 100 head epochs
+SP-5M
+9.4277 ± 2.4229
+8.6436 ± 2.2466
+1.5509 ± 0.7721
+6.9402 ± 1.2549
+0.4773 ± 1.0328
+SP-10M
+9.4260 ± 2.4231
+8.6425 ± 2.2464
+1.5503 ± 0.7719
+6.9384 ± 1.2550
+0.4524 ± 1.0332
+SP-15M
+9.4249 ± 2.4231
+8.6417 ± 2.2462
+1.5498 ± 0.7717
+6.9383 ± 1.2550
+0.4382 ± 1.0329
+SCOPE uses 1,024 / 10,000 / 10,000 / 1,000 / 1,000 scored fields in column order. Auxiliary models use 1,000 records and five
+masks per record. Darcy uses measured BER; the other non-cylinder inverse relative errors have zero-mean normalizations and are
+scaling-invariant. ‡: cylinder auxiliary scores retain stored units and omit known-disk conditioning. SD summarizes scored records
+or record–mask pairs, not training-seed variation.
+Table 14: Darcy inverse classification. Mean ± per-record SD of binary error rate and mean pixel accuracy. SCOPE
+uses uniform/500 on 10,000 fields; operators use their separate 3% protocol on 1,000 fields with five mask draws.
+Method
+BER (%) ↓
+Pixel accuracy (%) ↑
+Operator references: own observation protocol
+DeepONet + G
+5.8548 ± 2.1429
+94.1452
+DeepONet
+5.6359 ± 2.0694
+94.3641
+FNO + G
+3.4798 ± 1.6474
+96.5202
+FNO
+3.6251 ± 1.7206
+96.3749
+SCOPE backbone recipes
+FO
+1.5832 ± 0.7883
+98.4168
+FJV
+1.6502 ± 0.8179
+98.3498
+Full
+1.5564 ± 0.7748
+98.4436
+Sparse-path adaptation on Full
+SP-5M
+1.5509 ± 0.7721
+98.4491
+SP-10M
+1.5503 ± 0.7719
+98.4497
+SP-15M
+1.5498 ± 0.7717
+98.4502
+The physical threshold is 7.5 and pixel accuracy equals 100 −BER. BER is calculated from thresholded predictions, not inferred
+from continuous relative error. SCOPE and auxiliary operators retain their respective observation and evaluation protocols. Every
+SP head is attached to Full.
+29
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+H.1
+Paired per-record differences
+For a comparison A versus B, let di = ei(A) −ei(B) and ∆= d. Negative ∆favors A. The tables give the paired
+SD sd, descriptive statistic t = ∆/(sd/√n), and improved-record fraction 100 #{i : di < 0}/n. Pairing uses the
+same held-out records and observation masks for fixed trained models. Displayed means and paired statistics are
+independently rounded. These are record-level comparisons rather than estimates of training-seed variation. All SP
+comparisons use Full-based heads.
+The forward table includes Poisson, Helmholtz, Darcy, and periodic NS. The primary inverse relative-error table
+includes Poisson, Helmholtz, and periodic NS. Cylinder paired statistics and Darcy inverse BER paired statistics are
+not reported. Table 17 separately preserves the Darcy continuous-error diagnostic; it is not a BER test.
+Table 15: Forward u: paired differences at uniform/500. ∆and paired SD
+are relative-L2 percentage points; ∆< 0 favors the first method named in each
+group. Statistics are computed on paired records for the fitted models.
+PDE
+n
+∆(pp)
+Paired SD
+t
+First better (%)
+SP-5M vs. Full
+Poisson
+1,024
+−0.0126
+0.0473
+−8.5
+59.9
+Helmholtz
+10,000
+−0.0077
+0.0278
+−27.6
+61.9
+Darcy
+10,000
+−0.0051
+0.0212
+−23.9
+60.1
+NS (periodic)
+1,000
+−0.0080
+0.0143
+−17.6
+71.8
+SP-10M vs. Full
+Poisson
+1,024
+−0.0130
+0.0486
+−8.6
+60.0
+Helmholtz
+10,000
+−0.0083
+0.0269
+−30.8
+63.0
+Darcy
+10,000
+−0.0053
+0.0222
+−23.9
+60.3
+NS (periodic)
+1,000
+−0.0083
+0.0146
+−18.0
+72.2
+SP-15M vs. Full
+Poisson
+1,024
+−0.0133
+0.0483
+−8.8
+61.3
+Helmholtz
+10,000
+−0.0084
+0.0266
+−31.6
+63.4
+Darcy
+10,000
+−0.0054
+0.0229
+−23.5
+60.2
+NS (periodic)
+1,000
+−0.0080
+0.0145
+−17.5
+72.0
+Full vs. FO
+Poisson
+1,024
+−0.1519
+0.3264
+−14.9
+70.6
+Helmholtz
+10,000
+−0.1945
+0.3584
+−54.3
+74.6
+Darcy
+10,000
++0.0113
+0.1323
+8.5
+46.1
+NS (periodic)
+1,000
+−0.0457
+0.1159
+−12.5
+65.1
+Full vs. FJV
+Poisson
+1,024
+−0.3844
+0.4730
+−26.0
+82.8
+Helmholtz
+10,000
+−0.4896
+0.5110
+−95.8
+88.1
+Darcy
+10,000
+−0.0050
+0.1372
+−3.7
+52.1
+NS (periodic)
+1,000
+−0.1202
+0.1351
+−28.2
+84.3
+30
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Table 16: Inverse a: paired differences at uniform/500. ∆and paired SD
+are relative-L2 percentage points; ∆< 0 favors the first method named in each
+group. Statistics are computed on paired records for the fitted models. Darcy is
+omitted here because its primary inverse metric is BER, for which paired sum-
+maries are unavailable.
+PDE
+n
+∆(pp)
+Paired SD
+t
+First better (%)
+SP-5M vs. Full
+Poisson
+1,024
+−0.0747
+0.0306
+−78.0
+99.6
+Helmholtz
+10,000
+−0.0587
+0.0331
+−177.5
+97.3
+NS (periodic)
+1,000
+−0.0330
+0.0143
+−73.0
+98.8
+SP-10M vs. Full
+Poisson
+1,024
+−0.0764
+0.0326
+−75.1
+99.3
+Helmholtz
+10,000
+−0.0597
+0.0334
+−179.0
+97.4
+NS (periodic)
+1,000
+−0.0348
+0.0149
+−74.0
+99.0
+SP-15M vs. Full
+Poisson
+1,024
+−0.0775
+0.0327
+−75.8
+99.3
+Helmholtz
+10,000
+−0.0605
+0.0336
+−180.1
+97.6
+NS (periodic)
+1,000
+−0.0349
+0.0152
+−72.7
+98.9
+Full vs. FO
+Poisson
+1,024
+−1.7438
+0.5903
+−94.5
+100.0
+Helmholtz
+10,000
+−2.0047
+0.6197
+−323.5
+100.0
+NS (periodic)
+1,000
+−0.3555
+0.1669
+−67.4
+98.9
+Full vs. FJV
+Poisson
+1,024
+−1.7309
+0.6187
+−89.5
+100.0
+Helmholtz
+10,000
+−2.9453
+0.7408
+−397.6
+100.0
+NS (periodic)
+1,000
+−0.6208
+0.2038
+−96.3
+100.0
+Table 17: Auxiliary Darcy inverse continuous-error diagnostic (not BER). These retained paired relative-L2 statis-
+tics are not the classification endpoint used in the main comparisons. Both ∆and paired SD are relative-L2 percentage
+points. No BER significance or improved-record rate is inferred from them.
+Comparison
+n
+∆(pp)
+Paired SD
+t
+First better (%)
+SP-5M vs. Full
+10,000
+−0.0311
+0.0417
+−74.6
+77.8
+SP-10M vs. Full
+10,000
+−0.0331
+0.0443
+−74.7
+77.8
+SP-15M vs. Full
+10,000
+−0.0346
+0.0461
+−75.0
+78.2
+Full vs. FO
+10,000
+−0.0719
+0.3327
+−21.6
+58.6
+Full vs. FJV
+10,000
+−0.3106
+0.3270
+−95.0
+83.7
+31
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+Table 18: Main-comparison operator configurations. These are the SCOPE-protocol models in Table 1, not the
+auxiliary models in Figure 3. Counts are real trainable degrees of freedom, including both parts of Fourier weights.
+Model
+Parameters
+Main configuration
+FNO
+5,029,946
+Width 40; 14 Fourier modes; 4 layers; projection width 128; padding 9.
+DeepONet
+4,977,354
+CNN branch channels 32/64/128/192; branch hidden width 360; 256 basis
+functions; trunk width 128, depth 2.
+CNO
+4,774,776
+3 levels; 2 residual blocks; 4 bottleneck blocks; channel multiplier 52.
+Transolver
+4,792,482
+8 layers; width 160; 8 heads; 32 slices; MLP ratio 2.
+Table 19: Auxiliary operator parameter accounting. These architectures are not parameter-matched and differ from
+Table 18. Each complex Fourier parameter contributes two real degrees of freedom.
+Architecture
+Parameter elements
+Real degrees of freedom
+FNO / PINO
+4,803,521
+9,522,113
+DeepONet
+13,239,987
+13,239,987
+U-Net
+4,740,101
+4,740,101
+CNO
+5,281,721
+5,281,721
+Figure 3 uses FNO and DeepONet, each with and without grounding. U-Net, CNO, and PINO belong to the wider auxiliary study;
+their configurations do not supply additional results in the main comparison.
+I
+Operator Configurations and Additional Supervision
+I.1
+Main-comparison mask-aware operators
+Each operator takes six channels, [Maea, Ma, Mueu, Mu, x, y], and outputs dense a, u. Explicit masks distinguish miss-
+ing values from zeros. All four families use field loss only, with no teacher, latent loss, grounding, variance term, or
+pretraining. They share the five-family homogeneous-batch schedule and task mixture described in Appendix E.3.
+Training uses 100 epochs, batch 125, five-epoch warmup, AdamW peak learning rate 1.25 × 10−4, and weight de-
+cay 0.05. Forward uses BF16 and physical field scoring uses float32. Model sizes and training exposure are listed
+separately from SCOPE in Table 2.
+The main operators use the same observation families, budgets, task mixture, and physical field loss as the SCOPE
+backbone. The auxiliary operator pairs below instead use a distinct training objective and acquisition law.
+I.2
+Auxiliary reconstruction supervision for FNO and DeepONet
+Inputs and observations.
+The FNO/DeepONet models with and without G in Figure 3 and Tables 12–14 are trained
+independently from the main-table operators. One head predicts the hidden field; batches alternate between observing
+a to predict u and observing u to predict a. Zero-filled fields and explicit masks specify the input, and the target
+channel is fully hidden. Independent Bernoulli masks with p = 0.03 give an expected 491.52 observations and
+standard deviation of approximately 21.8 on a 128 × 128 grid. Masks refresh in groups of five epochs. This differs
+from SCOPE’s exact 500-point subsets and mixed-layout training schedule.
+Training.
+These models train for 100 epochs from scratch, without pretraining or a teacher, using batch 32 and seed
+0. AdamW uses constant learning rate 10−4, weight decay 10−5, and gradient clipping at norm 1, without warmup
+or cosine decay. Computation is float32 with TF32 disabled. Per-channel normalization statistics are fitted on the
+first 49,000 training records, or 14,000 for cylinder flow. The objective is mean L1 on the single hidden field in these
+channel-normalized units. The +G arm adds 0.25 times the same reconstruction objective with complete observation
+of the input channel. This auxiliary grounding differs from SCOPE’s complete-pair online representation branch and
+two-channel relative-error loss. Evaluation uses the terminal checkpoint without validation- or test-based checkpoint
+selection.
+Evaluation and units.
+The evaluator uses the first 1,000 records of the corresponding released held-out data, five
+independent mask draws per record, batch 16, and mask-seed base 12345. Within each repeat, forward and inverse
+share the same pixel pattern on opposite channels. The resulting 5,000 record–mask pairs are not 5,000 independent
+32
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+physical samples. SCOPE instead uses the test populations in Table 3 with one fixed mask realization. Error bars
+describe dispersion over each experiment’s scored rows, not comparable confidence intervals or training-seed variation.
+The auxiliary relative errors are initially computed in the released stored representation. Relative L2 is invariant to
+common scaling but not translation, so a summary mean cannot generally be converted by one global factor. Darcy
+errors are converted to physical units per record, and BER is measured separately using the corresponding threshold.
+For Poisson and Helmholtz, zero source means make inverse relative errors invariant to the stored-to-physical scaling,
+but nonzero response means prevent exact equality between stored-coordinate and physical forward relative errors.
+Periodic NS has zero channel means, so both relative errors are scaling-invariant. Cylinder auxiliary errors remain in
+stored coordinates and omit the known-disk conditioning used by SCOPE; they are retained only as labeled references.
+The auxiliary norm guard flags target norms at most 10−8 and excludes no stored-coordinate evaluation records.
+Other auxiliary arms.
+The wider study includes CNO/U-Net on Poisson and periodic NS, and PINO on Poisson
+and Helmholtz, each PINO task with and without G and physics weight 1.0 or 0.1. PINO uses a five-point Laplacian
+with h = 1/(S −1) and residual ∆u−a for Poisson or ∆u+u−a for Helmholtz, with dataset-refitted normalization
+constants. The complementary field not predicted by the single-output head is supplied from the complete training
+target pair when forming the residual. This is an additional training-information assumption, not access to complete
+test fields. No Darcy or NS PINO arm is included in this auxiliary study.
+Interpretation of additional reconstruction.
+The +G pairs evaluate full-input reconstruction supervision within
+each auxiliary operator family. Their mean errors improve on some endpoints and worsen on others, as shown in
+Tables 12–14. The Full–FJV comparison separately evaluates grounding within SCOPE’s joint predictive recipe.
+These comparisons concern their respective training configurations; the operator +G objective is not identical to
+SCOPE’s latent-space grounding branch.
+33
+
+
+SCOPE: Sparse PDE Inference
+PREPRINT
+J
+Reproducibility and Reporting Conventions
+Experiment identity.
+Each result is identified by its PDE, backbone recipe, terminal checkpoint, decoder, obser-
+vation condition, test split, and metric. Full, FO, and FJV use main-stage epoch-500 checkpoints with their native
+decoders. Every reported DP or SP experiment uses a fixed Full epoch-500 backbone and its own decoder-stage
+epoch-100 checkpoint. Complete-view reconstruction, sparse held-out recovery, and training losses are separate quan-
+tities.
+Comparison groups.
+The main-table mask-aware operators and auxiliary FNO/DeepONet pairs are separately
+trained models. Table 2 and Appendix I specify their inputs, objectives, sampling, architectures, and optimization.
+Literature values retain the source protocols identified in Appendix F.3.
+Statistical conventions.
+Means and standard deviations summarize the scored records under the stated condition.
+Paired statistics use matched records for fixed models. SCOPE uses its reported training seed and fixed test masks.
+Rankings use unrounded values; means and paired differences may round independently. Darcy classification and
+continuous-error statistics remain distinct. The zero-target convention is specified in Appendix F.2.
+Availability.
+The study uses existing DiffusionPDE paired-field datasets (Huang et al., 2024; Yao et al., 2025).
+Public implementation, environment setup, and dataset-download instructions are available at https://github.c
+om/ru1ch3n/SCOPE. The repository documents pretrained-model availability, checksums, and inference-loading
+conventions. Dataset files remain with their original provider under the upstream license.
+34

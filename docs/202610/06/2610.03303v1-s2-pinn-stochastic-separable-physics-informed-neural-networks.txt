@@ -1,0 +1,5249 @@
+S2-PINN: Stochastic Separable Physics-Informed
+Neural Networks
+Zhendong Li
+Industrial and Systems Engineering Dept.
+Lehigh University
+Bethlehem, PA 18015, USA
+zhl923@lehigh.edu
+Akwum Onwunta
+Industrial and Systems Engineering Dept.
+Lehigh University
+Bethlehem, PA 18015, USA
+ako221@lehigh.edu
+Abstract
+Uncertainty quantification (UQ) for random partial differential equations (PDEs) is
+ubiquitous in computational science and engineering. However, classical spectral
+solvers for this class of problems face the curse of dimensionality, and existing
+neural solvers often ignore the stochastic structure that makes moments and cal-
+ibration tractable. We introduce a stochastic separable physics-informed neural
+network, dubbed S2-PINN, that represents the solution u(t, x, Z) of a random PDE
+with a learnable Gaussian spatial dictionary, Fourier temporal features, and a gener-
+alized polynomial chaos (gPC) stochastic basis, coupled by a low-rank Canonical
+Polyadic (CP) tensor decomposition core. The method is trained with a hybrid
+strong-form and gPC-projected residual loss. Our theoretical analysis establishes
+that the separable class is dense in L2 under mild conditions, and the projected
+residual corresponds exactly to a stochastic Galerkin constraint. Furthermore,
+we show that mini-batch projection coefficients are logarithmically dependent
+on the number of gPC modes, and that the orthogonality penalty controls the
+conditioning of the learned spatial dictionary. Using four manufactured random
+PDE benchmarks, we show that S2-PINN outperforms nine baselines in terms of
+mean and variance accuracy, as well as calibration, while using significantly fewer
+parameters. Further evaluations on non-manufactured Poisson and Darcy problems,
+a stochastic Navier–Stokes problem, a diffusion scaling study of higher random
+dimensions, and two stochastic inverse problems reveal the generalization capabili-
+ties of the proposed structure. Together, these results support stochastic separability
+as an effective design principle for physics-informed neural UQ. The code for the
+experiments can be found in https://github.com/DMax1314/s2pinn.
+1
+Introduction
+Uncertainty quantification (UQ) for partial differential equations (PDEs) is essential when coefficients,
+boundary conditions, or forcing terms depend on random variables Z ∈RR. In this setting, the
+solution u(t, x, Z) is a random field, and the primary targets are often its moments and calibration
+properties. Classical stochastic solvers such as Monte Carlo Ghanem and Spanos [1991], stochastic
+Galerkin Xiu and Karniadakis [2002], and stochastic collocation Babuška et al. [2007] are reliable
+but costly because they require many repeated solves or large coupled systems.
+Physics-informed neural networks (PINNs) Raissi et al. [2019], Karniadakis et al. [2021] avoid
+labeled data by enforcing PDE residual constraints, but standard PINNs typically encode Z as generic
+inputs and rely on dense sampling to learn stochastic structure implicitly. Operator-learning methods
+such as DeepONet Lu et al. [2021] and FNO Li et al. [2020] learn parameter-to-solution maps from
+data, but require supervised datasets and degrade in stiff nonlinear regimes. Recent stochastic PINN
+and physics-informed polynomial-chaos work Zhang et al. [2019], Yang et al. [2021], Psaros et al.
+40th Conference on Neural Information Processing Systems (NeurIPS 2026).
+arXiv:2610.03303v1  [cs.LG]  2 Oct 2026
+
+
+[2023], Novák et al. [2024], Shi et al. [2026] has improved neural UQ, yet current architectures do
+not jointly exploit separability across space, time, and randomness.
+Separable PINNs (SPINN) Cho et al. [2023] showed that explicit separability can improve efficiency
+for deterministic PDEs. In parallel, low-rank tensor methods (CP, TT, Tucker) Kolda and Bader
+[2009], Oseledets [2011], Bachmayr [2023] have long addressed high-dimensional structure in PDE
+and optimal control solvers Nouy [2010], Chinesta et al. [2010], Bachmayr et al. [2016], Benner
+et al. [2015, 2016a,b], Antil et al. [2023, 2025a,b]. The missing ingredient is an integrated stochastic
+PINN that combines learnable spatial representations, explicit stochastic basis structure, and physics
+constraints enforcing both pointwise residual consistency and stochastic projection consistency.
+S2-PINN fills this gap. The model represents the solution u(t, x, Z) by a three-way separable ansatz
+with a learnable Gaussian spatial dictionary, Fourier temporal features, and gPC stochastic modes,
+coupled through a low-rank CP core. Training combines strong-form residual minimization with
+a gPC-projected residual term. Our theory supports four concrete claims: finite-rank separable
+sums are expressive in L2, the projected residual equals a stochastic Galerkin constraint, its mini-
+batch estimator has uniform concentration scaling as O(log G), where G is the number of gPC
+modes, and the spatial orthogonality penalty controls feature conditioning. We evaluate both forward
+stochastic prediction and inverse stochastic parameter identification within the same physics-informed
+framework.
+Contributions.
+In this work, we make the following three main contributions.
+(a) We introduce a stochastic separable PINN that couples a learnable spatial dictionary with
+M atoms, Mt temporal Fourier features, and G gPC stochastic modes via a rank-q CP
+factorization, reducing coupling complexity from dense O(MMtG) to O((M+Mt+G)q).
+The hybrid strong-form and gPC-projected residual loss enforces local PDE consistency and
+stochastic Galerkin consistency.
+(b) We prove expressivity of the separable ansatz, projection–Galerkin equivalence, mini-batch
+concentration for stochastic projection coefficients, orthogonality-conditioning control, CP
+complexity, and gauge invariance. These results justify the representation and explain why
+projection is useful when the solution is well aligned with the chosen stochastic basis.
+(c) Among manufactured and non-manufactured benchmarks, S2-PINN improves moment accu-
+racy and calibration. Additional scaling and inverse-problem studies extend the evaluation
+beyond standard forward prediction, covering higher-dimensional random inputs and joint
+recovery of solution fields and random-field parameters.
+Our central claim is that stochastic separability provides a compact and well-aligned inductive bias
+for neural UQ of random PDEs, with its strongest benefits in regimes where the solution has low-rank
+space–time–random structure and a useful low-order stochastic expansion.
+2
+Related Work
+Physics-Informed and Operator Learning for UQ.
+Physics-informed neural networks typically
+enforce PDEs via soft residual constraints Raissi et al. [2019], with recent efforts targeting Uncertainty
+Quantification (UQ) via Bayesian frameworks Yang et al. [2021], auxiliary networks Zhang et al.
+[2019], and polynomial chaos expansions Novák et al. [2024], Shi et al. [2026]. Parallel to PINNs,
+neural operators like DeepONet Lu et al. [2021] and FNO Li et al. [2020] learn parameter-to-solution
+maps entirely from data. Very recently, Neural Chaos Bahmani et al. [2025] proposed replacing fixed
+polynomial bases with sequentially learned networks to break the independence assumption. However,
+a common limitation spans these methods: they either inherently mandate extensive labeled training
+data (data-driven operators), fail to exploit multidimensional structural separation, or rely on dense
+representations that scale poorly with stochastic dimensions. S2-PINN addresses this by formulating
+a strictly physics-informed, uncoupled architecture that mathematically isolates spatial derivative
+costs from the stochastic basis size. Physics-informed polynomial chaos expansions (PC2) Novák
+et al. [2024] are particularly relevant to our setting because they impose PDE constraints directly
+on a PCE surrogate via KKT-style constrained regression. We therefore include a UQpy-based PC2
+comparison as an external polynomial-chaos baseline: it tests whether a fixed global polynomial
+surrogate with physics constraints can match the accuracy and calibration gains obtained from our
+learnable space–time representation and low-rank stochastic coupling.
+2
+
+
+Low-Rank Tensor Methods in Neural Solvers.
+Classical low-rank tensor decompositions (CP, TT,
+Tucker) have long accelerated stochastic Galerkin solvers Doostan et al. [2013], Bigoni et al. [2016].
+In the deep learning regime, recent state-of-the-art neural-tensor hybrids—such as TT-PINN Liu et al.
+[2022], functional tensor decompositions Vemuri et al. [2024], and INN-TD Guo et al. [2025]—target
+purely deterministic spatial/parametric coordinates. They primarily compress neural weight matrices
+for edge deployment or factorize spatial axes without incorporating a statistical structural prior.
+Because none embed a stochastic polynomial basis or a UQ-specific Galerkin projection, they cannot
+address robust uncertainty quantification. S2-PINN fundamentally diverges by fusing a learnable
+spatial dictionary with explicitly separated gPC stochastic modes, governed entirely by a hybrid
+strong-form and projection constraint.
+Separable PINNs for High-Dimensional PDEs.
+SPINN Cho et al. [2023] first demonstrated that
+explicit dimensional separability, coupled with a coordinate warp, drastically accelerates deterministic
+PDE training. While it has been extended to quantum and elastic systems Es’kin et al. [2024], Zanotta
+et al. [2025], seamlessly scaling SPINN to stochastic parameters is highly non-trivial. Naively
+introducing random variables into SPINN yields a dense, non-factorized coefficient tensor that grows
+multiplicatively with the spatial, temporal, and stochastic resolutions. S2-PINN mitigates this specific
+bottleneck by eschewing the dense multi-way block for a low-rank CP coupling kernel, tightly
+integrating optimal stochastic bases (gPC) with spatio-temporal atoms, a structural synthesis currently
+absent in the SPINN-related literature. To isolate the effect of this design, we additionally compare
+against structurally closer baselines: SPINN extended with stochastic coordinates (SPINN+Z) Cho
+et al. [2023], functional CP-PINNs Vemuri et al. [2024], and Neural Chaos Bahmani et al. [2025].
+3
+Method
+S2-PINN represents random PDE solutions with an explicitly separated space–time–random structure.
+The method assumes that the uncertainty is encoded by a finite random vector Z with known marginals,
+which allows us to choose an orthonormal gPC basis in the stochastic coordinates. The architecture
+then couples spatial, temporal, and stochastic factors through a low-rank CP kernel, while the loss
+combines pointwise physics constraints with a stochastic projection constraint. Appendix B provides
+PDE-agnostic support for the main design choices: expressivity of separable sums, projection–
+Galerkin equivalence, mini-batch concentration, orthogonality penalty conditioning, CP complexity,
+and gauge invariance.
+3.1
+Three-way Separable Representation
+We approximate the solution by a rank-q CP expansion,
+u(t, x, Z) ≈
+q
+X
+r=1
+wrϕ(r)(x)τ (r)(t)ψ(r)(Z),
+(1)
+where each factor is a linear combination of basis functions (atoms) specific to its coordinate,
+ϕ(r)(x) =
+M
+X
+i=1
+AirΦi(x),
+τ (r)(t) =
+Mt
+X
+k=1
+BkrTk(t),
+ψ(r)(Z) =
+G
+X
+g=1
+DgrΨg(Z).
+(2)
+Here A ∈RM×q, B ∈RMt×q, D ∈RG×q, and w ∈Rq are learnable CP parameters. Spatial atoms
+are Gaussian dictionary elements with an optional residual warp,
+The three feature families are as follows. Spatial atoms are Gaussian dictionary elements with an
+optional residual warp,
+Φi(x) = exp
+
+−∥W(x)−ci∥2
+2
+2σ2
+i
+
+,
+W(x) = x + wθ(x).
+(3)
+Temporal atoms are DC and sine/cosine features with learnable frequencies ωk = exp(θk), and
+stochastic atoms are tensorized gPC bases (chosen by the base distribution) on JR,p. Given feature
+blocks Fspace ∈RB×M, Ftime ∈RB×Mt, and Fstoc ∈RB×G, the batched forward map is
+u =
+ (FspaceA) ⊙(FtimeB) ⊙(FstocD)
+
+w,
+(4)
+3
+
+
+where ⊙denotes a row-wise Hadamard product. Arithmetic scales as O(Bq(M + Mt + G)) instead
+of O(BMMtG) (Theorem B.9). Relative to SPINN, this design adds explicit stochastic modes,
+learns a Gaussian spatial dictionary, and uses a three-way CP coupling that keeps the stochastic basis
+separated from spatial derivative costs. Figure 1 illustrates the architecture.
+Theorem 3.1. Under the density assumptions on {Φi}, {Tk}, and {Ψg} stated in Appendix B, the
+union S
+q≥1 Fq of rank-q separable functions is dense in L2(T × Ω× Z); see Theorem B.2.
+S2-PINN Three-Branch Separable Architecture
+u =
+q
+X
+r=1
+ϕr(x) τr(t) ψr(Z)
+Spatial branch
+Temporal branch
+Stochastic branch
+Input
+(x, y)
+Warp MLP
+2→64→2
+(residual)
+Gaussian Dict.
+M=256 atoms
+Fspace
+∈RB×M
+Input
+t
+Fourier basis
+(DC + sin/cos)
+learnable frequencies ω
+Mt=1+2K, K=8
+Ftime
+∈RB×Mt
+Input
+Z ∈RR
+Multivariate Hermite poly.
+G =
+ R+p
+p
+
+terms
+Fstoc
+∈RB×G
+CP Coupling (rank q)
+S = FspaceA
+T = FtimeB
+P = FstocD
+H = S ⊙T ⊙P
+u = H w
+A ∈RM×q, B ∈RMt×q
+D ∈RG×q, w ∈Rq
+×A
+×B
+×D
+Output
+u(t, x, Z)
+∈RB
+Hybrid loss
+L = LPDE+Lproj+LBC+LIC+Lorth
+Figure 1: S2-PINN architecture. Three specialized branches—spatial (Gaussian dictionary with
+warp), temporal (learnable Fourier), stochastic (Hermite gPC)—are coupled via a rank-q CP core
+using Hadamard products. The hybrid loss combines PDE residual, gPC projection, boundary/initial
+conditions, and orthogonality regularization.
+3.2
+Hybrid Physics Loss and Regularization
+Let rθ = N[uθ; ϑ](t, x, Z) be the strong-form residual, where ϑ parameterizes the differential
+operator N and uθ is the network output. We minimize the objective
+L = wpdeE[r2
+θ] + wproj
+PG
+g=1
+
+E[rΨg(Z)]
+2
++ wbcE∂Ω[(u −u∂)2] + wicE[(u −u0)2|t=0] + worthRorth.
+(5)
+Here u∂and u0 denote boundary and initial conditions. The orthogonal regularizer combines a spatial
+feature Gram penalty
+Rfeat = ∥bGΦ −I∥2
+F ,
+bGΦ = 1
+B F⊤
+spaceFspace,
+(6)
+and CP-factor orthogonality,
+Rfac =
+X
+M∈{A,B,D}
+
+1
+∥M∥2
+col M ⊤M −I
+
+2
+F ,
+(7)
+with Rorth = Rfeat + λfacRfac. Note that the CP format is defined by the forward map (4) itself,
+which is an explicit sum of rank-one products of spatial, temporal, and stochastic factors for any value
+of λfac, including zero; the factor penalty (default λfac=0.1) only encourages well-conditioned factors
+and neither defines the CP form nor enforces CP uniqueness. Theorem B.3 shows that near-identity
+spatial Gram matrices control the condition number of the feature matrix.Regularization incorporates
+a spatial Gram penalty, which encourages feature near-orthogonality. Specifically, Theorem B.7
+shows that ∥bGΦ −I∥2 ≤δ ensures κ(Fspace) ≤
+p
+(1 + δ)/(1 −δ), with Theorem B.8 providing the
+corresponding sample complexity.
+The projected residual term is theoretically Galerkin-consistent and statistically stable, but it is
+not uniformly beneficial in every stochastic regime. Theorem B.3 identifies P
+g(E[rθΨg])2 with
+∥PVprθ∥2
+L2(Z), the squared residual projection onto the gPC subspace. The mini-batch coefficient
+4
+
+
+estimator is unbiased with O(1/B) variance (Theorem B.4), and Theorem B.5 gives uniform ϵ-
+accuracy across all G modes with batch size scaling as O(log G). Empirically, this projection acts
+as a useful spectral regularizer when the solution is well approximated by the chosen polynomial
+space, but it can introduce bias when important stochastic energy lies outside that space. In practice,
+the projection is computed pointwise in space and time: for each sampled (t, x) we draw several
+stochastic samples {Zb}, estimate EZ[rθ(t, x, Z)Ψg(Z)] from them, and then average the squared
+coefficients over the space–time collocation points, rather than taking one joint average over random
+(t, x, Z) tuples.
+3.3
+Training
+At each step we sample PDE, boundary, initial, and Gram mini-batches and optimize Eq. (5) with
+Adam. Time derivatives are analytic from Fourier features, while spatial derivatives, including ∆u,
+use autodiff through the warped Gaussian dictionary. We periodically resample collocation points and
+apply column-wise normalization to CP factors (A, B, D) after updates to fix the continuous gauge
+symmetry of the CP format (Theorem B.10), which also improves the Lipschitz conditioning of the
+forward map. The column normalization leaves the forward map unchanged (Theorem B.10) but
+rescales Adam’s moment buffers; at the default learning rate η = 10−3, we observed no instability
+from this engineering choice. Algorithm 1 and default hyperparameters are reported in Appendix E.
+4
+Experiments
+4.1
+Benchmark Problems
+We evaluate S2-PINN on four controlled random PDEs: diffusion, Allen–Cahn, Burgers, and Darcy.
+The first three are time-dependent problems that share the same manufactured target and differ in
+the physical operator, so their performance gaps isolate the effect of linear diffusion, cubic reaction,
+and nonlinear advection. Darcy is steady-state and uses exponential Z-dependence in the coefficient,
+making it a deliberately harder case for a low-order polynomial stochastic basis.
+Unless otherwise stated, all experiments use R=5 random variables, total gPC degree p=3
+(G=
+ 8
+3
+
+=56 modes), M=256 spatial atoms, Mt=17 temporal atoms, and CP rank q=16. We
+keep this single default across the four PDEs, the scaling sweep (Section G), and the collocation-
+density sweep (Section H) to avoid per-problem tuning. Manufactured solutions enable ground-truth
+evaluation of both mean and variance; full formulas are given in Section C.
+Baselines and fairness.
+We compare against nine baselines: a standard MLP PINN, the same PINN
+with the gPC projection loss, PI-DeepONet Goswami et al. [2023], MC-Dropout PINN, a K=5 deep
+ensemble Lakshminarayanan et al. [2017], stochastic collocation (SC) with nq=2 Gauss–Hermite
+nodes per dimension (25=32 node-PINNs), and three structurally closer methods: SPINN with
+the random variables appended as additional separable coordinates (SPINN+Z) Cho et al. [2023],
+functional CP-PINN Vemuri et al. [2024], and Neural Chaos Bahmani et al. [2025]. Neural Chaos is
+supervised by reference solutions and therefore serves as a data-driven oracle rather than a purely
+physics-informed competitor. All neural methods use the same optimizer family, collocation strategy,
+and training budget unless stated otherwise. The vanilla PINN has about 28× more parameters than
+S2-PINN (roughly 200K versus 7K), so parameter count does not favor the proposed architecture.
+Additional architecture and optimization details are in Appendix D.
+4.2
+Metrics
+We report two moment-accuracy metrics, evaluated on a held-out stochastic test set:
+• Mean relative L2 : ∥EZ[u] −EZ[u∗]∥L2(Ω)/∥EZ[u∗]∥L2(Ω)
+• Variance relative L2 : ∥VarZ[u] −VarZ[u∗]∥L2(Ω)/∥VarZ[u∗]∥L2(Ω)
+Moments are estimated by Monte Carlo over 1024 i.i.d. samples Z ∼N(0, IR) at B=2048 uniformly
+sampled probe points (t, x) ∈T × Ω. All results are averaged over 5 random seeds (42, 123, 456,
+789, 1024), and all results reported as mean ± std. The lowest mean per column is bolded and when
+the runner-up lies within ±1σ of the best, both entries are bolded to indicate a statistical tie.
+5
+
+
+Calibration protocol.
+To assess whether the predicted uncertainty faithfully reflects the true
+variability of the solution under random inputs, we construct predictive intervals and evaluate their
+empirical coverage. At each probe (tj, xj), we draw NZ=1,024 i.i.d. samples {Z(i)}NZ
+i=1 from
+N(0, IR) and form the nominal (1−α) predictive interval [ ˆQα/2, ˆQ1−α/2], where ˆQτ denotes the
+τ-th empirical quantile of {uθ(tj, xj, Z(i))}. Coverage is then evaluated on a separate hold-out set of
+N ′
+Z=1,024 samples {Z′(k)}N′
+Z
+k=1: empirical coverage at nominal level (1−α) is the fraction of (j, k)
+pairs for which u∗(tj, xj, Z′(k)) ∈[ ˆQ(j)
+α/2, ˆQ(j)
+1−α/2]. We report empirical coverage at four nominal
+levels (50%, 80%, 90%, 95%), sharpness (mean interval width at 90%), and mean calibration error
+1
+4
+P
+ℓ|(1−αℓ) −d
+Covℓ|. Results are in Table 3.
+4.3
+Main Results
+Tables 1–2 summarize the comparison. These estimates provide tighter uncertainty quantification of
+performance trends on these four controlled benchmarks.
+Table 1: Mean solution accuracy.
+Method
+Diffusion
+Allen–Cahn
+Burgers
+Darcy
+S2-PINN (proj)
+(3.71 ± 1.01) × 10−3
+(4.40 ± 1.32) × 10−3
+(3.44 ± 1.47) × 10−3
+(1.05 ± 0.30) × 10−3
+S2-PINN (no-proj)
+(4.85 ± 2.80) × 10−3
+(4.51 ± 4.15) × 10−3
+(3.86 ± 1.84) × 10−3
+(9.51 ± 2.13) × 10−4
+Vanilla PINN
+(1.41 ± 0.42) × 10−2
+(1.81 ± 0.68) × 10−2
+(1.78 ± 0.72) × 10−2
+(1.09 ± 0.28) × 10−2
+Vanilla PINN + proj
+(1.82 ± 0.69) × 10−2
+(1.49 ± 0.40) × 10−2
+(2.13 ± 0.75) × 10−2
+(1.57 ± 0.60) × 10−2
+PI-DeepONet
+(5.07 ± 2.17) × 10−2
+(5.74 ± 2.28) × 10−2
+(4.32 ± 1.96) × 10−2
+(2.56 ± 0.82) × 10−2
+MC-Dropout PINN
+(1.08 ± 0.11) × 10−1
+(9.99 ± 0.77) × 10−2
+(1.19 ± 0.10) × 10−1
+(7.45 ± 0.47) × 10−2
+Deep Ensemble (K=5)
+(1.31 ± 0.13) × 10−2
+(1.84 ± 0.44) × 10−2
+(1.01 ± 0.33) × 10−2
+(2.05 ± 0.45) × 10−2
+SC (nq=2, 32 nodes)
+(3.52 ± 0.11) × 10−2
+(3.45 ± 0.33) × 10−2
+(3.57 ± 0.10) × 10−2
+(8.74 ± 0.27) × 10−2
+SPINN+Z
+(1.57 ± 5.10) × 10−2
+(6.70 ± 3.42) × 10−2
+(3.59 ± 3.43) × 10−2
+(3.48 ± 2.18) × 10−2
+Functional CP-PINN
+(9.37 ± 4.22) × 10−2
+(10.87 ± 4.86) × 10−2
+(10.87 ± 4.86) × 10−2
+(4.53 ± 1.74) × 10−2
+Neural Chaos
+(2.31 ± 1.35) × 10−2
+–
+–
+(2.68 ± 1.53) × 10−2
+Table 2: Variance solution accuracy.
+Method
+Diffusion
+Allen–Cahn
+Burgers
+Darcy
+S2-PINN (proj)
+(4.40 ± 1.52) × 10−3
+(4.07 ± 1.98) × 10−3
+(4.65 ± 2.00) × 10−3
+(5.41 ± 0.86) × 10−3
+S2-PINN (no-proj)
+(7.03 ± 2.41) × 10−3
+(7.32 ± 7.19) × 10−3
+(5.39 ± 3.03) × 10−3
+(4.57 ± 0.51) × 10−3
+Vanilla PINN
+(3.75 ± 0.80) × 10−2
+(3.79 ± 1.08) × 10−2
+(5.12 ± 1.81) × 10−2
+(1.92 ± 0.18) × 10−2
+Vanilla PINN + proj
+(4.75 ± 1.30) × 10−2
+(4.24 ± 0.67) × 10−2
+(4.86 ± 0.71) × 10−2
+(2.06 ± 0.23) × 10−2
+PI-DeepONet
+(6.05 ± 1.76) × 10−2
+(6.58 ± 2.25) × 10−2
+(5.31 ± 3.75) × 10−2
+(7.87 ± 1.98) × 10−2
+MC-Dropout PINN
+(1.54 ± 0.25) × 10−1
+(1.16 ± 0.15) × 10−1
+(1.63 ± 0.22) × 10−1
+(2.10 ± 0.07) × 10−1
+Deep Ensemble (K=5)
+(4.08 ± 2.13) × 10−2
+(3.64 ± 3.21) × 10−2
+(4.22 ± 1.89) × 10−2
+(5.96 ± 2.47) × 10−2
+SC (nq=2, 32 nodes)
+(7.80 ± 3.41) × 10−2
+(3.45 ± 2.27) × 10−2
+(8.61 ± 3.54) × 10−2
+(7.13 ± 3.97) × 10−2
+SPINN+Z
+(1.28 ± 8.65) × 10−2
+(1.40 ± 4.56) × 10−2
+(7.20 ± 6.59) × 10−3
+(2.95 ± 1.05) × 10−2
+Functional CP-PINN
+(9.88 ± 3.55) × 10−2
+(9.62 ± 5.83) × 10−2
+(1.01 ± 2.39) × 10−1
+(7.21 ± 5.18) × 10−1
+Neural Chaos
+(2.72 ± 1.88) × 10−1
+–
+–
+(6.56 ± 8.21) × 10−2
+S2-PINN achieves the lowest observed errors across benchmarks.
+Across diffusion, Allen–
+Cahn, and Burgers (polynomial stochastic dependence), we observe lower mean errors and lower
+variance errors for S2-PINN with projection relative to the best included baseline. The no-projection
+variant remains competitive, which separates the architectural gain of the CP/gPC coupling from the
+additional regularization effect of the projected residual. Darcy is more nuanced: S2-PINN attains
+the best mean accuracy, but the no-projection variant gives the best variance, already indicating that
+projection is not uniformly beneficial outside the polynomial regime.
+Baselines.
+Stochastic collocation trains 32 independent node-PINNs and reaches only vanilla-PINN-
+level accuracy under our matched setting; it cannot share representations across random modes. The
+moment errors of PI-DeepONet remain about one order of magnitude above S2-PINN. MC-dropout
+has substantially larger moment errors and under-covers in the calibration table. Deep ensembles
+improve stability over a single PINN, but use five full networks and remain less accurate on the
+controlled benchmarks. Among the structurally closer baselines, SPINN+Z is well calibrated but
+its moment errors are 1.5–33× larger than those of S2-PINN, functional CP-PINN is less accurate
+and less calibrated, and even the supervised Neural Chaos oracle does not reach S2-PINN accuracy,
+indicating that the gains stem from the gPC basis combined with CP coupling rather than from
+separability alone.
+6
+
+
+Table 3: UQ calibration: empirical coverage at nominal levels and calibration error. Calibration
+results for PI-DeepONet, SPINN+Z, functional CP-PINN, and Neural Chaos are in Table 17.
+Method / PDE
+Cov@50%
+Cov@80%
+Cov@90%
+Cov@95%
+Sharpness90
+Cal. Err.
+S2-PINN (proj)
+Diffusion
+0.491 ± 0.012
+0.797 ± 0.007
+0.897 ± 0.004
+0.950 ± 0.003
+0.194 ± 0.006
+0.006 ± 0.003
+Allen–Cahn
+0.493 ± 0.013
+0.800 ± 0.008
+0.900 ± 0.005
+0.952 ± 0.004
+0.194 ± 0.006
+0.006 ± 0.001
+Burgers
+0.493 ± 0.012
+0.799 ± 0.007
+0.899 ± 0.004
+0.951 ± 0.002
+0.194 ± 0.006
+0.006 ± 0.002
+Darcy
+0.497 ± 0.007
+0.800 ± 0.006
+0.901 ± 0.007
+0.952 ± 0.005
+0.094 ± 0.002
+0.005 ± 0.002
+S2-PINN (no proj)
+Diffusion
+0.494 ± 0.013
+0.796 ± 0.015
+0.888 ± 0.015
+0.937 ± 0.012
+0.189 ± 0.000
+0.014 ± 0.008
+Allen–Cahn
+0.496 ± 0.013
+0.798 ± 0.015
+0.890 ± 0.015
+0.939 ± 0.012
+0.189 ± 0.000
+0.013 ± 0.008
+Burgers
+0.496 ± 0.012
+0.798 ± 0.014
+0.890 ± 0.015
+0.938 ± 0.011
+0.189 ± 0.000
+0.013 ± 0.008
+Darcy
+0.501 ± 0.007
+0.796 ± 0.008
+0.894 ± 0.007
+0.945 ± 0.005
+0.116 ± 0.000
+0.007 ± 0.003
+Vanilla PINN
+Diffusion
+0.494 ± 0.027
+0.799 ± 0.027
+0.900 ± 0.019
+0.949 ± 0.010
+0.200 ± 0.007
+0.017 ± 0.005
+Allen–Cahn
+0.481 ± 0.017
+0.783 ± 0.029
+0.888 ± 0.025
+0.940 ± 0.023
+0.199 ± 0.005
+0.018 ± 0.020
+Burgers
+0.499 ± 0.014
+0.806 ± 0.012
+0.903 ± 0.005
+0.951 ± 0.003
+0.200 ± 0.005
+0.006 ± 0.005
+Darcy
+0.450 ± 0.004
+0.737 ± 0.013
+0.848 ± 0.011
+0.911 ± 0.007
+0.093 ± 0.002
+0.051 ± 0.008
+MC-Dropout PINN
+Diffusion
+0.420 ± 0.031
+0.664 ± 0.024
+0.750 ± 0.022
+0.801 ± 0.017
+0.211 ± 0.006
+0.129 ± 0.023
+Allen–Cahn
+0.402 ± 0.017
+0.671 ± 0.017
+0.767 ± 0.017
+0.822 ± 0.015
+0.201 ± 0.006
+0.122 ± 0.016
+Burgers
+0.390 ± 0.014
+0.642 ± 0.027
+0.736 ± 0.028
+0.786 ± 0.026
+0.212 ± 0.006
+0.149 ± 0.024
+Darcy
+0.310 ± 0.020
+0.569 ± 0.028
+0.708 ± 0.036
+0.811 ± 0.028
+0.098 ± 0.003
+0.188 ± 0.027
+Deep Ensemble (K=5)
+Diffusion
+0.507 ± 0.012
+0.818 ± 0.022
+0.910 ± 0.016
+0.954 ± 0.010
+0.195 ± 0.009
+0.015 ± 0.008
+Allen–Cahn
+0.495 ± 0.011
+0.806 ± 0.021
+0.904 ± 0.017
+0.950 ± 0.011
+0.195 ± 0.009
+0.013 ± 0.004
+Burgers
+0.530 ± 0.012
+0.835 ± 0.021
+0.920 ± 0.014
+0.959 ± 0.009
+0.196 ± 0.009
+0.024 ± 0.013
+Darcy
+0.498 ± 0.008
+0.795 ± 0.010
+0.894 ± 0.009
+0.945 ± 0.006
+0.097 ± 0.001
+0.008 ± 0.003
+Computational cost.
+On stochastic diffusion, S2-PINN trains in ≈90 mins with 1 GB peak memory,
+versus ≈80 mins /4 GB for the vanilla PINN; SPINN+Z and functional CP-PINN use less memory
+but are remarkably less accurate (Table 18; cost analysis in Appendix I).
+Scaling stress test.
+On the diffusion scaling benchmark, S2-PINN remains stable up to R=15
+random dimensions, corresponding to G=816 gPC modes (Appendix G). Mean errors stay in the
+(4–7) × 10−3 and Cov@90% remains near 0.88. We further push the stochastic dimension to R=50
+(G=
+ 53
+3
+
+=23,426 modes), where S2-PINN still attains (1.09±0.14)×10−2 mean and (1.24±0.30)×
+10−2 variance relative L2 error (Table 13). This provides evidence for scalability on this diffusion
+stress test, not as a universal high-dimensional guarantee. It is consistent with Theorem B.5, where
+the projection-estimation batch size depends logarithmically on G under boundedness assumptions.
+50%
+80%
+90%95%
+Nominal coverage level
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+Empirical coverage
+(a) Averaged over 4 PDEs
+Perfect
+S2-PINN (proj)
+S2-PINN (no proj)
+Vanilla PINN
+MC-Dropout
+Deep Ensemble
+50%
+80%
+90%
+95%
+Nominal coverage level
+−0.04
+−0.03
+−0.02
+−0.01
+0.00
+0.01
+0.02
+0.03
+Coverage gap
+(b) S2-PINN coverage gap
+Diffusion
+Allen-Cahn
+Burgers
+Darcy
+proj
+no proj
+Figure 2: Reliability diagrams. (a) Empirical coverage vs. nominal level, averaged over 4 PDEs.
+S2-PINN with projection and its no-projection ablation, Vanilla PINN; Deep Ensemble. The dashed
+diagonal indicates perfect calibration. (b) Per-PDE coverage gap, empirical minus nominal, for
+S2-PINN with and without projection.
+Calibration.
+Figure 2 evaluates predictive calibration through empirical coverage at nominal levels
+50%, 80%, 90%, and 95%. Averaged across the four manufactured PDEs, S2-PINN closely follows
+the ideal calibration diagonal, while MC-dropout consistently under-covers. The no-projection
+ablation remains reasonably calibrated at lower nominal levels but exhibits mild under-coverage
+at 90% and 95%, as made explicit by the coverage-gap plot in Fig. 2(b). This suggests that the
+projected residual is not merely improving mean and variance accuracy, but also helps stabilize the
+pushforward uncertainty intervals. Vanilla PINN and the deep ensemble can achieve near-nominal
+coverage on some controlled tasks, but their weaker moment accuracy indicates that calibration
+7
+
+
+alone is insufficient: a useful stochastic surrogate must match both the predictive intervals and the
+underlying solution statistics.
+External validity: non-manufactured benchmarks.
+Manufactured solutions can provide arti-
+ficially favorable optimization landscapes. To stress-test S2-PINN beyond controlled settings, we
+evaluate on two non-manufactured forward problems with no closed-form solutions, using the same
+default hyperparameters as all manufactured benchmarks—no per-problem tuning.
+(i) Stochastic Poisson source: −∆u = f(x, y, Z) where the source f is a KL-expanded random
+field (σ=0.5), with u=0 on ∂Ω. (ii) Stochastic Darcy flow: −∇·(k(x, y, Z)∇u) = 1 where the
+permeability k is a log-normal field (σ=1.0), with u=0 on ∂Ω. Both are solved on Ω=[−1, 1]2 and
+evaluated against finite-difference Monte Carlo references (10,000 samples, 64×64 grid).
+Table 4: Non-manufactured benchmark results. S2-PINN uses the same default hyperparameters as
+all manufactured experiments; no per-problem tuning. Reference: FDM Monte Carlo (N=10,000,
+64×64).
+Poisson MC (source)
+Darcy MC (coefficient)
+Method
+#Params
+E¯u
+Eσ2
+E¯u
+Eσ2
+S2-PINN
+6 114
+0.335±0.122
+1.39±1.10
+0.74±0.23
+15.4±1.88
+Vanilla PINN
+199 937
+19.7±23.4
+6.79±6.82
+1.40±0.49
+5.40±1.92
+Deep Ens. (K=5)
+5×199 937
+7.07 ± 1.11
+77.8 ± 0.89
+1.04 ± 0.19
+4.92 ± 1.46
+All errors ×10−2 (relative L2).
+On the Poisson problem, S2-PINN achieves 59× lower mean error and 5× lower variance error than
+the vanilla PINN while using 33× fewer parameters. On the log-normal Darcy problem, S2-PINN
+gives the best mean prediction (0.74%), but the deep ensemble gives the best variance (4.92%). This
+variance gap is a useful failure signal: low-rank gPC-aligned representations can under-resolve the
+nonlinear variance induced by exponential random coefficients.
+Diagnosing the failure regime before training.
+The log-normal Darcy field violates the uniform
+boundedness (sub-Gaussian) assumption underlying Theorem B.5: the exponential map pushes
+substantial stochastic energy into high-degree modes, which leaks out of a low-degree subspace Vp.
+This can be diagnosed offline, before training, with the subspace energy ratio
+SER(p) =
+P
+|α|≤p ∥ˆaα∥2
+L2
+EZ
+
+∥a(·, Z)∥2
+L2
+,
+(8)
+i.e., the fraction of the energy of the input coefficient field a(x, Z) captured by its gPC coefficients
+ˆaα of total degree at most p. A value SER(p) < 95% indicates that significant energy lies outside
+Vp, in which case the polynomial degree should be increased, a log-transformation applied, or the
+projection term disabled. On the log-normal Darcy problem, increasing the degree from p=2 to p=4
+raises SER(p) above 95% and reduces the S2-PINN variance error from 15.4% to 4.15%, below that
+of the deep ensemble (4.92%).
+Stochastic Navier–Stokes.
+To test a harder, nonlinear vector-valued problem, we further consider
+a 2D stochastic incompressible Navier–Stokes problem in vorticity form with five uniform random
+variables controlling phase shifts, viscosity, and two vortex amplitudes (Appendix J). S2-PINN attains
+velocity mean errors of about 2 × 10−3, 5–17× lower than the baselines, with the lowest variance
+errors and the best calibration (Tables 15 and 16).
+gPC projection is a regime-dependent regularizer.
+On diffusion, Allen–Cahn, and Burgers—all
+with polynomial dependence on Z—the projection loss improves S2-PINN’s mean accuracy by
+2–24%. On Darcy (exponential Z-dependence), no-projection slightly outperforms projection on
+mean accuracy (9.51 × 10−4 vs. 1.05 × 10−3). This is expected: the gPC projection penalizes
+residual components outside the polynomial subspace Vp, which is beneficial when the true solution
+is well-approximated by Vp (polynomial Z) but can introduce bias when it is not (exponential Z).
+Figure 3 further visualizes this regime-dependent behavior across different R values.
+Projection in the vanilla PINN gives mixed results.
+Adding the gPC projection to a standard
+MLP-based PINN yields inconsistent behavior: it helps on Allen–Cahn (about 18% mean-error
+8
+
+
+1
+2
+5
+10
+Stochastic Dimension (R)
+10
+3
+6 × 10
+4
+2 × 10
+3
+3 × 10
+3
+4 × 10
+3
+Relative L2 Error at t = 1.0
+Diffusion
+1
+3
+5
+10
+Stochastic Dimension (R)
+Allen--Cahn
+1
+3
+5
+10
+Stochastic Dimension (R)
+Burgers
+3
+5
+10
+Stochastic Dimension (R)
+Darcy
+with proj
+no proj
+Figure 3: Regime map: relative L2 at t=1.0 with/without gPC projection, across R values and PDEs
+(diffusion, Allen–Cahn, Burgers, Darcy). Shaded bands show mean ± std over 5 seeds. Projection
+consistently helps for polynomial stochastic dependence (diffusion/Allen–Cahn/Burgers, R≤5) and
+becomes neutral or detrimental at higher R or for non-polynomial/exponential Z (Darcy).
+reduction) but degrades diffusion, Burgers, and Darcy. Critically, the improvement is smaller than in
+S2-PINN, suggesting that the separable tensor structure amplifies the benefit of Galerkin projection
+by providing a representation that is structurally aligned with the gPC basis.
+PC2 comparison.
+We evaluate PC2 on the manufactured diffusion benchmark and the two non-
+manufactured forward benchmarks using UQpy Olivier et al. [2020], fix pZ=3, and choose the
+deterministic polynomial degree by held-out PDE/boundary residuals rather than test moment errors.
+Table 5 shows that physics-informed PCE is a strong but regime-sensitive baseline. On the smooth
+Table 5: Physics-informed PCE (PC2) comparison against S2-PINN. Errors are raw relative L2
+values.
+Problem
+Solver
+Selected pdet
+# Basis
+E¯u
+Eσ2
+Poisson MC
+LAR
+6, 4, 4
+15.67 ± 8.02
+0.068 ± 0.078
+0.957 ± 0.068
+Poisson MC
+OLS
+8, 8, 8
+2520 ± 0
+(1.59 ± 0.05) × 10−3
+(1.44 ± 0.39) × 10−2
+Poisson MC
+S2-PINN (proj)
+–
+–
+(3.35 ± 1.22)×10−3
+(1.39 ± 1.10) × 10−2
+Diffusion
+LAR
+4, 4, 4
+3.67 ± 1.15
+1.103 ± 0.181
+9.452 ± 14.640
+Diffusion
+OLS
+3, 3, 3
+1120 ± 0
+25.798 ± 0.569
+262520.941 ± 59229.735
+Diffusion
+S2-PINN (proj)
+–
+–
+(3.71 ± 1.01) × 10−3
+(4.40 ± 1.52) × 10−3
+Darcy MC
+LAR
+4, 4, 6
+4.33 ± 2.08
+0.844 ± 0.270
+0.996 ± 0.006
+Darcy MC
+OLS
+8, 8, 6
+2202.67 ± 549.64
+1.483 ± 0.349
+1064.196 ± 81.247
+Darcy MC
+S2-PINN (proj)
+–
+–
+(0.74 ± 0.23) × 10−2
+(15.4 ± 1.88) × 10−2
+stochastic Poisson source, anisotropic PC2 with OLS attains very low mean error and competitive
+variance error, confirming that global polynomial surrogates are effective when the solution is well
+captured by a low-order polynomial space. This strength does not transfer to the harder regimes: PC2
+becomes unstable on the transient diffusion benchmark and fails to recover log-normal Darcy variance,
+with sparse LAR selecting a nearly constant basis and dense OLS producing large variance errors.
+In contrast, S2-PINN keeps the stochastic polynomial basis but replaces the global deterministic
+polynomial surrogate with learnable space–time features and low-rank coupling, yielding more stable
+physics-informed UQ across these regimes.
+4.4
+Stochastic inverse problems
+Beyond forward UQ, the differentiable gPC structure of S2-PINN naturally extends to stochas-
+tic inverse problems, where unknown PDE parameters must be inferred jointly with the solution
+field. We demonstrate this on two distinct benchmarks: the stochastic diffusion equation (lin-
+ear) and the stochastic Burgers equation (nonlinear). For both PDEs, we consider a log-normal
+random field k(x, Z) = exp
+ µk + σ PR
+r=1
+√λr φr(x) Zr
+
+(representing the diffusion coeffi-
+cient and the kinematic viscosity, respectively), treating the log-mean µk and field standard de-
+viation σ as unknown learnable parameters (true values: µ∗
+k=0, σ∗=1). Starting from deliber-
+ately poor initial guesses (ˆµk=0.5, ˆσ=0.5), we augment the physics loss with a data-fidelity term
+Ldata =
+1
+Nobs
+PNobs
+i=1 ∥ˆu(ti, xi, Zi) −uobs
+i
+∥2 computed over Nobs=1,000 scattered observations,
+weighted by wdata=100. The PDE parameters receive a 10× higher learning rate than the model
+weights via separate Adam parameter groups, enabling the two scalars to converge at a rate commen-
+surate with the ∼7 k network weights. Table 6 summaries the results. For diffusion, both parameters
+are recovered to within 5 × 10−5 of their true values, and the solution field achieves mean relative L2
+9
+
+
+error of (1.29 ± 0.36) × 10−4 and variance relative L2 error of (1.06 ± 0.48) × 10−4. For Burgers,
+the nonlinear advection term creates a more challenging optimization landscape: the log-mean is
+recovered to within 10−3 and σ to within 5 × 10−4, with mean solution error (2.03 ± 0.62) × 10−3
+and variance error (3.71 ± 0.87) × 10−3—roughly one order of magnitude above diffusion, con-
+sistent with the harder forward-problem baseline. These results confirm that the gPC basis and CP
+factorization provide sufficient inductive bias for simultaneous parameter estimation and stochastic
+solution reconstruction across both linear and nonlinear regimes.
+Table 6: Stochastic inverse problem results on the 2D diffusion and Burgers benchmarks. True
+parameters: µ∗
+k=0.0, σ∗=1.0. Initial guesses: ˆµk=0.5, ˆσ=0.5.
+PDE
+|ˆµk −µ∗
+k|
+|ˆσ −σ∗|
+E¯u (Mean Rel. L2)
+Eσ2 (Var Rel. L2)
+Diffusion
+< 5 × 10−5
+< 5 × 10−5
+(1.29 ± 0.36) × 10−4
+(1.06 ± 0.48) × 10−4
+Burgers
+< 1 × 10−3
+< 5 × 10−4
+(2.03 ± 0.62) × 10−3
+(3.71 ± 0.87) × 10−3
+5
+Conclusion
+In this work, we have presented S2-PINN (Stochastic Separable Physics-Informed Neural Network),
+an efficient framework that extends separable coordinate architectures to forward and inverse un-
+certainty quantification for random PDEs. By coupling learnable Gaussian spatial atoms, Fourier
+temporal features, and an orthonormal gPC stochastic basis via a low-rank CP tensor decomposition,
+S2-PINN enables closed-form statistical moment evaluation and circumvents the curse of dimen-
+sionality inherent in dense space–time–stochastic grids. Our analysis also shows that S2-PINN’s
+gains come from these coupling three aligned ingredients. For polynomial-in-Z problems, the projec-
+tion encourages residual consistency in the stochastic modes used by the model, and Theorem B.3
+identifies the corresponding population objective with a stochastic Galerkin constraint. The theory
+further supports the main mechanism by specializing standard tools (tensor-product density, orthog-
+onal projection, and Monte Carlo concentration) to the proposed architecture and establishing L2
+expressivity of finite-rank separable sums, mini-batch concentration for projected coefficients, and
+conditioning control for the learned spatial dictionary. Together, the theory and ablations support
+low-rank stochastic separability as an effective modeling principle for physics-informed neural UQ.
+Limitations and future work. Although S2-PINN shows great promise and outperforms across
+forward prediction, calibration, scaling, and inverse problems, there remain some frontiers for
+making S2-PINN a more general random PDE solver. First, S2-PINN currently inherits the regular-
+domain bias of separable coordinate architectures, and extending the method to complex geometries
+will require geometry-aware dictionaries, coordinate maps, or mesh-based variants. Second, our
+theoretical results establish asymptotic expressivity and characterize the projection estimator under
+stated assumptions, but not provide a finite-q, finite-G end-to-end solution-error guarantee: a finite
+rank q introduces low-rank approximation error and a finite G introduces stochastic truncation error.
+A promising way forward to overcome these limitations is to combine low-rank tensor representations
+with adaptive rank selection, learnable gPC truncation strategies to capture the distribution of random
+variables, and geometry-adaptive coordinate mappings.
+Broader impact. Fast physics-informed UQ can support safer engineering design, climate and
+energy modeling, and medical-device simulation by making uncertainty estimates more accessible
+when repeated high-fidelity solves are expensive. The main risk is misuse through overconfident
+deployment: inaccurate calibration or unresolved variance in difficult stochastic regimes could
+lead to misleading confidence estimates. For this reason, real-world use should pair S2-PINN with
+problem-specific validation, calibration checks, and conservative uncertainty reporting.
+Acknowledgement
+The authors gratefully acknowledge support from the U.S. Department of Energy (DOE grant
+DE-SC0025801).
+10
+
+
+References
+H. Antil, S. Dolgov, and A. Onwunta. Ttrisk: Tensor train decomposition algorithm for risk-averse
+optimization. NumericalLinear Algebra with Applications, 3(3):e2481, 2023. URL https:
+//doi.org/10.1002/nla.2481.12.
+H. Antil, S. Dolgov, and A. Onwunta. Smoothed moreau-yosida tensor-train approximation of state-
+constrained optimization problems under uncertainty. NumericalLinear Algebra with Applications,
+page 32:e70028, 2025a. URL https://doi.org/10.1002/nla.70028.
+H. Antil, S. Dolgov, and A. Onwunta. Tensor train solution to uncertain optimization problems
+with shared sparsity penalty. Optimization and Engineering, 2025b. URL https://doi.org/10.
+1007/s11081-025-10036-7.
+I. Babuška, F. Nobile, and R. Tempone. A stochastic collocation method for elliptic partial differential
+equations with random input data. SIAM Journal on Numerical Analysis, 45(3):1005–1034, 2007.
+M. Bachmayr. Low-rank tensor methods for partial differential equations. Acta Numerica, 32:1–121,
+2023.
+M. Bachmayr, R. Schneider, and A. Uschmajew. Tensor networks and hierarchical tensors for
+the solution of high-dimensional partial differential equations. Foundations of Computational
+Mathematics, 16:1423–1472, 2016.
+B. Bahmani, I. G. Kevrekidis, and M. D. Shields. Neural chaos: A spectral stochastic neural operator.
+Journal of Computational Physics, 539:114233, 2025.
+P. Benner, A. Onwunta, and M. Stoll. Low-rank solution of unsteady diffusion equations with
+stochastic coefficients. SIAM/ASA Journal on Uncertainty Quantification, 3(1):622–649, 2015.
+P. Benner, S. Dolgov, A. Onwunta, and M. Stoll. Low-rank solvers for unsteady stokes–brinkman
+optimal control problem with random data. Computer Methods in Applied Mechanics and Engi-
+neering, 304:26–54, 2016a. ISSN 0045-7825. doi: https://doi.org/10.1016/j.cma.2016.02.004.
+URL https://www.sciencedirect.com/science/article/pii/S0045782516300263.
+P. Benner, A. Onwunta, and M. Stoll. Block-diagonal preconditioning for optimal control problems
+constrained by PDEs with uncertain inputs. SIAM Journal on Matrix Analysis and Applications,
+37(2):491–518, 2016b.
+D. Bigoni, A. P. Engsig-Karup, and Y. M. Marzouk. Spectral tensor-train decomposition. SIAM
+Journal on Scientific Computing, 38(4):A2405–A2439, 2016.
+F. Chinesta, A. Ammar, and E. Cueto. Recent advances and new challenges in the use of the proper
+generalized decomposition for solving multidimensional models. Archives of Computational
+Methods in Engineering, 17(4):327–350, 2010.
+J. Cho, S. Nam, H. Yang, S.-B. Yun, Y. Hong, and E. Park. Separable physics-informed neural
+networks. In Advances in Neural Information Processing Systems, volume 36, pages 23761–23788,
+2023.
+A. Doostan, A. Validi, and G. Iaccarino. Non-intrusive low-rank separated approximation of high-
+dimensional stochastic models. Computer Methods in Applied Mechanics and Engineering, 263:
+42–55, 2013.
+V. A. Es’kin, D. V. Davydov, J. V. Gur’eva, A. O. Malkhanov, and M. E. Smorkalov. Separable physics-
+informed neural networks for the solution of elasticity problems. arXiv preprint arXiv:2401.13486,
+2024.
+R. G. Ghanem and P. D. Spanos. Stochastic Finite Elements: A Spectral Approach. Springer, 1991.
+S. Goswami, A. Bora, Y. Yu, and G. E. Karniadakis. Physics-informed deep neural operator networks.
+In Machine learning in modeling and simulation: methods and applications, pages 219–254.
+Springer, 2023.
+11
+
+
+J. Guo, X. Xie, C. Park, H. Zhang, M. J. Politis, G. Domel, and W. K. Liu. Interpolating neural
+network-tensor decomposition (inn-td): a scalable and interpretable approach for large-scale
+physics-based problems. In International Conference on Machine Learning, pages 21138–21162.
+PMLR, 2025.
+G. E. Karniadakis, I. G. Kevrekidis, L. Lu, P. Perdikaris, S. Wang, and L. Yang. Physics-informed
+machine learning. Nature Reviews Physics, 3(6):422–440, 2021.
+T. G. Kolda and B. W. Bader. Tensor decompositions and applications. SIAM Review, 51(3):455–500,
+2009.
+B. Lakshminarayanan, A. Pritzel, and C. Blundell. Simple and scalable predictive uncertainty estima-
+tion using deep ensembles. In I. Guyon, U. von Luxburg, S. Bengio, H. M. Wallach, R. Fergus,
+S. V. N. Vishwanathan, and R. Garnett, editors, Advances in Neural Information Processing
+Systems 30: Annual Conference on Neural Information Processing Systems 2017, December 4-9,
+2017, Long Beach, CA, USA, pages 6402–6413, 2017. URL https://proceedings.neurips.
+cc/paper/2017/hash/9ef2ed4b7fd2c810847ffa5fa85bce38-Abstract.html.
+Z. Li, N. B. Kovachki, K. Azizzadenesheli, K. Bhattacharya, A. Stuart, A. Anandkumar, et al.
+Fourier neural operator for parametric partial differential equations. In International Conference
+on Learning Representations, 2020.
+Z. Liu, X. Yu, and Z. Zhang. TT-PINN: A tensor-compressed neural PDE solver for edge computing.
+arXiv preprint arXiv:2207.01751, 2022.
+L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis. Learning nonlinear operators via DeepONet
+based on the universal approximation theorem of operators. Nature Machine Intelligence, 3(3):
+218–229, 2021.
+A. Nouy. Proper generalized decompositions and separated representations for the numerical solution
+of high dimensional stochastic problems. Archives of Computational Methods in Engineering, 17
+(4):403–434, 2010.
+L. Novák, H. Sharma, and M. D. Shields. Physics-informed polynomial chaos expansions. Journal
+of Computational Physics, 506:112926, 2024.
+A. Olivier, D. G. Giovanis, B. Aakash, M. Chauhan, L. Vandanapu, and M. D. Shields. Uqpy: A
+general purpose python package and development environment for uncertainty quantification.
+Journal of Computational Science, 47:101204, 2020.
+I. V. Oseledets. Tensor-train decomposition. SIAM Journal on Scientific Computing, 33(5):2295–2317,
+2011.
+A. F. Psaros, X. Meng, Z. Zou, L. Guo, and G. E. Karniadakis. Uncertainty quantification in scientific
+machine learning: Methods, metrics, and comparisons. Journal of Computational Physics, 477:
+111902, 2023.
+M. Raissi, P. Perdikaris, and G. E. Karniadakis. Physics-informed neural networks: A deep learning
+framework for solving forward and inverse problems involving nonlinear partial differential
+equations. Journal of Computational Physics, 378:686–707, 2019.
+D. Shi, L. Lin, A. Han, L. Thompson, J. M. Hernández-Lobato, Z. Wang, and J. Gao. Expand-
+ing the chaos: Neural operator for stochastic (partial) differential equations. arXiv preprint
+arXiv:2601.01021, 2026.
+S. K. Vemuri, T. Büchner, J. Niebling, and J. Denzler. Functional tensor decompositions for physics-
+informed neural networks. In International Conference on Pattern Recognition, pages 32–46.
+Springer, 2024.
+D. Xiu and G. E. Karniadakis. The Wiener–Askey polynomial chaos for stochastic differential
+equations. SIAM Journal on Scientific Computing, 24(2):619–644, 2002.
+L. Yang, X. Meng, and G. E. Karniadakis. B-PINNs: Bayesian physics-informed neural networks
+for forward and inverse PDE problems with noisy data. Journal of Computational Physics, 425:
+109913, 2021.
+12
+
+
+P. Zanotta, L. Budinski, C. Aytekin, and V. Lahtinen. Quantum orthogonal separable physics-informed
+neural networks. arXiv preprint arXiv:2511.12613, 2025.
+D. Zhang, L. Lu, L. Guo, and G. E. Karniadakis. Quantifying total uncertainty in physics-informed
+neural networks for solving forward and inverse stochastic problems. Journal of Computational
+Physics, 397:108850, 2019.
+13
+
+
+A
+Mathematical Formulation of Stochastic Elements and Tensor
+Factorization
+This section details the mathematical construction of the stochastic fields, the chosen orthogonal
+polynomial basis, and the algebraic structure of the tensor decomposition that underpins S2-PINN’s
+efficiency.
+A.1
+Karhunen–Loève Expansion (KLE)
+The stochastic coefficients (e.g., the diffusion field k(x, y, Z)) are parameterized using the Karhunen–
+Loève Expansion. The KLE provides an optimal mean-square representation of a stochastic process
+by decomposing it into an infinite linear combination of orthogonal spatial eigenfunctions multiplied
+by uncorrelated random variables.
+For a random field defined by a specified covariance function C(x, x′), the KLE is given by
+log k(x, Z) = µk + σ
+∞
+X
+i=1
+p
+λiϕi(x)Zi,
+where µk is the mean of the log-field, σ controls the standard deviation (contrast), λi and ϕi(x) are
+the eigenvalues and eigenfunctions of the covariance operator
+R
+C(x, x′)ϕi(x′)dx′ = λiϕi(x), and
+Zi ∼N(0, 1) are independent standard normal random variables.
+In practical numerical implementations, this infinite series is truncated to the leading R terms that
+capture the vast majority of the field’s variance. By treating Z = (Z1, . . . , ZR)⊤∈RR as explicit
+inputs, the stochastic PDE is transformed into a deterministic, high-dimensional parametric PDE over
+the domain Ω× T × RR.
+A.2
+Generalized Polynomial Chaos (gPC)
+The generalized Polynomial Chaos (gPC) framework provides a systematic approach to representing
+random processes through orthogonal polynomial expansions. For each probability distribution of the
+random input, there exists an optimal family of orthogonal polynomials that achieves spectral conver-
+gence in the L2 sense. This correspondence, known as the Wiener–Askey scheme, is summarized in
+Table 7.
+Table 7: Wiener–Askey scheme: optimal polynomial basis for common distributions.
+Distribution
+Support
+Polynomial Family
+Weight w(z)
+Gaussian N(0, 1)
+(−∞, ∞)
+Hermite
+e−z2/2/
+√
+2π
+Uniform U(−1, 1)
+[−1, 1]
+Legendre
+1/2
+Exponential Exp(1)
+[0, ∞)
+Laguerre
+e−z
+Beta Beta(α, β)
+[0, 1]
+Jacobi P (α,β)
+n
+zβ−1(1−z)α−1
+Gamma Γ(α, 1)
+[0, ∞)
+Gen. Laguerre L(α)
+n
+zα−1e−z
+In our implementation, S2-PINN automatically selects the polynomial family from this table based
+on the marginal distribution of each random input Zi. For problems with mixed distributions (e.g.,
+some Zi Gaussian and others uniform), the multivariate basis is formed as a tensor product of the
+corresponding 1D families.
+Multivariate basis and total-degree truncation.
+For the R-dimensional vector Z, the multidimen-
+sional gPC basis is constructed via the tensor product of 1D polynomials, indexed by a multi-index
+α = (α1, . . . , αR) ∈NR
+0
+Ψα(Z) =
+R
+Y
+i=1
+ψαi(Zi),
+where ψαi denotes the degree-αi polynomial from the family corresponding to the marginal distri-
+bution of Zi (e.g., Pαi for uniform). To avoid an uncontrolled combinatorial explosion, we employ
+14
+
+
+a total degree truncation scheme, limiting the basis to all polynomials where the sum of degrees
+|α| = PR
+i=1 αi ≤p. This truncation drastically sparsifies the tensor product space. By a stan-
+dard combinatorial “stars and bars” argument, finding the number of non-negative integer tuples
+(α1, . . . , αR) satisfying PR
+i=1 αi ≤p is equivalent to distributing up to p indistinguishable degrees
+among R distinct variables. By introducing a “slack” variable to absorb the remaining p −PR
+i=1 αi
+degrees, this equals the number of ways to distribute exactly p items among R + 1 bins, yielding
+exactly G =
+ R+p
+p
+
+active gPC modes. To illustrate how this basis is explicitly constructed, consider
+a 2D random space (R=2) with maximum degree p=3 and uniform inputs. The total number of valid
+modes is G =
+ 2+3
+3
+
+= 10. The valid multi-indices (α1, α2) and their corresponding 2D Legendre
+polynomials Ψ(α1,α2)(Z1, Z2) = Hα1(Z1)Hα2(Z2) are systematically enumerated by their total
+degree |α|:
+• Degree 0: (0, 0) ⇒1
+• Degree 1: (1, 0) ⇒Z1, (0, 1) ⇒Z2
+• Degree 2: (2, 0) ⇒1
+2(3Z2
+1 −1), (1, 1) ⇒Z1Z2, (0, 2) ⇒1
+2(3Z2
+2 −1)
+• Degree 3: (3, 0) ⇒1
+2(5Z3
+1 −3Z1), (2, 1) ⇒1
+2(3Z2
+1 −1)Z2, (1, 2) ⇒Z1 1
+2(3Z2
+2 −1), (0, 3) ⇒
+1
+2(5Z3
+2 −3Z2)
+This targeted truncation avoids the exponential blow-up of a full tensor grid. For higher dimensions
+such as R=10 and p=3, we only need G=286 modes instead of the naïve 410 ≈106 grid points
+required by full tensor products.
+A.3
+Canonical Polyadic (CP) Tensor Decomposition vs. Tensor Train (TT)
+The core architecture of S2-PINN decomposes the multidimensional solution u(x, t, Z) into a rank-q
+Canonical Polyadic (CP) tensor product.
+If we represent the network’s internal features as an abstract 3-way tensor W ∈RM×Mt×G, comput-
+ing the full dense tensor would require O(MMtG) parameters. The CP decomposition factors this
+tensor into a sum of q rank-1 components
+u(x, t, Z) =
+q
+X
+r=1
+wr
+ A⊤
+r φ(x)
+  B⊤
+r ψ(t)
+  D⊤
+r Φ(Z)
+
+,
+where A ∈RM×q, B ∈RMt×q, and D ∈RG×q are factor matrices, and w ∈Rq is a learnable
+scaling vector. This reduces the parameter complexity from multiplicative to additive: O(q(M +
+Mt + G)).
+Why CP instead of Tensor Train (TT)? While Tensor Train is a powerful decomposition for ultra-
+high dimensional spaces (D ≫10), our functional representation operates fundamentally on a 3-way
+tensor (Space × Time × Stochastic), because the spatial coordinates (x, y) are encoded together by
+the spatial dictionary and the R-dimensional Z is encoded together by the gPC basis. For a 3-way
+tensor, CP provides several decisive advantages over TT for PINN optimization:
+1. Decoupled Autodiff: In CP, the spatial derivative operators (e.g., the Laplacian ∆) dis-
+tribute purely across the sum and act only on the spatial terms A⊤
+r φ(x). The time and
+stochastic components act as constants. This means the computational cost of automatic
+differentiation does not scale with G. In a TT format, computing spatial derivatives requires
+backpropagating through a chain of matrix multiplications, which introduces significant
+memory overhead and stiffness.
+2. Explicit Galerkin Coefficients: Our hybrid loss requires computing the exact Galerkin
+projection of the PDE residual onto the gPC modes Φg(Z). In the CP formulation, the
+macroscopic scalar coefficient attached to any gPC mode Φg is explicitly given by the
+scalar sum Pq
+r=1 wr(A⊤
+r φ(x))(B⊤
+r ψ(t))Dg,r. In a TT format, the stochastic subspace is
+folded inside a core matrix, making it algebraically opaque and computationally expensive
+to extract exact projection coefficients.
+15
+
+
+B
+Theoretical Analysis
+In this section, we collect PDE-agnostic results that support the main design choices in S2-PINN:
+finite-rank separable expressivity, projection–Galerkin consistency, mini-batch stability of projected
+residual coefficients, orthogonality conditioning regularization, and the algebraic efficiency of the CP
+coupling. Instead of proving optimization convergence or finite-rank rates for a specific PDE, these
+results formalize the mechanism used by the architecture and loss. We emphasize that this section
+does not introduce new abstract functional-analytic tools: the arguments rely on standard results
+(density of algebraic tensor products, orthogonal projection and Parseval identities, and Monte Carlo
+concentration). Their method-specific content is twofold. (i) Expressive completeness: Theorem B.2
+shows that a low-rank CP coupling of spatio-temporal features with a gPC basis preserves universal
+approximation in L2, so the factorization introduces no representation bottleneck in the limit. (ii)
+Error decomposition: Theorems B.2–B.4 separate the total error into CP-rank approximation error
+(controlled by q), gPC truncation error (controlled by p), and Monte Carlo sampling error (controlled
+by the batch size B), which guides the balance between network capacity, spectral degree, and
+sampling budget.
+Remark B.1 (Scope of the guarantees). The results below are asymptotic or estimator-level statements.
+They do not provide a finite-q, finite-G end-to-end bound on the solution error of a trained model: a
+finite rank q incurs low-rank approximation error, a finite G incurs stochastic truncation error, and
+non-convex optimization under a finite budget is not covered.
+B.1
+Setup and notation
+Let (T , µt), (Ω, µx), and (Z, PZ) be measure spaces for time, spatial, and stochastic, respectively,
+and L2(T ), L2(Ω), L2(Z) are corresponding L2 spaces. Define the product space
+H := L2(T ) ⊗L2(Ω) ⊗L2(Z)
+with norm ∥· ∥L2(T ×Ω×Z). Let {Tk}Mt
+k=1 ⊂L2(T ), {Φi}M
+i=1 ⊂L2(Ω), {Ψg}G
+g=1 ⊂L2(Z) be
+(not necessarily orthonormal) feature families. Throughout, we make explicit the mild density
+conditions invoked in the main body: the feature families are total in their respective L2 spaces, i.e.
+span{Tk}k≥1 = L2(T ), span{Φi}i≥1 = L2(Ω), and span{Ψg}g≥1 = L2(Z), so that the closures
+Htime, Hspace, and Hstoc introduced in Theorem B.2 below coincide with the full L2 spaces. This
+assumption is harmless for the bases used in our experiments (Hermite/Legendre polynomials in Z are
+total in L2(Z), and our spatial Gaussian dictionary becomes total in L2(Ω) in the limit M →∞). For
+a generic signal f : T × Ω× Z →R, define its (strong-form) "residual" symbolically as r := R[f]
+where R is any measurable operator. None of the results below require a PDE structure of R.
+B.2
+Expressivity of separable sums
+Let Hspace = span{Φi}i≥1 ⊂L2(Ω), Htime = span{Tk}k≥1 ⊂L2(T ), and Hstoc =
+span{Ψg}g≥1 ⊂L2(Z) be dense subspaces (closures in L2). Define the rank-q separable class
+Fq :=
+n
+q
+X
+r=1
+τ (r)(t) ϕ(r)(x) ψ(r)(z) : τ (r) ∈Htime, ϕ(r) ∈Hspace, ψ(r) ∈Hstoc
+o
+.
+Theorem B.2 (Density of finite-rank separable sums). The union S
+q≥1 Fq is dense in the Hilbert
+tensor product Htime ⊗Hspace ⊗Hstoc ⊂L2(T × Ω× Z).
+Proof. Define the algebraic tensor product of these three spaces, denoted as
+V = Htime ⊗alg Hspace ⊗alg Hstoc.
+The elements of the algebraic tensor product V are strictly defined as formal finite linear combinations.
+That is, any element f ∈V can be expressed as
+f(t, x, z) =
+q
+X
+r=1
+τ (r)(t) ϕ(r)(x) ψ(r)(z),
+where q ∈N is a finite positive integer, and τ (r) ∈Htime, ϕ(r) ∈Hspace, ψ(r) ∈Hstoc.
+16
+
+
+By definition, the function class Fq of separable functions of rank q precisely describes the set of
+functions formed by the addition of at most q pure tensors. Therefore, taking the union over all
+possible finite ranks q ≥1 exactly yields the entire algebraic tensor product space S
+q≥1 Fq = V.
+For two tensors u1 ⊗v1 ⊗w1 and u2 ⊗v2 ⊗w2, their inner product is defined as the product of the
+inner products within their respective spaces
+⟨u1 ⊗v1 ⊗w1, u2 ⊗v2 ⊗w2⟩= ⟨u1, u2⟩Htime⟨v1, v2⟩Hspace⟨w1, w2⟩Hstoc.
+Since all three spaces are subspaces of L2 spaces, the aforementioned inner product is equivalent to
+the standard L2 inner product under the product measure µt ⊗µx ⊗PZ.
+Extending this inner product bilinearly to the entire algebraic tensor product V induces a norm
+∥· ∥L2(T ×Ω×Z). We denote the Hilbert tensor product as Htime ⊗Hspace ⊗Hstoc. By definition, it
+is the completion (or closure) of the algebraic tensor product V with respect to this induced L2 norm
+Htime ⊗Hspace ⊗Hstoc := V
+∥·∥L2.
+According to the fundamental principles of topology and metric spaces, the closure of a set is the
+smallest closed set containing it. Furthermore, a subset V is dense in a space H if and only if the
+closure of V is exactly H.
+Given that the Hilbert tensor product is intrinsically the closure of the algebraic tensor product, we
+have
+[
+q≥1
+Fq
+∥·∥L2
+= V
+∥·∥L2 = Htime ⊗Hspace ⊗Hstoc.
+This establishes that for any arbitrary function f in the Hilbert tensor product space and any given
+error tolerance ϵ > 0, there necessarily exists a sufficiently large finite integer q and an approximant
+˜f = Pq
+r=1 ϕ(r)τ (r)ψ(r) ∈Fq such that:
+∥f −˜f∥L2(T ×Ω×Z) < ϵ.
+Consequently, the union of finite-rank separable functions, S
+q≥1 Fq, is dense in the Hilbert tensor
+product space Htime ⊗Hspace ⊗Hstoc.
+Finally, under the mild density conditions stated in Section B, the closures Htime, Hspace, Hstoc
+coincide with the full L2 spaces, so the Hilbert tensor product satisfies
+Htime ⊗Hspace ⊗Hstoc = L2(T ) ⊗L2(Ω) ⊗L2(Z) ∼= L2(T × Ω× Z),
+where the final isomorphism is the standard one for σ-finite product measures (a consequence of
+Fubini’s theorem). Combining this identification with the density just established yields
+[
+q≥1
+Fq
+∥·∥L2
+= L2(T × Ω× Z).
+B.3
+Projection in the random space
+Assume {Ψg}G
+g=1 are orthonormal in L2(Z) and let Vp = span{Ψg}G
+g=1.
+Theorem B.3 (Projection–Galerkin equivalence in L2(Z)). For any measurable h : Z →R,
+G
+X
+g=1
+ E[ h(Z) Ψg(Z) ]
+2 =
+PVph
+2
+L2(Z),
+E[ hΨg ] = 0 ∀g ⇐⇒PVph = 0.
+17
+
+
+Proof. According to the Orthogonal Projection Theorem in Hilbert spaces, for any function h ∈
+L2(Z) can be uniquely decomposed into an orthogonal sum:
+h = h∥+ h⊥,
+where h∥= PVph ∈Vp is the orthogonal projection of h onto the subspace Vp, and h⊥∈V ⊥
+p is the
+residual component such that ⟨h⊥, v⟩L2(Z) = 0 for all v ∈Vp. Given that Vp = span{Ψg}G
+g=1, the
+projection h∥can be expressed as a linear combination of the basis functions
+h∥=
+G
+X
+g=1
+αgΨg,
+where αg ∈R denote the expansion coefficients.
+Part I: Proof of the First Equality.
+In the L2(Z) space, the inner product is equivalent to the
+expectation under the probability measure PZ, i.e., ⟨u, v⟩L2 = E[uv]. Taking the inner product of h
+with the g′-th basis function Ψg′, we have
+E[ h Ψg′ ] = ⟨h, Ψg′⟩L2(Z).
+Substituting the orthogonal decomposition h = PG
+g=1 αgΨg + h⊥into the expression above yields
+E[ h Ψg′ ] =
+* G
+X
+g=1
+αgΨg + h⊥, Ψg′
++
+L2(Z)
+=
+G
+X
+g=1
+αg⟨Ψg, Ψg′⟩L2(Z) + ⟨h⊥, Ψg′⟩L2(Z).
+We now invoke the following properties:
+1. Since h⊥⊥Vp and Ψg′ ∈Vp, it follows that ⟨h⊥, Ψg′⟩L2(Z) = 0.
+2. The basis {Ψg} is orthonormal in L2(Z), meaning ⟨Ψg, Ψg′⟩L2(Z) = δg,g′, where δg,g′ is
+the Kronecker delta.
+Substituting these properties, all terms in the summation vanish except for g = g′, leading to
+E[ h Ψg′ ] = αg′. This confirms that the projection coefficients are precisely the expectations (inner
+products) of h with the basis functions.
+Next, we compute the squared L2-norm of the projection h∥= PVph,
+PVph
+2
+L2(Z) =
+
+G
+X
+g=1
+αgΨg
+
+2
+L2(Z)
+.
+Applying the orthonormality of {Ψg} (a generalized form of the Pythagorean theorem or Parseval’s
+identity), we obtain
+PVph
+2
+L2(Z) =
+G
+X
+g=1
+α2
+g.
+Substituting αg = E[ h(Z) Ψg(Z) ] into the equation above directly yields the first desired identity
+G
+X
+g=1
+ E[ h(Z) Ψg(Z) ]
+2 =
+PVph
+2
+L2(Z).
+Part II: Proof of the Equivalence.
+We aim to prove that E[ hΨg ] = 0 for all g ∈{1, . . . , G} if
+and only if PVph = 0. From Part I, we have established
+PVph
+2
+L2(Z) =
+G
+X
+g=1
+ E[ hΨg ]
+2.
+18
+
+
+Sufficiency ( =⇒): If E[ hΨg ] = 0 for all g ∈{1, . . . , G}, then every term in the summation on the
+right-hand side is zero. Consequently,
+PVph
+2
+L2(Z) = 0. By the definiteness property of the norm, it
+follows that PVph = 0.
+Necessity ( ⇐= ): Conversely, if PVph = 0, then its squared norm must be zero,
+PVph
+2
+L2(Z) = 0.
+This implies PG
+g=1
+ E[ hΨg ]
+2 = 0. Since this is a sum of non-negative real terms (squares), the
+sum equals zero if and only if each individual term is zero. Therefore, it must hold that E[ hΨg ] = 0
+for all g ∈{1, . . . , G}.
+B.4
+Mini-batch estimator and uniform concentration
+The two theorems in this subsection control the Monte-Carlo error incurred when the projection
+coefficients E[hΨg] are estimated from a finite collocation batch. The first establishes unbiasedness
+and the standard 1/B variance scaling and the second upgrades this to a high-probability uniform
+bound across all G basis functions, which is the form used in our training analysis.
+Theorem B.4 (Mini-batch estimator: unbiasedness and variance). Let bmg = 1
+B
+PB
+b=1 h(Zb)Ψg(Zb)
+with i.i.d. Zb ∼PZ. Then E bmg = E[hΨg] and Var( bmg) = Var(hΨg)/B. Moreover, for bm =
+( bmg)G
+g=1 and m = (E[hΨg])G
+g=1, E∥bm∥2
+2 = ∥m∥2
+2 + 1
+B
+PG
+g=1 Var(hΨg).
+Proof. Part I: Unbiasedness of the Estimator E[ bmg] = E[ hΨg ]. By definition, the estimator is
+given by
+bmg = 1
+B
+B
+X
+b=1
+h(Zb)Ψg(Zb).
+Taking the expectation of bmg and invoking the linearity of expectation, we have
+E[ bmg] = E
+"
+1
+B
+B
+X
+b=1
+h(Zb)Ψg(Zb)
+#
+= 1
+B
+B
+X
+b=1
+E[ h(Zb)Ψg(Zb) ].
+Since the samples {Zb}B
+b=1 are independent and identically distributed (i.i.d.) following the probabil-
+ity measure PZ, the expectation for each b equals the population expectation
+E[ h(Zb)Ψg(Zb) ] = E[ h(Z)Ψg(Z) ] = mg.
+Substituting this back into the expression yields
+E[ bmg] = 1
+B
+B
+X
+b=1
+mg = 1
+B (B · mg) = mg = E[ hΨg ].
+This confirms that bmg is an unbiased estimator of mg.
+Part II: Variance of the Estimator Var( bmg) = Var(hΨg)/B. We now consider the variance of bmg.
+Recall that for independent random variables {Xi}, Var(P Xi) = P Var(Xi), and for a constant
+C, Var(CX) = C2Var(X). Applying these properties, we have
+Var( bmg) = Var
+ 
+1
+B
+B
+X
+b=1
+h(Zb)Ψg(Zb)
+!
+= 1
+B2
+B
+X
+b=1
+Var
+ h(Zb)Ψg(Zb)
+
+.
+Because the samples Zb are identically distributed, the variance is constant for all b,
+Var
+ h(Zb)Ψg(Zb)
+
+= Var(hΨg).
+Substituting this back, we obtain
+Var( bmg) = 1
+B2
+ B · Var(hΨg)
+
+= Var(hΨg)
+B
+.
+This demonstrates that the variance of the estimator decays at the standard Monte Carlo rate of
+O(1/B) relative to the batch size B.
+19
+
+
+Part III: Expected Squared L2 Norm E∥bm∥2
+2 = ∥m∥2
+2 + 1
+B
+PG
+g=1 Var(hΨg). Using the definition
+of the squared L2 norm and applying the linearity of expectation, we obtain
+E∥bm∥2
+2 = E
+
+G
+X
+g=1
+bm2
+g
+
+=
+G
+X
+g=1
+E[ bm2
+g].
+Utilizing the fundamental relation E[X2] = (E[X])2 + Var(X), we can decompose the second
+moment of each coefficient and get
+E[ bm2
+g] = (E[ bmg])2 + Var( bmg).
+Substituting the unbiasedness result (E[ bmg] = mg) and the variance result (Var( bmg) = 1
+B Var(hΨg))
+derived previously, we have
+E[ bm2
+g] = m2
+g + 1
+B Var(hΨg).
+Summing over all g ∈{1, . . . , G} gives
+E∥bm∥2
+2 =
+G
+X
+g=1
+m2
+g + 1
+B
+G
+X
+g=1
+Var(hΨg).
+Recognizing that ∥m∥2
+2 = PG
+g=1 m2
+g is the squared norm of the true coefficient vector, we obtain
+E∥bm∥2
+2 = ∥m∥2
+2 + 1
+B
+G
+X
+g=1
+Var(hΨg).
+Theorem B.5 (Uniform concentration over g). If {h(Z)Ψg(Z)}g≤G are sub-Gaussian with common
+proxy σ2, then for any ϵ, δ ∈(0, 1), if B ≳σ2ϵ−2 log(G/δ),
+P
+
+max
+1≤g≤G
+ bmg −E[hΨg]
+ ≤ϵ
+
+≥1 −δ.
+Proof. Since the samples Zb are independent and identically distributed (i.i.d.), the sequence of
+random variables {Xg(Zb)}B
+b=1 are mutually independent, each being a sub-Gaussian random variable
+with proxy variance σ2.
+By the properties of sub-Gaussian random variables, the empirical mean bmg of independent sub-
+Gaussian variables is also sub-Gaussian. Specifically, the proxy variance of the mean bmg scales
+by a factor of 1/B relative to the single-sample proxy variance, given by σ2
+mean = σ2
+B . Applying
+the Hoeffding-type tail bound for centered sub-Gaussian random variables, the probability that the
+empirical mean deviates from the true mean mg by more than ϵ satisfies
+P
+ bmg −mg
+ > ϵ
+
+≤2 exp
+
+−
+ϵ2
+2σ2mean
+
+= 2 exp
+
+−Bϵ2
+2σ2
+
+.
+This inequality establishes an upper bound on the probability that the estimation error for a specific
+feature basis g exceeds the margin ϵ.
+Then, we aim to bound the maximum deviation across all g ∈{1, . . . , G} by ϵ. The event where the
+maximum deviation exceeds ϵ is mathematically equivalent to the event that at least one component g
+has a deviation exceeding ϵ.
+Applying Boole’s inequality (the union bound), i.e., P(∪Ai) ≤P P(Ai), we can upper bound the
+total failure probability
+P
+
+max
+1≤g≤G
+ bmg −mg
+ > ϵ
+
+= P
+ G
+[
+g=1
+n bmg −mg
+ > ϵ
+o!
+≤
+G
+X
+g=1
+P
+ bmg −mg
+ > ϵ
+
+.
+20
+
+
+Because the failure probability bound is identical for each g, substituting and summing over the G
+components gives
+P
+
+max
+1≤g≤G
+ bmg −mg
+ > ϵ
+
+≤
+G
+X
+g=1
+2 exp
+
+−Bϵ2
+2σ2
+
+= 2G exp
+
+−Bϵ2
+2σ2
+
+.
+To guarantee that the probability of the maximum error exceeding ϵ (the failure probability) is
+controlled below our predefined tolerance level δ, we enforce the condition
+2G exp
+
+−Bϵ2
+2σ2
+
+≤δ.
+Dividing by 2G and solving for B, we obtain
+B ≥2σ2
+ϵ2 log
+2G
+δ
+
+.
+We can decompose the logarithmic term as log(2G/δ) = log(G/δ) + log(2). In an asymptotic sense
+(denoted by the Big-O or ≳notation), the absolute constant factor 2 can be absorbed. Therefore,
+provided that the batch size B satisfies:
+B ≳σ2
+ϵ2 log
+G
+δ
+
+(where ≳hides absolute constants, such as 2 in this derivation), the probability that the maximum
+error exceeds ϵ is at most δ.
+Taking the complement of this event (the success event) yields the final uniform bound
+P
+
+max
+1≤g≤G
+ bmg −E[hΨg]
+ ≤ϵ
+
+≥1 −δ.
+Remark B.6 (When the assumption fails). The sub-Gaussian (in particular, uniformly bounded)
+assumption on hΨg is natural for polynomial dependence on bounded or Gaussian inputs, but it is
+violated by log-normal coefficient fields, whose exponential dependence on Z produces heavy tails
+and places substantial energy in high-degree modes. This is consistent with the reduced variance
+accuracy observed on the log-normal Darcy benchmark, and it can be detected before training with
+the subspace energy ratio (8).
+B.5
+Feature Gram/Orthogonality conditioning and its concentration
+Let Fs ∈RB×M be the spatial feature matrix with rows Fs(b, :) =
+ Φi(xb)
+M
+i=1 sampled from µx.
+Define the empirical Gram bGΦ = 1
+B F ⊤
+s Fs and population Gram GΦ = Ex∼µx[Φ(x)Φ(x)⊤], where
+Φ(x) = (Φi(x))M
+i=1.
+Theorem B.7 (Near-orthogonality ⇒bounded condition number). If ∥bGΦ −I∥2 ≤δ < 1, then the
+singular values of Fs/
+√
+B lie in [
+√
+1 −δ,
+√
+1 + δ] and κ(Fs) ≤
+q
+1+δ
+1−δ.
+Proof. Define the matrix A =
+1
+√
+B Fs. By the properties of the singular value decomposition (SVD),
+the squared singular values of A, denoted by σ2
+j (A), coincide with the eigenvalues of the symmetric
+matrix A⊤A, denoted by λj(A⊤A). Observing the expansion of A⊤A,
+A⊤A =
+ 1
+√
+B
+Fs
+⊤ 1
+√
+B
+Fs
+
+= 1
+B F ⊤
+s Fs.
+According to the given definition, this is precisely the empirical Gram matrix bGΦ. Consequently, we
+establish
+λj( bGΦ) = σ2
+j
+ 1
+√
+B
+Fs
+
+.
+21
+
+
+We are given the condition ∥bGΦ −I∥2 ≤δ < 1. For any real symmetric matrix M, its spectral norm
+(or 2-norm) is equal to the maximum absolute value of its eigenvalues, which implies
+∥M∥2 = max
+j
+|λj(M)|.
+Substituting M = bGΦ −I yields that for all j, |λj( bGΦ −I)| ≤δ. Since the identity matrix I has all
+eigenvalues equal to 1 and shares the same eigenspace with bGΦ, the eigenvalues of bGΦ −I can be
+expressed simply as λj( bGΦ) −1. Substituting this into the inequality gives
+|λj( bGΦ) −1| ≤δ.
+Expanding the absolute value, we obtain the upper and lower bounds for all eigenvalues of the
+empirical Gram matrix
+1 −δ ≤λj( bGΦ) ≤1 + δ,
+which means
+1 −δ ≤σ2
+j
+ 1
+√
+B
+Fs
+
+≤1 + δ.
+Since singular values are inherently non-negative (σj ≥0) and the condition δ < 1 ensures that
+1 −δ > 0, we get
+√
+1 −δ ≤σj
+ 1
+√
+B
+Fs
+
+≤
+√
+1 + δ.
+This concludes the proof of the first part: all singular values of Fs/
+√
+B are bounded within the
+interval [
+√
+1 −δ,
+√
+1 + δ].
+The spectral condition number (2-norm condition number) of a matrix X is defined as the ratio of its
+maximum singular value to its minimum singular value
+κ(X) = σmax(X)
+σmin(X) .
+Importantly, scaling a matrix by a non-zero scalar does not alter its condition number, as both the
+maximum and minimum singular values are scaled by the exact same proportion. Thus,
+κ(Fs) = κ
+ 1
+√
+B
+Fs
+
+.
+Based on the singular value bounds, we have:
+• Upper bound for the maximum singular value: σmax
+
+1
+√
+B Fs
+
+≤
+√
+1 + δ
+• Lower bound for the minimum singular value: σmin
+
+1
+√
+B Fs
+
+≥
+√
+1 −δ
+Substituting these bounds into the definition of the condition number yields the desired upper bound
+κ(Fs) ≤
+√
+1 + δ
+√
+1 −δ =
+r
+1 + δ
+1 −δ .
+Theorem B.8 (Concentration of the sample Gram). Assume ∥Φ(x)∥2 ≤L almost surely. Then for
+any δ ∈(0, 1), with probability ≥1 −δ.
+ bGΦ −GΦ
+
+2 ≲L2q
+log(M/δ)
+B
++ log(M/δ)
+B
+
+In particular, if GΦ = I (population-orthonormalized features), then bGΦ is near-identity with the
+above rate.
+Proof. Let Φb := Φ(xb) ∈RM be the spatial feature vector at the b-th collocation point, and define
+the centered, scaled rank-one summands
+Xb :=
+1
+B
+ ΦbΦ⊤
+b −GΦ
+
+,
+b = 1, . . . , B.
+22
+
+
+By construction bGΦ −GΦ = PB
+b=1 Xb and E [Xb] = 0, so the deviation ∥bGΦ −GΦ∥2 is a sum
+of B independent, mean-zero, symmetric matrices. The result therefore follows from the matrix
+Bernstein inequality once we control (i) a uniform almost-sure norm bound R := maxb ∥Xb∥2 and
+(ii) a matrix-variance parameter σ2 :=
+ P
+b E[X2
+b ]
+
+2. We compute these two ingredients next.
+By the triangle inequality for matrix norms, we obtain
+∥Xb∥2 ≤1
+B
+ ∥ΦbΦ⊤
+b ∥2 + ∥GΦ∥2
+
+.
+We are given the condition ∥Φ(x)∥2 ≤L almost surely (a.s.). Since ΦbΦ⊤
+b is a rank-one matrix, its
+unique non-zero eigenvalue (which coincides with its spectral norm) is given by its trace
+∥ΦbΦ⊤
+b ∥2 = Tr(ΦbΦ⊤
+b ) = ∥Φb∥2
+2 ≤L2.
+By Jensen’s inequality and the convexity of matrix norms, the spectral norm of the population
+covariance matrix is also bounded by
+∥GΦ∥2 = ∥E[ΦbΦ⊤
+b ]∥2 ≤E
+
+∥ΦbΦ⊤
+b ∥2
+
+≤L2.
+Substituting these two terms back yields a uniform upper bound on the norm
+∥Xb∥2 ≤1
+B (L2 + L2) = 2L2
+B
+:= R.
+Consider the squared term X2
+b =
+1
+B2
+ ΦbΦ⊤
+b −GΦ
+2. In terms of the positive semi-definite (PSD)
+partial ordering (⪯), the second moment of a centered random matrix is always bounded above by
+the second moment of the uncentered matrix (i.e., E[(Y −EY )2] ⪯E[Y 2]). Then, we have
+E[X2
+b ] ⪯1
+B2 E
+
+(ΦbΦ⊤
+b )2
+.
+Expanding the squared term, we have
+(ΦbΦ⊤
+b )2 = (ΦbΦ⊤
+b )(ΦbΦ⊤
+b ) = Φb(Φ⊤
+b Φb)Φ⊤
+b = ∥Φb∥2
+2(ΦbΦ⊤
+b ).
+Since ∥Φb∥2
+2 ≤L2, it follows that
+(ΦbΦ⊤
+b )2 ⪯L2(ΦbΦ⊤
+b ).
+Taking the expectation and summing over all b = 1, . . . , B, we bound the total variance matrix as
+B
+X
+b=1
+E[X2
+b ] ⪯
+B
+X
+b=1
+L2
+B2 E[ΦbΦ⊤
+b ] = L2
+B GΦ.
+Evaluating the spectral norm yields the variance parameter σ2,
+σ2 =
+
+B
+X
+b=1
+E[X2
+b ]
+
+2 ≤L2
+B ∥GΦ∥2 ≤L4
+B .
+The Matrix Bernstein inequality states that for any t ≥0, we have
+P
+ 
+B
+X
+b=1
+Xb
+
+2
+≥t
+!
+≤2M exp
+
+−
+t2/2
+σ2 + Rt/3
+
+.
+Setting the failure probability bound equal to the given confidence level δ, we obtain
+2M exp
+
+−
+t2/2
+σ2 + Rt/3
+
+= δ =⇒
+t2/2
+σ2 + Rt/3 = log
+2M
+δ
+
+.
+Solving this quadratic equation for t yields the high-probability upper bound for t given by
+t ≤
+s
+2σ2 log
+2M
+δ
+
++ 2
+3R log
+2M
+δ
+
+.
+23
+
+
+Substituting the bounds, specifically σ2 ≤L4
+B and R = 2L2
+B , we obtain
+t ≤
+s
+2L4
+B log
+2M
+δ
+
++ 4L2
+3B log
+2M
+δ
+
+.
+Factoring out L2 and subsuming the absolute constants (e.g.,
+√
+2, 4/3, and the constant offset in the
+logarithmic term, treating log(2M/δ) ≈log(M/δ)) into the asymptotic ≲notation, we arrive at
+t ≲L2
+ r
+log(M/δ)
+B
++ log(M/δ)
+B
+!
+.
+This implies that with probability at least 1 −δ, the deviation is bounded by
+∥bGΦ −GΦ∥2 ≲L2
+ r
+log(M/δ)
+B
++ log(M/δ)
+B
+!
+.
+Notably, when GΦ = I, this result immediately demonstrates that the empirical Gram matrix bGΦ
+approaches the identity matrix at the derived rate (satisfying the near-identity property), which
+asymptotically guarantees the approximate orthogonality of the features.
+B.6
+CP kernel: algebra, efficiency, and gauge
+Consider the rank-q CP parameterization Cikg = Pq
+r=1 AirBkrDgr and the batched forward u =
+((FsA) ⊙(FtB) ⊙(FzD)) w.
+Theorem B.9 (Parameter and arithmetic complexity). The dense tensor parameterization uses
+O(MMtG) parameters and O(BMMtG) arithmetic per batch, whereas the CP kernel uses
+O((M+Mt+G)q) parameters and O(B q (M+Mt+G)) arithmetic.
+Proof. Parameter count. The dense parameterization stores every entry Cikg of the 3-way coupling
+tensor independently, so it uses MMtG scalar parameters, i.e. O(MMtG). The CP kernel instead
+stores three factor matrices of shapes M×q, Mt×q, G×q and a weight vector w ∈Rq, totalling
+q(M + Mt + G) + q = O(q(M + Mt + G)) scalar parameters.
+Arithmetic per batch. The dense forward ub = P
+i,k,g CikgΦi(xb)Tk(tb)Ψg(Zb) touches every
+entry of C for every sample, costing Θ(MMtG) FLOPs per sample and O(BMMtG) over a
+batch of size B. The CP forward u = ((FsA) ⊙(FtB) ⊙(FzD))w first multiplies the three
+feature matrices Fs ∈RB×M, Ft ∈RB×Mt, Fz ∈RB×G by the corresponding factors at cost
+O(BqM) + O(BqMt) + O(BqG) = O(Bq(M + Mt + G)), then performs an O(Bq) Hadamard
+fusion and an O(Bq) inner product with w, for an overall cost O(Bq(M + Mt + G)). Hence the
+CP kernel reduces both parameter count and per-batch arithmetic from multiplicative O(MMtG) to
+additive O(q(M+Mt+G)), an asymptotic improvement whenever q ≪MMtG/(M+Mt+G).
+Theorem B.10 (Gauge invariance and normalization). For any invertible diagonal Λ1, Λ2, Λ3 ∈
+Rq×q, the mapping
+(A, B, D, w) 7→
+ AΛ1, BΛ2, DΛ3 Λ−1
+1 Λ−1
+2 Λ−1
+3 w
+
+leaves u unchanged. Column-wise normalization of (A, B, D) fixes a gauge (up to column permuta-
+tions/signs) and improves Lipschitz conditioning of the forward map with respect to each factor.
+Proof. Let Λ1, Λ2, Λ3 ∈Rq×q be invertible diagonal matrices. We define the transformed parameters
+as follows
+˜A = AΛ1,
+(9)
+˜B = BΛ2,
+(10)
+˜D = DΛ3,
+(11)
+˜w = Λ−1
+1 Λ−1
+2 Λ−1
+3 w.
+(12)
+24
+
+
+The computation for the forward propagation is formulated as
+˜u =
+ (Fs ˜A) ⊙(Ft ˜B) ⊙(Fz ˜D)
+
+˜w.
+First, we consider the transformation of the feature projection matrices. Since Fs is post-multiplied
+by ˜A and Λ1 is a diagonal matrix, this operation is equivalent to scaling the columns of FsA, which
+means
+Fs ˜A = Fs(AΛ1) = (FsA)Λ1.
+Similarly, we have
+Ft ˜B = (FtB)Λ2,
+(13)
+Fz ˜D = (FzD)Λ3.
+(14)
+Next, we examine the Hadamard product (denoted by ⊙). For arbitrary matrices X, Y and diagonal
+matrices ΛX, ΛY , their Hadamard product satisfies
+(XΛX) ⊙(Y ΛY ) = (X ⊙Y )(ΛXΛY ).
+This holds because post-multiplying by a diagonal matrix essentially scales the columns of the target
+matrix, and the scaling factors for the r-th column are directly multiplied together. Expanding the
+Hadamard product of the three transformed matrices, we obtain
+ (FsA)Λ1
+
+⊙
+ (FtB)Λ2
+
+⊙
+ (FzD)Λ3
+
+=
+ (FsA) ⊙(FtB) ⊙(FzD)
+
+(Λ1Λ2Λ3).
+Finally, we multiply this result by the transformed weight vector ˜w and we get
+˜u =
+ (FsA) ⊙(FtB) ⊙(FzD)
+
+(Λ1Λ2Λ3)
+ Λ−1
+1 Λ−1
+2 Λ−1
+3 w
+
+.
+Since multiplication between diagonal matrices is commutative, and ΛiΛ−1
+i
+= I (the identity matrix),
+all the diagonal matrices cancel out, yielding
+(Λ1Λ2Λ3)(Λ−1
+1 Λ−1
+2 Λ−1
+3 ) = I.
+Therefore,
+˜u =
+ (FsA) ⊙(FtB) ⊙(FzD)
+
+w = u.
+This concludes the proof that the forward propagation mapping is strictly gauge invariant under the
+aforementioned transformations.
+As demonstrated in the preceding proof, for any non-zero constant λ, we can scale the r-th column
+of the factor matrix A by λ while simultaneously dividing the r-th element of the weight w by λ
+without altering the network output. This symmetry induces infinitely many equivalent global optima
+in the parameter space (i.e., continuous scaling valleys).
+To eliminate this continuous ambiguity, we apply column normalization to A, B, and D (typically
+by constraining the L2 norm of each column to 1). Enforcing the constraint ∥A:,r∥2 = 1 strictly
+limits the permissible diagonal scaling factors to |λ| = 1. This implies that the diagonal entries of
+Λ1, Λ2, and Λ3 are restricted to ±1. Consequently, the continuous scaling ambiguity collapses into
+discrete sign permutations. Combined with the inherent column permutation symmetry of the rank-1
+components in CP decomposition, we successfully fix the gauge up to permutations and signs.
+In neural network optimization, the smoothness of the loss function with respect to a specific
+parameter (e.g., matrix A) is governed by the Lipschitz constant of its partial derivative. In the
+multilinear CP format, the partial derivative of u with respect to A heavily depends on the magnitudes
+of B, D, and w. Roughly speaking, the gradient norm is proportional to
+
+∂u
+∂A
+ ∝∥B∥· ∥D∥· ∥w∥.
+Without normalization constraints, the optimizer might drift into ill-conditioned regions where certain
+columns of B and D become pathologically large (e.g., 106) while w becomes vanishingly small
+(e.g., 10−12) to compensate. Although this leaves u invariant, it causes the gradient with respect to A
+to explode, driving the Lipschitz constant toward infinity and severely destabilizing the optimization
+process (Gradient Explosion).
+25
+
+
+By enforcing column normalization on A, B, and D, their norms are rigidly bounded near 1. The
+network is thus compelled to absorb all global magnitude information into the unique linear weight
+vector w. This provides well-bounded control over the Jacobians of the factor matrices, significantly
+improving the Lipschitz conditioning of the forward mapping with respect to each factor. As a
+result, the optimization process (such as gradient descent) becomes substantially more stable and
+efficient.
+B.7
+Closed-form derivatives for Gaussian atoms and stability under warps
+For φ(x) = exp
+ −1
+2(x −µ)⊤Σ−1(x −µ)
+
+with Σ ≻0,
+∇φ(x) = −Σ−1(x −µ) φ(x),
+∆φ(x) =
+ (x −µ)⊤Σ−2(x −µ) −tr Σ−1
+φ(x),
+and for a C1 residual warp W(x) = x + wθ(x), derivatives of φ◦W follow by the chain rule with
+Jacobian JW(x). If ∥JW −I∥2 ≤ε < 1, the mapping Φi 7→Φi ◦W is bi-Lipschitz on L2(Ω) with
+constants depending only on ε and Ω.
+The three statements above are direct calculus consequences and are recorded here for completeness.
+(i) Gradient and Laplacian of a Gaussian atom. Write φ(x) = exp(−1
+2q(x)) with q(x) = (x −
+µ)⊤Σ−1(x −µ). Since Σ is symmetric, ∇q(x) = 2Σ−1(x −µ), and the chain rule gives
+∇φ(x) = −1
+2 ∇q(x) φ(x) = −Σ−1(x −µ) φ(x).
+Taking divergences and using the product rule ∇·(fv) = v⊤∇f + f ∇·v with v = Σ−1(x −µ) (so
+∇·v = tr Σ−1),
+∆φ(x) = ∇·(∇φ) =
+ (x −µ)⊤Σ−2(x −µ) −tr Σ−1
+φ(x),
+matching the displayed formula.
+(ii) Composition with a warp. For any C1 map W, the multivariate chain rule gives ∇(φ◦W)(x) =
+JW(x)⊤(∇φ)(W(x)), and the Laplacian follows from ∆(φ◦W) = tr
+ J⊤
+W(Hess φ)(W) JW
+
++
+(∇φ)(W)⊤∆W. For a residual warp W(x) = x + wθ(x), JW = I + Jwθ and all quantities are
+computable in closed form once wθ and its first/second derivatives are available from the warp MLP.
+(iii) Bi-Lipschitz stability under small Jacobian perturbation. Suppose ∥JW(x) −I∥2 ≤ε < 1
+uniformly on Ω. By the Neumann series, JW is invertible everywhere with ∥J−1
+W ∥2 ≤1/(1 −ε) and
+∥JW∥2 ≤1 + ε. The mean-value theorem on the convex domain Ωthen yields the two-sided bound
+(1 −ε) ∥x −x′∥2 ≤∥W(x) −W(x′)∥2 ≤(1 + ε) ∥x −x′∥2,
+so W is bi-Lipschitz with constants (1 ± ε), and a standard change-of-variables argument shows
+that Φi 7→Φi◦W is a bi-Lipschitz map on L2(Ω) with constants depending only on ε (through the
+Jacobian determinant det JW ∈[(1 −ε)d, (1 + ε)d]) and Ω. In particular, near-orthogonality of the
+unwarped dictionary is preserved up to a factor controlled by ε, which is why the warp does not
+destabilize the Gram conditioning.
+C
+Manufactured Solution Definitions
+All four benchmark problems are defined on the spatio-temporal domain Ω= [−1, 1]2, T = [0, 1],
+with R i.i.d. standard-normal random variables Z = (Z1, . . . , ZR) ∼N(0, IR).
+Karhunen–Loève coefficient.
+All problems share a log-normal random field:
+k(x, Z) = exp
+
+µk + σ
+R
+X
+i=1
+p
+λi Zi ϕi(x)
+
+,
+where {λi, ϕi} are the eigenvalue–eigenfunction pairs of an exponential covariance kernel C(x, x′) =
+exp(−∥x −x′∥1/ℓ) with correlation length ℓ= 1, µk = 0, and σ = 1.
+26
+
+
+1. Stochastic Diffusion.
+∂u
+∂t −∇·
+ k(x, Z) ∇u
+
+= s(x, t, Z),
+with manufactured exact solution
+u∗(x, t, Z) = sin(πx) sin(πy) e−t 
+1 + 0.1 PR
+i=1 Zi
+
+,
+where the source s is obtained by substituting u∗into the PDE. Dirichlet boundary conditions
+u
+
+∂Ω= 0 and initial condition u(0, x, Z) = u∗(0, x, Z) are imposed.
+2. Stochastic Allen–Cahn.
+∂u
+∂t −∇·
+ k ∇u
+
+−(u −u3) = s,
+with the same manufactured solution as diffusion. The cubic reaction term u −u3 introduces
+additional nonlinearity.
+3. Stochastic Burgers.
+∂u
+∂t + u
+∂u
+∂x + ∂u
+∂y
+
+−ν ∆u = s,
+with kinematic viscosity ν = 0.01 and the same manufactured solution as diffusion. The convective
+nonlinearity u ∇u makes this the most challenging benchmark for standard PINNs.
+4. Stochastic Darcy (divergence form).
+∂u
+∂t −∇·
+ k ∇u
+
+= s,
+with a different manufactured solution that couples the solution to the stochastic field more tightly:
+u∗(x, t, Z) = sin(πx) sin(πy) e−t exp
+
+γ
+R
+X
+i=1
+p
+λi Zi ϕi(x)
+
+,
+where γ = 0.3. Unlike the linear Z-dependence in the first three problems, the Darcy solution
+depends exponentially on Z through the KL expansion, requiring higher gPC orders for accurate
+recovery.
+5. Non-manufactured Stochastic Poisson (forward simulation).
+We solve a stochastic Poisson
+equation with a random source term:
+−∆u = f(x, y, Z),
+with u = 0 on ∂Ω,
+where f(x, y, Z) = 1 + σ PR
+i=1
+√λi Zi ϕi(x) is a KL-expanded random source field (σ=0.5, R=5).
+The reference solution is computed numerically via finite differences on a 64×64 grid over 10,000
+Monte Carlo samples.
+6. Non-manufactured Stochastic Darcy (forward simulation).
+We also solve a stochastic Darcy
+flow with a log-normal permeability field:
+−∇·
+ k(x, y, Z) ∇u
+
+= 1.0,
+with u = 0 on ∂Ω,
+where k(x, y, Z) = exp
+ σ PR
+i=1
+√λi Zi ϕi(x)
+
+with σ=1.0 and R=5. The physical response
+u(x, y, Z) is purely driven by the stochastic permeability field k and the constant source term. The
+reference solution is computed via the same finite-difference Monte Carlo procedure (N=10,000,
+64×64 grid).
+D
+Details of Baseline Methods
+In this section, we record the exact baseline protocols used in the main experiments. The primary com-
+parisons include six neural or classical baselines (Vanilla PINN, Vanilla PINN+proj, PI-DeepONet,
+MC-Dropout PINN, Deep Ensembles, stochastic collocation, SPINN+Z, functional CP-PINN, and
+Neural Chaos), and PC2 is another physics-informed polynomial-chaos baseline for the selected
+forward benchmarks.
+27
+
+
+Common training configuration (all neural baselines).
+Unless otherwise noted, every neural
+baseline shares the following implementation choices, which match those of S2-PINN to ensure a fair
+comparison:
+• Optimizer. Adam with (β1, β2) = (0.9, 0.999), ϵ = 10−8, no learning-rate scheduler(except for
+the tuned PI-DeepONet, see below), and no gradient clipping. The base learning rate is 10−3 for
+diffusion / Allen–Cahn / Burgers and 5×10−4 for Darcy.
+• Initialization. All nn.Linear layers use Xavier-normal weights and zero biases.
+• Loss weights. For diffusion / Allen–Cahn / Burgers, wpde = wbc = wic = 1.0; for Darcy,
+wbc = wic = 10.0 to compensate for the steeper boundary layers. The projection weight wproj is
+1.0 for “+proj” variants and 0 otherwise (see per-baseline notes below).
+• Training horizon. 20,000 Adam steps for diffusion / Allen–Cahn / Burgers and 30,000 for Darcy.
+• Sampling strategy. All collocation, boundary, and initial-condition batches are resampled every
+step (resample_every =1). Collocation points are drawn uniformly at random in T ×Ω; bound-
+ary points draw t ∼U(T ), the free spatial coordinate ∼U([−1, 1]), and the boundary edge
+index ∼Uniform{1, 2, 3, 4}; initial-condition points fix t = tmin with uniform (x, y). Random
+inputs are drawn from N(0, IR) for Gaussian configurations and from U([−1, 1]R) for uniform
+configurations.
+Vanilla PINN.
+The standard physics-informed neural network represents the solution u(t, x, Z) as
+a fully connected Multi-Layer Perceptron (MLP) taking the concatenated space, time, and stochastic
+variables as inputs. We use a 4-layer MLP with 256 hidden units per layer and hyperbolic tangent
+(tanh) activations. Concretely, the architecture is (3+R) →256 →256 →256 →256 →1 with
+tanh on every hidden layer and a linear output; for the main stochastic runs R=5, giving an input
+dimension of 8. The loss function is defined as
+LPINN = wpdeE[r2] + wbcE∂Ω[(u −u∗)2] + wicE[(u −u∗)2|t=0].
+(15)
+The network relies purely on dense sampling and gradient descent to learn the complex high-
+dimensional stochastic dependence without any explicit polynomial basis.
+Vanilla PINN + proj.
+This baseline uses the exact same MLP architecture as the Vanilla PINN
+but augments the standard loss function with the gPC Galerkin projection term introduced in our
+method: LPINN+proj = LPINN + wproj
+PG
+g=1
+ E[rΨg(Z)]
+2, with wproj=1.0 matching the S2-PINN
+setting. This isolates the effect of the physics objective from the separable tensor architecture.
+PI-DeepONet.
+Physics-Informed DeepONet Goswami et al. [2023] utilizes a dual-network archi-
+tecture consisting of a Branch net and a Trunk net. The Branch net takes the stochastic parameters
+Z and outputs q latent coefficients. The Trunk net processes the spatiotemporal coordinates (t, x)
+and outputs q basis functions. The final solution is computed as the inner product of these two latent
+vectors: u(t, x, Z) = Pq
+k=1 bk(Z)τk(t, x) + b0, where b0 is a single learnable scalar bias added to
+the inner product. Concretely, both branches use 3 hidden layers of width 128 with tanh activations
+and a linear projection to a q=128-dimensional latent: Branch is R→128→128→128→128 (so
+input dim 5 for R=5) and Trunk is 3 →128 →128 →128 →128 (taking (t, x, y)). Weights are
+Xavier-normal initialised with zero biases. It is trained using the standard LPINN loss. Because the
+default configuration diverged on Allen–Cahn, the reported results use a tuned setting: learning rate
+10−3, and on Allen–Cahn and Darcy a ReduceLROnPlateau scheduler with factor 0.5, patience 3,
+and minimum learning rate 10−6.
+MC-Dropout PINN.
+To provide a strong probabilistic baseline for uncertainty quantification, we
+augment the Vanilla PINN with Dropout layers (with drop probability p = 0.1) after every hidden
+layer. Concretely, a dropout layer is inserted after the activation of every hidden layer (but not
+after the linear output), so the architecture is
+
+Linear →tanh →Dropout(p)
+4 →Linear with the
+same Xavier-normal initialization as the Vanilla PINN. During training, dropout acts as a regularizer.
+During inference, dropout remains active, and we sample 50 forward passes for each input collocation
+point. This yields a predictive distribution that estimates the epistemic uncertainty of the network,
+which is then combined with the aleatoric variation over Z to compute coverage and calibration
+metrics. The training loss is LPINN.
+28
+
+
+Deep Ensembles.
+Following Lakshminarayanan et al. Lakshminarayanan et al. [2017], we train
+an ensemble of K = 5 independent Vanilla PINNs, each initialized with a different random seed.
+Each member uses the same Vanilla-PINN architecture (4 hidden layers × 256, tanh) and the same
+20,000-step training schedule, but draws its own collocation samples and weight initialization from
+the seed. Members are trained completely independently and then aggregated post-hoc: the prediction
+is the per-point mean and the epistemic uncertainty is the per-point standard deviation across the
+K members. Uncertainty-quantification metrics are computed with 1024 stochastic samples each
+for moment estimation, interval coverage, and held-out test points (n_z_moment =n_z_interval =
+n_z_test =1024). Deep ensembles are widely considered a gold-standard baseline for predictive
+uncertainty. Unlike the other no-projection baselines, the Deep-Ensembles launch script does not
+override wproj, so each member inherits wproj=1.0 from the base configuration. This is intentional,
+since the strongest possible Deep-Ensembles baseline includes the same projection regularizer used
+by S2-PINN.
+Stochastic Collocation (SC).
+SC is a classical non-neural spectral method that leverages ten-
+sorized Gauss quadrature nodes in the stochastic space.
+For a quadrature order nq, we de-
+fine a grid of nR
+q nodes in RR.
+We then train a completely independent, deterministic spa-
+tial PINN ui(t, x) for each node Zi.
+The statistical moments of the random field are recon-
+structed post-training using the corresponding quadrature weights: ¯u(t, x) = P
+i Wi ui(t, x) and
+Var(u)(t, x) = max
+ 0, P
+i Wi ui(t, x)2 −¯u(t, x)2
+, where {Wi} are the tensor-product quadrature
+weights and the clamp at zero guards against round-off-induced negative variance. While highly
+accurate for smooth problems, the number of required PINNs scales exponentially with R, leading
+to severe computational bottlenecks (e.g., nq = 3 for R = 5 requires 243 independent training
+runs). The reported tractable SC baseline uses nq=2 per stochastic dimension, which gives 25=32
+tensor-product nodes for R=5. Each node is a Vanilla-PINN-style spatial network trained for 5,000
+Adam steps on diffusion / Allen–Cahn / Burgers and 8,000 steps on Darcy. Reference Monte-Carlo
+statistics for SC’s relative-L2 metrics are computed with 4,096 stochastic samples and 2,048 spatial
+probes (nmc,ref=4096, nprobes=2048).
+Physics-informed polynomial chaos (PC2).
+We implement the PC2 baseline of Novák et al. Novák
+et al. [2024] using UQpy’s physics-informed PCE stack. Dirichlet data are used as boundary regression
+data, while PDE residual constraints are enforced at virtual collocation points through the KKT system
+in ConstrainedPCE. To avoid an unfair capacity mismatch, we do not use UQpy’s native total-degree
+basis over all variables as the main comparison; instead, we use an anisotropic product basis with
+stochastic total degree fixed at pZ=3 and deterministic degree pdet swept over {3, 4, 5} for diffusion
+and {4, 6, 8} for Poisson/Darcy. Model selection uses only held-out PDE/boundary residuals. This
+keeps the stochastic gPC capacity aligned with S2-PINN while giving PC2 a reasonable deterministic
+polynomial space.
+SPINN+Z.
+A separable PINN Cho et al. [2023] in which the random variables Z1, . . . , ZR are
+treated as additional separable input coordinates, each processed by its own coordinate network, with
+the per-coordinate features combined by the SPINN outer-product/summation rule. It is trained with
+LPINN and contains no explicit stochastic basis or projection term.
+Functional CP-PINN.
+The functional tensor decomposition PINN of Vemuri et al. Vemuri et al.
+[2024], in which each coordinate (space, time, and random variables) is assigned a separate sub-
+network and the outputs are coupled by a CP outer product. It is trained with LPINN.
+Neural Chaos.
+Neural Chaos Bahmani et al. [2025] replaces the fixed polynomial chaos basis
+with sequentially learned neural basis functions. As a data-driven operator, it is trained on reference
+solution realizations and therefore acts as a supervised oracle rather than a purely physics-informed
+competitor; a physics residual is only evaluated post hoc. Since diffusion, Allen–Cahn, and Burgers
+share the same manufactured solution field, a single shared checkpoint is used for these three
+equations, and only the equation-specific post-hoc residual differs.
+29
+
+
+E
+Model Architectures, Parameter Counts, and Training Configuration
+Table 8 summarises the architecture and learnable parameter count for the main neural baselines
+and stochastic collocation. PC2 is excluded from this parameter table because its capacity is better
+described by polynomial basis size rather than neural weights. S2-PINN uses roughly 30× fewer
+neural parameters than a single Vanilla PINN because the CP kernel couples three compact, purpose-
+built feature extractors instead of a monolithic MLP.
+Table 8: Architecture details and parameter counts for all compared methods on the R=5 stochastic
+diffusion benchmark. M: spatial atoms; Mt: temporal features; G: gPC basis size; q: CP rank; h:
+hidden width; L: number of hidden layers.
+Method
+Architecture
+Training steps
+#Params
+S2-PINN
+SpatialDict2D (M=256, warp MLP 2→64→2)
++ TimeBasis (K=8 ⇒Mt=17)
++ GPCBasis (R=5, p=3 ⇒G=56)
++ CPCore (q=16)
+20 000
+7 018
+Vanilla PINN
+MLP 8→256→256→256→256→1, tanh
+20 000
+199 937
+Vanilla PINN+proj
+same + gPC projection loss
+20 000
+199 937
+MC-Dropout PINN
+same + dropout p=0.1
+20 000
+199 937
+PI-DeepONet
+Branch: 5→128→128→128→128
+Trunk: 3→128→128→128→128
+20 000
+101 633
+SC (nq=2, 32 nodes)
+32 × Vanilla PINN
+5 000 each
+6 397 504
+All experiments are based on NVIDIA T4. The S2-PINN parameter count decomposes as
+• Spatial dictionary:
+256 centres (µ
+∈
+R256×2), 256 log-bandwidths, warp MLP
+(2×64+64+64×2+2 = 194 params) ⇒962.
+• Temporal basis: 8 learnable log-frequencies ⇒8.
+• gPC basis: fixed Hermite polynomials (no learnable params).
+• CP core: A∈R256×16, B ∈R17×16, D∈R56×16, w∈R16 ⇒5 280.
+• Warp MLP: 2×64+64+64×2+2 = 194 ⇒included above. Biases account for the remain-
+der up to 7 018.
+Training algorithm and default hyperparameters.
+The pseudocode Algorithm 1 summarizes the
+training loop.
+Algorithm 1 Training loop
+1: Initialize dictionary/warp parameters, CP factors (A, B, D, w)
+2: for s = 1 to S do
+3:
+if s mod Srs = 1 then
+4:
+Resample PDE / BC / IC / Gram batches
+5:
+end if
+6:
+Build features Fspace, Ftime, Fstoc
+7:
+Compute u, ∂tu, and ∆u (analytic time, autodiff space)
+8:
+Evaluate residuals r and all loss terms in (5)
+9:
+Adam step
+10:
+Column-normalize CP factors; update moving stats for Gram if used
+11: end for
+Default Hyperparameters.
+For the four benchmark problems in Tables 1–2, we use
+M = 256,
+Mt = 17,
+(R, p) = (5, 3) ⇒G =
+ 8
+3
+
+= 56,
+q = 16,
+loss weights
+wpde = wproj = wbc = wic = worth = 1.0, λfac = 0.1,
+gradient accumulation κ = 1, resampling period Srs = 1, and collocation batch sizes of 32,768 for
+PDE, boundary, and initial conditions.
+30
+
+
+F
+Ablation Study Details
+We conducted controlled ablations on the stochastic diffusion benchmark to isolate the contribution
+of each hyperparameter. All experiments report errors at final time t=1.0. Tables 9–12 present the
+full results for baseline architecture, spatial atoms, gPC order, and CP rank, respectively.
+Table 9: Baseline Architecture Ablation (hidden size × layers)
+Configuration
+E¯u
+Eu1
+Eu2
+default (baseline)
+(4.23 ± 1.03) × 10−3
+(3.97 ± 1.39) × 10−3
+(4.25 ± 1.07) × 10−3
+h = 128, L = 4
+(4.41 ± 0.63) × 10−2
+(4.10 ± 0.34) × 10−2
+(3.86 ± 0.64) × 10−2
+h = 128, L = 6
+(2.33 ± 0.44) × 10−2
+(2.12 ± 0.44) × 10−2
+(2.26 ± 0.38) × 10−2
+h = 256, L = 4
+(3.26 ± 1.39) × 10−2
+(3.09 ± 1.09) × 10−2
+(3.04 ± 1.01) × 10−2
+h = 256, L = 6
+(6.10 ± 2.69) × 10−2
+(5.81 ± 2.56) × 10−2
+(5.68 ± 2.58) × 10−2
+Table 10: Spatial Atoms (M) Ablation
+Configuration
+E¯u
+Eu1
+Eu2
+default (baseline)
+(4.23 ± 1.03) × 10−3
+(3.97 ± 1.39) × 10−3
+(4.25 ± 1.07) × 10−3
+M = 64
+(9.79 ± 1.95) × 10−3
+(9.82 ± 1.89) × 10−3
+(9.77 ± 1.90) × 10−3
+M = 128
+(6.11 ± 1.37) × 10−3
+(6.16 ± 1.30) × 10−3
+(6.07 ± 1.30) × 10−3
+M = 512
+(1.91 ± 0.49) × 10−3
+(1.89 ± 0.39) × 10−3
+(1.93 ± 0.62) × 10−3
+Table 11: gPC Order (p) Ablation
+Configuration
+E¯u
+Eu1
+Eu2
+default (baseline)
+(4.23 ± 1.03) × 10−3
+(3.97 ± 1.39) × 10−3
+(4.25 ± 1.07) × 10−3
+p=1
+(3.85 ± 1.75) × 10−3
+(4.30 ± 1.91) × 10−3
+(4.44 ± 1.68) × 10−3
+p=2
+(3.50 ± 1.06) × 10−3
+(3.54 ± 1.03) × 10−3
+(3.51 ± 1.12) × 10−3
+p=4
+(2.56 ± 3.43) × 10−2
+(2.35 ± 3.08) × 10−2
+(2.55 ± 3.41) × 10−2
+Table 12: CP Rank (q) Ablation
+Configuration
+E¯u
+Eu1
+Eu2
+q = 4
+(4.74 ± 1.84) × 10−3
+(4.66 ± 1.79) × 10−3
+(4.79 ± 1.89) × 10−3
+q = 8
+(2.80 ± 1.04) × 10−3
+(2.73 ± 1.09) × 10−3
+(2.85 ± 0.93) × 10−3
+q = 16 (default)
+(4.23 ± 1.03) × 10−3
+(3.97 ± 1.39) × 10−3
+(4.25 ± 1.07) × 10−3
+q = 32
+(3.24 ± 0.91) × 10−3
+(3.43 ± 0.42) × 10−3
+(3.15 ± 0.83) × 10−3
+G
+Scaling Study: Stochastic Dimension and CP Rank
+To characterize how S2-PINN scales with stochastic dimensionality R and CP rank q, we sweep
+R ∈{3, 5, 8, 10} and q ∈{8, 16, 32} on the stochastic diffusion benchmark with p=3 fixed. Table 13
+shows the full results including wall-clock time and peak GPU memory. The R = 15 setting is
+included as a larger stress test and is evaluated for q ∈{16, 32}.
+The table supports three conclusions. First, mean and variance errors remain in the 10−3 to 10−2 range
+through the diffusion stress test, including R=15 where the gPC basis has G=816 modes. Second,
+larger CP rank is not uniformly better on this benchmark: q=8 is competitive for R ≤10, while
+q=32 improves the reported R=15 run. Third, wall-clock time increases with stochastic dimension,
+but peak GPU memory remains close to 1 GB, consistent with the low-rank CP coupling avoiding
+31
+
+
+a dense MMtG tensor. For reference, R=15 with p=3 already yields G=
+ 18
+3
+
+=816 stochastic
+modes, comparable to the number of retained modes in KL-based stochastic modeling studies of
+heterogeneous media. To probe extreme scaling, we additionally run R=50 (G=23,426): the mean
+and variance errors remain at the 10−2 level, while peak memory grows to about 18 GB, reflecting
+the polynomial growth of G with R (Appendix I).
+Table 13: Scaling sweep on stochastic diffusion: mean/variance relative L2 error, wall-clock time,
+and peak GPU memory across stochastic dimension R and CP rank q (p=3, M=256, 20K steps.)
+∗The R=50 run (G=23,426) uses learning rate 10−4 and an NVIDIA L40S GPU because of its
+≈18 GB peak memory; its time is therefore not directly comparable with the T4 runs.
+R
+q
+Mean rel. L2
+Var. rel. L2
+Time (min)
+Mem (GB)
+3
+8
+(5.88 ± 1.83) × 10−3
+(8.00 ± 2.37) × 10−3
+84.6 ± 0.9
+0.99
+3
+16
+(5.81 ± 0.89) × 10−3
+(7.32 ± 1.38) × 10−3
+84.9 ± 0.6
+0.99
+3
+32
+(5.37 ± 0.66) × 10−3
+(9.61 ± 2.98) × 10−3
+84.3 ± 0.5
+0.99
+5
+8
+(4.50 ± 0.31) × 10−3
+(6.96 ± 2.23) × 10−3
+93.6 ± 0.4
+0.99
+5
+16
+(6.43 ± 1.71) × 10−3
+(1.26 ± 0.45) × 10−2
+93.6 ± 0.6
+0.99
+5
+32
+(4.58 ± 0.94) × 10−3
+(7.94 ± 1.29) × 10−3
+94.0 ± 0.2
+0.99
+8
+8
+(5.86 ± 0.73) × 10−3
+(8.14 ± 1.46) × 10−3
+146.1 ± 1.1
+0.99
+8
+16
+(5.81 ± 2.25) × 10−3
+(8.50 ± 2.17) × 10−3
+146.7 ± 0.4
+0.99
+8
+32
+(6.41 ± 1.72) × 10−3
+(8.69 ± 1.02) × 10−3
+146.1 ± 1.0
+1.00
+10
+8
+(4.27 ± 0.62) × 10−3
+(5.57 ± 0.98) × 10−3
+233.6 ± 1.7
+0.99
+10
+16
+(5.49 ± 2.30) × 10−3
+(7.49 ± 3.44) × 10−3
+233.8 ± 1.8
+0.99
+10
+32
+(5.16 ± 1.78) × 10−3
+(6.10 ± 1.81) × 10−3
+234.5 ± 1.0
+0.99
+15
+16
+(7.30 ± 1.55) × 10−3
+(9.46 ± 2.84) × 10−3
+677.3 ± 1.7
+1.06
+15
+32
+(4.18 ± 0.52) × 10−3
+(5.40 ± 0.39) × 10−3
+679.5 ± 2.3
+1.06
+50∗
+–
+(1.09 ± 0.14) × 10−2
+(1.24 ± 0.30) × 10−2
+131.9 ± 0.3
+18.0
+H
+Collocation Density Sensitivity
+We vary the number of collocation points Nc ∈{4096, 8192, 16384, 32768, 65536} on the stochastic
+diffusion benchmark (R=5, p=3, q=16, 20K steps) to characterize sensitivity to spatial sampling
+density. Table 14 reports the results.
+Mean error decreases modestly from 6.34×10−3 at Nc=4096 to 4.68×10−3 at Nc=65536, a 1.4×
+improvement over a 16× increase in batch size. Variance error is also lowest at the largest batch,
+while calibration error is not monotone. We therefore use Nc=32,768 as a practical default rather
+than claiming that larger collocation batches are uniformly better.
+Table 14: Collocation density sweep on stochastic diffusion (R=5, p=3, q=16, 20K steps).
+Nc
+Mean rel. L2
+Var. rel. L2
+Cal. error
+4096
+(6.34 ± 3.27) × 10−3
+(1.30 ± 1.25) × 10−2
+(1.85 ± 0.32) × 10−2
+8192
+(5.95 ± 1.58) × 10−3
+(9.70 ± 3.23) × 10−3
+(1.47 ± 0.53) × 10−2
+16384
+(5.72 ± 0.79) × 10−3
+(9.54 ± 1.75) × 10−3
+(1.66 ± 0.72) × 10−2
+32768
+(6.43 ± 1.71) × 10−3
+(1.26 ± 0.45) × 10−2
+(1.27 ± 0.35) × 10−2
+65536
+(4.68 ± 0.56) × 10−3
+(8.49 ± 5.49) × 10−3
+(1.94 ± 0.52) × 10−2
+32
+
+
+I
+Computational Cost with Respect to q, M, and R
+CP
+core.
+For
+a
+batch
+of
+size
+B,
+the
+forward
+map
+is
+ub
+=
+Pq
+k=1 wk(FspaceA)bk(FtimeBt)bk(FstocD)bk with A ∈RM×q, Bt ∈RMt×q, and D ∈RG×q. The
+CP core therefore has exactly PCP = q(M + Mt + G + 1) parameters, and the three matrix products
+cost O(BMq), O(BMtq), and O(BGq), i.e., TCP = O
+ Bq(M + Mt + G)
+
+. A dense coupling
+tensor would require Pdense = MMtG parameters and Tdense = O(BMMtG) operations, so the
+CP coupling is cheaper whenever q ≪MMtG/(M + Mt + G).
+Cost in q.
+Each additional CP component adds ∆qPCP = M + Mt + G + 1 parameters and
+∆qTCP = O
+ B(M + Mt + G)
+
+operations; for fixed M, Mt, G we have PCP = Θ(q) and TCP =
+Θ(Bq). The best rank-q approximation error is non-increasing in q, because rank-(q−1) tensors are
+contained in the rank-q class. The accuracy of a finitely trained model, however, need not improve
+monotonically, because optimization is non-convex and subject to a fixed step budget, sampling noise,
+and regularization. This explains the non-monotone behaviour across q ∈{8, 16, 32} in Tables 12
+and 13.
+Cost in M.
+Each additional Gaussian atom adds q entries to A and three dictionary parameters
+(two centre coordinates and one width), i.e., ∆MP ≈q + 3, and costs ∆MT = O
+ B(q + 1)
+
+for
+feature evaluation and contraction. For fixed remaining sizes, P = Θ(Mq) and T = Θ(BMq). First-
+and second-order spatial derivatives only multiply the BM term by a constant that depends on the
+derivative order of the PDE and do not change the linear dependence on M.
+Cost in R.
+The number of total-degree gPC modes is G(R, p) =
+ R+p
+p
+
+; increasing R →R + 1
+adds ∆RG =
+ R+p
+p−1
+
+modes, hence ∆RPCP = q
+ R+p
+p−1
+
+and ∆RTCP = O
+ Bq
+ R+p
+p−1
+
+. For fixed p,
+G(R, p) = Θ(Rp/p!), so that
+PCP = O
+
+qM + qMt + q Rp
+p!
+
+,
+TCP = O
+
+Bq
+ M + Mt + Rp
+p!
+
+.
+Thus, for a fixed degree p, the CP core grows polynomially (of degree p) in R rather than exponentially;
+the curse of dimensionality is mitigated but not eliminated.
+gPC basis evaluation.
+Evaluating all G tensorized modes costs TgPC,impl = O(BRp + BRG),
+where BRp accounts for the univariate polynomials of each random variable and BRG for assembling
+the tensorized modes. Since every total-degree multi-index with |α| ≤p has at most p non-zero
+entries, a sparse multi-index evaluation reduces this to TgPC,sparse = O(BRp + BpG).
+Projected loss and total training cost.
+The projected residual adds Tproj = O(BG) for the
+residual–basis products and reductions. Writing CPDE for the constant factor of the PDE residual
+and its automatic differentiation, one training step costs
+Tstep = O
+
+CPDE B
+
+M + Mt + Rp + RG + q(M + Mt + G)
+
++ BG
+
+,
+where RG can be replaced by pG with sparse gPC evaluation, and S training steps cost Ttrain =
+S Tstep. The activation memory is approximately O
+ B(M + Mt + G + q)
+
+, and the memory for
+parameters and optimizer states is O
+ q(M + Mt + G) + M
+
+.
+Accuracy versus nominal capacity.
+The retained index set Λ (determined by R and p) and the
+CP rank q play different roles: G =
+ R+p
+p
+
+is the number of retained gPC modes, whereas q is
+the separation rank. For an orthonormal expansion u = P
+α uαΨα, the best-approximation error
+of Λ is ∥u −PΛu∥2
+L2 = P
+α/∈Λ |uα|2. Enlarging R or p strictly reduces this truncation error only
+when the newly included coefficients carry non-negligible stochastic energy, and a larger space also
+increases estimation and optimization difficulty under a fixed sampling and training budget. This
+is visible in Tables 11 and 13: q=8 is competitive for R ≤10, whereas q=32 helps at R=15, and
+p=2 outperforms p=4 in the trained model. Larger R, p, and q increase nominal capacity, but by
+themselves do not guarantee better finite-budget accuracy.
+33
+
+
+J
+Stochastic Navier–Stokes Benchmark
+We consider the 2D incompressible Navier–Stokes equations in vorticity form,
+∂tω + u · ∇ω = ν(ξ)∆ω + f,
+∇· u = 0,
+ω = ∇× u,
+on Ω= [0, 2π]2, t ∈[0, 5], with ξ ∼U([−1, 1]5), where u = (u1, u2) is the velocity, ω the vorticity,
+and the pressure has been eliminated. The five random variables control the two phase shifts, the
+viscosity, and the amplitudes of two vortex modes:
+X = x + 0.25ξ1,
+Y = y + 0.25ξ2,
+ν(ξ) = 0.05(1 + 0.2ξ3) ∈[0.04, 0.06],
+A(ξ) = 1 + 0.1ξ4 ∈[0.9, 1.1],
+B(ξ) = 0.5(1 + 0.2ξ5) ∈[0.4, 0.6].
+With a = Ae−2νt and b = Be−5νt, the stream function is ψ = a sin X sin Y + b sin(2X) sin Y , and
+the exact velocity and vorticity are
+u1 = ∂Y ψ = a sin X cos Y +b sin(2X) cos Y,
+u2 = −∂Xψ = −a cos X sin Y −2b cos(2X) sin Y,
+ω = ∂Xu2 −∂Y u1 = 2a sin X sin Y + 5b sin(2X) sin Y.
+This construction satisfies incompressibility exactly; the linear time-derivative and diffusion terms
+cancel, while the two modes produce a non-zero nonlinear interaction. The resulting analytical
+forcing is f(t, x, y, ξ) = −6ab sin3 X sin Y cos Y . Results are reported in Tables 15 and 16. Neural
+Chaos is again a supervised oracle.
+Table 15: Stochastic Navier–Stokes: relative L2 errors of the velocity mean and variance.
+Method
+u1 mean
+u2 mean
+u1 variance
+u2 variance
+S2-PINN (proj)
+(2.05 ± 0.34) × 10−3
+(2.40 ± 0.21) × 10−3
+(3.13 ± 0.49) × 10−2
+(2.58 ± 0.71) × 10−2
+S2-PINN (no-proj)
+(1.09 ± 0.36) × 10−2
+(1.15 ± 0.27) × 10−2
+(2.10 ± 0.10) × 10−1
+(1.27 ± 0.03) × 10−1
+Vanilla PINN
+(3.44 ± 0.43) × 10−2
+(3.17 ± 1.22) × 10−2
+(2.15 ± 0.21) × 10−1
+(1.89 ± 0.17) × 10−1
+SPINN+Z
+(1.70 ± 0.62) × 10−2
+(1.79 ± 0.34) × 10−2
+(2.63 ± 0.81) × 10−1
+(2.05 ± 0.82) × 10−1
+Functional CP-PINN
+(3.48 ± 0.75) × 10−2
+(2.83 ± 0.74) × 10−2
+(1.39 ± 0.39) × 10−1
+(9.81 ± 3.49) × 10−2
+Neural Chaos (supervised oracle)
+(1.98 ± 1.10) × 10−2
+(1.93 ± 0.64) × 10−2
+(7.91 ± 1.09) × 10−2
+(1.40 ± 0.38) × 10−1
+Table 16: Stochastic Navier–Stokes: velocity calibration. Coverage values are fractions; Cov90 and
+Cov95 are better when closer to 0.900 and 0.950, and the calibration error is better when smaller.
+Method
+Component
+Cov90
+Cov95
+Cal. Err.
+S2-PINN (proj)
+u1
+0.886 ± 0.002
+0.938 ± 0.002
+0.011 ± 0.003
+u2
+0.892 ± 0.001
+0.944 ± 0.001
+0.007 ± 0.001
+S2-PINN (no-proj)
+u1
+0.771 ± 0.026
+0.837 ± 0.024
+0.119 ± 0.025
+u2
+0.854 ± 0.016
+0.909 ± 0.015
+0.041 ± 0.015
+Vanilla PINN
+u1
+0.753 ± 0.015
+0.811 ± 0.015
+0.128 ± 0.014
+u2
+0.793 ± 0.011
+0.852 ± 0.011
+0.095 ± 0.011
+SPINN+Z
+u1
+0.754 ± 0.008
+0.810 ± 0.008
+0.129 ± 0.007
+u2
+0.803 ± 0.020
+0.857 ± 0.018
+0.085 ± 0.018
+Functional CP-PINN
+u1
+0.828 ± 0.023
+0.881 ± 0.021
+0.061 ± 0.022
+u2
+0.841 ± 0.015
+0.894 ± 0.013
+0.051 ± 0.014
+Neural Chaos (supervised oracle)
+u1
+0.886 ± 0.013
+0.935 ± 0.011
+0.012 ± 0.009
+u2
+0.887 ± 0.003
+0.937 ± 0.003
+0.010 ± 0.002
+K
+Additional Baseline Results
+Table 17 complements Table 3 with the calibration of PI-DeepONet (all metrics) and of SPINN+Z,
+functional CP-PINN, and Neural Chaos (calibration error only), and Table 18 reports training time
+and peak GPU memory.
+L
+Visualizations of Stochastic Fields
+To visually compare spatial stochastic structure across PDE families, we present moment heatmaps
+(mean/variance) at t=1.0 for diffusion, Allen–Cahn, Burgers, and the two non-manufactured bench-
+marks (Poisson MC and Darcy MC). Each panel includes both 2D fields and 3D surfaces for reference,
+model prediction, and absolute error.
+34
+
+
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Diffusion: Mean (Exact)
+0.3
+0.2
+0.1
+0.0
+0.1
+0.2
+0.3
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+0.3
+0.2
+0.1
+0.0
+0.1
+0.2
+0.3
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Diffusion: Mean |Error|
+0.002
+0.004
+0.006
+0.008
+0.010
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.2
+0.0
+0.2
+Diffusion: Mean (Exact, 3D)
+0.3
+0.2
+0.1
+0.0
+0.1
+0.2
+0.3
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.2
+0.0
+0.2
+0.3
+0.2
+0.1
+0.0
+0.1
+0.2
+0.3
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.000
+0.002
+0.004
+0.006
+0.008
+0.010
+Diffusion: Mean |Error| (3D)
+0.001
+0.002
+0.003
+0.004
+0.005
+0.006
+0.007
+0.008
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Diffusion: Var (Exact)
+0.000
+0.001
+0.002
+0.003
+0.004
+0.005
+0.006
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+0.000
+0.001
+0.002
+0.003
+0.004
+0.005
+0.006
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Diffusion: Var |Error|
+1
+2
+3
+4
+5
+6
+7
+1e
+5
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.000
+0.002
+0.004
+0.006
+Diffusion: Var (Exact, 3D)
+0.000
+0.001
+0.002
+0.003
+0.004
+0.005
+0.006
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.000
+0.002
+0.004
+0.006
+0.000
+0.001
+0.002
+0.003
+0.004
+0.005
+0.006
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0
+2
+4
+6
+1e
+5
+Diffusion: Var |Error| (3D)
+1
+2
+3
+4
+5
+6
+7
+1e
+5
+Diffusion: Mean (S²-PINN)
+Diffusion: Mean (S²-PINN, 3D)
+Diffusion: Var (S²-PINN)
+Diffusion: Var (S²-PINN, 3D)
+Figure 4: Diffusion heatmaps (2D and 3D) at t=1.0: reference mean/variance, model-predicted
+mean/variance, and absolute errors.
+35
+
+
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Allen-Cahn: Mean (Exact)
+0.3
+0.2
+0.1
+0.0
+0.1
+0.2
+0.3
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Allen-Cahn: Mean (Vanilla PINN)
+0.3
+0.2
+0.1
+0.0
+0.1
+0.2
+0.3
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Allen-Cahn: Mean |Error|
+0.0025
+0.0050
+0.0075
+0.0100
+0.0125
+0.0150
+0.0175
+0.0200
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.2
+0.0
+0.2
+Allen-Cahn: Mean (Exact, 3D)
+0.3
+0.2
+0.1
+0.0
+0.1
+0.2
+0.3
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.2
+0.0
+0.2
+Allen-Cahn: Mean (Vanilla PINN, 3D)
+0.3
+0.2
+0.1
+0.0
+0.1
+0.2
+0.3
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.000
+0.005
+0.010
+0.015
+0.020
+Allen-Cahn: Mean |Error| (3D)
+0.002
+0.004
+0.006
+0.008
+0.010
+0.012
+0.014
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Allen-Cahn: Var (Exact)
+0.000
+0.001
+0.002
+0.003
+0.004
+0.005
+0.006
+0.007
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Allen-Cahn: Var (Vanilla PINN)
+0.000
+0.001
+0.002
+0.003
+0.004
+0.005
+0.006
+0.007
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Allen-Cahn: Var |Error|
+0.00005
+0.00010
+0.00015
+0.00020
+0.00025
+0.00030
+0.00035
+0.00040
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.000
+0.002
+0.004
+0.006
+Allen-Cahn: Var (Exact, 3D)
+0.000
+0.001
+0.002
+0.003
+0.004
+0.005
+0.006
+0.007
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.000
+0.002
+0.004
+0.006
+Allen-Cahn: Var (Vanilla PINN, 3D)
+0.000
+0.001
+0.002
+0.003
+0.004
+0.005
+0.006
+0.007
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.0000
+0.0001
+0.0002
+0.0003
+0.0004
+Allen-Cahn: Var |Error| (3D)
+0.00005
+0.00010
+0.00015
+0.00020
+0.00025
+0.00030
+0.00035
+Figure 5: Allen–Cahn heatmaps (2D and 3D) at t=1.0: reference mean/variance, model-predicted
+mean/variance, and absolute errors.
+36
+
+
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Burgers: Mean (Exact)
+0.3
+0.2
+0.1
+0.0
+0.1
+0.2
+0.3
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Burgers: Mean (Vanilla PINN)
+0.3
+0.2
+0.1
+0.0
+0.1
+0.2
+0.3
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Burgers: Mean |Error|
+0.002
+0.004
+0.006
+0.008
+0.010
+0.012
+0.014
+0.016
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.2
+0.0
+0.2
+Burgers: Mean (Exact, 3D)
+0.3
+0.2
+0.1
+0.0
+0.1
+0.2
+0.3
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.2
+0.0
+0.2
+Burgers: Mean (Vanilla PINN, 3D)
+0.3
+0.2
+0.1
+0.0
+0.1
+0.2
+0.3
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.000
+0.005
+0.010
+0.015
+Burgers: Mean |Error| (3D)
+0.002
+0.004
+0.006
+0.008
+0.010
+0.012
+0.014
+0.016
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Burgers: Var (Exact)
+0.000
+0.001
+0.002
+0.003
+0.004
+0.005
+0.006
+0.007
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Burgers: Var (Vanilla PINN)
+0.000
+0.001
+0.002
+0.003
+0.004
+0.005
+0.006
+0.007
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Burgers: Var |Error|
+0.0001
+0.0002
+0.0003
+0.0004
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.000
+0.002
+0.004
+0.006
+Burgers: Var (Exact, 3D)
+0.000
+0.001
+0.002
+0.003
+0.004
+0.005
+0.006
+0.007
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.000
+0.002
+0.004
+0.006
+Burgers: Var (Vanilla PINN, 3D)
+0.000
+0.001
+0.002
+0.003
+0.004
+0.005
+0.006
+0.007
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.0000
+0.0001
+0.0002
+0.0003
+0.0004
+Burgers: Var |Error| (3D)
+0.0001
+0.0002
+0.0003
+0.0004
+Figure 6: Burgers heatmaps (2D and 3D) at t=1.0: reference mean/variance, model-predicted
+mean/variance, and absolute errors.
+37
+
+
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Stochastic Poisson MC: Mean (FDM MC Reference)
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Stochastic Poisson MC: Mean (S²-PINN)
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Stochastic Poisson MC: Mean |Error|
+0.001
+0.002
+0.003
+0.004
+0.005
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+Stochastic Poisson MC: Mean (FDM MC Reference, 3D)
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+Stochastic Poisson MC: Mean (S²-PINN, 3D)
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.000
+0.001
+0.002
+0.003
+0.004
+0.005
+Stochastic Poisson MC: Mean |Error| (3D)
+0.0005
+0.0010
+0.0015
+0.0020
+0.0025
+0.0030
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Stochastic Poisson MC: Var (FDM MC Reference)
+0.0000
+0.0005
+0.0010
+0.0015
+0.0020
+0.0025
+0.0030
+0.0035
+0.0040
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Stochastic Poisson MC: Var (S²-PINN)
+0.0000
+0.0005
+0.0010
+0.0015
+0.0020
+0.0025
+0.0030
+0.0035
+0.0040
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Stochastic Poisson MC: Var |Error|
+0.5
+1.0
+1.5
+2.0
+2.5
+1e
+5
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.000
+0.001
+0.002
+0.003
+0.004
+Stochastic Poisson MC: Var (FDM MC Reference, 3D)
+0.0000
+0.0005
+0.0010
+0.0015
+0.0020
+0.0025
+0.0030
+0.0035
+0.0040
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.000
+0.001
+0.002
+0.003
+0.004
+Stochastic Poisson MC: Var (S²-PINN, 3D)
+0.0000
+0.0005
+0.0010
+0.0015
+0.0020
+0.0025
+0.0030
+0.0035
+0.0040
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+1e
+5
+Stochastic Poisson MC: Var |Error| (3D)
+0.5
+1.0
+1.5
+2.0
+2.5
+1e
+5
+Figure 7: Non-manufactured Poisson heatmaps (2D and 3D) at t=1.0: FDM Monte Carlo reference
+mean/variance (10,000 samples), S2-PINN prediction, and absolute errors.
+38
+
+
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Darcy (MC): Mean (FDM)
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Darcy (MC): Mean |Error|
+0.0005
+0.0010
+0.0015
+0.0020
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+Darcy (MC): Mean (FDM, 3D)
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.0
+0.1
+0.2
+0.3
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.0000
+0.0005
+0.0010
+0.0015
+0.0020
+Darcy (MC): Mean |Error| (3D)
+0.0002
+0.0004
+0.0006
+0.0008
+0.0010
+0.0012
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Darcy (MC): Var (FDM)
+0.0000
+0.0002
+0.0004
+0.0006
+0.0008
+0.0010
+0.0012
+0.0014
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+0.0000
+0.0002
+0.0004
+0.0006
+0.0008
+0.0010
+0.0012
+0.0014
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+y
+Darcy (MC): Var |Error|
+0.00002
+0.00004
+0.00006
+0.00008
+0.00010
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.0000
+0.0005
+0.0010
+0.0015
+Darcy (MC): Var (FDM, 3D)
+0.0000
+0.0002
+0.0004
+0.0006
+0.0008
+0.0010
+0.0012
+0.0014
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.00000
+0.00025
+0.00050
+0.00075
+0.00100
+0.00125
+0.0000
+0.0002
+0.0004
+0.0006
+0.0008
+0.0010
+0.0012
+0.0014
+1.0
+0.5
+0.0
+0.5
+1.0
+x
+1.0
+0.5
+0.0
+0.5
+1.0
+y
+0.00000
+0.00002
+0.00004
+0.00006
+0.00008
+0.00010
+Darcy (MC): Var |Error| (3D)
+0.00002
+0.00004
+0.00006
+0.00008
+0.00010
+Darcy (MC): Mean (S²-PINN)
+Darcy (MC): Mean (S²-PINN, 3D)
+Darcy (MC): Var (S²-PINN)
+Darcy (MC): Var (S²-PINN, 3D)
+Figure 8: Non-manufactured Darcy heatmaps (2D and 3D) at t=1.0: FDM Monte Carlo reference
+mean/variance (10,000 samples), S2-PINN prediction, and absolute errors.
+39
+
+
+Table 17: Calibration of additional baselines (same protocol as Table 3). ‡Supervised oracle with one
+shared checkpoint for diffusion, Allen–Cahn, and Burgers; see Table 1.
+Method / PDE
+Cov@50%
+Cov@80%
+Cov@90%
+Cov@95%
+Sharpness90
+Cal. Err.
+PI-DeepONet
+Diffusion
+0.414 ± 0.048
+0.678 ± 0.064
+0.770 ± 0.066
+0.819 ± 0.062
+0.197 ± 0.002
+0.117 ± 0.060
+Allen–Cahn
+0.413 ± 0.046
+0.676 ± 0.062
+0.767 ± 0.063
+0.815 ± 0.060
+0.199 ± 0.001
+0.120 ± 0.058
+Burgers
+0.461 ± 0.024
+0.741 ± 0.031
+0.834 ± 0.030
+0.878 ± 0.028
+0.202 ± 0.005
+0.059 ± 0.028
+Darcy
+0.448 ± 0.053
+0.723 ± 0.060
+0.827 ± 0.052
+0.887 ± 0.044
+0.095 ± 0.001
+0.067 ± 0.050
+SPINN+Z (calibration error only)
+Diffusion
+–
+–
+–
+–
+–
+0.013 ± 0.003
+Allen–Cahn
+–
+–
+–
+–
+–
+0.011 ± 0.002
+Burgers
+–
+–
+–
+–
+–
+0.013 ± 0.001
+Darcy
+–
+–
+–
+–
+–
+0.008 ± 0.001
+Functional CP-PINN (calibration error only)
+Diffusion
+–
+–
+–
+–
+–
+0.153 ± 0.054
+Allen–Cahn
+–
+–
+–
+–
+–
+0.173 ± 0.064
+Burgers
+–
+–
+–
+–
+–
+0.159 ± 0.038
+Darcy
+–
+–
+–
+–
+–
+0.050 ± 0.025
+Neural Chaos‡ (calibration error only)
+Diffusion
+–
+–
+–
+–
+–
+0.054 ± 0.006
+Allen–Cahn
+–
+–
+–
+–
+–
+–
+Burgers
+–
+–
+–
+–
+–
+–
+Darcy
+–
+–
+–
+–
+–
+0.093 ± 0.070
+Table 18: Training time and peak GPU memory on stochastic diffusion (R=5).
+S2-PINN
+Vanilla PINN
+PI-DeepONet
+SPINN+Z
+Func. CP-PINN
+Neural Chaos
+Time (min)
+≈90
+≈80
+≈120
+≈100
+≈100
+≈120
+Peak memory (GB)
+1.0
+4.0
+5.0
+0.3
+0.3
+1.5
+NeurIPS Paper Checklist
+The checklist is designed to encourage best practices for responsible machine learning research,
+addressing issues of reproducibility, transparency, research ethics, and societal impact. Do not remove
+the checklist: The papers not including the checklist will be desk rejected. The checklist should
+follow the references and follow the (optional) supplemental material. The checklist does NOT count
+towards the page limit.
+Please read the checklist guidelines carefully for information on how to answer these questions. For
+each question in the checklist:
+• You should answer [Yes], [No], or [N/A].
+• [N/A] means either that the question is Not Applicable for that particular paper or the
+relevant information is Not Available.
+• Please provide a short (1–2 sentence) justification right after your answer (even for [N/A]).
+The checklist answers are an integral part of your paper submission. They are visible to the
+reviewers, area chairs, senior area chairs, and ethics reviewers. You will also be asked to include it
+(after eventual revisions) with the final version of your paper, and its final version will be published
+with the paper.
+The reviewers of your paper will be asked to use the checklist as one of the factors in their evaluation.
+While [Yes] is generally preferable to [No], it is perfectly acceptable to answer [No] provided a
+proper justification is given (e.g., error bars are not reported because it would be too computationally
+expensive” or “we were unable to find the license for the dataset we used”). In general, answering
+[No] or [N/A] is not grounds for rejection. While the questions are phrased in a binary way, we
+acknowledge that the true answer is often more nuanced, so please just use your best judgment and
+write a justification to elaborate. All supporting evidence can appear either in the main paper or the
+supplemental material, provided in appendix. If you answer [Yes] to a question, in the justification
+please point to the section(s) where related material for the question can be found.
+IMPORTANT, please:
+• Delete this instruction block, but keep the section heading “NeurIPS Paper Checklist",
+40
+
+
+• Keep the checklist subsection headings, questions/answers and guidelines below.
+• Do not modify the questions and only use the provided macros for your answers.
+1. Claims
+Question: Do the main claims made in the abstract and introduction accurately reflect the
+paper’s contributions and scope?
+Answer: [Yes]
+Justification: The abstract and introduction accurately describe the proposed contributions
+about theoretical and experimental results.
+Guidelines:
+• The answer [N/A] means that the abstract and introduction do not include the claims
+made in the paper.
+• The abstract and/or introduction should clearly state the claims made, including the
+contributions made in the paper and important assumptions and limitations. A [No] or
+[N/A] answer to this question will not be perceived well by the reviewers.
+• The claims made should match theoretical and experimental results, and reflect how
+much the results can be expected to generalize to other settings.
+• It is fine to include aspirational goals as motivation as long as it is clear that these goals
+are not attained by the paper.
+2. Limitations
+Question: Does the paper discuss the limitations of the work performed by the authors?
+Answer: [Yes]
+Justification: We discuss limitations of our work in Section 5
+Guidelines:
+• The answer [N/A] means that the paper has no limitation while the answer [No] means
+that the paper has limitations, but those are not discussed in the paper.
+• The authors are encouraged to create a separate “Limitations” section in their paper.
+• The paper should point out any strong assumptions and how robust the results are to
+violations of these assumptions (e.g., independence assumptions, noiseless settings,
+model well-specification, asymptotic approximations only holding locally). The authors
+should reflect on how these assumptions might be violated in practice and what the
+implications would be.
+• The authors should reflect on the scope of the claims made, e.g., if the approach was
+only tested on a few datasets or with a few runs. In general, empirical results often
+depend on implicit assumptions, which should be articulated.
+• The authors should reflect on the factors that influence the performance of the approach.
+For example, a facial recognition algorithm may perform poorly when image resolution
+is low or images are taken in low lighting. Or a speech-to-text system might not be
+used reliably to provide closed captions for online lectures because it fails to handle
+technical jargon.
+• The authors should discuss the computational efficiency of the proposed algorithms
+and how they scale with dataset size.
+• If applicable, the authors should discuss possible limitations of their approach to
+address problems of privacy and fairness.
+• While the authors might fear that complete honesty about limitations might be used by
+reviewers as grounds for rejection, a worse outcome might be that reviewers discover
+limitations that aren’t acknowledged in the paper. The authors should use their best
+judgment and recognize that individual actions in favor of transparency play an impor-
+tant role in developing norms that preserve the integrity of the community. Reviewers
+will be specifically instructed to not penalize honesty concerning limitations.
+3. Theory assumptions and proofs
+Question: For each theoretical result, does the paper provide the full set of assumptions and
+a complete (and correct) proof?
+41
+
+
+Answer: [Yes]
+Justification: We provide our proof for stability and consistency in Appendix B
+Guidelines:
+• The answer [N/A] means that the paper does not include theoretical results.
+• All the theorems, formulas, and proofs in the paper should be numbered and cross-
+referenced.
+• All assumptions should be clearly stated or referenced in the statement of any theorems.
+• The proofs can either appear in the main paper or the supplemental material, but if
+they appear in the supplemental material, the authors are encouraged to provide a short
+proof sketch to provide intuition.
+• Inversely, any informal proof provided in the core of the paper should be complemented
+by formal proofs provided in appendix or supplemental material.
+• Theorems and Lemmas that the proof relies upon should be properly referenced.
+4. Experimental result reproducibility
+Question: Does the paper fully disclose all the information needed to reproduce the main ex-
+perimental results of the paper to the extent that it affects the main claims and/or conclusions
+of the paper (regardless of whether the code and data are provided or not)?
+Answer: [Yes]
+Justification: Yes, we include all experimental details necessary to reproduce. Pseudo code
+for the algorithm is given in Algorithm 1 and default parameters are listed in Appendix E.
+Guidelines:
+• The answer [N/A] means that the paper does not include experiments.
+• If the paper includes experiments, a [No] answer to this question will not be perceived
+well by the reviewers: Making the paper reproducible is important, regardless of
+whether the code and data are provided or not.
+• If the contribution is a dataset and/or model, the authors should describe the steps taken
+to make their results reproducible or verifiable.
+• Depending on the contribution, reproducibility can be accomplished in various ways.
+For example, if the contribution is a novel architecture, describing the architecture fully
+might suffice, or if the contribution is a specific model and empirical evaluation, it may
+be necessary to either make it possible for others to replicate the model with the same
+dataset, or provide access to the model. In general. releasing code and data is often
+one good way to accomplish this, but reproducibility can also be provided via detailed
+instructions for how to replicate the results, access to a hosted model (e.g., in the case
+of a large language model), releasing of a model checkpoint, or other means that are
+appropriate to the research performed.
+• While NeurIPS does not require releasing code, the conference does require all submis-
+sions to provide some reasonable avenue for reproducibility, which may depend on the
+nature of the contribution. For example
+(a) If the contribution is primarily a new algorithm, the paper should make it clear how
+to reproduce that algorithm.
+(b) If the contribution is primarily a new model architecture, the paper should describe
+the architecture clearly and fully.
+(c) If the contribution is a new model (e.g., a large language model), then there should
+either be a way to access this model for reproducing the results or a way to reproduce
+the model (e.g., with an open-source dataset or instructions for how to construct
+the dataset).
+(d) We recognize that reproducibility may be tricky in some cases, in which case
+authors are welcome to describe the particular way they provide for reproducibility.
+In the case of closed-source models, it may be that access to the model is limited in
+some way (e.g., to registered users), but it should be possible for other researchers
+to have some path to reproducing or verifying the results.
+5. Open access to data and code
+42
+
+
+Question: Does the paper provide open access to the data and code, with sufficient instruc-
+tions to faithfully reproduce the main experimental results, as described in supplemental
+material?
+Answer: [Yes]
+Justification: You can visit this anonymous link to get the code.
+Guidelines:
+• The answer [N/A] means that paper does not include experiments requiring code.
+• Please see the NeurIPS code and data submission guidelines (https://neurips.cc/
+public/guides/CodeSubmissionPolicy) for more details.
+• While we encourage the release of code and data, we understand that this might not
+be possible, so [No] is an acceptable answer. Papers cannot be rejected simply for not
+including code, unless this is central to the contribution (e.g., for a new open-source
+benchmark).
+• The instructions should contain the exact command and environment needed to run to
+reproduce the results. See the NeurIPS code and data submission guidelines (https:
+//neurips.cc/public/guides/CodeSubmissionPolicy) for more details.
+• The authors should provide instructions on data access and preparation, including how
+to access the raw data, preprocessed data, intermediate data, and generated data, etc.
+• The authors should provide scripts to reproduce all experimental results for the new
+proposed method and baselines. If only a subset of experiments are reproducible, they
+should state which ones are omitted from the script and why.
+• At submission time, to preserve anonymity, the authors should release anonymized
+versions (if applicable).
+• Providing as much information as possible in supplemental material (appended to the
+paper) is recommended, but including URLs to data and code is permitted.
+6. Experimental setting/details
+Question: Does the paper specify all the training and test details (e.g., data splits, hyperpa-
+rameters, how they were chosen, type of optimizer) necessary to understand the results?
+Answer: [Yes]
+Justification: Default parameters are listed in Appendix E.
+Guidelines:
+• The answer [N/A] means that the paper does not include experiments.
+• The experimental setting should be presented in the core of the paper to a level of detail
+that is necessary to appreciate the results and make sense of them.
+• The full details can be provided either with the code, in appendix, or as supplemental
+material.
+7. Experiment statistical significance
+Question: Does the paper report error bars suitably and correctly defined or other appropriate
+information about the statistical significance of the experiments?
+Answer: [Yes]
+Justification:
+All the results are reported as an average of 5 random seeds
+(42,123,456,789.1024) along with mean and standard deviation.
+Guidelines:
+• The answer [N/A] means that the paper does not include experiments.
+• The authors should answer [Yes] if the results are accompanied by error bars, confidence
+intervals, or statistical significance tests, at least for the experiments that support the
+main claims of the paper.
+• The factors of variability that the error bars are capturing should be clearly stated (for
+example, train/test split, initialization, random drawing of some parameter, or overall
+run with given experimental conditions).
+• The method for calculating the error bars should be explained (closed form formula,
+call to a library function, bootstrap, etc.)
+43
+
+
+• The assumptions made should be given (e.g., Normally distributed errors).
+• It should be clear whether the error bar is the standard deviation or the standard error
+of the mean.
+• It is OK to report 1-sigma error bars, but one should state it. The authors should
+preferably report a 2-sigma error bar than state that they have a 96% CI, if the hypothesis
+of Normality of errors is not verified.
+• For asymmetric distributions, the authors should be careful not to show in tables or
+figures symmetric error bars that would yield results that are out of range (e.g., negative
+error rates).
+• If error bars are reported in tables or plots, the authors should explain in the text how
+they were calculated and reference the corresponding figures or tables in the text.
+8. Experiments compute resources
+Question: For each experiment, does the paper provide sufficient information on the com-
+puter resources (type of compute workers, memory, time of execution) needed to reproduce
+the experiments?
+Answer: [Yes]
+Justification: All the experiments are run on NVIDIA T4 and it is reported in Section E.
+Guidelines:
+• The answer [N/A] means that the paper does not include experiments.
+• The paper should indicate the type of compute workers CPU or GPU, internal cluster,
+or cloud provider, including relevant memory and storage.
+• The paper should provide the amount of compute required for each of the individual
+experimental runs as well as estimate the total compute.
+• The paper should disclose whether the full research project required more compute
+than the experiments reported in the paper (e.g., preliminary or failed experiments that
+didn’t make it into the paper).
+9. Code of ethics
+Question: Does the research conducted in the paper conform, in every respect, with the
+NeurIPS Code of Ethics https://neurips.cc/public/EthicsGuidelines?
+Answer: [Yes]
+Justification: Yes, the research conducted complies with the NeurIPS ethical guidelines in
+all respects.
+Guidelines:
+• The answer [N/A] means that the authors have not reviewed the NeurIPS Code of
+Ethics.
+• If the authors answer [No], they should explain the special circumstances that require a
+deviation from the Code of Ethics.
+• The authors should make sure to preserve anonymity (e.g., if there is a special consid-
+eration due to laws or regulations in their jurisdiction).
+10. Broader impacts
+Question: Does the paper discuss both potential positive societal impacts and negative
+societal impacts of the work performed?
+Answer: [Yes],
+Justification: They are reported in Section 5.
+Guidelines:
+• The answer [N/A] means that there is no societal impact of the work performed.
+• If the authors answer [N/A] or [No], they should explain why their work has no societal
+impact or why the paper does not address societal impact.
+• Examples of negative societal impacts include potential malicious or unintended uses
+(e.g., disinformation, generating fake profiles, surveillance), fairness considerations
+(e.g., deployment of technologies that could make decisions that unfairly impact specific
+groups), privacy considerations, and security considerations.
+44
+
+
+• The conference expects that many papers will be foundational research and not tied
+to particular applications, let alone deployments. However, if there is a direct path to
+any negative applications, the authors should point it out. For example, it is legitimate
+to point out that an improvement in the quality of generative models could be used to
+generate Deepfakes for disinformation. On the other hand, it is not needed to point out
+that a generic algorithm for optimizing neural networks could enable people to train
+models that generate Deepfakes faster.
+• The authors should consider possible harms that could arise when the technology is
+being used as intended and functioning correctly, harms that could arise when the
+technology is being used as intended but gives incorrect results, and harms following
+from (intentional or unintentional) misuse of the technology.
+• If there are negative societal impacts, the authors could also discuss possible mitigation
+strategies (e.g., gated release of models, providing defenses in addition to attacks,
+mechanisms for monitoring misuse, mechanisms to monitor how a system learns from
+feedback over time, improving the efficiency and accessibility of ML).
+11. Safeguards
+Question: Does the paper describe safeguards that have been put in place for responsible
+release of data or models that have a high risk for misuse (e.g., pre-trained language models,
+image generators, or scraped datasets)?
+Answer: [N/A]
+Justification: The paper doesn’t include any pre-trained models or datasets.
+Guidelines:
+• The answer [N/A] means that the paper poses no such risks.
+• Released models that have a high risk for misuse or dual-use should be released with
+necessary safeguards to allow for controlled use of the model, for example by requiring
+that users adhere to usage guidelines or restrictions to access the model or implementing
+safety filters.
+• Datasets that have been scraped from the Internet could pose safety risks. The authors
+should describe how they avoided releasing unsafe images.
+• We recognize that providing effective safeguards is challenging, and many papers do
+not require this, but we encourage authors to take this into account and make a best
+faith effort.
+12. Licenses for existing assets
+Question: Are the creators or original owners of assets (e.g., code, data, models), used in
+the paper, properly credited and are the license and terms of use explicitly mentioned and
+properly respected?
+Answer: [Yes]
+Justification: Yes, all assets have been cited appropriately.
+Guidelines:
+• The answer [N/A] means that the paper does not use existing assets.
+• The authors should cite the original paper that produced the code package or dataset.
+• The authors should state which version of the asset is used and, if possible, include a
+URL.
+• The name of the license (e.g., CC-BY 4.0) should be included for each asset.
+• For scraped data from a particular source (e.g., website), the copyright and terms of
+service of that source should be provided.
+• If assets are released, the license, copyright information, and terms of use in the
+package should be provided. For popular datasets, paperswithcode.com/datasets
+has curated licenses for some datasets. Their licensing guide can help determine the
+license of a dataset.
+• For existing datasets that are re-packaged, both the original license and the license of
+the derived asset (if it has changed) should be provided.
+45
+
+
+• If this information is not available online, the authors are encouraged to reach out to
+the asset’s creators.
+13. New assets
+Question: Are new assets introduced in the paper well documented and is the documentation
+provided alongside the assets?
+Answer: [N/A]
+Justification: This research does not release any new assets.
+Guidelines:
+• The answer [N/A] means that the paper does not release new assets.
+• Researchers should communicate the details of the dataset/code/model as part of their
+submissions via structured templates. This includes details about training, license,
+limitations, etc.
+• The paper should discuss whether and how consent was obtained from people whose
+asset is used.
+• At submission time, remember to anonymize your assets (if applicable). You can either
+create an anonymized URL or include an anonymized zip file.
+14. Crowdsourcing and research with human subjects
+Question: For crowdsourcing experiments and research with human subjects, does the paper
+include the full text of instructions given to participants and screenshots, if applicable, as
+well as details about compensation (if any)?
+Answer: [N/A]
+Justification: The paper does not involve crowdsourcing nor research with human subjects.
+Guidelines:
+• The answer [N/A] means that the paper does not involve crowdsourcing nor research
+with human subjects.
+• Including this information in the supplemental material is fine, but if the main contribu-
+tion of the paper involves human subjects, then as much detail as possible should be
+included in the main paper.
+• According to the NeurIPS Code of Ethics, workers involved in data collection, curation,
+or other labor should be paid at least the minimum wage in the country of the data
+collector.
+15. Institutional review board (IRB) approvals or equivalent for research with human
+subjects
+Question: Does the paper describe potential risks incurred by study participants, whether
+such risks were disclosed to the subjects, and whether Institutional Review Board (IRB)
+approvals (or an equivalent approval/review based on the requirements of your country or
+institution) were obtained?
+Answer: [N/A]
+Justification: This research does not involve any human subjects.
+Guidelines:
+• The answer [N/A] means that the paper does not involve crowdsourcing nor research
+with human subjects.
+• Depending on the country in which research is conducted, IRB approval (or equivalent)
+may be required for any human subjects research. If you obtained IRB approval, you
+should clearly state this in the paper.
+• We recognize that the procedures for this may vary significantly between institutions
+and locations, and we expect authors to adhere to the NeurIPS Code of Ethics and the
+guidelines for their institution.
+• For initial submissions, do not include any information that would break anonymity (if
+applicable), such as the institution conducting the review.
+16. Declaration of LLM usage
+46
+
+
+Question: Does the paper describe the usage of LLMs if it is an important, original, or
+non-standard component of the core methods in this research? Note that if the LLM is used
+only for writing, editing, or formatting purposes and does not impact the core methodology,
+scientific rigor, or originality of the research, declaration is not required.
+Answer: [No]
+Justification: This research presented does not involve LLMs as any important, original, or
+non-standard components.
+Guidelines:
+• The answer [N/A] means that the core method development in this research does not
+involve LLMs as any important, original, or non-standard components.
+• Please refer to our LLM policy in the NeurIPS handbook for what should or should not
+be described.
+47

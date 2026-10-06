@@ -1,0 +1,3627 @@
+Structure-preserving Fourier Neural Operators for Long-time
+Cahn–Hilliard Dynamics under Coarse Temporal Supervision
+Yingli Li
+Department of Mathematics, Colorado State University, Fort Collins, CO 80523, USA
+Y.C. Zhou1
+Department of Mathematics, Colorado State University, Fort Collins, CO 80523, USA
+Abstract
+Accurate long-time prediction of Cahn–Hilliard dynamics, particularly in the late-stage
+coarsening regime, is computationally demanding because it requires simulations over extended
+physical time. Various machine learning approaches, such as physics-informed neural networks
+and operator learning, have been developed to speed up the simulations through efficient
+surrogate evaluations. While the learned map can be accurate over a single learned interval,
+small prediction error will accumulate when the map is repeatedly applied in a long-time
+prediction, leading to non-dissipative free-energy evolution, large excursions beyond a nominal
+phase-field range, and degraded coarsening fidelity. In this work, we identify the structure
+function for the coarsening dynamics of the Cahn–Hilliard equation and propose a two-
+stage structure-preserving Fourier Neural Operator (FNO) learning framework. Stage I
+introduces a bound-conforming FNO (bcFNO) with a soft, magnitude-dependent amplitude
+penalty. Stage II retains the bound-conforming objective and supplements it with structure-
+function regularization, yielding a structure-preserving FNO (spFNO) that corrects late-stage
+coarsening statistics. Numerical experiments on the various spatial resolutions and reference-
+solver time steps suggest that the bcFNO stabilizes the long-time prediction by suppressing
+large amplitude excursions, without changing the low online cost of the FNO. Furthermore, the
+structure-function term consistently reduces discrepancies in the normalized structure function
+and provides further correction in associated late-stage coarsening quantities, including the
+L3(t) growth trend and the scaling collapse. These results indicate that our multi-stage
+implementation of physical principles in operator learning could be applied to other multiscale
+systems with statistical scaling, such as the functionalized Cahn–Hilliard equations and
+turbulence, provided that the state constraints and statistical observables are adapted to the
+governing dynamics.
+1. Introduction
+The Cahn–Hilliard equation is a canonical phase-field model for phase separation and
+interfacial pattern formation in binary systems [1, 2]. Originally introduced to describe
+1Corresponding author. Email: yzhou@colostate.edu
+arXiv:2609.39053v1  [math.NA]  30 Sep 2026
+
+
+spinodal decomposition [1, 3], it has since been widely used in materials science [4, 5], polymer
+physics [6, 7], multiphase-flow modeling [8], and other interfacial-dynamics problems involving
+topological changes such as merging, pinch-off, and domain annihilation [9]. Its widespread
+application has motivated the development of accurate and efficient numerical methods for
+solving the equation, including finite-difference [10], finite-element [11, 12], and spectral
+discretizations [13, 14]. Common temporal discretization strategies include semi-implicit
+and fully implicit schemes [15, 16], convex-splitting methods [17], operator-splitting methods
+[18, 19], and exponential time-differencing schemes [20, 21].
+More recent energy-stable
+formulations based on scalar auxiliary variable (SAV) and invariant energy quadratization
+(IEQ) approaches enable linearized time integration while preserving a discrete modified
+energy-dissipation law [22, 23].
+Despite these advances, high-fidelity simulations of the Cahn–Hilliard equation remain
+computationally demanding. The fourth-order diffusion operator makes the dynamics stiff,
+whereas accurate resolution of diffuse interfaces requires fine spatial grids. For standard explicit
+discretizations of the fourth-order term, stability typically imposes δt ≲Ch4. Mesh refinement
+would greatly increase the number of steps required to reach a fixed physical time. Although
+semi-implicit, implicit, and energy-stable schemes alleviate this stability restriction, their
+time steps must still be sufficiently small to resolve rapid interfacial relaxation and nonlinear
+transient dynamics, and implicit treatments require the solution of linear or nonlinear systems
+at every step. The coexistence of rapid early-stage phase separation and slow late-stage
+coarsening consequently entails a large number of time steps over long-time simulations,
+making the generation of accurate high-fidelity reference solutions computationally expensive,
+particularly in high dimensions. This cost will grow further when many long-time trajectories
+are required across multiple initial conditions or parameters. These challenges motivate
+scientific machine learning (SciML) surrogate models that complement conventional numerical
+solvers by learning approximations of the evolution map from high-fidelity data. The model
+trained offline can be used to generate long-time rollouts at a substantially lower online cost.
+SciML studies that take the Cahn–Hilliard equation or related phase-field systems as
+central test problems have developed along several directions. A major line of work concerns
+physics-informed neural networks (PINNs) for the stiff, nonlinear fourth-order equation.
+Adaptive spatio-temporal sampling was introduced to improve the accuracy and efficiency of
+PINN solvers for Allen–Cahn and Cahn–Hilliard equations [24], while sequential training over
+successive time segments was used to address the loss of accuracy of PINNs for nonlinear,
+higher-order time-dependent equations [25]. Subsequent studies considered more robust
+training formulations [26], mass-preserving adaptive PINNs for Cahn–Hilliard equations with
+different bulk potentials, singularities, and three-dimensional settings [27], causal training for
+one-dimensional Cahn–Hilliard dynamics [28], and residual-based adaptive weighting and a
+priori error analysis [29]. These studies primarily aim to improve the accuracy and trainability
+of continuous space-time PINN approximations, with mass conservation being the physical
+property explicitly enforced in several Cahn–Hilliard formulations.
+In another major line of SciML studies, operator learning is used to approximate PDE
+solutions or evolution operators from data. Convolutional neural operators formulate these
+maps through continuous convolutional layers [30], whereas multiwavelet neural operators
+decompose operator kernels at several spatial scales [31]. Multipole graph neural operator
+uses a multilevel graph construction to capture interactions over different spatial ranges
+2
+
+
+[32], and attention-based operator encodes the solution field in a reduced space before
+learning its evolution [33]. For Cahn–Hilliard dynamics, Oommen et al. [34] combined a
+convolutional autoencoder with DeepONet to learn the evolution of two-phase microstructures
+in a latent space [35], while equivariant multiscale neural operators have been proposed to
+improve the representation of fine-scale structures and generalization in solution prediction
+[36]. Other data-driven work has focused on discovering Cahn–Hilliard-based phase-field
+dynamics from data [37], predicting properties from Cahn–Hilliard-generated microstructures
+[38], or constructing surrogates for nonlocal Cahn–Hilliard models [39]. Extensions to coupled
+phase-field systems include Allen–Cahn and Cahn–Hilliard [40, 41, 42], Cahn–Hilliard–Hele–
+Shaw [43], and Navier–Stokes–Cahn–Hilliard–heat transfer system [44], as well as fractional
+Cahn–Hilliard variants [45].
+Collectively, existing SciML studies of Cahn–Hilliard have emphasized PDE-residual accu-
+racy, fieldwise prediction error, mass conservation, and computational acceleration. However,
+many studies employ simplified test problems, including deterministic initial conditions,
+prescribed trajectories, short prediction intervals, or controlled phase-field test problems.
+Such tests are useful for comparing field-wise approximation error, but they do not contain
+the essential features of the Cahn–Hilliard equation as a phase separation model, including
+late-stage coarsening, growth of the characteristic length scale and the scaling collapse of the
+structure function.
+Among these SciML approaches, neural operators are particularly attractive because
+they approximate mappings between function spaces and, once trained, can be evaluated
+efficiently across different initial conditions. Among various operator learning approaches,
+the Fourier neural operator (FNO) is particularly well suited to the periodic Cahn–Hilliard
+setting, since its Fourier layers efficiently represent global convolutions on periodic domains
+[46]. However, accurate predictions on one-step supervised pairs in these SciML studies, FNO
+included, do not guarantee reliable long-time predictions. During recursive inference, small
+local prediction errors can accumulate and be amplified, eventually producing substantial
+deviations from the reference trajectory. For phase-field dynamics, such deviations may
+manifest as large amplitude excursions beyond the nominal phase-field range, non-dissipative
+free-energy behavior, or simply an energy blowout.
+To mitigate these difficulties, we identify physical features of the Cahn–Hilliard dynamics
+in addition to the governing equation to guide the learning process. In the binary phase-field
+formulation, the minima of the bulk free-energy density are located at ϕ = ±1. This inspires
+us to adopt [−1, 1] as a nominal phase-field reference range. The resulting bound-conforming
+FNO (bcFNO) training objective includes a soft, magnitude-dependent penalty that increases
+for excursions beyond this range without prohibiting small departures or imposing a hard
+projection. Thus, [−1, 1] is used as a physically motivated reference rather than being assumed
+to be a universal invariant of the Cahn–Hilliard equation.
+Controlling nominal phase-field admissibility alone does not suffice to establish faithful
+recovery of coarsening morphology. A closer look at the Cahn–Hilliard dynamics is needed to
+identify more physical features. This dynamics can be broadly divided into four regimes: early
+linear-instability growth, structure formation, late-stage coarsening, and finite-size saturation
+[47]. Late-stage coarsening is of particular interest because it evolves over long physical-time
+scales and is governed by collective domain growth and rearrangement rather than short-lived
+local transients. As coarsening proceeds, the characteristic domain scale increases and the
+3
+
+
+interfacial density decreases [48]. To study this regime, we consider source-free Cahn–Hilliard
+trajectories initialized from independently sampled random initial perturbations. These initial
+fields generate distinct coarsening morphologies, and the learned evolution map is evaluated
+on held-out long-time predictions through the coarsening regime.
+More importantly, late-stage Cahn–Hilliard coarsening exhibits dynamic scaling, under
+which suitably rescaled structural statistics approach an approximately time-independent form
+[49, 50]. In diffusion-controlled Cahn–Hilliard coarsening, the characteristic length is commonly
+expected to follow L(t) ∼t1/3 at late times [51, 52]. A faithful long-time surrogate should
+therefore recover both the characteristic domain-growth law and the statistical scaling behavior
+of the evolving morphology. Furthermore, since these statistics can be interpreted as indicators
+of faithful Cahn–Hilliard dynamics only when the prediction remains physically admissible, we
+retain the bound-conforming objective when introducing the structure-function regularization,
+yielding a structure-preserving FNO (spFNO). This added supervision evaluates whether
+explicit control of the evolving spectral morphology improves the quantitative characterization
+of the coarsening dynamics and scaling, when the bound-conforming objective of bcFNO is
+retained as the base training objective.
+The main contribution of this paper is the development of a two-stage structure-preserving
+FNO framework for long-time Cahn–Hilliard prediction under coarse temporal supervision.
+Stage I introduces bcFNO, which incorporates a bound-conforming objective to stabilize
+physically plausible long-time rollouts by discouraging departures from the nominal phase-field
+range. Building on this formulation, Stage II retains the bound-conforming objective and
+adds structure-function supervision, yielding spFNO. This nested formulation separates the
+control of energy stability from the correction of late-stage coarsening statistics. On the
+various spatial resolutions, temporal discretizations, training seeds, and temporal-sampling
+cases, the bound-conforming component provides the major stabilization of the predicted
+energy landscape, whereas the structure-function supervision further improves agreement in
+the normalized structure function s(k, t) in the predicted solutions. These results demonstrate
+that the nominal phase-field admissibility is an essential precondition for meaningful long-
+time coarsening characterization, while the explicit structure-function supervision provides a
+targeted correction of selected coarsening statistics.
+The challenges we undertake in this work are not unique to Cahn–Hilliard dynamics.
+In many multiscale nonlinear systems, accurate short-time predictions do not guarantee
+physically meaningful long-time behavior. For example, turbulence is commonly characterized
+by inertial-range energy spectra and velocity-increment structure functions, whose scaling
+laws reflect cascade dynamics rather than diffusion-driven coarsening [53, 54]. Recent SciML
+work has used these statistical quantities to evaluate generated two-dimensional turbulent
+fields, showing scaling exponents consistent with the expected Kolmogorov behavior [55].
+These relevant studies suggest a broader design principle for operator learning: reliable
+long-time learning should combine constraints that promote physically interpretable states
+with statistical observables tailored to the governing equation and dynamical regime.
+The rest of this paper is organized as follows. Section 2 introduces the Cahn–Hilliard
+equation, its continuous late-stage dynamic scaling, and the corresponding discrete spectral
+quantities needed in the numerical experiments. Section 3 describes the reference solver,
+data-generation procedure, and FNO architecture. Section 4 presents the bound-conforming
+objective and the structure-function regularization. Section 5 reports numerical experiments
+4
+
+
+on a Cahn–Hilliard-like equation with analytical solution and on general Cahn–Hilliard
+coarsening with random initial conditions. We then analyze the solutions of bcFNO and
+spFNO by examining the long-time stability, coarsening diagnostics, sampling sensitivity, and
+online costs. Finally, Section 6 summarizes the numerical results, discusses limitations, and
+indicates future research directions.
+2. Cahn–Hilliard Equation and Dynamic Scaling
+2.1. Phase-Field Formulation and Cahn–Hilliard Equation
+We consider the Cahn–Hilliard equation, a phase-field model describing the evolution of a
+conserved order parameter ϕ(r, t) defined on a d-dimensional (d ≥2) periodic domain Ω⊂Rd.
+The evolution of ϕ(r, t) is formulated as the H−1 gradient flow governed by the free-energy
+functional
+E[ϕ] =
+Z
+Ω
+
+F(ϕ) + κ
+2|∇ϕ|2
+dr,
+(1)
+where the parameter κ > 0 controls the interfacial energy and the diffuse interface width, and
+F(ϕ) is the bulk free-energy density, taken as the classical double-well potential
+F(ϕ) = 1
+4(ϕ2 −1)
+2,
+whose local minima at ϕ = ±1 denote the coexisting stable bulk phases.
+We consider the chemical potential µ that is defined as the variational derivative of the
+free-energy functional with respect to the order parameter
+µ = δE
+δϕ .
+Evaluating the first variation of the free-energy functional and applying integration by parts
+under periodic boundary conditions yields
+µ = F ′(ϕ) −κ∇2ϕ = ϕ3 −ϕ −κ∇2ϕ.
+Combining the chemical potential with the H−1 gradient-flow dynamics
+∂ϕ
+∂t = ∇· (M∇µ) ,
+yields the classical Cahn–Hilliard equation,
+∂ϕ
+∂t = M∇2  ϕ3 −ϕ −κ∇2ϕ
+
+,
+(2)
+where M > 0 is the constant mobility. This is a nonlinear fourth-order parabolic PDE that
+conserves the total mass. Furthermore, the H−1 gradient-flow structure implies the energy
+dissipation law
+dE
+dt = −
+Z
+Ω
+M|∇µ|2 dr ≤0,
+(3)
+which shows that the total free energy decreases monotonically over time. The dissipation and
+conservation laws constrain the global evolution of the Cahn–Hilliard system. To quantify the
+evolving domain scale, statistical morphology, and late-stage dynamic scaling, we introduce
+correlation-based spectral quantities and their derived coarsening statistics.
+5
+
+
+2.2. Correlation Functions and Dynamic Scaling
+To characterize the evolving morphologies generated by Eq. (2), we introduce statistical
+observables rooted in spatial correlation analysis.
+Under periodic boundary conditions,
+integrating Eq. (2) over the domain and applying the divergence theorem yields
+d
+dt
+Z
+Ω
+ϕ(r, t) dr =
+Z
+∂Ω
+∇µ · n = 0,
+indicating the conservation of the total order parameter. The fluctuation field is defined as
+ψ(r, t) := ϕ(r, t) −¯ϕ,
+where
+¯ϕ = 1
+|Ω|
+Z
+Ω
+ϕ(r, t) dr.
+Assuming statistical homogeneity, the equal-time two-point correlation function is
+G(r, t) = ⟨ψ(r0 + r, t)ψ(r0, t)⟩,
+(4)
+whose Fourier transform is called the structure function
+S(k, t) =
+Z
+Ω
+G(r, t)e−ik·r dr.
+For statistically isotropic morphologies, G and S depend only on r = |r| and k = |k|,
+respectively. Hence we write
+G(r, t) ≡G(r, t),
+S(k, t) ≡S(k, t).
+In the late-stage coarsening regime, the morphology becomes statistically self-similar,
+and the dynamical scaling hypothesis states that all statistical properties depend on time
+only through a single characteristic length scale L(t). Consequently, the correlation function
+assumes the scaling form
+G(r, t) = Gs
+ r
+L(t)
+
+.
+To derive the scaling behavior of the structure function, we introduce the scaled variable
+u = r/L(t) and the Fourier-space vector q = kL(t). Then
+S(k, t) =
+Z
+Gs
+ |r|
+L(t)
+
+e−ik·r dr = L(t)d
+Z
+Gs(|u|)e−iq·u du.
+Since the system is statistically isotropic, the integral depends only on the dimensionless
+scalar variable
+q = |q| = kL(t).
+We therefore introduce the universal scaling function
+F(q) =
+Z
+Gs(|u|)e−iq·u du,
+which yields
+S(k, t) = L(t)dF
+ kL(t)
+
+.
+(5)
+6
+
+
+Evaluating Eq. (4) at zero separation (r = 0) gives the variance of the fluctuation field,
+var(t) = G(0, t) = G(0, t) = ⟨ψ2⟩.
+(6)
+In the late-stage scaling regime, the bulk phases approach ϕ ≈±1, while the interfacial
+volume fraction becomes asymptotically negligible. Consequently, the variance approaches a
+constant value. It is therefore convenient to introduce the normalized structure function
+s(k, t) = S(k, t)
+var(t) .
+(7)
+Since normalization by the asymptotically constant variance does not alter the dependence
+on the scaling variable kL(t), the normalized structure function satisfies
+s(k, t) = L(t)d eF
+ kL(t)
+
+,
+eF(q) = F(q)
+Gs(0).
+(8)
+To characterize the location of spectral weight as a single scale statistic, we define the
+characteristic wavenumber as the first spectral moment of s(k, t):
+k1(t) =
+Z
+k s(k, t) dk
+Z
+s(k, t) dk
+.
+(9)
+Inserting Eq. (8) into Eq. (9) and changing variable to q = kL(t) gives
+k1(t) =
+1
+L(t)
+R
+q eF(q) dq
+R eF(q) dq
+∝L(t)−1.
+Hence
+k1(t) ∝L(t)−1,
+demonstrating that the first spectral moment provides an estimate of the characteristic inverse
+length scale. Accordingly, throughout this work we use
+L(t) ∝k−1
+1 (t)
+(10)
+as the operational measure of the characteristic length; the proportionality constant is
+immaterial because only scaling relations are considered.
+Using Eq. (2.2), the scaling variable kL(t) is proportional to k/k1. Consequently, Eq. (8)
+can be rewritten as
+kd
+1(t) s(k, t) = G
+
+k
+k1(t)
+
+,
+(11)
+where G is a time-independent scaling function. Hence, collapse of kd
+1(t)s(k, t) against k/k1(t)
+tests whether the late-stage spectra are governed by a single evolving length scale [56].
+While Eq. (11) characterizes the statistical self-similarity of the evolving morphology, the
+evolution of the characteristic length governs the coarsening kinetics. Specifically, in the
+7
+
+
+diffusion-controlled late-stage regime of the constant-mobility Cahn–Hilliard equation, domain
+growth follows a Lifshitz–Slyozov mechanism [51], as derived below.
+In the sharp-interface limit, the Gibbs-Thomson relation states that the chemical potential
+is proportional to the local interfacial curvature [57]. For a statistically self-similar morphology
+characterized by a single length scale L(t), the typical interfacial curvature scales as L−1(t).
+The Gibbs-Thomson relation therefore implies the chemical-potential scaling
+µ ∼
+σ
+L(t),
+where σ represents the surface tension. Since the chemical potential varies over the character-
+istic length scale L(t),
+|∇µ| ∼
+µ
+L(t) ∼
+σ
+L(t)2.
+By Fick’s law,
+J = −M∇µ,
+the net diffusive-flux magnitude therefore satisfies
+|J| ∼Mσ
+L(t)2.
+(12)
+Mass conservation relates the normal interface velocity to the net diffusive flux across
+the interface. A normal interface displacement dL(t) changes the volume of a characteristic
+d-dimensional domain by dV ∼L(t)d−1dL(t). The corresponding change in its conserved
+order parameter is therefore
+∆ϕ dV = ∆ϕL(t)d−1dL(t),
+where ∆ϕ = ϕ+ −ϕ−.
+The diffusive flux transfers order parameter through an interface of area A(t) ∼L(t)d−1
+at the rate |J|A(t). Hence
+|J|A(t) ∼∆ϕdV (t)
+dt
+.
+After canceling the common interfacial-area factor, we obtain
+|J| ∼∆ϕdL(t)
+dt
+.
+(13)
+Substituting Eq. (12) into Eq. (13) yields
+dL(t)
+dt
+∼Mσ
+∆ϕ
+1
+L(t)2 =
+C
+L(t)2,
+(14)
+where C = Mσ
+∆ϕ is a constant. Integrating Eq. (14) yields
+L3(t) −L3(t0) ∼3C(t −t0).
+(15)
+Therefore, L3(t) is expected to be approximately affine in time, L3(t) ≈at+b, over a late-stage
+coarsening regime. This approximation is independent of dimensionality of the Cahn–Hilliard
+equation for d ≥2. We use the growth law as a key benchmark for evaluating the long-time
+dynamics predicted by learned surrogate models. The sequence connecting the phase field to
+this macroscopic growth evaluation is summarized in Fig. 1.
+8
+
+
+Fourier Transform
+Fluctuation
+Variance
+normalization
+& Radial average
+First spectral 
+moment
+Reciprocal
+L-S 
+growth law
+Collapse
+Figure 1: Logical chain of the theoretical analysis linking phase-field fluctuations to spectral statistics, the
+characteristic length, the macroscopic coarsening law, and dynamic-scaling collapse.
+2.3. Discrete Spectral Representation of the Scaling Framework
+In order to apply the continuous scaling framework developed in Sec. 2.2 to numerical
+simulations, we now formulate the statistical observables in a discrete spectral framework
+and calculate them using the numerical solutions of Eq. (2). The computational domain is
+discretized on a uniform periodic N d lattice with unit spacing (∆x = 1 in all directions), and
+all spectral quantities are computed using the Fast Fourier Transform (FFT).
+The discrete Fourier transform of the fluctuation field is defined as
+bψ(k, t) =
+X
+r
+ψ(r, t) e−ik·r,
+where the summation extends over all grid points in the computational domain. For statistically
+homogeneous fields, the discrete Wiener-Khinchin theorem establishes the equivalence between
+the discrete Fourier transform of the two-point correlation function and the power spectrum
+of the fluctuation field [58, 59]. This avoids explicit evaluation of the two-point correlation
+function while remaining mathematically equivalent. Accordingly, the structure function is
+computed directly from the squared Fourier amplitudes,
+S(k, t) = 1
+N d
+
+| bψ(k, t)|2
+.
+Since only a single statistically homogeneous realization is available during evaluation, the
+structure function is estimated from the corresponding periodogram. Assuming statistical
+isotropy, radial shell averaging is subsequently performed to obtain the one-dimensional
+spectrum.
+Applying Parseval’s identity to the discrete Fourier transform yields
+X
+r
+|ψ(r, t)|2 = 1
+N d
+X
+k
+| bψ(k, t)|2.
+Consequently, the variance of the fluctuation field, corresponding to the zero-separation
+correlation, is given by
+var(t) = 1
+N d
+X
+r
+ψ(r, t)2 =
+1
+N 2d
+X
+k
+| bψ(k, t)|2.
+(16)
+Consistent with the normalized structure function introduced in Eq. (7), the discrete structure
+function is defined as
+s(k, t) = S(k, t)
+var(t) ,
+(17)
+9
+
+
+which satisfies
+X
+k
+s(k, t) = N d,
+by construction.
+Assuming statistical isotropy, the two-dimensional spectrum is reduced to a one-dimensional
+radial spectrum by averaging Fourier modes with similar wavenumber magnitude. Specifically,
+the radial shell associated with the scalar wavenumber k is defined by
+k −∆k
+2
+≤|k| < k + ∆k
+2 ,
+where ∆k is the width of the radial wavenumber bin. The shell-averaged normalized structure
+function is therefore defined by
+s(k, t) =
+1
+N(k)
+X
+|k|∈k-shell
+s(k, t),
+(18)
+where N(k) denotes the number of Fourier modes contained in the corresponding shell.
+The shell-averaged spectrum s(k, t) constitutes the discrete counterpart of the continuous
+normalized structure function introduced in Sec. 2.2.
+It serves as the primary spectral
+descriptor from which all subsequent statistical quantities are derived.
+The discrete characteristic wavenumber is computed from the first spectral moment of
+s(k, t)
+k1(t) =
+X
+k
+k s(k, t)
+X
+k
+s(k, t)
+.
+(19)
+The characteristic length is then defined consistently with Eq. (10) as
+L(t) =
+1
+k1(t).
+(20)
+For late-stage coarsening, the Lifshitz–Slyozov law L(t) ∼t1/3 implies an approximately affine
+dependence of L3(t) on t over a finite fitting window. We therefore fit
+L3(t) ≈at + b,
+(21)
+where a is the fitted late-time slope and b is the intercept.
+The normalized structure function defined in Eq. (18) is used to examine dynamic scaling
+with the parameter
+Sc(q; t) = k1(t)ds(k, t),
+q =
+k
+k1(t).
+(22)
+If dynamic scaling holds, spectra evaluated at different late times collapse approximately onto
+a common curve when expressed in terms of q and Sc [48, 49].
+Figure 2 illustrates these discrete evaluations for the 2-D Cahn–Hilliard equation. The
+normalized radial spectrum shifts toward lower wavenumbers (left), indicating growth of the
+10
+
+
+characteristic domain scale. An affine function is fitted to L3(t) over the late-stage coarsening
+regime (middle). The approximately collapsed rescaled spectra support late-stage statistical
+self-similarity (right). For the discrete collapse plot, the zero mode is shown separately
+as (q, Sc) = (0, 0). Because the mean-subtracted field has no zero Fourier mode, the first
+positive-wavenumber sample occurs at
+qmin(t) = kmin
+k1(t),
+kmin = 2π
+N .
+Thus, no spectral samples exist between the isolated origin and qmin(t). Interpolation is
+performed only over the available positive-wavenumber samples, so the blank interval adjacent
+to the origin is a discrete-resolution effect and does not represent a missing portion of the
+collapse curve.
+0.0
+0.1
+0.2
+0.3
+0.4
+k
+0
+10000
+20000
+30000
+40000
+s(k,t)
+t=10000
+t=14000
+t=18000
+t=22000
+t=26000
+t=30000
+10000
+15000
+20000
+25000
+30000
+t
+300
+400
+500
+L 3(t)
+0
+1
+2
+3
+k/k1
+0
+2
+4
+6
+8
+k 2
+1 s(k,t)
+t=20000
+t=22000
+t=24000
+t=26000
+t=28000
+t=30000
+Figure 2: Late-stage coarsening statistics: s(k, t), L3(t), and the dynamic-scaling collapse of the reference
+trajectory. The dashed line is a least-squares fit of L3(t) over the late-stage regime (middle). In the collapse
+plot (right), the zero mode is isolated and interpolation is restricted to qmin > 0.
+These discrete quantities provide the statistical diagnostics used to compare the reference
+trajectory with the learned neural operators throughout this work. In particular, the normal-
+ized structure function determines the characteristic length, the late-stage coarsening kinetics,
+and the dynamic-scaling collapse, and thereby motivates the statistical constraint introduced
+in Sec. 4.
+3. Numerical Methods for Data Generation and Training
+3.1. Numerical Solver
+All training and evaluation trajectories are generated using a first-order semi-implicit
+Fourier pseudospectral discretization of the continuous 2-D Cahn–Hilliard equation (2) with
+periodic boundary conditions. The mobility is set to M = 1 and the gradient-energy coefficient
+to κ = 0.5. Initial conditions are generated by perturbing a homogeneous zero-mean state
+with Gaussian noise of standard deviation 0.01. The nonlinear term f(ϕ) = ϕ3 −ϕ is evaluated
+pointwise in physical space, whereas spatial derivatives are evaluated in Fourier space.
+To address the stiffness associated with the fourth-order diffusion operator, the linear
+biharmonic term is treated implicitly, whereas the nonlinear term is treated explicitly. Let δt
+denote the internal solver time step and ϕn the numerical solution at time tn. The semi-implicit
+Euler discretization is
+ϕn+1 −ϕn
+δt
+= M∇2f(ϕn) −Mκ∇4ϕn+1.
+11
+
+
+Equivalently,
+ I + δt Mκ∇4
+ϕn+1 = ϕn + δt M∇2f(ϕn).
+(23)
+Applying the discrete Fourier transform to Eq. (23), with F(∇2) = −K2, F(∇4) = K4,
+and K2 = k2
+x + k2
+y, gives the Fourier-space update
+bϕ n+1(k) =
+bϕ n(k) −δt MK2\
+f(ϕn)(k)
+1 + δt MκK4
+.
+(24)
+Equation (24) is evaluated using the fast Fourier transform [60].
+3.2. Coarse-Supervision Data Generation
+These experiments vary the internal solver time step used to generate the numerical
+reference trajectories, while keeping the initial conditions and spatial grid fixed. The internal
+time step is
+δt ∈{1, 0.5, 0.2, 0.1}.
+For the four values of δt, states are stored every m ∈{20, 40, 100, 200} solver steps, giving
+∆T = m δt = 20.
+Hence, all models are trained and evaluated with the same interval between consecutive
+predicted states, ∆T = 20, while the reference trajectories use different internal solver time
+steps.
+We use ∆T = 20 throughout. Among the tested solver settings, δt = 1 is the largest
+step that produced stable reference trajectories under the present discretization, whereas
+δt = 0.1 is the smallest. For each (N, δt), we generate seven trajectories from independently
+sampled initial conditions. Six are used to form training pairs, and the seventh is used only
+for long-time rollout evaluation. Neither its initial condition nor any state on that trajectory
+is included in training. For the held-out reference trajectory, the coarsening evaluation mask
+is constructed from the saved reference states and stored. The same mask is then applied to
+the neural-operator prediction. We use the resulting coarse-step state pairs directly as the
+training data. The following section specifies the neural-operator architecture.
+3.3. Fourier Neural Operator
+The Fourier neural operator (FNO) [46] is used to parameterize the coarse time-step map
+over the interval ∆T. It learns nonlinear mappings between function spaces while capturing
+long-range, nonlocal dependencies through kernels parameterized in the frequency domain. A
+schematic illustration of the architecture is provided in Fig. 3.
+As illustrated in Fig. 3, the lifting operator P, implemented as a neural network, first lifts
+the input channels to a higher-dimensional latent representation. This latent representation
+is processed by a sequence of Fourier layers, which constitute the core of the model. In
+each layer, the integral kernel operator is parameterized in Fourier space, where nonlocal
+dependencies are learned via element-wise complex multiplications over the retained Fourier
+modes. Specifically, the layer consists of two parallel branches. The spectral branch applies a
+learnable linear transform R to the truncated low-frequency modes of the Fourier-transformed
+input, followed by an inverse Fourier transform F−1. In the parallel branch, a pointwise linear
+12
+
+
+Fourier Layer 1
+Fourier Layer 2
+Fourier Layer N
+Fourier Layer
+Figure 3: Schematic of the Fourier neural operator. The network consists of a lifting operator P, a stack of
+Fourier layers, and a projection operator Q.
+transform W is applied to the latent features at each spatial grid point. The outputs of the
+two branches are summed and passed through a nonlinear activation σ. The layer-l update is
+thus given by
+vl+1(x) = σ
+ Wvl(x) + F−1 R · F(vl)
+
+(x)
+
+.
+(25)
+By stacking multiple such layers, the network learns a nonlinear mapping between function
+spaces. Finally, the projection operator Q decodes the final latent state to yield the predicted
+solution at the next time step, denoted by ϕpred
+n+1. The one-step state loss used to train this
+map is specified with the remaining regularization terms in Sec. 4.
+4. Structure-Preserving Fourier Neural Operator
+The FNO parameterizes the learned CH evolution map over the coarse interval ∆T.
+Building on this parameterization, we introduce a two-stage structure-preserving training
+procedure. Stage I first trains a bound-conforming FNO by augmenting this loss with a soft
+bound penalty. Stage II then continues from the Stage I model and adds structure-function
+regularization to correct the late-stage coarsening statistics.
+4.1. Bound-Conforming Penalty
+For the quartic double-well potential used here, the homogeneous states ϕ = ±1 are two
+minima. In general, the Cahn–Hilliard equation does not satisfy a maximum principle that
+would preserve |ϕ| ≤1. Accordingly, |ϕ| ≤1 is used as a nominal phase-field range, rather
+than as a universal invariant of the Cahn–Hilliard dynamics.
+During long-time rollout, the standard FNO predictions can depart from this nominal
+range. To penalize these departures, we introduce a soft pointwise penalty
+Lbc = 1
+N 2
+N
+X
+i=1
+N
+X
+j=1
+
+softplus(ϕ(x) −1; β)2 + softplus(−1 −ϕ(x); β)2
+.
+(26)
+Here,
+softplus(z; β) = 1
+β log(1 + exp(βz)) ,
+(27)
+with β = 5 in all experiments.
+13
+
+
+4.2. Structure-Function Regularization
+The spFNO is initialized from the trained bcFNO and is optimized with an additional
+structure-function term for samples in the coarsening regime. Let spred(kb, t) and sref(kb, t)
+denote the normalized structure functions of the predicted and reference phase-fields, respec-
+tively, computed as described in Section 2.3. The normalized structure function s(k, t) retains
+neither Fourier phase nor directional spectral information, its regularization is used together
+with the state loss.
+4.2.1. Spectral-shape term
+Let b = 1, . . . B index the retained radial wavenumber bins, with B = 64 in the experiments.
+For a training sample at time t, define
+¯spred(kb, t) =
+spred(kb, t)
+stopgrad[max1≤j≤B spred(kj, t)] + ε,
+¯sref(kb, t) =
+sref(kb, t)
+max1≤j≤B sref(kj, t) + ε,
+where stopgrad denotes stop-gradient. The shape term is
+ℓshape(t) =
+1
+√
+B
+B
+X
+b=1
+ ¯spred(kb, t) −¯sref(kb, t)
+2 .
+(28)
+4.2.2. Peak-bin and low-intensity-bin terms
+Let
+sref
+max(t) = max
+1≤b≤B sref(kb, t).
+The peak and low-intensity bins are defined from the reference s(k, t) as
+P(t) =
+
+b : sref(kb, t) > fpeaksref
+max(t)
+	
+,
+and
+N0(t) =
+
+b : sref(kb, t) < τρsref
+max(t)
+	
+,
+N(t) = N0(t) \ P(t).
+The corresponding terms are
+ℓpeak(t) =
+1
+|P(t)|
+X
+b∈P(t)
+spred(kb, t)
+sref(kb, t) −1
+2
+,
+(29)
+and
+ℓnull(t) =
+1
+|N(t)|
+X
+b∈N(t)
+ spred(kb, t) −sref(kb, t)
+2
+max(sref(kb, t), ηsref
+max(t)) .
+(30)
+For one training sample, the structure-function loss is
+ℓsk(t) = wshapeℓshape(t) + wpeakℓpeak(t) + wnullℓnull(t).
+(31)
+Each term is evaluated separately for each training sample and then averaged over the
+mini-batch.
+14
+
+
+Table 1: Training objectives and loss-activation rules.
+Model
+Objective
+Active term
+FNO
+Lstate
+State loss: all samples
+bcFNO
+Lstate + λbcLbc
+State and bound penalty: all samples
+spFNO
+Lstate+λbcLbc+χcλskLsk
+State and bound terms: all samples;
+Structure-function term: coarsening only after epoch 1
+4.3. Overall Training Objective
+For a mini-batch of R training pairs, indexed by r = 1, . . . , R, let tr denote the input time
+of sample r. The state loss for one sample is
+ℓstate = 1
+N 2
+N
+X
+i=1
+N
+X
+j=1
+
+ϕpred
+t+∆T,i,j −ϕref
+t+∆T,i,j
+2
+,
+(32)
+Let
+χc(t) =
+(
+1,
+t belongs to the coarsening regime,
+0,
+otherwise.
+The mini-batch objective is
+Ltotal = 1
+R
+R
+X
+r=1
+[ℓstate(tr) + λbcℓbc(tr) + χc(tr + ∆T)λskℓsk(tr + ∆T)] .
+(33)
+The state and bound terms are evaluated for every sample. The structure-function term is
+evaluated only when χc(t + ∆T) = 1. For all spFNO models, this term is omitted during the
+first training epoch and included from the second epoch onward. The coarsening indicator is
+used during training only and is not required for long-time rollout. Table 1 summarizes these
+objectives and the samples on which each term is active.
+The loss weights, spectral thresholds, and sampling settings are determined using the
+training trajectories described in Sec. 3.2. The held-out numerical trajectory is excluded
+from hyperparameter selection. Table A.6 lists the selected values and search ranges. The
+resulting objective combines state-level accuracy with amplitude regularization and statistical
+consistency.
+5. Experiments
+5.1. Experimental Setup
+We use two numerical experiments that share the same FNO architecture, the coarse
+prediction interval, and the same bound-conforming formulation, but differ in their governing
+equations, reference trajectories, and evaluations.
+The first problem is a forced Cahn–Hilliard equation with an exact solution. Its prescribed
+trajectory gives a unique pointwise reference for direct evaluation of accumulated field errors.
+This problem is used primarily to assess the bound-conforming penalty in long-time field
+15
+
+
+FNO
+Observed issues for
+long-time rollout
+Unphysical energy growth 
+Bound-conforming penalty
+(bcFNO)
+bcFNO: Stabilizing physically
+plausible coarsening dynamics 
+Structure-presesrving loss
+(spFNO)
+spFNO: Correcting
+coarsening-statistic errors
+Energy
+Loss of phase-field admissibility
+(
+)
+Stable rollout
+Correct s(k, t)
+Correct coarsening
+Coarsening
+Energy
+Temporal sampling sensitivity
+Figure 4: Two-stage training framework for Cahn–Hilliard coarsening dynamics. Stage I trains a bound-
+conforming FNO (bcFNO), and Stage II incorporates structure-function regularization to obtain a structure-
+preserving FNO (spFNO).
+prediction. The comparison therefore focuses on the FNO and bcFNO, with relative field
+errors and the phase-field amplitude.
+The second problem is a source-free Cahn–Hilliard equation. Each training or inference
+trajectory is initialized from an independently generated random phase-field perturbation.
+These random initial fields produce distinct coarsening morphologies and the held-out tra-
+jectories are generated independently of those used for training. Small errors in interface
+position can then lead to substantial differences in domain location and topology during
+long-time prediction. Consequently, pointwise field discrepancies alone do not characterize
+late-stage coarsening fidelity. For this problem, we evaluate the predicted trajectories using
+the free-energy evolution, the phase-field amplitude, the normalized structure function, the
+characteristic length scale, and the dynamic scaling. The FNO, bcFNO, and spFNO are
+compared over long-time predictions.
+Both problems use two-dimensional periodic fields. The manufactured reference trajectory
+is evaluated directly from its analytical solution, whereas the source-free reference trajectories
+are generated using the numerical solver described in Sec. 3.1. The data generation, model
+comparisons, and analysis of these quantities are presented in the following subsections.
+Figure 4 summarizes the two-stage learning framework and its experimental evaluation.
+The manufactured problem provides a fieldwise comparison of the Stage I bound-conforming
+penalty, while the source-free coarsening problem is used to evaluate the complete framework,
+including the Stage II structure-function regularization.
+5.2. Forced Cahn–Hilliard Equation with an Exact Solution
+In source-free Cahn–Hilliard coarsening, a long-time FNO prediction can develop domain
+distributions that are spatially displaced from the numerical reference. A long-time field error
+16
+
+
+then reflects both errors in the learned evolution and mismatch between the two morphologies.
+To provide a uniquely prescribed reference state ϕ⋆(·, tn) at every iteration time tn for direct
+field-level comparison, we first use a forced Cahn–Hilliard problem with a prescribed exact
+trajectory.
+This problem is used only for direct field-level comparison. The prescribed forcing does
+not describe spontaneous phase separation or emergent Cahn–Hilliard coarsening. Its spectral
+evolution is therefore not interpreted using coarsening statistics or a scaling law.
+The
+manufactured trajectory remains within a range narrower than the nominal interval [−1, 1].
+We nevertheless use the same bcFNO penalty as in the source-free experiments, without
+modifying its definition for the forced problem. Thus, the comparison tests whether the
+penalty suppresses large amplitude excursions generated during long-time prediction even
+when the exact trajectory itself does not approach the nominal range boundary. The interval
+[−1, 1] remains a soft reference in this test. On the periodic square T2
+m = [0, m)2, we consider
+∂ϕ
+∂t = M∆
+ ϕ3 −ϕ −κ∆ϕ
+
++ S(x, t).
+(34)
+For a prescribed smooth field ϕ⋆(x, t), the source term is computed analytically as
+S⋆(x, t) = ∂tϕ⋆(x, t) −M∆
+
+(ϕ⋆)3 −ϕ⋆−κ∆ϕ⋆
+,
+so that ϕ⋆is an exact solution of Eq. (34).
+Its complete Fourier construction is given
+in Appendix A.3.
+We use m = 256, M = 1, κ = 0.5, and a uniform 128 × 128 grid (∆x = 2). The trajectory
+is sampled analytically at the coarse interval ∆T = 20. With the source evaluated at the two
+Gauss–Legendre nodes c1,2 = 1/2 ±
+√
+3/6, the learned map is
+[ϕ⋆(·, tn), S⋆(·, tn + c1∆T), S⋆(·, tn + c2∆T)] 7−→ϕ⋆(·, tn + ∆T).
+During prediction, the current prediction is combined with the prescribed source values at
+the corresponding nodes. We compute the relative field error at prediction time tn by
+efield(tn) = ∥ϕpred(·, tn) −ϕ⋆(·, tn)∥2
+∥ϕ⋆(·, tn)∥2
+.
+Figure 5 compares the exact fields, the two predicted fields, and their pointwise errors.
+At t = 2000, both models retain the main spatial pattern. By t = 10000, the FNO exhibits
+large amplitude excursions and visible morphological distortion; by t = 30000, these errors
+dominate the predicted field. The bcFNO suppresses the amplitude growth and remains closer
+to the exact trajectory, although a coherent spatial displacement is still visible at late times.
+At t = 30000, the relative field errors are approximately 4.9 for FNO and 0.28 for bcFNO.
+17
+
+
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+0.20
+0.15
+0.10
+0.05
+0.00
+0.05
+0.10
+0.15
+0.20
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+0.20
+0.15
+0.10
+0.05
+0.00
+0.05
+0.10
+0.15
+0.20
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+7
+6
+5
+4
+3
+2
+1
+0
+1
+1.5
+1.0
+0.5
+0.0
+0.5
+1.0
+1.5
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+1.5
+1.0
+0.5
+0.0
+0.5
+1.0
+1.5
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+7
+6
+5
+4
+3
+2
+1
+0
+1
+6
+4
+2
+0
+2
+4
+6
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+6
+4
+2
+0
+2
+4
+6
+Figure 5: Exact and predicted fields for the held-out manufactured trajectory at t = 2000, 10000, and 30000
+(rows) with N = 128. From left to right, the columns show the exact field, the FNO field and its pointwise
+error, and the bcFNO field and its pointwise error.
+Table 2: Data, architecture, and optimization settings for the source-free CH coarsening experiments.
+Parameter
+Value
+Training trajectories
+6 independent initial-condition realizations
+Evaluation trajectory
+1 independent held-out realization
+Prediction interval
+∆T = 20
+Internal solver step
+δt ∈{1, 0.5, 0.2, 0.1}
+Architecture
+Two-dimensional FNO; 4 Fourier layers; width 64; GELU activation
+Fourier modes, N = 128
+16 × 16; 2,410,177 parameters
+Fourier modes, N = 256
+48 × 48; 19,711,681 parameters
+Optimizer
+Adam; learning rate 10−3
+Batch size
+16
+Training schedule
+10 sampling blocks × 3 inner epochs
+Resolution protocol
+Independent training for each (N, δt)
+5.3. Source-Free Cahn–Hilliard Coarsening Experiments
+We next consider long-time predictions of source-free Cahn–Hilliard coarsening with the
+FNO, bcFNO, and spFNO. The numerical solver uses δt ∈{1, 0.5, 0.2, 0.1} at N ∈{128, 256},
+yielding eight (N, δt) cases. All models predict at the fixed interval ∆T = 20 and are compared
+with reference trajectories at the same physical times. Table 2 summarizes the data-generation,
+architecture, and optimization settings.
+The N = 128 and N = 256 models use different Fourier-mode truncations and have
+different parameter counts.
+Comparisons across resolutions therefore use independently
+trained models and do not constitute zero-shot resolution transfer. At a fixed (N, δt), FNO,
+bcFNO, and spFNO share the same underlying architecture and differ primarily in their
+18
+
+
+Table 3: Normalized physical-time bucket probabilities for the temporal sampling distributions used in the
+two representative cases.
+(N, δt)
+Schedule
+[500, 2000]
+[2000, 10000]
+[10000, 20000]
+[20000, 30000]
+(128, 0.2)
+Sampling A
+15%
+25%
+35%
+25%
+Sampling B
+20%
+20%
+35%
+25%
+(256, 0.1)
+Sampling A
+30%
+20%
+30%
+20%
+Sampling B
+33.3%
+22.2%
+27.8%
+16.7%
+training objectives. Training pairs with start time t < tcut = 500 are excluded. This removes
+the early spinodal decomposition from the training set. The remaining pairs are drawn
+from a common physical-time domain using prescribed allocations over global physical time
+intervals. In each sampling block, an allocation specifies the number of pairs selected from its
+interval. Within an interval, candidate start times are chosen deterministically in increasing
+physical time order, giving approximately uniform coverage of that interval. The allocations
+therefore set the time distribution of the one-step loss. Each input–target pair represents
+the fixed-interval transition from t to t + ∆T. Pairs are used independently during one-step
+training.
+We show the free energy E(t), the maximum field magnitude ∥ϕ(·, t)∥∞, the characteristic
+wavenumber k1(t), the cubic characteristic length L3(t), and the normalized structure function
+s(k, t).
+The spatial mean ϕ(t) is also monitored as deviations from mass conservation.
+Coarsening statistics are computed on a contiguous reference-defined coarsening interval.
+This interval is identified once from the held-out numerical-reference trajectory using the
+characteristic length and its local growth rate; the selection rule is given in Appendix A.2.
+The same interval is then used for the numerical reference, bcFNO, and spFNO predictions.
+The fitted values are therefore late-stage coarsening comparisons with the corresponding
+numerical-reference trajectory. Detailed results are presented for the representative cases
+(N, δt) = (128, 0.2) and (256, 0.1); the remaining cases are reported in Appendix B.4.
+5.4. Sampling Sensitivity in FNO
+To investigate the effect of temporal sampling on long-time prediction, we construct two
+temporal sampling schemes, denoted Sampling A and Sampling B, by assigning different
+relative sampling weights to prescribed physical-time windows. These weights determine the
+relative contribution of one-step training pairs from each window to the empirical training
+loss. Sampling A and Sampling B are defined separately for each resolution and do not refer
+to a common pair of window weights across resolutions. Table 3 lists the normalized window
+weights for the two representative cases. Within each case, the training trajectories, network
+architecture, optimization procedure, and coarse prediction interval are fixed.
+Figure 6 compares the resulting long-time trajectories. For both representative cases,
+the FNO trained with Sampling A remains bounded over the prediction time. In contrast,
+Sampling B produces large excursions beyond the nominal phase-field range, followed by
+departures from the corresponding reference trajectories. The free-energy trajectories exhibit
+the same qualitative contrast.
+These results indicate that the long-time prediction of the FNO is sensitive to the temporal
+19
+
+
+0
+10000
+20000
+30000
+t
+4000
+3500
+3000
+Energy
+0
+10000
+20000
+30000
+5000
+0
+5000
+10000
+1.3e+04
+0
+10000
+20000
+30000
+t
+14000
+12000
+Energy
+0
+10000
+20000
+30000
+t
+1.0
+1.5
+2.0
+max| |
+0
+10000
+20000
+30000
+0
+5
+10
+15
+14
+0
+10000
+20000
+30000
+t
+1.0
+1.5
+2.0
+max| |
+0
+10000
+20000
+30000
+2
+4
+6
+5.8
+3.8
+Figure 6: Sensitivity of long-time FNO rollouts to physical-time sampling. Free energy E(t) (top) and
+maximum field magnitude max |ϕ| (bottom) are shown for (N, δt) = (128, 0.2) (left) and (256, 0.1) (right).
+Blue and orange denote the reference trajectories and FNO predictions, respectively; solid and dashed lines
+correspond to Sampling A and Sampling B.
+sampling of the one-step training data. Because the sampling distributions are case-specific,
+the result does not compare a fixed set of weights across resolutions. Instead, the transition
+from bounded to unstable predictions shows that one-step fitting and temporal redistribution
+of training samples alone do not reliably control long-time amplitude growth. This observation
+motivates the bound-conforming formulation introduced next.
+5.5. Effect of the Bound-Conforming Penalty on Long-Time Prediction
+We examine the effect of the bound-conforming penalty on long-time prediction. For
+(N, δt) = (128, 0.2), FNO and bcFNO use the same architecture, training data, temporal
+sampling strategy, and optimization budget, and differ only in the inclusion of the bound-
+conforming penalty. The case-specific penalty weights are listed in Table A.6. Figure 7 shows
+the numerical reference, FNO, and bcFNO phase fields at t = 15000 and t = 29000, from
+the same initial condition. The displayed fields are used to show phase-field amplitudes and
+domain morphology; they are not intended as a pointwise comparison with the reference. The
+FNO develops increasingly large departures from the nominal phase-field range, accompanied
+by distorted domain patterns. The bcFNO keeps these amplitude departures smaller and
+retains a phase-separated domain pattern over the displayed late-stage interval.
+20
+
+
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+0
+2
+4
+6
+8
+10
+0.5
+0.0
+0.5
+1.0
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+0
+2
+4
+6
+8
+10
+0.5
+0.0
+0.5
+1.0
+Figure 7: Spatial phase-field trajectories at t = 15000 (top row) and t = 29000 (bottom row) for the reference
+trajectory (left), FNO (middle), and bcFNO (right). N = 128, δt = 0.2.
+Figure 8 compares the free energy E(t) and maximum field magnitude ∥ϕ(·, t)∥∞along
+an independent evaluation trajectory. The FNO exhibits a pronounced late-time increase
+in free energy together with persistent departures from the nominal phase-field range. The
+bcFNO suppresses the large amplitude excursions and produces a free energy evolution that
+remains closer to the reference trajectory. Additional results for remaining cases are provided
+in Appendix B.2 (Figs. B.15, B.16, B.18, and B.19). The multi-seed results in Appendix B.1
+further show that large FNO amplitude excursions recur across the tested training seeds,
+whereas bcFNO suppresses such excursions under the same training procedure.
+The connection between amplitude control and the subsequent spectral analysis follows
+from Eqs. (16)–(17). Since the structure function is computed from the fluctuation field
+ψ = ϕ −¯ϕ, the zero Fourier mode of ψ vanishes.
+With the discrete Fourier-transform
+normalization used here, Parseval’s identity gives
+1
+N 4
+X
+k̸=0
+ bψ(k, t)
+
+2
+= 1
+N 2
+X
+r
+|ψ(r, t)|2 = 1
+N 2
+X
+r
+|ϕ(r, t) −¯ϕ|2 ≤∥ϕ∥2
+∞−|¯ϕ|2.
+(35)
+When the spatial mean remains nearly constant, suppression of large phase-field amplitude
+reduces the upper bound on the total power in the nonzero Fourier modes. This relation
+provides a spectral interpretation of the amplitude control provided by bcFNO.
+Equation (35) constrains only the aggregate nonzero-mode power. It does not specify its
+distribution across wavenumbers and therefore cannot determine the characteristic wavenumber
+k1(t) or other coarsening statistics. Those statistics depend on the normalized structure
+function. The spFNO regularization introduced next acts on this spectral distribution after
+the large amplitude excursions have been controlled.
+21
+
+
+0
+10000
+20000
+30000
+t
+4000
+3500
+3000
+Energy
+0
+10000
+20000
+30000
+5000
+0
+5000
+10000
+1.3e+04
+0
+10000
+20000
+30000
+t
+3500
+3000
+Energy
+0
+10000
+20000
+30000
+t
+1.0
+1.1
+1.2
+1.3
+max| |
+0
+10000
+20000
+30000
+0
+5
+10
+15
+14
+0
+10000
+20000
+30000
+t
+1.0
+1.1
+1.2
+max| |
+Figure 8: Evolution of the free energy E(t) (top row) and max |ϕ| (bottom row) for FNO (left) and bcFNO
+(right). Blue and orange denote the reference trajectory and model prediction, respectively. N = 128, δt = 0.2.
+5.6. Structure-Function Correction of Coarsening Dynamics
+After establishing that bcFNO suppresses the large amplitude excursions of FNO, we
+consider the effect of adding structure-function regularization to the stabilized bcFNO. The
+spFNO acts directly on the normalized structure function s(k, t). We first compare the
+correction of s(k, t) and then consider the coarsening statistics derived from it.
+Figures 9 and 10 compare the predicted and reference normalized structure functions at
+four late-stage times. For (N, δt) = (128, 0.2) and (256, 0.1), the largest differences between
+bcFNO and the reference occur near the low-wavenumber peak. This peak corresponds to
+the evolving domain scale. At the displayed times, spFNO reduces these differences near the
+peak and in its neighboring wavenumber range. To display the differences on a common scale,
+we use the peak-normalized signed discrepancy
+es(k, t) = spred(k, t) −sref(k, t)
+∥sref(·, t)∥∞+ ϵs
+,
+ϵs = 10−12.
+(36)
+Figures 11 and 12 show that the bcFNO discrepancies are concentrated around the coarsening
+peak. In the same range, the spFNO discrepancies are smaller.
+We next examine coarsening quantities calculated from s(k, t). Over the coarsening
+22
+
+
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+2000
+4000
+6000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+2000
+4000
+6000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+2000
+4000
+6000
+8000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+5000
+10000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+2000
+4000
+6000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+2000
+4000
+6000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+2000
+4000
+6000
+8000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+5000
+10000
+s(k,t)
+Figure 9: Late-stage normalized structure functions s(k, t) for bcFNO (top) and spFNO (bottom) at t = 17000,
+21000, 25000, and 29000 from left to right. Blue and orange denote the reference trajectory and model
+prediction, respectively. N = 128, δt = 0.2.
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+40000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+40000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+40000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+40000
+s(k,t)
+Figure 10: Late-stage normalized structure functions s(k, t) for bcFNO (top) and spFNO (bottom) at
+t = 17000, 21000, 25000, and 29000 from left to right. Blue and orange denote the reference trajectory and
+model prediction, respectively. N = 256, δt = 0.1.
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0.1
+0.0
+0.1
+0.2
+es(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0.1
+0.0
+es(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0.2
+0.1
+0.0
+0.1
+0.2
+es(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0.2
+0.0
+0.2
+es(k,t)
+Figure 11: Peak-normalized structure-function discrepancy es(k, t) for bcFNO (solid) and spFNO (dashed) at
+t = 17000, 21000, 25000, and 29000 from left to right. N = 128, δt = 0.2.
+interval, we fit
+L3(t) = at + b,
+k1(t) ∼tβ.
+Here, a is the fitted slope of L3(t) and β is the fitted exponent of the first spectral moment.
+23
+
+
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0.1
+0.0
+0.1
+0.2
+es(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0.10
+0.05
+0.00
+0.05
+es(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0.2
+0.1
+0.0
+0.1
+es(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0.2
+0.0
+0.2
+es(k,t)
+Figure 12: Peak-normalized structure-function discrepancy es(k, t) for bcFNO (solid) and spFNO (dashed) at
+t = 17000, 21000, 25000, and 29000 from left to right. N = 256, δt = 0.1.
+Table 4: Late-stage coarsening results for the two representative cases. Fits use the coarsening interval
+identified from the numerical reference.
+(N, δt)
+Metric
+Reference
+bcFNO
+spFNO
+(128, 0.2)
+a in L3(t) = at + b
+0.020
+0.0075
+0.011
+β in k1(t) ∼tβ
+−0.33
+−0.13
+−0.16
+Rcollapse
+1.00
+0.73
+0.88
+(256, 0.1)
+a in L3(t) = at + b
+0.020
+0.0083
+0.012
+β in k1(t) ∼tβ
+−0.28
+−0.12
+−0.16
+Rcollapse
+1.00
+0.91
+0.91
+Each predicted fit is compared with the fit from the reference trajectory over the same interval.
+For the rescaled spectra, we use
+Rcollapse = 1 −
+S
+pred
+c
+−S
+ref
+c
+
+2
+S
+ref
+c
+
+2
+,
+(37)
+where Sc(q) is the mean rescaled spectrum over the late-stage frames. The score equals 1
+when the two mean curves are identical.
+Table 4 lists the fitted slope a, the wavenumber exponent β, and the collapse score Rcollapse
+for the two cases. For both cases, the spFNO values of a and β lie closer to the reference
+values than the bcFNO values. The collapse score increases for (N, δt) = (128, 0.2) and
+remains the same for (N, δt) = (256, 0.1). Figures 13 and 14 show the corresponding curves of
+L3(t), k1(t), and the rescaled spectra. For the collapse, the discrete rescaled spectral samples
+from all selected late-stage frames are pooled into 64 common q-bins. The solid curve joins
+the binwise means, and the shaded region gives the minimum and maximum samples in each
+bin. The width of this region includes variation across time and variation among the discrete
+q-values placed in the same bin. It need not vanish even when the spectra are close to a
+common rescaled profile, especially where that profile changes rapidly with q.
+These results distinguish the roles of the two penalties. The bound-conforming term
+suppresses the large field-amplitude excursions seen in the FNO predictions. The structure-
+function term reduces errors near the low-wavenumber coarsening peak and changes the
+derived fits of L3(t) and k1(t). The spFNO therefore provides a spectral correction of bcFNO
+rather than a uniformly stronger long-time stabilization.
+24
+
+
+10000
+15000
+20000
+25000
+t
+200
+300
+400
+500
+600
+L 3
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+k 2
+1 s(k,t)
+10000
+15000
+20000
+25000
+t
+200
+300
+400
+500
+600
+L 3
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+k 2
+1 s(k,t)
+Figure 13: Late-stage coarsening measures, L3(t), k1(t), and the dynamic-scaling collapse, for bcFNO (top
+row) and spFNO (bottom row). Blue and orange curves denote respectively the reference trajectory and
+model predictions. Black dotted lines in the L3(t) panels are linear fits. In the collapse panels, curves and
+shading denote binwise means and ranges. N = 128, δt = 0.2.
+10000
+15000
+20000
+25000
+t
+200
+400
+600
+L 3
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+k 2
+1 s(k,t)
+10000
+15000
+20000
+25000
+t
+200
+400
+600
+L 3
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+k 2
+1 s(k,t)
+Figure 14: Late-stage coarsening measures, L3(t), k1(t), and the dynamic-scaling collapse, for bcFNO (top
+row) and spFNO (bottom row). Blue and orange curves denote the reference trajectory and model predictions,
+respectively. Black dotted lines in the L3(t) panels are linear fits. N = 256, δt = 0.1.
+5.7. Online Cost of Trained Neural Operators
+We compare the online wall-clock cost of Fourier pseudospectral trajectory generation
+and neural-operator rollouts over the common physical-time interval 0 ≤t ≤30000. All
+trajectories are stored at the same output interval ∆T = 20. The recorded times exclude
+25
+
+
+Table 5: Online wall-clock time for trajectory generation over 0 ≤t ≤30000 at N = 256. Relative wall-clock
+time is normalized by the FNO time.
+Method
+Hardware
+Time (s)
+Relative time
+Solver, δt = 1
+CPU
+156
+19.5
+Solver, δt = 0.1
+CPU
+1608
+201
+FNO
+GPU
+8.0
+1.0
+bcFNO
+GPU
+8.0
+1.0
+spFNO
+GPU
+8.0
+1.0
+visualization, file output, and evaluation of derived quantities. The timing setup and warm-up
+treatment are detailed in Appendix A.4.
+The comparison isolates trajectory-generation cost after model training. The one-time
+costs of generating numerical training data and optimizing the neural operators are excluded.
+The results therefore characterize the computational workflow used in this study rather than
+the hardware-independent algorithmic speedup. All neural operators are evaluated from the
+same initial field for the representative N = 256 cases.
+Table 5 shows that, under the present computational workflow, each neural operator
+generates the trajectory over the full time interval in approximately 8.0 s. The bound-
+conforming and structure-function terms modify the training objective only. Accordingly,
+bcFNO and spFNO retain the same inference architecture as FNO and incur the same online
+cost. The preceding results show that the resulting gains in long-time amplitude control and
+coarsening recovery do not require additional online evaluation cost.
+6. Conclusion and Future Work
+In this work, we develop Fourier neural operators for long-time Cahn–Hilliard prediction
+under coarse physical-time supervision.
+After training, such operators can complement
+numerical solvers when many trajectory evaluations are required. Although the learned
+one-step map can be accurate, repeated application of the unregularized FNO produced
+free-energy growth, amplitude excursions outside the nominal phase-field range, and errors in
+late-time coarsening quantities.
+The bound-conforming FNO (bcFNO) reduced the large amplitude excursions observed in
+these predictions without changing the online evaluation cost. Structure-function regularization
+was then added to the bcFNO training objective to form spFNO. For the representative cases
+(N = 128, δt = 0.2) and (N = 256, δt = 0.1), spFNO gave normalized structure functions
+closer to the numerical reference, which is the quantity directly constrained by the added loss.
+The fitted L3(t) slope and k1(t) exponent, derived from the prediction spectra, also moved
+closer to their reference values. The collapse score increased for (128, 0.2) and was unchanged
+for (256, 0.1).
+These results support a hierarchy between amplitude control and statistical correction.
+When a long-time prediction develops large amplitude excursions and nonphysical free-energy
+growth, its spectral quantities do not provide a reliable characterization of Cahn–Hilliard
+coarsening. Controlling large excursions outside the nominal phase-field range and maintaining
+physically consistent free-energy behavior are therefore prerequisites for interpreting long-time
+26
+
+
+coarsening statistics, although amplitude control and physically consistent free-energy behavior
+alone are insufficient to guarantee statistical accuracy. The statistical correction in Stage II is
+formulated for the late-time coarsening regime, where dynamic scaling provides a natural basis
+for structure-function supervision. Extending this approach to the full Cahn–Hilliard evolution
+remains an important direction for future work, since the early instability, structure-formation,
+and late-time coarsening regimes are governed by distinct physical mechanisms. Such an
+extension may require stage-aware physical representations and multiscale neural-operator
+architectures that resolve the temporal and spatial scales relevant to each regime.
+More broadly, nonlinear PDEs, including turbulent flows and other systems with self-similar
+evolution, may possess statistical structure that characterizes relevant aspects of their long-
+time behavior. Incorporating such system-specific information into operator training could
+complement pointwise state losses when long-horizon prediction is the objective. Developing
+transferable physically meaningful constraints, and determining how equation-appropriate
+principal physical constraints should be adapted across equations and dynamical regimes, is a
+natural direction for future work. In particular, accurate local one-step fitting alone need not
+ensure physically credible long-time predictions.
+The Python source code is publicly available at https://github.com/Li-Yingli/Stru
+cture-preserving-FNO.git.
+References
+[1] J. W. Cahn, J. E. Hilliard, Free energy of a nonuniform system. I. interfacial free energy,
+The Journal of chemical physics 28 (2) (1958) 258–267.
+[2] J. W. Cahn, On spinodal decomposition, Acta metallurgica 9 (9) (1961) 795–801.
+[3] C. P. Grant, Spinodal decomposition for the Cahn-Hilliard equation, Communications in
+Partial Differential Equations 18 (3-4) (1993) 453–490.
+[4] J. Zhu, L.-Q. Chen, J. Shen, Morphological evolution during phase separation and
+coarsening with strong inhomogeneous elasticity, Modelling and Simulation in Materials
+Science and Engineering 9 (6) (2001) 499–511.
+[5] P. Fife, Some nonclassical trends in parabolic and parabolic-like evolutions, Trends in
+nonlinear analysis (2003) 153–191.
+[6] C. Smolders, J. Van Aartsen, A. Steenbergen, Liquid-liquid phase separation in con-
+centrated solutions of non-crystallizable polymers by spinodal decomposition, Kolloid-
+Zeitschrift und Zeitschrift für Polymere 243 (1) (1971) 14–20.
+[7] V. J. Anderson, H. N. Lekkerkerker, Insights into phase transition kinetics from colloid
+science, Nature 416 (6883) (2002) 811–815.
+[8] V. E. Badalassi, H. D. Ceniceros, S. Banerjee, Computation of multiphase systems with
+phase field models, Journal of computational physics 190 (2) (2003) 371–397.
+27
+
+
+[9] G. Tierra, F. Guillén-González, Numerical methods for solving the Cahn–Hilliard equation
+and its applicability to related energy-based models, Archives of Computational Methods
+in Engineering 22 (2) (2015) 269–289.
+[10] S. Lezama-Alvarez, E. O. Avila-Davila, V. M. Lopez-Hirata, J. L. Gonzalez-Velazquez,
+Numerical analysis of phase decomposition in ab binary alloys using Cahn–Hilliard
+equations, Materials Research 16 (5) (2013) 975–981.
+[11] L. Baňas, R. Nürnberg, Adaptive finite element methods for Cahn–Hilliard equations,
+Journal of computational and applied mathematics 218 (1) (2008) 2–11.
+[12] L. Cherfils, M. Petcu, A numerical analysis of the Cahn–Hilliard equation with non-
+permeable walls, Numerische Mathematik 128 (3) (2014) 517–549.
+[13] N. Lecoq, H. Zapolsky, P. Galenko, Numerical approximation of the Cahn–Hilliard
+equation with memory effects in the dynamics of phase separation, Discrete and continuous
+dynamical systems A 31 (2011) 953–962.
+[14] A. Christlieb, K. Promislow, Z. Xu, On the unconditionally gradient stable scheme for the
+Cahn–Hilliard equation and its implementation with Fourier method, Communications
+in Mathematical Sciences 11 (2) (2013) 345–360.
+[15] J. Bosch, M. Stoll, P. Benner, Fast solution of Cahn–Hilliard variational inequalities
+using implicit time discretization and finite elements, Journal of Computational Physics
+262 (2014) 38–57.
+[16] L. Q. Chen, J. Shen, Applications of semi-implicit Fourier-spectral method to phase field
+equations, Computer Physics Communications 108 (2-3) (1998) 147–158.
+[17] D. J. Eyre, Unconditionally gradient stable time marching the Cahn-Hilliard equation,
+MRS online proceedings library (OPL) 529 (1998) 39.
+[18] C. M. Elliott, D. A. French, F. Milner, A second order splitting method for the Cahn-
+Hilliard equation, Numerische Mathematik 54 (5) (1989) 575–590.
+[19] Y. Cheng, A. Kurganov, Z. Qu, T. Tang, Fast and stable explicit operator splitting
+methods for phase-field models, Journal of Computational Physics 303 (2015) 45–65.
+[20] S. M. Cox, P. C. Matthews, Exponential time differencing for stiff systems, Journal of
+Computational Physics 176 (2) (2002) 430–455.
+[21] A.-K. Kassam, L. N. Trefethen, Fourth-order time-stepping for stiff PDEs, SIAM Journal
+on Scientific Computing 26 (4) (2005) 1214–1233.
+[22] J. Shen, J. Xu, J. Yang, The scalar auxiliary variable (SAV) approach for gradient flows,
+Journal of Computational Physics 353 (2018) 407–416.
+[23] X. Yang, G.-D. Zhang, Convergence analysis for the invariant energy quadratization (ieq)
+schemes for solving the Cahn–Hilliard and Allen–Cahn equations with general nonlinear
+potential, Journal of scientific computing 82 (3) (2020) 55.
+28
+
+
+[24] C. L. Wight, J. Zhao, Solving Allen–Cahn and Cahn–Hilliard equations using the adaptive
+physics informed neural networks, arXiv preprint arXiv:2007.04542 (2020).
+[25] R. Mattey, S. Ghosh, A novel sequential method to train physics informed neural networks
+for Allen–Cahn and Cahn–Hilliard equations, Computer Methods in Applied Mechanics
+and Engineering 390 (2022) 114474.
+[26] W. Zhang, J. Li, The robust physics-informed neural networks for a typical fourth-order
+phase field model, Computers & Mathematics with Applications 140 (2023) 64–77.
+[27] Q. Huang, J. Ma, Z. Xu, Mass-preserving spatio-temporal adaptive PINN for
+Cahn–Hilliard equations with strong nonlinearity and singularity, arXiv preprint
+arXiv:2404.18054 (2024).
+[28] J. Hu, J.-J. Huang, An improved causal physics-informed neural network solution of the
+one-dimensional Cahn–Hilliard equation, Applied Sciences 15 (16) (2025) 8863.
+[29] G. Zhang, J. Lin, Q. Zhai, H. Yang, X. Chen, I. T. Leong, F. Zhu, A priori error
+estimation for physics-informed neural networks solving Allen–Cahn and Cahn–Hilliard
+equations, Communications in Nonlinear Science and Numerical Simulation 162 (2026)
+110077.
+[30] B. Raonic, R. Molinaro, T. Rohner, S. Mishra, E. de Bezenac, Convolutional neural
+operators, in: ICLR 2023 workshop on physics for machine learning, 2023.
+[31] G. Gupta, X. Xiao, P. Bogdan, Multiwavelet-based operator learning for differential
+equations, Advances in neural information processing systems 34 (2021) 24048–24062.
+[32] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, A. Stuart, K. Bhattacharya, A. Anand-
+kumar, Multipole graph neural operator for parametric partial differential equations,
+Advances in neural information processing systems 33 (2020) 6755–6766.
+[33] Z. Li, K. Meidani, A. B. Farimani, Transformer for partial differential equations’ operator
+learning, arXiv preprint arXiv:2205.13671 (2022).
+[34] V. Oommen, K. Shukla, S. Goswami, R. Dingreville, G. E. Karniadakis, Learning two-
+phase microstructure evolution using neural operators and autoencoder architectures,
+npj Computational Materials 8 (1) (2022) 190.
+[35] K. Kontolati, S. Goswami, G. Em Karniadakis, M. D. Shields, Learning nonlinear
+operators in latent spaces for real-time predictions of complex dynamics in physical
+systems, Nature Communications 15 (1) (2024) 5101.
+[36] X. Xue, M. F. ten Eikelder, T. Yang, Y. Li, K. He, S. Wang, P. V. Coveney, Equivariant
+u-shaped neural operators for the Cahn–Hilliard phase-field model, arXiv preprint
+arXiv:2509.01293 (2025).
+[37] E. Kiyani, S. Silber, M. Kooshkbaghi, M. Karttunen, Machine-learning-based data-driven
+discovery of nonlinear phase-field dynamics, Physical Review E 106 (6) (2022) 065303.
+29
+
+
+[38] B. D. Nguyen, P. Potapenko, A. Demirci, K. Govind, S. Bompas, S. Sandfeld, Efficient
+surrogate models for materials science simulations: Machine learning-based prediction of
+microstructure properties, Machine learning with applications 16 (2024) 100544.
+[39] Y. Geng, O. Burkovska, L. Ju, G. Zhang, M. Gunzburger, An end-to-end deep learning
+method for solving nonlocal Allen–Cahn and Cahn–Hilliard phase-field models, Computer
+Methods in Applied Mechanics and Engineering 436 (2025) 117721.
+[40] N. Chen, S. Lucarini, R. Ma, A. Chen, C. Cui, PF-PINNs: Physics-informed neural
+networks for solving coupled Allen-Cahn and Cahn-Hilliard phase field equations, Journal
+of Computational Physics 529 (2025) 113843.
+[41] G. Gangmei, S. Rana, B. Rolfe, K. Mitra, S. Bhattacharyya, Learning coupled Allen-Cahn
+and Cahn-Hilliard phase-field equations using physics-informed neural operator (pino),
+arXiv preprint arXiv:2507.18731 (2025).
+[42] N. Chen, C. Cui, R. Ma, A. Chen, S. Wang, Sharp-PINNs: Staggered hard-constrained
+physics-informed neural networks for phase field modelling of corrosion, Computer
+Methods in Applied Mechanics and Engineering 447 (2025) 118346.
+[43] W. Fang, Y. Li, C. Lee, Simulating the Cahn–Hilliard–Hele–Shaw system via a deep
+neural operator framework, Journal of Mechanical Science and Technology 39 (11) (2025)
+6799–6814.
+[44] Z. Lv, Y. Li, Q. Xia, J. Kim, Y. Li, Simulation of the coupled Navier–Stokes–Cahn–
+Hilliard–Heat transfer system via a U-shaped spatial–channel attention neural operator,
+Communications in Nonlinear Science and Numerical Simulation (2025) 109537.
+[45] X. Kang, Y. Li, Y. Li, J. Hu, K. Zheng, Solving the fractional Allen–Cahn equation
+and the fractional Cahn–Hilliard equation with the fractional physics-informed neural
+networks, Fractal and Fractional 9 (12) (2025) 773.
+[46] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, A. Anandku-
+mar, Fourier neural operator for parametric partial differential equations, arXiv preprint
+arXiv:2010.08895 (2020).
+[47] B. König, O. J. Ronsin, J. Harting, Two-dimensional Cahn–Hilliard simulations for
+coarsening kinetics of spinodal decomposition in binary mixtures, Physical Chemistry
+Chemical Physics 23 (43) (2021) 24823–24833.
+[48] A. Chakrabarti, R. Toral, J. D. Gunton, Late-stage coarsening for off-critical quenches:
+Scaling functions and the growth law, Physical Review E 47 (5) (1993) 3025.
+[49] J. Zhu, L.-Q. Chen, J. Shen, V. Tikare, Coarsening kinetics from a variable-mobility
+Cahn-Hilliard equation: Application of a semi-implicit Fourier spectral method, Physical
+Review E 60 (4) (1999) 3564.
+[50] B. König, O. J. Ronsin, J. Harting, Two-dimensional Cahn–Hilliard simulations for
+coarsening kinetics of spinodal decomposition in binary mixtures, Physical Chemistry
+Chemical Physics 23 (43) (2021) 24823–24833.
+30
+
+
+[51] I. M. Lifshitz, V. V. Slyozov, The kinetics of precipitation from supersaturated solid
+solutions, Journal of physics and chemistry of solids 19 (1-2) (1961) 35–50.
+[52] J. Zhu, L.-Q. Chen, J. Shen, V. Tikare, Coarsening kinetics from a variable-mobility
+Cahn-Hilliard equation: Application of a semi-implicit Fourier spectral method, Physical
+Review E 60 (4) (1999) 3564.
+[53] A. N. Kolmogorov, Dissipation of energy in the locally isotropic turbulence, in: Dokl.
+Akad. Nauk. SSSR, Vol. 32, 1941, pp. 19–21.
+[54] U. Frisch, R. J. Donnelly, Turbulence: the legacy of an kolmogorov (1996).
+[55] T. Whittaker, R. A. Janik, Y. Oz, Turbulence scaling from deep learning diffusion
+generative models, Journal of Computational Physics 514 (2024) 113239.
+[56] H. Furukawa, A dynamic scaling assumption for phase separation, Advances in physics
+34 (6) (1985) 703–750.
+[57] J. W. Gibbs, On the equilibrium of heterogeneous substances, American journal of science
+3 (96) (1878) 441–458.
+[58] N. Wiener, Generalized harmonic analysis, Acta mathematica 55 (1) (1930) 117–258.
+[59] A. Khintchine, Korrelationstheorie der stationären stochastischen prozesse, Mathematis-
+che Annalen 109 (1) (1934) 604–615.
+[60] E. do A. Soares, A. G. B. Jr., F. W. Tavares, Exponential integrators for phase-field
+equations using Pseudo-spectral methods: A Python implementation (2023). arXiv:
+2305.08998.
+31
+
+
+Table A.6: Loss parameters for the representative source-free cases and their ranges across the remaining
+experiments.
+Parameter
+(128, 0.2)
+(256, 0.1)
+Range
+λbc
+0.18
+0.18
+[0.10, 0.33]
+λsk
+0.22
+0.20
+[0.20, 0.80]
+wshape
+2.1
+2.0
+[1.2, 2.1]
+wnull
+1.0
+1.1
+[0.6, 1.1]
+wpeak
+1.6
+1.5
+[1.2, 2.0]
+τρ
+0.003
+0.003
+[0.002, 0.003]
+fpeak
+0.30
+0.24
+[0.23, 0.30]
+Appendix A. Implementation Details
+Appendix A.1. Training Setup
+Table A.6 summarizes the loss parameters for the two representative source-free cases and
+the ranges used in the remaining experiments.
+Appendix A.2. Reference-defined coarsening interval
+For each held-out numerical-reference trajectory, we identify a contiguous interval for
+coarsening evaluations. Let
+L(t) =
+1
+k1(t),
+γ(t) = d log L
+d log t ,
+R(t) = L(t)
+√κ ,
+where γ(t) is evaluated using a 15-frame local window. A frame is a candidate coarsening
+frame when
+R(t) > 8
+and
+γ(t) −1
+3
+ < 0.12.
+To suppress isolated changes in the local slope, entry into the coarsening interval requires five
+consecutive candidate frames. The interval ends when either L(t) ≥0.9Lbox, or γ(t) < 0.25
+and R(t) ≥20 persists for eight consecutive frames.
+The interval is determined from the numerical-reference trajectory only. For a fixed (N, δt),
+its frame indices are then applied directly to the reference, bcFNO, and spFNO trajectories.
+The intervals used for the reported cases are listed in Table A.7.
+Appendix A.3. Specification of the Manufactured Forced Trajectory
+For reproducibility, we specify the exact trajectory used in Sec. 5.2. Let q = 2π/m and
+let K+ contain one representative from each conjugate Fourier pair with 2 ≤|n| ≤8. We
+prescribe
+ϕ⋆(x, t) = ¯ϕ +
+X
+n∈K+
+an(t) cos (qn · x + ϑn) ,
+where the phases ϑn are drawn once for each trajectory and remain fixed in time. The modal
+amplitudes are
+an(t) =
+√
+2Armswn(t)
+P
+k∈K+ w2
+k(t)
+1/2,
+wn(t) = exp
+"
+−(|n| −νc(t))2
+2c2
+σν2
+c (t)
+#
+,
+32
+
+
+Table A.7: Reference-defined coarsening intervals used for the finite-regime fits. The same interval is used for
+the numerical reference, bcFNO, and spFNO.
+N
+δt
+Coarsening-time interval t
+128
+1.0
+[11500, 29500]
+128
+0.5
+[6720, 29500]
+128
+0.2
+[8460, 29500]
+128
+0.1
+[8300, 29500]
+256
+1.0
+[7500, 29500]
+256
+0.5
+[6580, 29500]
+256
+0.2
+[6400, 29500]
+256
+0.1
+[6520, 29500]
+Table A.8: Parameters of the manufactured forced trajectory for field-level prediction evaluation.
+m
+N
+M
+κ
+¯ϕ
+Arms
+cσ
+ν0
+t0
+∆T
+256
+128
+1
+0.5
+0.1
+0.25
+0.35
+6.581
+15000/7
+20
+with
+νc(t) = ν0
+
+1 + t
+t0
+−1/3
+.
+The factor
+√
+2 gives
+1
+|T2
+m|
+Z
+T2m
+ ϕ⋆−¯ϕ
+2 dx = A2
+rms.
+For each prescribed trajectory, S⋆is evaluated analytically from Eq. (5.2).
+Table A.8 lists the parameters of the held-out manufactured trajectory used for field-level
+prediction evaluation; m = 256 is the side length of T2
+m. Its Fourier phases are fixed in
+time. The training trajectories use different phase realizations and may use different envelope
+parameters.
+Appendix A.4. Online Timing Setup
+The spectral solver was implemented using NumPy/SciPy and executed on an Intel Xeon
+Gold 6132 CPU system. The neural operators were implemented in PyTorch and evaluated
+on an NVIDIA Tesla V100 PCIe GPU with 16 GB of memory. The software environment
+used NumPy 2.2.6, SciPy 1.15.3, PyTorch 2.10.0, and CUDA 12.8.
+Each timed evaluation generated one trajectory over 0 ≤t ≤30000, with output states
+produced at intervals of ∆T = 20. The spectral-solver benchmark used no untimed warm-up
+(warmup=0). Before each timed neural-operator prediction, two untimed single-step forward
+passes were performed, following the command-line default (–warmup 2); these warm-up
+passes did not generate complete trajectories. CPU wall-clock times were measured using
+time.perf_counter(). GPU execution times were measured using CUDA events, with
+torch.cuda.synchronize() called before and after each timed prediction. The reported
+values are the medians of five timed repetitions.
+33
+
+
+Table B.9: Maximum field magnitude over held-out long-time rollouts for three training seeds at (N, δt) =
+(256, 0.1) under Sampling B.
+Model
+Seed 0
+Seed 1
+Seed 2
+FNO
+3.65
+27.6
+2.53
+bcFNO
+1.15
+1.17
+1.23
+Appendix B. Supplementary Results
+This section presents the training-seed comparison and the energy, amplitude, and mass-
+conservation results for source-free cases not shown in detail in the main text.
+Appendix B.1. Sensitivity to Training Initialization
+We repeat the FNO and bcFNO experiments using three independent training seeds
+for (N, δt) = (256, 0.1) under Sampling B. The models use the same held-out trajectory,
+architecture, training setup, and prediction settings.
+For the three tested seeds, the FNO maximum field magnitude ranges from 2.53 to 27.6,
+whereas the bcFNO maximum ranges from 1.15 to 1.23. This comparison concerns maximum
+field magnitude over the held-out prediction.
+Appendix B.2. Additional Energy and Amplitude Predictions
+The main text presents (N, δt) = (128, 0.2) and (256, 0.1) in detail. Figures B.15 and B.16
+show the corresponding free energy for the other six cases.
+In several FNO predictions, the energy departs from the dissipative trend of the reference
+trajectory. The corresponding bcFNO substantially reduces these deviations for the sampling
+distributions. For the coarsest solver-generated targets, a short initial energy increase may
+remain, but it is distinct from the persistent late-time growth observed in the unstable FNO
+predictions.
+To examine the short initial energy increase at δt = 1, we decompose the free energy as
+E(t) = Ebulk(t) + Egrad(t),
+where Ebulk is the double-well contribution and Egrad is the interfacial-gradient contribution.
+As shown in Fig. B.17, the initial increase in the bcFNO total energy is produced by an
+increase in Ebulk that exceeds the concurrent decrease in Egrad. After this initial adjustment,
+both contributions decrease and the total energy resumes a dissipative trend. This transient
+is therefore qualitatively distinct from unphysical late-time energy growth.
+Figures B.18 and B.19 show the maximum field magnitude for the same six cases. Several
+FNO predictions exhibit sustained excursions outside the nominal phase-field range. The
+bcFNO suppresses the large excursions across the cases shown, although small initial overshoots
+may remain.
+In summary, the energy and amplitude evaluations show that the bound-conforming
+formulation consistently suppresses large amplitude excursions and reduces the associated
+non-dissipative energy behavior for the cases and sampling distributions considered here.
+34
+
+
+0
+10000
+20000
+30000
+t
+0
+2
+4
+6
+8
+Energy
+1e143
+0
+10000
+20000
+30000
+t
+3500
+3000
+Energy
+0
+10000
+20000
+30000
+t
+0
+20000
+40000
+60000
+Energy
+0
+10000
+20000
+30000
+t
+3500
+3000
+Energy
+0
+10000
+20000
+30000
+t
+3800
+3600
+3400
+3200
+3000
+Energy
+0
+10000
+20000
+30000
+t
+3800
+3600
+3400
+3200
+3000
+Energy
+Figure B.15: Evolution of the total free energy E(t) for FNO (top row) and bcFNO (bottom row). Blue and
+orange curves denote the reference trajectories and model predictions, respectively. The columns correspond
+to δt = 1, 0.5, and 0.1 (from left to right). N = 128.
+0
+10000
+20000
+30000
+t
+0
+2
+4
+Energy
+1e9
+0
+10000
+20000
+30000
+t
+15000
+14000
+13000
+12000
+Energy
+0
+10000
+20000
+30000
+t
+15000
+14000
+13000
+12000
+Energy
+0
+10000
+20000
+30000
+t
+15000
+14000
+13000
+12000
+Energy
+0
+10000
+20000
+30000
+t
+15000
+14000
+13000
+12000
+Energy
+0
+10000
+20000
+30000
+t
+15000
+14000
+13000
+12000
+Energy
+Figure B.16: Evolution of the free energy E(t) for FNO (top row) and bcFNO (bottom row). Blue and
+orange curves denote the reference trajectories and model predictions, respectively. The columns correspond
+to δt = 1, 0.5, and 0.2 (from left to right). N = 256.
+35
+
+
+0
+10000
+20000
+30000
+t
+3500
+3000
+Energy
+0
+10000
+20000
+30000
+t
+3800
+3600
+3400
+3200
+Ebulk
+0
+10000
+20000
+30000
+t
+100
+200
+300
+400
+500
+Egrad
+0
+10000
+20000
+30000
+t
+15000
+14000
+13000
+12000
+Energy
+0
+10000
+20000
+30000
+t
+15000
+14000
+13000
+Ebulk
+0
+10000
+20000
+30000
+t
+500
+1000
+1500
+2000
+Egrad
+Figure B.17: Decomposition of the bcFNO free energy at δt = 1. The columns show the total energy E(t), the
+bulk contribution Ebulk(t), and the interfacial-gradient contribution Egrad(t) (from left to right). The rows
+correspond to N = 128 (top) and N = 256 (bottom). Blue and orange curves denote the reference trajectories
+and bcFNO predictions, respectively.
+0
+10000
+20000
+30000
+t
+0
+1
+2
+3
+max| |
+1e35
+0
+10000
+20000
+30000
+t
+1.0
+1.1
+1.2
+max| |
+0
+10000
+20000
+30000
+t
+5
+10
+max| |
+0
+10000
+20000
+30000
+t
+1.0
+1.1
+1.2
+1.3
+1.4
+max| |
+0
+10000
+20000
+30000
+t
+1.00
+1.02
+1.04
+1.06
+max| |
+0
+10000
+20000
+30000
+t
+1.00
+1.02
+1.04
+1.06
+max| |
+Figure B.18: Maximum field magnitude max |ϕ| for FNO (top) and bcFNO (bottom). Blue and orange curves
+denote the reference trajectories and model predictions, respectively. The columns correspond to δt = 1, 0.5,
+and 0.1 (from left to right). N = 128.
+36
+
+
+0
+10000
+20000
+30000
+t
+0
+20
+40
+60
+80
+max| |
+0
+10000
+20000
+30000
+t
+1.0
+1.1
+1.2
+1.3
+max| |
+0
+10000
+20000
+30000
+t
+1.0
+1.2
+1.4
+1.6
+max| |
+0
+10000
+20000
+30000
+t
+1.00
+1.05
+1.10
+max| |
+0
+10000
+20000
+30000
+t
+1.0
+1.2
+1.4
+1.6
+max| |
+0
+10000
+20000
+30000
+t
+1.00
+1.05
+1.10
+1.15
+max| |
+Figure B.19: Maximum field magnitude ∥ϕ(·, t)∥∞for FNO (top) and bcFNO (bottom) at N = 256. The
+columns correspond to δt = 1, 0.5, and 0.2 from left to right. Blue and orange denote the reference trajectories
+and model predictions, respectively.
+37
+
+
+0
+10000
+20000
+30000
+t
+0.0
+0.5
+1.0
+1.5
+M
+1e34
+0
+10000
+20000
+30000
+t
+0.015
+0.010
+0.005
+0.000
+M
+0
+10000
+20000
+30000
+t
+0.01
+0.00
+0.01
+0.02
+M
+0
+10000
+20000
+30000
+t
+0.01
+0.00
+0.01
+M
+0
+10000
+20000
+30000
+t
+0.010
+0.005
+0.000
+M
+0
+10000
+20000
+30000
+t
+0.010
+0.005
+0.000
+M
+Figure B.20: Mass drift δM(t) = ¯ϕ(t) −¯ϕ(t0) for FNO (top) and bcFNO (bottom) at N = 128. The columns
+correspond to δt = 1, 0.5, and 0.1 from left to right. Blue and orange denote the reference trajectories and
+model predictions, respectively.
+Appendix B.3. Mass-Conservation Evaluations
+Mass conservation is evaluated using
+δM(t) = ϕ(t) −ϕ(t0),
+where t0 is the initial prediction time. This quantity measures conservation within each
+predicted trajectory rather than its difference from the reference trajectory. Exact preservation
+of the Cahn–Hilliard spatial average corresponds to δM(t) = 0.
+Figures B.20 and B.21 show that appreciable mass drift is concentrated primarily in cases
+generated using the coarsest internal time step. Neither FNO nor bcFNO enforces the spatial
+mean explicitly, and bcFNO does not provide a uniform reduction in mass drift across all
+cases. Any observed improvement should therefore be interpreted as empirical rather than as
+a conservation property of the bound-conforming formulation. These results show that the
+present models do not explicitly enforce mass conservation.
+38
+
+
+0
+10000
+20000
+30000
+t
+5
+0
+M
+0
+10000
+20000
+30000
+t
+0.000
+0.005
+M
+0
+10000
+20000
+30000
+t
+0.01
+0.00
+0.01
+M
+0
+10000
+20000
+30000
+t
+0.00
+0.01
+0.02
+M
+0
+10000
+20000
+30000
+t
+0.00
+0.01
+0.02
+M
+0
+10000
+20000
+30000
+t
+0.000
+0.005
+0.010
+0.015
+M
+Figure B.21: Evolution of the mass drift δM(t) = ¯ϕ(t) −¯ϕ(t0) for FNO (top row) and bcFNO (bottom row)
+at N = 256. Blue and orange curves denote the reference trajectories and model predictions, respectively.
+The columns correspond to δt = 1, 0.5, and 0.2 (from left to right).
+Appendix B.4. Results for Additional Discretizations
+This subsection reports bcFNO and spFNO results for the six cases not examined in detail
+in Sec. 5.6: N = 128 with δt ∈{1, 0.5, 0.1} and N = 256 with δt ∈{1, 0.5, 0.2}. Each model
+is trained independently with the same coarse prediction interval ∆T = 20.
+Figs. B.22 and B.23 compare the normalized structure functions at t = 29000. For these
+cases, the spFNO normalized structure functions are closer to the reference curves than those
+of bcFNO, particularly near the low-wavenumber peak that sets the domain scale. This is the
+quantity directly targeted by the additional spFNO regularization.
+Table B.10 reports the fitted slope a, the wavenumber exponent β, and the collapse score
+for the additional cases. For each case, a and β are fitted over the reference-defined coarsening
+interval, which is used unchanged for the numerical reference, bcFNO, and spFNO trajectories.
+The collapse score is computed from the coarsening-interval spectra. Its reference value is one
+by construction and is omitted from the table; larger values indicate closer agreement with
+the reference master curve.
+For (N, δt) = (128, 0.5), spFNO brings both a and β closer to their reference values and
+increases the collapse score. For (128, 0.1), both fitted quantities move closer to the reference,
+whereas the collapse score decreases. No simultaneous improvement of these three quantities
+is observed for (128, 1.0), (256, 1.0), or (256, 0.2).
+The spFNO compares s(k, t) at individual prediction times. By contrast, a is obtained
+from an affine fit of L3(t) over the coarsening interval, β from a power-law fit of k1(t), and
+Rcollapse from the rescaled spectra. Thus, across the tested cases, reductions in the late-stage
+discrepancy of s(k, t) do not translate uniformly into fitted values closer to the reference for all
+three scaling quantities. Figs. B.24–B.27 show the trajectories used for these fits. Figures B.28
+and B.29 show the rescaled structure functions used to compute the collapse scores. The
+binning and averaging follow Sec. 5.6.
+39
+
+
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+5000
+10000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+2000
+4000
+6000
+8000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+2000
+4000
+6000
+8000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+2000
+4000
+6000
+8000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+5000
+10000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+5000
+10000
+s(k,t)
+Figure B.22: Late-time normalized structure functions s(k, t) at t = 29000 for bcFNO (top) and spFNO
+(bottom) at N = 128. The columns correspond to δt = 1, 0.5, and 0.1 from left to right. Blue and orange
+denote the reference trajectories and model predictions, respectively.
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+40000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+40000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+40000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+40000
+s(k,t)
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+k
+0
+10000
+20000
+30000
+40000
+s(k,t)
+Figure B.23: Late-time normalized structure functions s(k, t) at t = 29000 for bcFNO (top) and spFNO
+(bottom) at N = 256. The columns correspond to δt = 1, 0.5, and 0.2 from left to right. Blue and orange
+denote the reference trajectories and model predictions, respectively.
+40
+
+
+Table B.10: Finite-regime coarsening results for the six additional cases.
+a in L3(t) = at + b
+β in k1(t) ∼tβ
+Rcollapse
+(N, δt)
+aref
+abc
+asp
+βref
+βbc
+βsp
+Rbc
+Rsp
+(128, 1.0)
+1.1 × 10−2
+1.5 × 10−2
+7.1 × 10−3
+−0.24
+−0.22
+−0.17
+0.35
+0.40
+(128, 0.5)
+1.2 × 10−2
+2.3 × 10−3
+8.9 × 10−3
+−0.21
+−0.05
+−0.14
+0.55
+0.93
+(128, 0.1)
+2.4 × 10−2
+1.5 × 10−2
+1.9 × 10−2
+−0.38
+−0.19
+−0.27
+0.86
+0.74
+(256, 1.0)
+1.8 × 10−2
+1.2 × 10−2
+7.4 × 10−3
+−0.28
+−0.14
+−0.09
+0.33
+0.33
+(256, 0.5)
+1.4 × 10−2
+6.3 × 10−3
+8.4 × 10−3
+−0.22
+−0.09
+−0.10
+0.86
+0.93
+(256, 0.2)
+1.6 × 10−2
+7.7 × 10−3
+7.5 × 10−3
+−0.24
+−0.11
+−0.10
+0.79
+0.78
+15000
+20000
+25000
+t
+200
+400
+600
+L 3
+15000
+20000
+25000
+t
+200
+250
+300
+350
+400
+L 3
+10000
+15000
+20000
+25000
+t
+200
+300
+400
+L 3
+10000
+15000
+20000
+25000
+t
+200
+300
+400
+L 3
+10000
+15000
+20000
+25000
+t
+200
+400
+600
+L 3
+10000
+15000
+20000
+25000
+t
+200
+400
+600
+L 3
+Figure B.24: Evolution of L3(t) for bcFNO (top) and spFNO (bottom) at N = 128. The columns correspond
+to δt = 1, 0.5, and 0.1 from left to right. Blue and orange denote the reference trajectories and model
+predictions, respectively.
+41
+
+
+10000
+15000
+20000
+25000
+t
+200
+400
+600
+L 3
+10000
+15000
+20000
+25000
+t
+200
+300
+400
+500
+L 3
+10000
+15000
+20000
+25000
+t
+200
+300
+400
+500
+L 3
+10000
+15000
+20000
+25000
+t
+200
+300
+400
+500
+L 3
+10000
+15000
+20000
+25000
+t
+200
+300
+400
+500
+L 3
+10000
+15000
+20000
+25000
+t
+200
+300
+400
+500
+L 3
+Figure B.25: Evolution of L3(t) for bcFNO (top) and spFNO (bottom) at N = 256. The columns correspond
+to δt = 1, 0.5, and 0.2 (from left to right). Blue and orange curves denote the reference trajectories and model
+predictions, respectively.
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+Figure B.26: Evolution of k1(t) for bcFNO (top) and spFNO (bottom) at N = 128. The columns correspond
+to δt = 1, 0.5, and 0.1 (from left to right). Blue and orange curves denote the reference trajectories and model
+predictions, respectively.
+42
+
+
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+0
+10000
+20000
+30000
+t
+0.0
+0.1
+0.2
+0.3
+k1
+Figure B.27: Evolution of k1(t) for bcFNO (top) and spFNO (bottom) at N = 256. The columns correspond
+to δt = 1, 0.5, and 0.2 (from left to right). Blue and orange curves denote the reference trajectories and model
+predictions, respectively.
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+10
+k 2
+1 s(k,t)
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+10
+k 2
+1 s(k,t)
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+10
+k 2
+1 s(k,t)
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+k 2
+1 s(k,t)
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+10
+k 2
+1 s(k,t)
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+k 2
+1 s(k,t)
+Figure B.28: Dynamic-scaling collapse for bcFNO (top) and spFNO (bottom) at N = 128. The columns
+correspond to δt = 1, 0.5, and 0.1 (from left to right). Blue and orange curves denote the reference trajectories
+and model predictions, respectively. The mean curves and shaded envelopes are constructed as described in
+Sec. 5.6.
+43
+
+
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+10
+12
+k 2
+1 s(k,t)
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+10
+12
+k 2
+1 s(k,t)
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+k 2
+1 s(k,t)
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+k 2
+1 s(k,t)
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+k 2
+1 s(k,t)
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+q=k/k1
+0
+2
+4
+6
+8
+k 2
+1 s(k,t)
+Figure B.29: Dynamic-scaling collapse for bcFNO (top) and spFNO (bottom) at N = 256. The columns
+correspond to δt = 1, 0.5, and 0.2 (from left to right). Graphical conventions follow Fig. B.28.
+44
