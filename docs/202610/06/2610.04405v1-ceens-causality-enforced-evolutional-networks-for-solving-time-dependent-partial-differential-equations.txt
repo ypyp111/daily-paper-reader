@@ -1,0 +1,963 @@
+Title: CEENs: Causality-enforced evolutional networks for solving time-dependent partial differential equations
+
+URL Source: https://arxiv.org/pdf/2610.04405v1
+
+Published Time: Tue, 06 Oct 2026 00:52:59 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# CEENs: Causality-enforced evolutional networks for solving time-dependent partial differential equations 
+
+Jeahan Jung a,1 , Heechang Kim a,1 , Hyomin Shin a, Minseok Choi a, ∗
+
+> aDepartment of Mathematics, Pohang University of Science and Technology (POSTECH), Pohang 37673, Republic of Korea
+
+Abstract 
+
+Despite the growing popularity of physics-informed neural networks (PINNs), their applicability in the long-time integration of partial differential equations (PDEs) remains constrained. We argue that this prob-lem stems from the lack of consideration of temporal causality in the original PINN formulation, resulting in a bias towards satisfying governing equations at later times before learning the initial condition and hence leading to erroneous solutions. To this end, we propose a novel method that seamlessly integrates temporal causality into the training process. Drawing inspiration from classical numerical methods where the temporal causality is reflected, we divide the time domain into nonoverlapping subintervals, assign a unique neural network to each subinterval, and construct a loss function founded on the integral form of PDEs within these subintervals. The proposed networks undergo sequential training, beginning with the initial time step. Our method demonstrates significant improvement in accuracy for long-time simulations of various PDE problems where the original PINN method fails while it requires less computational cost and memory compared to the PINN method. A parallelization algorithm is provided to further enhance the computational efficiency, showing a significant speedup for solving time-dependent PDEs. 
+
+Keywords: Physics-informed neural network, Long-time integration, Partial differential equation, Predictive modeling, Nonlinear dynamics 
+
+1. Introduction 
+
+The tremendous growth of machine learning technology has led to explosive advancement in various fields such as natural language processing, data mining, and computer vision. In particular, physics-informed neural networks (PINNs) [1–5] have been proposed and become a new trend of solving partial differential equations (PDEs) using machine learning. The effectiveness of PINNs has been demonstrated in a variety of PDE problems including the forward and inverse problems [1, 6–9], and uncertainty quantification [8–17]. The use of neural networks for PDE has also been proposed three decades ago [18, 19], but use of large-scale neural networks was computationally prohibitive at the time. Advances in computer hardware such as graphic         
+
+> 0This is the accepted manuscript of an article published in Computer Methods in Applied Mechanics and Engineering , Vol. 427, 117036 (2024). The final published version is available at https://doi.org/10.1016/j.cma.2024.117036.
+> ∗Corresponding author
+> Email addresses: obok13@postech.ac.kr (Jeahan Jung), heechangkim@postech.ac.kr (Heechang Kim),
+> zhainl@postech.ac.kr (Hyomin Shin), mchoi@postech.ac.kr (Minseok Choi)
+> 1Authors contributed equally arXiv:2610.04405v1 [cs.LG] 3 Oct 2026
+
+processing units (GPUs) and recent Python libraries such as Tensorflow [20], Pytorch [21], and JAX [22] provide tools for machine learning-based PDE solver. Despite the notable achievements of PINNs in solving PDEs, there remains a significant challenge in integrating time-dependent PDEs given initial conditions [23–29]. Time-dependent PDEs frequently arise in various science and engineering models; therefore, it is important to understand the underlying pathologies of PINNs in handling such situations and enhance their efficacy in addressing the challenges. The literature has highlighted that a major obstacle of PINNs in solving time-dependent PDEs is the lack of consideration of temporal causality in the training process. This means that PINNs tend to be biased towards satisfying governing equations at later times before even learning the initial condition, leading to an inaccurate solution while having low training loss. To address this pathology, a number of variants of PINNs have been proposed to incorporate temporal causality during training. In [24, 27, 28], sequential learning strategies of PINN have been proposed to learn the solution from early time steps. The authors in [25, 30–35] employ recurrent neural networks, which are known to effectively handle time series data, to capture temporal causality. In [26, 36, 37], the authors train operators that predict a solution after a certain period of time from the current state. The iterative application of these operators, starting from the initial condition, is used to determine a solution at a specific time. The methods proposed in [23, 24, 38, 39] divide the time domain into short intervals and train a solution in each interval. The authors in [1, 29] assign a neural network at each time step and train them sequentially. The loss functions of the assigned neural networks are defined using the Runge-Kutta method, widely used method of integrating ordinary differential equations (ODEs). Taking cues from classical numerical methods that naturally respect temporal causality, we propose a method involving time-domain decomposition and enforcing sequential learning from the initial time. Our method divides the time domain into non-overlapping subintervals, assigning a unique neural network to each subinterval, and constructs a loss function based on the integral form of PDEs within these subintervals. Sequential training is enforced, beginning with the initial condition and proceeding through each subsequent subinterval. Although similar to the discrete PINN method based on the Runge-Kutta method in [1], our approach offers key distinctions and advantages, including the construction of a loss function using a linear multi-step method that allows for parallelization by avoiding the need for intermediate step calculations. In particular, we use the trapezoidal rule for the loss function, known for its second-order accuracy in terms of the time step. In addition we introduce a parallelization algorithm that can significantly accelerate the training for the long-time integration of PDEs. Our main contributions can be summarized as: • We propose a novel method to address the problem of temporal causality for time-dependent PDEs by dividing the time domain into subintervals, each equipped with a neural network, and enforcing a sequential training that initiates from the very initial time step and proceeds through each subsequent subinterval. • We provide a parallelization algorithm designed to expedite the training process, providing a substan-tial speedup and enhanced computational efficiency. • We demonstrate the effectiveness of our model for learning long-time integration of PDEs where the original PINN method fails. The rest of the paper is organized as follows. In Section 2, we introduce the original formulation of PINN proposed in [1] and explain why it fails to reflect temporal causality in the training process. To address this 2limitation, we propose a new model in Section 3 that effectively incorporates temporal causality and describe its training process. In addition, we elaborate on practical considerations to improve the efficiency of our proposed method and provide the algorithm. To evaluate the effectiveness of the proposed method, Section 4 presents state-of-the-art results in a set of challenging time-dependent PDE problems where the original PINN method fails to solve. In Section 5, we conclude the paper with a brief summary, some limitations, and future research directions. 
+
+2. Physics-informed neural networks (PINNs) 
+
+In this section, we briefly introduce an overview of PINNs [1] for solving PDE problems. We consider the time-dependent PDEs of the form: 
+
+ut + N [u] = 0 , t ∈ [0 , T ], x ∈ Ω
+
+u(0 , x ) = g(x), x ∈ Ω
+
+B[u] = 0 , t ∈ [0 , T ], x ∈ ∂Ω
+
+(1) (2) (3) where N and B are differential and boundary operators, respectively, Ω ⊂ Rd is a spatial domain with a boundary ∂Ω, and u is the solution of the equation. We assume that the initial condition g is a smooth function. Note that in the case where g is a nonsmooth function, there are methods to effectively approximate such nonsmooth functions [40, 41]. In the PINN formulation, the solution u(t, x ) is represented by a neural network model U (t, x ; θ) with its trainable parameters θ. The loss function is designed to ensure that the model output satisfies the initial, boundary condition, and the governing equation, i.e., 
+
+LPINN (θ) = LPINN  
+
+> ic
+
+(θ) + LPINN  
+
+> bc
+
+(θ) + LPINN  
+
+> res
+
+(θ)
+
+where 
+
+LPINN  
+
+> ic
+
+(θ) = 1
+
+Nic Nic X
+
+> j=1
+
+|U (0 , x jic ; θ) − g(xjic )|2,
+
+LPINN  
+
+> bc
+
+(θ) = 1
+
+Nbc Nbc X
+
+> j=1
+
+|B [U ]( tjbc , x jbc ; θ)|2,
+
+LPINN  
+
+> res
+
+(θ) = 1
+
+Nres Nres X
+
+> j=1
+
+|Ut(tjres , x jres ; θ) + N [U ]( tjres , x jres ; θ)|2.
+
+(4) 
+
+{xjic }Nic 
+
+> j=1
+
+, {tjbc , x jbc }Nbc 
+
+> j=1
+
+, and {tjres , x jres }Nres  
+
+> j=1
+
+denote sampled points to approximate L2 norm on Ω, [0 , T ]×∂Ω,and [0 , T ] × Ω, respectively. The ultimate goal of PINNs is to determine θ that minimizes the loss function 
+
+LPINN (θ), which is typically achieved by stochastic gradient-based optimization algorithms. Note that the temporal and spatial gradients of the model output included in (4) can be efficiently calculated by automatic differentiation. However, this formulation of PINN may not incorporate temporal causality in the training process. As demonstrated in [27], PINNs trained via stochastic gradient descent are implicitly biased towards approx-imating the solution to PDEs at later time steps first, even prior to learning the initial conditions, hence 3violating temporal causality. Consequently, PINNs often fail to solve time-dependent PDEs, despite having low training loss. To provide a further clarification, we consider the following one-dimensional convection equation. 
+
+ut + 15 ux = 0 , for t ∈ [0 , 5] , x ∈ [0 , 2π],u(0 , x ) = sin x, u(t, 0) = u(t, 2π).
+
+We employ a fully-connected network U (t, x ; θ) with a hyperbolic tangent activation function to represent the solution u(t, x ). The structure of the network includes 2 hidden layers, and 820 neurons in each hidden layer. We enforce periodic boundary conditions as hard constraints by utilizing a suitable Fourier features embedding of the input as introduced in [42]. It ensures that the periodic boundary condition is directly integrated into the model’s architecture, enhancing the model’s ability to accurately represent and solve problems with inherent periodic structures. We use a uniform grid of size 2001 × 101 in the spatio-temporal domain [0 , 5] × [0 , 2π] for creating initial, boundary, and residual points. The PINN model is then trained using Adam optimizer for 100,000 iterations. Figure 1-(a) displays the PINN model’s performance and shows that the PINN model fails to provide an accurate solution for this example. Specifically, the model predicts the solution to be near zero after t = 1 . Figure 1-(b) depicts loss convergence of the initial condition loss LPINN  
+
+> ic
+
+and the PDE residual loss LPINN  
+
+> res
+
+during training. Notably, the residual loss function decreases during the initial few thousand training epochs and then shows negligible changes throughout the remaining training period. This behavior indicates that the predicted solution is biased towards an inappropriate local minimum. The blue solid line and green dashed line in Figure 1-(c) represent the residual loss of PINN at 
+
+t = 0 and 1, respectively, defined by 
+
+eLPINN  
+
+> res
+
+(t, θ ) = 1
+
+NxNxX
+
+> j=1
+
+|Ut(t, x j ; θ) + N [U ]( t, x j ; θ)|2 (5) where N [U ] = 15 Ux and xj ’s are randomly sampled points on Ω. As eLPINN  
+
+> res
+
+(t, θ ) approximates the norm of residual term at time t, we can use it to assess whether the approximate solution at time t satisfies the governing equation. A crucial observation is that eLPINN  
+
+> res
+
+(1 , θ ) decreases rapidly in the initial training epochs, while eLPINN  
+
+> res
+
+(0 , θ ) remains large. This reveals a potential violation of temporal causality, wherein the solution at a later time step ( t = 1 ) is being optimized before adequate training has taken place at an earlier time step ( t = 0 ). Such a phenomenon can lead to a series of predictions at later time steps that, while adhering to the governing equations, are biased towards an undesired local minimum, in this case zero, which does not represent a physically viable solution. This observation underscores the importance of adhering to temporal causality in the optimization process; it is critical to prioritize the minimization of residual loss at earlier time steps before moving onto later ones, ensuring a more accurate and physically coherent solution. 4(a)           
+
+> (b) (c)
+> Figure 1: PINN performance for the one-dimensional convection equation. (a) The prediction of a trained conventional PINN versus reference solution. The PINN model provides an inaccurate prediction. (b) Initial condition loss of PINN and residual loss of PINN during training. (c) Residual losses of PINN at t= 0 and 1. The residual loss of PINN at t= 1 remains low, while that of PINN at t= 0 remains large. This suggests a violation of temporal causality in the learning process.
+
+Remark. The average of eLPINN  
+
+> res
+
+(t, θ ) evaluated on sampled points t = t0, t 1, · · · , t N ∈ [0 , T ] is equivalent to 
+
+LPINN  
+
+> res
+
+(θ) by the following. 
+
+1
+
+N
+
+> N
+
+X
+
+> n=0
+
+eLPINN  
+
+> res
+
+(tn, θ ) ≈ 1
+
+T
+
+Z T
+
+> 0
+
+eLPINN  
+
+> res
+
+(t, θ )dt ≈ 1
+
+T
+
+1
+
+|Ω|
+
+Z T
+
+> 0
+
+Z
+
+> Ω
+
+|Ut(t, x ; θ) + N [U ]( t, x ; θ)|2dxdt 
+
+≈ 1
+
+NrNrX
+
+> j=1
+
+|Ut(tjr , x jr ; θ) + N [U ]( tjr , x jr ; θ)|2 = LPINN  
+
+> res
+
+(θ)
+
+Unfortunately, this issue is not uncommon when applying PINNs to time-dependent PDEs, as evidenced by a growing body of recent research [23–29]. In these cases, the accuracy of the solution deteriorate as the time variable increases, leading to increasingly inaccurate predictions as time progresses. This becomes particularly problematic in systems where the target solution exhibits a substantial dependency on the initial conditions, such as those found in chaotic systems. Therefore, it is crucial to develop methods that adequately account for temporal causality. By doing so, we can ensure consistently accurate predictions over the entire time domain. 53. Causality-enforced evolutional networks (CEENs) 
+
+In this section, we propose causality-enforced evolutional networks to enforce the sequential learning and its parallelization to enhance the computational efficiency, followed by a detailed analysis of the proposed method. 
+
+3.1. Methodology of CEENs 
+
+We present a method for solving time-dependent PDEs that incorporates temporal causality into its formulation. We call this method the causality-enforced evolutional network (CEEN). As highlighted in many studies, integrating the concept of temporal causality into model construction when solving time-dependent PDEs is critical. Our proposed model addresses this requirement by assigning distinct neural networks at each time step and sequentially training them, beginning from the initial time step. More specifically, we divide the temporal domain [0 , T ] into N equidistant subintervals 0 = t0 < t 1 <
+
+· · · < t N = T . At each time step t = tn, we assign a neural network model U n(x; θn) with its unique parameter 
+
+θn to approximate u(tn, x ). The loss function used to train the designated neural network U n(x; θn) is derived from the governing physical law within the subinterval [tn−1, t n]. To provide a detailed account, consider the integral form of the governing equation (1) over a subinterval [tn−1, t n]:
+
+u(tn, x ) = u(tn−1, x ) −
+
+Z tn
+
+> tn−1
+
+N [u]( t, x )dt. (6) Linear multi-step methods in the classical numerical methods depend on the choice of the approximation of the integral in (6). For better illustration, from now on, we assume to use the trapezoidal rule to approximate the integral: Z tn
+
+> tn−1
+
+N [u]( t, x )dt = 12 h N [u]( tn−1, x ) + N [u]( tn, x ) + N [u]tt (t∗, x )12 h3 (7) where t∗ ∈ [tn−1, t n] and h = T /N . Combining equation (7) with the initial and boundary conditions ((2) and (3)), we derive the relationships between the neural networks for n = 1 , 2, · · · , N as follows: 
+
+U 0(x; θ0) = g(x) for x ∈ Ω,
+
+B[U n]( x; θn) = 0 for x ∈ ∂Ω.
+
+U n(x; θn) = U n−1(x; θn−1) − 12 h N [U n−1]( x; θn−1) + N [U n]( x; θn) for x ∈ Ω,(8) The loss function of CEEN is then designed to ensure that the designated networks satisfy (8) at each time step tn, n = 1 , 2, · · · , N :
+
+LCEEN (θ) = LCEEN  
+
+> ic
+
+(θ) + LCEEN  
+
+> bc
+
+(θ) + LCEEN  
+
+> res
+
+(θ)
+
+6where the components of the loss function are defined as: 
+
+LCEEN  
+
+> ic
+
+(θ) = 1
+
+NxNxX
+
+> j=1
+
+|U 0(xj ; θ0) − g(xj )|2,
+
+LCEEN  
+
+> bc
+
+(θ) = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+1
+
+NbNbX
+
+> j=1
+
+B[U n]( xjbc , θ n)2 =: 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+eLCEEN  
+
+> bc
+
+(tn, θ n),
+
+LCEEN  
+
+> res
+
+(θ) = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+1
+
+NxNxX
+
+> j=1
+
+U n(xj ; θn) − U n−1(xj ; θn−1)
+
+h + 12
+
+ N [U n−1]( xj ; θn−1) + N [U n]( xj ; θn) 2
+
+=: 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+eLCEEN  
+
+> res
+
+(tn, θ n, θ n−1).
+
+(9) 
+
+{xj }Nx 
+
+> j=1
+
+and {xjbc }Nbc  
+
+> j=1
+
+denote sampled points to approximate L2 norm on Ω and ∂Ω, respectively. The loss functions eLCEEN  
+
+> bc
+
+(t, θ n) and eLCEEN  
+
+> res
+
+(t, θ n, θ n−1) in (9) represent the boundary and residual losses of CEEN at each time step t = tn, n = 1 , 2, · · · , N .In contrast to PINN, our method does not seek to minimize the total loss LCEEN (θ) over the entire time domain. Instead, to account for temporal causality, we prioritize sequential network training, beginning from the initial time step. Accordingly, we split the loss function LCEEN (θ) into: 
+
+LCEEN (θ) = LCEEN  
+
+> 0
+
+(θ0) + 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+LCEEN  
+
+> n
+
+(θn, θ n−1)
+
+where 
+
+LCEEN  
+
+> 0
+
+(θ0) = LCEEN  
+
+> ic
+
+(θ)
+
+LCEEN  
+
+> n
+
+(θn, θ n−1) = eLCEEN  
+
+> bc
+
+(tn, θ n) + eLCEEN  
+
+> res
+
+(tn, θ n, θ n−1).
+
+We can enforce the sequential network training by systematically minimizing the loss function LCEEN 
+
+> n
+
+in ascending order of n = 0 , 1, · · · , N . More specifically, we initiate by training θ0 to decrease LCEEN  
+
+> 0
+
+(θ0)
+
+until it drops below a specified tolerance, ϵ > 0. Once we identify the optimal parameter θ0 satisfying the condition LCEEN  
+
+> 0
+
+(θ0) < ϵ , we stop training θ0. We move on to train θ1 to minimize LCEEN  
+
+> 1
+
+(θ1, θ 0) until we identify θ1 that satisfies the condition LCEEN  
+
+> 1
+
+(θ1, θ 0) < ϵ . Note that the value of θ0 remains constant while θ1
+
+is being trained, implying that the past state U 0 is unaffected by the current state U 1. After identifying the optimal parameter θ1, we proceed to find θ2 such that LCEEN  
+
+> 2
+
+(θ2, θ 1) < ϵ . We continue this iterative process until we obtain the final trained parameter θN satisfying LCEEN  
+
+> N
+
+(θN , θ N −1) < ϵ . This training procedure sequentially reduces the residual loss at each time step, unlike PINN, thereby ensuring that the solution respects the temporal causality. 
+
+3.2. Enhancing CEENs with Parallelization 
+
+The total number of neural networks required for training is N + 1 = T /h + 1 , which can be quite large for a long time T or small time step size h. While training each neural network over a short time interval is generally quicker than training the original PINN over the whose time domain, the process could still demand considerable computational resources. To mitigate these computational demands, we propose a parallelization algorithm. This approach enables us to simultaneously train M successive neural networks 7instead of adhering to the traditional method of training a single neural network for each time step. To be concrete, in the beginning of the training process, we train the networks U 0, U 1, · · · , U M −1 instead of solely training U 0. In this case, the loss function LCEEN   
+
+> 0: M−1
+
+of their parameters θ0, θ 1, · · · , θ M −1 is the sum of 
+
+LCEEN  
+
+> 0
+
+, LCEEN  
+
+> 1
+
+, · · · , LCEEN   
+
+> M−1
+
+, i.e., 
+
+LCEEN  
+
+> 0: M−1
+
+(θ0, θ 1, · · · , θ M −1) = LCEEN  
+
+> 0
+
+(θ0) +  
+
+> M−1
+
+X
+
+> k=1
+
+LCEEN  
+
+> k
+
+(θk, θ k−1).
+
+In order to use gradient-based optimization methods, we require its gradient: 
+
+∇(θ0,θ 1,··· ,θ M −1)LCEEN   
+
+> 0: M−1
+
+= ∇θ0 LCEEN  
+
+> 0
+
++ 
+
+> M−1
+
+X
+
+> k=1
+
+∇(θk ,θ k−1)LCEEN  
+
+> k
+
+,
+
+which can be calculated in parallel by concurrently computing each gradient term across multiple GPU cores. As a result, the computational cost of training multiple networks becomes comparable to that of training a single network, with a decrease in the total number of required epochs, consequently reducing the computational cost. It is important to note that we must account for temporal causality during parallel training. For example, should LCEEN  
+
+> 1
+
+(θ1, θ 0) < ϵ be achieved before LCEEN  
+
+> 0
+
+(θ0) < ϵ , it would be incorrect to stop the training of θ1
+
+before the completion of θ0 training, as this would violate temporal causality. Therefore, we initially optimize the loss LCEEN   
+
+> 0: M−1
+
+until LCEEN  
+
+> 0
+
+(θ0) is sufficiently reduced. Once we find θ0 that makes LCEEN  
+
+> 0
+
+(θ0) < ϵ , we stop training for the parameter θ0 and focus on minimizing the subsequent loss function LCEEN  
+
+> 1: M−1
+
+:
+
+LCEEN  
+
+> 1: M−1
+
+(θ1, θ 2, · · · , θ M −1) = LCEEN  
+
+> 1
+
+(θ1, θ 0) +  
+
+> M−1
+
+X
+
+> k=2
+
+LCEEN  
+
+> k
+
+(θk, θ k−1).
+
+Upon finding θ1 satisfying LCEEN  
+
+> 1
+
+(θ1, θ 0) < ϵ , we stop the training of θ1, and then proceed to minimize the loss function LCEEN  
+
+> 2: M−1
+
+, which comprises the remaining loss functions. This iterative process continues until we find θM −1 satisfying LCEEN   
+
+> M−1
+
+(θM −1, θ M −2) < ϵ . The training of the next set of neural networks of size M
+
+then follows the same pattern. 
+
+Remark. As described in the above parallelization strategy, it is crucial to maintain a sequential order even when training M networks simultaneously. This constraint introduces additional overhead, explaining why the computational cost doesn’t scale linearly as M increases as demonstrated in Section 4. A large M
+
+may be constrained by the GPU resources. Consequently, the optimal selection of M must be determined heuristically, considering the available GPU capacity. 3.3. Analysis on CEENs 
+
+In this subsection, we discuss a detailed analysis of the proposed method such as the error bound of the solution at each subinterval, the training of initial condition, memory efficiency, and comparison with the conventional numerical methods. 
+
+The choice of time step size and tolerance. The time step size h and the tolerance ϵ are important hyperparameters for the accuracy of the prediction, with the potential to introduce significant errors at each 8time step if chosen incorrectly. Specifically, a large time step size h can result in considerable approximation errors, which are proportional to h2 due to the trapezoidal rule. Conversely, setting the tolerance ϵ too high may lead to substantial errors in the predicted solution stemming from insufficient training. Note that the exact solution over a subinterval [tn−1, t n] should satisfy the following equation, which can be derived from (6) and (7), 
+
+u(tn, x ) − u(tn−1, x ) + 12 h(N [u]( tn−1, x ) + N [u]( tn, x ) + N [u]tt (t∗, ·)12 h3 = 0 .
+
+Since U n(x; θn) with parameters θn represents the solution at tn satisfying the equation (8), we can obtain the following L2 error: 
+
+∥U n − U n−1 + 12 h(N [U n−1] + N [U n]) + N [u]tt (t∗, ·)12 h3∥L2(Ω) 
+
+≤ ∥ U n − U n−1 + 12 h(N [U n−1] + N [U n]) ∥L2(Ω) + 112 h3∥N [u]tt (t∗, ·)∥L2(Ω) 
+
+≈
+
+h |Ω|
+
+NxNxX
+
+> i=1
+
+U n(xi; θn) − U n−1(xi; θn−1) + 12 h N [U n−1]( xi; θn−1) + N [U n]( xi; θn) 2i1/2
+
++ 112 h3∥N [u]tt (t∗, ·)∥L2(Ω) 
+
+≤ | Ω|1/2(LCEEN  
+
+> n
+
+)1/2h + 112 h3∥N [u]tt (t∗, ·)∥L2(Ω) 
+
+≤ | Ω|1/2ϵ1/2h + 112 h3∥N [u]tt (t∗, ·)∥L2(Ω) =: e1(ϵ, h ) + e2(h)
+
+(10) where e1(ϵ, h ) := |Ω|1/2ϵ1/2h and e2(h) := 112 h3∥N [u]tt (t∗, ·)∥L2(Ω) . Note that the error over a subinterval 
+
+[tn−1, t n] consists of two terms, e1(ϵ, h ) and e2(h). e1(ϵ, h ) represents the training loss, dependent on ϵ and h,while e2(h) accounts for the consistency error of the trapezoidal rule, dependent on h. A large value of ϵ can lead to a significant e1(ϵ, h ) error at each time step. Conversely, choosing a small ϵ may not be advantageous either. Despite a small ϵ leading to a lower value of e1, it could entail an increased training cost to bring LCEEN 
+
+> n
+
+below ϵ at each time step. Given that the error e2 is inevitably incurred by the trapezoidal approximation, choosing an ϵ that significantly reduces e1 below e2 is unnecessary. Ideally, ϵ should be selected to satisfy 
+
+e1(ϵ, h ) ≈ e2(h). However, this principle might not always be practical as the value of ∥N [u]tt (t∗, ·)∥L2(Ω) 
+
+is generally unknown. Regardless, this principle can still offer valuable guidance for choosing ϵ as the time step size h varies. The error bound, characterized by two components e1 and e2, reveals the order of the accuracy with respect to the time step size and tolerance. If ϵ is sufficiently small such that e1’s impact on total error is minor, then the error is dominated by e2. This suggests a second-order accuracy with respect to h, consistent with expectations from the Trapezoidal rule. Conversely, when h is reduced to a point where e2’s effect on the error is minimal, e1 becomes the main contributor to the error, indicating a half-order accuracy in terms of ϵ. The validation of this relationship will be examined in Section 4.3, providing empirical support for these theoretical assertions. 
+
+The training of initial condition. One crucial aspect of the method that requires careful consider-ation is the training of the initial condition (2). Note that a small value of LCEEN  
+
+> 0
+
+does not automatically 9ensure an accurate approximation of N [g] by N [U 0], which appears in LCEEN  
+
+> 1
+
+. This is primarily because the differential operator N is generally not a continuous linear operator. In other words, the following inequality with some constant C > 0 does not hold in general: 
+
+∥N [U 0] − N [g]∥L2(Ω) ≤ C∥U 0 − g∥L2(Ω) 
+
+This can lead to significant errors when calculating LCEEN  
+
+> 1
+
+as N [U 0] may deviate from N [g]. The initial condition loss and residual loss at t = 0 in Figure 1-(b,c) effectively capture this phenomenon. To address this issue, we propose to utilize the modified loss of LCEEN  
+
+> 0
+
+incorporating the derivatives: 
+
+LCEEN  
+
+> 0
+
+(θ) = 
+
+> K
+
+X
+
+> k=0
+
+1
+
+NxNxX
+
+> j=1
+
+|DkU 0(xj ; θ0) − Dkg(xj )|2, (11) where Dku denotes the list of all k-th order partial derivatives of u and N is assumed to be the Lipschitz function of u, Du , D2u,· · · ,DK u. This adjustment ensures that a small value of LCEEN  
+
+> 0
+
+corresponds to a more accurate approximation of N [g] by N [U 0]. For implementing this formulation, we assume that precise knowledge of the initial conditions or data on their derivatives is available. 
+
+Memory efficiency. The memory efficiency of CEENs is superior compared to PINNs, attributed to several reasons. Firstly, unlike PINNs that aim to model solutions across the entire spatio-temporal domain, CEENs focus on modeling solutions within a short temporal domain, thus leveraging smaller networks. This implies that the number of parameters to be updated during the training of CEEN is significantly lower compared to PINNs. Secondly, while PINNs’ training utilizes points spanning the entire spatio-temporal domain, CEENs employ fewer training points, confined to a short temporal domain. Additionally, CEENs avoid the usage of automatic differentiation in the time direction, resulting in a further decrease in memory usage. Therefore, CEEN demands considerably less memory for gradient computation in updating parameters compared to PINN. While PINN occupies the GPU with the update of numerous parameters, CEEN pro-cesses parameter updates swiftly, even within constrained GPU environments. This memory efficiency po-tentially makes large-scale simulations of complex problems feasible, which might prove challenging or even unachievable when using PINNs. 
+
+Maximum training epoch. There may be instances when LCEEN  
+
+> n
+
+cannot be minimized to the desired extent. To this end, we introduce the maximum number of training epochs, denoted by E, to prevent excessive iterations so that the training of θn is finished even if LCEEN  
+
+> n
+
+< ϵ is not achieved. If the loss is not sufficiently reduced over many consecutive time steps, errors can accumulate and negatively affect the accuracy of the overall solution. In this case, we should consider a change in the architecture of the neural network as it may not be suitable to represent the solution. For example, for modeling high-frequency solutions, we can consider using a Fourier feature network [5, 43]. 
+
+Comparison with classical numerical methods The proposed method is similar to classical nu-merical methods for solving time-dependent PDEs in the sense that it sequentially computes the solution 10 at each time step. However, CEEN presents several advantages over these classical methods. Firstly, CEEN can precisely compute the spatial derivatives of the solution. In contrast, conventional mesh-based numer-ical methods often require the dense placement of spatial points to achieve the desired accuracy in spatial derivatives. CEEN, by leveraging a neural network for each time step, facilitates the exact computation of derivatives via automatic differentiation, thereby eliminating approximation errors common in traditional methods. Secondly, CEEN offers flexibility in the positioning of spatial points. Traditional numerical meth-ods might necessitate specific arrangements of spatial points to ensure accurate computation of derivatives, a restriction CEEN does not impose. This adaptability proves advantageous, particularly in scenarios where data is only available at certain locations within the spatial domain. Thirdly, after training on specific spa-tial points, the solution at any arbitrary point in CEEN can be instantly obtained with a single forward pass through the trained network. This feature significantly enhances the efficiency and applicability of the method, providing immediate solutions at any desired location. Finally, leveraging automatic differentia-tion for the precise calculation of spatial derivatives enables us to overcome traditional constraints on time step and spatial grid sizes mandated by classical methods for stability, such as the Courant-Friedrichs-Lewy (CFL) condition. This advantage allows for the selection of time step sizes independent of grid dimensions. However, unlike classical methods that have established convergence analyses, such as the Lax Equivalence Theorem, an equivalent convergence analysis for PINNs, addressing aspects like generalization error, is not yet available. This area, requiring a more profound understanding of PINNs, remains beyond the scope of this paper but represents a significant avenue for future research. A schematic diagram representing CEEN is shown in Figure 2. Algorithm 1 summarizes the proposed method outlined above. 
+
+Algorithm 1 Causality-enforced evolutional network (CEEN) 
+
+Input: Maximum epoch E, Number of networks computed in parallel M , tolerance ϵ, learning rate η. 
+
+> 1:
+
+Initialize θ = ( θ0, θ 1, · · · , θ N ) and m = 0  
+
+> 2:
+
+repeat  
+
+> 3:
+
+for n = m, m + 1 , · · · , m + M − 1 do  
+
+> 4:
+
+LCEEN  
+
+> n:m+M−1
+
+(θn, θ n+1 , · · · , θ m+M −1) = LCEEN  
+
+> n
+
+(θn, θ n−1) + Pm+M −1 
+
+> k=n+1
+
+LCEEN  
+
+> k
+
+(θk, θ k−1) 
+
+> 5:
+
+while LCEEN  
+
+> n
+
+(θn, θ n−1) < ϵ do  
+
+> 6:
+
+(θn, θ n+1 , · · · , θ n+M −1) = ( θn, θ n+1 , · · · , θ n+M −1) − η∇(θn,θ n+1 ,··· ,θ n+M −1)LCEEN   
+
+> n:m+M−1
+> 7:
+
+if LCEEN  
+
+> n
+
+< ϵ is not achieved for E epochs then  
+
+> 8:
+
+break  
+
+> 9:
+
+Save the parameter θn as θn 
+
+> 10:
+
+m = m + M 
+
+> 11:
+
+until All network parameters are trained 
+
+Output: Trained parameters θ0, θ 1, · · · , θ N
+
+4. Numerical results 
+
+We demonstrate the effectiveness of our proposed CEEN algorithm for solving a range of time-dependent PDEs over long time intervals. Specifically, we apply our method to the Korteweg-De Vries (KdV), Schrödinger, convection, and Allen-Cahn equations. The performance of our method is then compared to that of the 11 Figure 2: Schematic of CEEN. The temporal domain is discretized into subintervals, with a neural network assigned to each time step. The solution is obtained by sequentially training each network, beginning from the initial time. This approach reflects temporal causality in the training process. Table 1: Relative errors of CEEN and PINN at the final time t = 5 for four PDE problems. 
+
+Example Relative error CEEN PINN KdV 5.314e-3 1.237e-0 Schrödinger 4.793e-3 2.346e-1 Convection 5.465e-3 1.000e-0 Allen-Cahn 4.222e-2 1.394e-0 PINN. As summarized in Table 1, our algorithm (CEEN) consistently delivers higher accuracy at the final time t = 5 across all these problems compared to PINN. This underscores the superior performance of our proposed method. We compute reference solutions utilizing the py-pde package [44], with a time step size of 1e-7. The prediction of both CEEN and PINN are compared against these reference solutions. Across all problems, parameters are initialized via the Glorot normal scheme, the activation function is set as hyperbolic tangent, and the maximum training epochs are capped at E = 100,000. For each problem, the value of K in (11), which is employed to learn the initial condition, is set to be the highest order of the derivative present in the associated differential operator N . All networks are trained through the Adam optimizer with β =(0 .999 , 0.999) , a configuration providing stable learning [45]. For all problems except Allen-Cahn problem, we enforce periodic boundary conditions as hard constraints by utilizing an appropriate Fourier features embedding of the input as outlined in [42]. 
+
+4.1. KdV equation 
+
+The first example aims to demonstrate the proposed method’s capability to address PDEs characterized by high order derivatives and dispersive nonlinearity. For this purpose, we consider the KdV equation, a mathematical model representing shallow water surface waves and ionic acoustic waves in plasmas. The KdV 12 (a)        
+
+> (b)
+> Figure 3: KdV equation: Comparison of the prediction of CEEN and PINN against the reference solution. (a) displays the prediction across the entire spatio-temporal domain. (b) displays it at three different times: t= 1 ,3,5. CEEN agrees well with the reference in the entire domain while PINN exhibits a less accurate approximation of the solution even at an earlier time
+> t= 1 .
+
+equation takes the form 
+
+ut + uu x + 0 .0025 uxxx = 0 , for t ∈ [0 , 5] , x ∈ [−1, 1] 
+
+u(0 , x ) = cos πx, u(t, −1) = u(t, 1) ,ux(t, −1) = ux(t, 1) .
+
+(12) To apply our method, we discretize the time domain with a time step size h = 1e-2. A fully-connected network with two hidden layers, each containing 16 neurons, is utilized to model the solution U i(x; θi) at each time step ti. We select Nx = 151 equidistant points on the spatial domain and set the tolerance to 
+
+ϵ = 1e-4. The values of K and M used are 3 and 5, respectively. For a fair comparison of our method with PINN, we design the architectures for PINN so that both PINN and CEEN have nearly the same number of parameters. Specifically, our method uses 501 neural networks, each consisting of 465 parameters, resulting in a total of 232,965 parameters. The PINN model, on the other hand, is constructed with a fully-connected network with two hidden layers each containing 480 neurons. In total, the PINN model has 237,121 parameters. As shown in Figure 3, our proposed method accurately predicts the solution, demonstrating its efficiency in solving long-time integration of the PDE by respecting temporal causality. Conversely, PINN fails to 13 (a) (b) 
+
+> Figure 4: Residual losses of CEEN and PINN for the KdV equation (12). (a) Epoch vs residual loss (b) Time vs residual loss.
+
+produce an accurate prediction even at earlier time, e.g., t = 1 as shown in Figure 3-(b). The residual loss of PINN at t = 0 , denoted as eLPINN  
+
+> res
+
+(0; θ), stalls after a certain epoch as displayed in Figure 4-(a), while that of PINN at t = 1 , eLPINN  
+
+> res
+
+(1; θ), continues to decrease. This suggests that PINN trains the solutions at later time steps even when the solution at earlier time steps are insufficiently trained, violating temporal causality. In contrast, CEEN decreases the residual losses, eLCEEN  
+
+> res
+
+(t; θ), to the tolerance ϵ = 1e-4 at both 
+
+t = 0 and 1. Figure 4-(b) displays the residual losses of PINN and CEEN at each time. Notably, despite PINN having low residual loss across most of the time domain, it fails to predict a solution due to the high loss in the initial time step. Our sequential learning strategy effectively mitigates this issue by reducing the residual loss at each step sequentially from the initial time step. 
+
+4.2. Schrödinger equation 
+
+We next consider the Schrödinger equation, which governs a nonlinear wave propagation in quantum mechanical systems. It takes the form: 
+
+iψ t + 0 .5ψxx + |ψ|2ψ = 0 , for t ∈ [0 , 5] , x ∈ [−5, 5] ,ψ(0 , x ) = 2 sech x, ψ(t, −5) = ψ(t, 5) ,ψx(t, −5) = ψx(t, 5) .
+
+(13) In fact, if u and v denote the real and imaginary parts of ψ, respectively, they satisfy the following coupled governing equations. 
+
+ut + 0 .5vxx + v(u2 + v2) = 0 ,vt − 0.5uxx − u(u2 + v2) = 0 .
+
+To apply our method, we discretize the time domain with the step size h = 1e-2. The solutions u and 
+
+v are jointly represented at each time step using a fully connected neural network with two outputs. The architecture of the network includes two hidden layers, each containing 16 neurons. We use Nx = 501 
+
+equidistant points as sampled points on the spatial domain and the tolerance is ϵ = 1e-5. The chosen values for K and M are 2 and 2, respectively. The setting for PINN method is established in a similar way as outlined in the previous examples. 14 (a) 
+
+> (b)
+
+Figure 5: Schrödinger equation: Comparison of the prediction of CEEN and PINN against the reference solution. (a) displays the prediction across the entire spatio-temporal domain. (b) displays it at three different times: t = 1 , 3, 5. CEEN agrees well with the reference in the entire domain while PINN closely approximates the solution at an earlier time t = 1 . However, discrepancies between PINN predictions and the reference solution become apparent at later times t = 3 and t = 5 . 
+
+> (a) (b)
+
+Figure 6: Residual losses of CEEN and PINN for the Schrödinger equation (13). (a) Epoch vs residual loss (b) Time vs residual loss. 
+
+15 (a)       
+
+> (b)
+> Figure 7: Convection equation: Comparison of the prediction of CEEN and PINN against the reference solution. (a) displays the prediction across the entire spatio-temporal domain. (b) displays it at three different times: t= 0 .25 ,0.5,5. CEEN agrees well with the reference in the entire domain while PINN fails to approximate the solution.
+
+The results are shown in Figure 5 where our method shows good agreement with the reference solution across the whole spatio-temporal domain. However, while PINN’s predictions shows good agreement up to around t = 1 , they start to deviate from the reference solution after t = 1 . Figure 6-(a) shows that 
+
+eLPINN  
+
+> r
+
+(1; θ) remains high while eLPINN  
+
+> r
+
+(2; θ) is sufficiently reduced and remains low during training. This indicates a violation of temporal causality, as the solution at t = 2 appears to be settled before the solution at t = 1 has been adequately trained. On the other hand, the residual losses of CEEN are sufficiently reduced at both t = 1 and 2 to the prescribed threshold ϵ = 1e-5. Figure 6-(b) demonstrates that CEEN achieves a satisfactory reduction of residual losses across the entire time domain while the residual losses of PINN remain noticeably elevated near t = 1 .
+
+4.3. Convection equation 
+
+In this section, we consider the convection equation of the form: 
+
+ut + 15 ux = 0 , for t ∈ [0 , 5] , x ∈ [0 , 2π],u(0 , x ) = sin x, u(t, 0) = u(t, 2π)
+
+ux(t, 0) = ux(t, 2π).
+
+(14) 16 Figure 8: Relative errors of CEEN and PINN for the convection equation (14). Shaded area is a standard deviation band for the prediction of CEEN obtained by running ten independent simulations. 
+
+The exact solution for the convection problem can be easily obtained: 
+
+u(x, t ) = sin( x − 15 t). (15) We compare two methods, PINN and CEEN, with the exact solution (15). In CEEN, we discretize the time domain with the time step size h = 2.5e-3. We use Nx = 32 equidistant points on the spatial domain Ω as the collocation points and the tolerance is ϵ = 1e-5. The solution at each time step is represented using a fully-connected neural network. The architecture of the network includes two hidden layers, each containing 15 neurons. The chosen values for K and M used are 1 and 10, respectively. The setting for PINN is established in a similar manner to that described in the previous example. The results are summarized in Figure 7, which shows good agreement between our prediction and the reference solution. However, the PINN model falls short, failing to accurately predict the solution even at an earlier time, such as t = 0 .25 , as shown in Figure 7-(b). Figure 8 illustrates that the relative errors of PINN and FDM are much higher than that of CEEN. Next, we investigate the relationship between the relative error of the predicted solution at the final time and factors such as the time step size h or the tolerance ϵ. As derived in (10), the error of our method consists of two terms e1(ϵ, h ) = |Ω|1/2ϵ1/2h and e2(h) = 112 h3∥N [u]tt (t∗, ·)∥L2(Ω) , representing the training loss and the consistency error, respectively. We expect that the second order accuracy with respect to h
+
+is attained as e1(ϵ, h ) has a negligible contribution to the overall error due to a small value of ϵ. Indeed, Figure 9-(a) confirms this, demonstrating a second-order accuracy in time for sufficiently small tolerance ϵ.Alternatively, we expect that the error with respect to ϵ has the order of 1/2, the exponent of ϵ in e1(ϵ, h ), as 
+
+e2(h)’s contribution to the error becomes negligible with a sufficiently small h. Indeed, Figure 9-(b) verifies that, for a sufficiently small time step size h = 0 .0025 , our method achieves the error of the order of 1/2.
+
+4.4. Allen-Cahn equation 
+
+Our final example deals with the Allen-Cahn equation to highlight the capability of our proposed method in solving phase field models. This equation is commonly used in the area of reaction-diffusion systems which characterizes the phase separation process in multi-component alloy systems. The governing equation for 17 (a) (b)              
+
+> Figure 9: Relative error of our method at final time (T= 5) for different time step sizes hand tolerances ϵfor the convection equation (14). (a) Time step size vs relative error. The second order of accuracy with respect to the time step size his achieved for sufficiently small tolerance ϵ. (b) Tolerance vs relative error. 1/2 order of accuracy with respect to the tolerance ϵis achieved for sufficiently small h.
+
+this system can be expressed as follows: 
+
+ut − 0.0001 uxx + 5 u3 − 5u = 0 , for t ∈ [0 , 5] , x ∈ [−1, 1] 
+
+u(0 , x ) = x2 cos πx, u(t, −1) = u(t, 1) ,ux(t, −1) = ux(t, 1) .
+
+(16) To implement our method to solve this equation, we discretize the time domain with the step size h = 1e-2. A fully-connected neural network with two hidden layers, each containing 32 neurons, is used to represent the solution at each time step. We use Nx = 201 equidistant points sampled points and the tolerance is 1e-6. The chosen values for K and M are 2 and 5, respectively. The setting for PINN method is established in a similar manner to that described in the previous examples. Figure 10 shows the comparison of CEEN and PINN against the reference solution. The prediction of our method agrees very well with the reference solution over the entire domain while PINN fails to learn the solution even at earlier time. Our method effectively captures the discontinuity in the solution. Figure 11 show the relative error of CEEN and PINN over time with CEEN consistently outperforming PINN, thereby underscoring its superior effectiveness. 
+
+5. Conclusion 
+
+In this study, we have developed and demonstrated a novel sequential learning strategy, termed as CEEN, designed to solve long-time integration of PDEs. We achieved this by dividing the time domain into non-overlapping subintervals, assigning a unique neural network to each subinterval, and constructing a loss function based on the integral form of PDEs within these subintervals. Then, we enforced a sequential training, beginning with the initial time step. Throughout the application of our method to various PDE problems, including the Korteweg-de Vries (KdV) equation, Schrödinger equation, convection equation, and Allen-Cahn equation, we have consistently observed superior performance compared to the PINN. In particular, our method demonstrated remarkable 18 (a) 
+
+> (b)
+
+Figure 10: Allen-Cahn equation: Comparison of the prediction of CEEN and PINN against the reference solution. (a) displays the prediction across the entire spatio-temporal domain. (b) displays it at three different times: t = 0 .5, 1.5, 5. CEEN agrees well with the reference in the entire domain while PINN fails to approximate the solution. 
+
+Figure 11: Relative errors of CEEN and PINN for the Allen-Cahn equation (16). Shaded area is a standard deviation band for the prediction of CEEN obtained by running ten independent simulations. 
+
+19 agreement with reference solutions across entire spatio-temporal domains. Furthermore, the parallel training showed a significant computational speedup, making it an efficient choice for complex problems. We have also demonstrated the second-order accuracy with respect to the time step and the half-order accuracy with respect to the tolerance. These findings validate the theoretical error analysis and provide insights into the accuracy of our method. However, more comprehensive error analysis will be left for future work. While we have used the trapezoidal rule as one of many potential linear-multistep methods for formulating the loss function, the flexibility of our approach allows for the straightforward incorporation of any other linear-multistep methods, such as Adams-Moulton methods, for loss function construction. This extensibility opens up avenues for further research. High-order methods, for example, are anticipated to accommodate larger time steps and ensure high-order accuracy, which will be investigated in future work. 
+
+Acknowledgments 
+
+This work was supported by the National Research Foundation of Korea [NRF-2021R1C1C1007875]. 
+
+Appendix A. Comparison between CEEN and classical numerical method 
+
+In this Appendix, we conduct a comparison between CEEN and classical numerical methods, focusing on the convection equation discussed in Section 4.3. The presence of a closed-form solution for this equation enables the precise calculation of accuracy. We select the Finite Difference Method (FDM) as the classi-cal numerical method for comparison, using the same time-integrator, the Trapezoidal discretization, as employed in CEEN to ensure a fair comparison. For spatial discretization, a centered difference scheme is utilized. It is noteworthy that the selected FDM is absolute stable [46] and achieves second-order accuracy both in space and time. For CEEN, we choose the same training configuration as detailed in Section 4.3. The parameters used for this comparison are summarized in Table 2. 
+
+> Table 2: CEEN parameters for the convection equation
+
+Architecture Training NN shape [2,15,15,1] optimizer Adam activation sin learning rate 10 −3
+
+M 10 optimizer parameters β = (0 .999 , 0.999) 
+
+K 1 ϵ 10 −5
+
+Maximum iteration 100 , 000 
+
+Firstly, we fix the number of time steps as Nt = 2001 (equivalent to dt = 0 .0025 ) and vary the number of spatial grids ( Nx) to analyze how the error behaves with respect to Nx. Figure 12-(a) illustrates the relative 
+
+L2 error at the final time t = 5 for both FDM and CEEN. FDM exhibits second-order accuracy with respect to Nx due to its spatial discretization, achieving an error of 10 −2 with Nx = 512 . Conversely, the error of CEEN shows independence of the number of spatial grids, thanks to its precise computation of spatial derivatives through automatic differentiation, as discussed in Section 3.3. Notably, CEEN achieves a lower error with just Nx = 16 compared to FDM even with Nx = 512 . Figure 12-(b) compares the prediction of CEEN and FDM with Nx = 32 at three different times: t = 0 .25 , 2.5 and 5. FDM successfully approximates 20 the solution at the early time = 0 .25 , but struggles to accurately approximate the solution at later times. However, CEEN predicts the solution accurately at all times.         
+
+> (a) (b)
+> Figure 12: Comparison of CEEN and finite difference method (FDM). (a) Relative errors at the final time t= 5 vs. Nx. (b) Predictions of solution with Nx= 32 at three different times.
+
+Secondly, we present a quantitative analysis comparing the relative errors of FDM and CEEN with respect to the time step size dt (equivalent to the number of temporal steps Nt). Figure 13 illustrates the relative L2 error at the final time t = 5 for both FDM (left panel) and CEEN (right panel). For FDM, when Nx is low, we observe that the error decreases and then plateaus as dt decreases, indicating that the error due to spatial discretization becomes predominant. However, with large number of spatial grids such as 
+
+Nx = 512 , the error exhibits second-order accuracy in relation to dt , a direct result of the Trapezoidal rule. This behavior illustrates a well-recognized phenomenon in traditional numerical methods, where the error is influenced by the ratio of dt and dx . Conversely, the error for CEEN consistently achieves second-order accuracy in relation to dt , independent of the number of spatial grids, as discussed in Section 3.3.         
+
+> (a) (b)
+> Figure 13: Relative L2errors vs. dt at the final time t= 5 for FDM (a) and CEEN (b).
+
+Appendix B. Computational cost and accuracy 
+
+Here we investigate the computational cost of CEEN compared with that of PINN. Additionally, we explore the effects of parallelization on the computational efficiency and accuracy within the CEEN frame-work. For consistency and accurate comparison, we employ identical hyperparameter configurations for 21 both CEEN and PINN, as detailed in Section 4, across all four problems under consideration. The specific hyperparameter settings for CEEN are outlined in Table 3. 
+
+> Table 3: CEEN hyperparameters for four PDE problems.
+
+Example Settings Architecture Activation Nx Nt ϵ K
+
+KdV [5,16,16,1] tanh 151 501 10 −4 3Schrödinger [3,16,16,2] tanh 151 101 10 −5 2Convection [2,15,15,1] tanh 101 1001 10 −5 1Allen-Cahn [1,32,32,1] tanh 201 501 10 −5 2
+
+B.1. Computational cost of PINN and CEEN 
+
+In this Appendix, we examine the computational efficiency of the CEEN in a non-parallelized setup (M = 1 ) compared to PINN across four case studies presented in Section 4. CEEN involves training multiple neural networks (NNs) sequentially, with each NN designed to model the solution at a given time step. This modular design allows for each NN in the CEEN framework to be more compact, as it needs to accurately capture solution dynamics over a small time interval. On the other hand, PINN employs a single but significantly larger NN to approximate the solution over the entire spatio-temporal domain. Training a smaller NN, as in the CEEN approach, is inherently faster than training a larger one. Even though CEEN incorporates many NNs, dictated by the number of time steps and the total duration of simulation, Figure 14 demonstrates that CEEN surpasses PINN in computational efficiency for all considered problems. Consequently, CEEN not only reduces computational costs in comparison to PINN but also achieves higher accuracy in long-term simulations of diverse PDE problems, where traditional PINN method fails.  
+
+> Figure 14: Comparison of computational cost between PINN and CEEN ( M= 1 ). y-axis: the ratio of the computation time of CEEN to that of PINN. For all four problems, the computational cost of PINN is much larger than that of CEEN.
+
+B.2. Effects of parallelization on the computational efficiency and accuracy in CEEN 
+
+We investigate the computational efficiency of the CEEN algorithm with parallelization presented in Algorithm 1. We examine the computation times needed to solve each PDE problem in Section 4, utilizing parallelization levels of M = 2 , 5, and 10 , and compare these results to the computation time with M = 1 .22 Figure 15 demonstrates that parallelization reduces computation time. Moreover, it is crucial to highlight that the accuracy of the parallel CEEN , documented in Table 4, remains consistently comparable and does not deteriorate with increasing values of M . This consistency in accuracy underscores the efficacy of the parallel CEEN algorithm, affirming its robustness and effectiveness in computational performance.        
+
+> Figure 15: Comparison of computational cost across different Mvalues in CEEN. y-axis: the ratio of the computation time for the cases in parallel ( M > 1) to that for the case without parallelization ( M= 1 ). Table 4: The relative L2error at final time for four PDE problems across different values of M
+
+Example M1 2 5 10 KdV 2.159e-2 2.433e-2 1.700e-2 2.600e-2 Schrödinger 3.584e-3 3.573e-3 5.080e-3 4.129e-3 Convection 9.232e-3 9.293e-3 9.199e-3 9.204e-3 Allen-Cahn 4.200e-2 3.325e-2 2.229e-2 2.049e-2 
+
+References 
+
+[1] M. Raissi, P. Perdikaris, G.E. Karniadakis, Physics-informed neural networks: A deep learning frame-work for solving forward and inverse problems involving nonlinear partial differential equations, Journal of Computational physics 378 (2019) 686–707. [2] G.E. Karniadakis, I.G. Kevrekidis, L. Lu, P. Perdikaris, S. Wang, L. Yang, Physics-informed machine learning, Nature Reviews Physics 3 (2021) 422–440. [3] S. Wang, Y. Teng, P. Perdikaris, Understanding and mitigating gradient flow pathologies in physics-informed neural networks, SIAM Journal on Scientific Computing 43 (2021) A3055–A3081. [4] S. Wang, X. Yu, P. Perdikaris, When and why pinns fail to train: A neural tangent kernel perspective, Journal of Computational Physics 449 (2022) 110768. [5] S. Wang, H. Wang, P. Perdikaris, On the eigenvector bias of fourier feature networks: From regres-sion to solving multi-scale pdes with physics-informed neural networks, Computer Methods in Applied Mechanics and Engineering 384 (2021) 113938. 23 [6] X. Meng, G.E. Karniadakis, A composite neural network that learns from multi-fidelity data: Applica-tion to function approximation and inverse pde problems, Journal of Computational Physics 401 (2020) 109020. [7] A.D. Jagtap, E. Kharazmi, G.E. Karniadakis, Conservative physics-informed neural networks on discrete domains for conservation laws: Applications to forward and inverse problems, Computer Methods in Applied Mechanics and Engineering 365 (2020) 113028. [8] L. Yang, X. Meng, G.E. Karniadakis, B-pinns: Bayesian physics-informed neural networks for forward and inverse pde problems with noisy data, Journal of Computational Physics 425 (2021) 109913. [9] D. Zhang, L. Lu, L. Guo, G.E. Karniadakis, Quantifying total uncertainty in physics-informed neural networks for solving forward and inverse stochastic problems, Journal of Computational Physics 397 (2019) 108850. [10] L. Yang, D. Zhang, G.E. Karniadakis, Physics-informed generative adversarial networks for stochastic differential equations, SIAM Journal on Scientific Computing 42 (2020) A292–A317. [11] L. Guo, H. Wu, T. Zhou, Normalizing field flows: Solving forward and inverse stochastic differential equations using physics-informed flow models, Journal of Computational Physics 461 (2022) 111202. [12] J. Jung, H. Shin, M. Choi, Bayesian deep learning framework for uncertainty quantification in stochastic partial differential equations, SIAM Journal on Scientific Computing 46 (2024) C57–C76. [13] W. Zhong, H. Meidani, Pi-vae: Physics-informed variational auto-encoder for stochastic differential equations, Computer Methods in Applied Mechanics and Engineering 403 (2023) 115664. [14] S. Karumuri, R. Tripathy, I. Bilionis, J. Panchal, Simulator-free solution of high-dimensional stochastic elliptic partial differential equations using deep neural networks, Journal of Computational Physics 404 (2020) 109120. [15] D. Zhang, L. Guo, G.E. Karniadakis, Learning in modal space: Solving time-dependent stochastic pdes using physics-informed neural networks, SIAM Journal on Scientific Computing 42 (2020) A639–A665. [16] S. Cho, M. Choi, Mgdgan: Multiple generator and discriminator generative adversarial networks for solving stochastic partial differential equations, IEEE Access 10 (2022) 130908–130920. [17] H. Shin, M. Choi, Physics-informed variational inference for uncertainty quantification of stochastic differential equations, Journal of Computational Physics 487 (2023) 112183. [18] I.E. Lagaris, A. Likas, D.I. Fotiadis, Artificial neural networks for solving ordinary and partial differential equations, IEEE transactions on neural networks 9 (1998) 987–1000. [19] M. Dissanayake, N. Phan-Thien, Neural-network-based approximations for solving partial differential equations, communications in Numerical Methods in Engineering 10 (1994) 195–201. [20] M. Abadi, A. Agarwal, P. Barham, E. Brevdo, Z. Chen, C. Citro, G.S. Corrado, A. Davis, J. Dean, M. Devin, S. Ghemawat, I. Goodfellow, A. Harp, G. Irving, M. Isard, Y. Jia, R. Jozefowicz, L. Kaiser, 24 M. Kudlur, J. Levenberg, D. Mané, R. Monga, S. Moore, D. Murray, C. Olah, M. Schuster, J. Shlens, B. Steiner, I. Sutskever, K. Talwar, P. Tucker, V. Vanhoucke, V. Vasudevan, F. Viégas, O. Vinyals, P. Warden, M. Wattenberg, M. Wicke, Y. Yu, X. Zheng, TensorFlow: Large-scale machine learning on heterogeneous systems, 2015. Software available from tensorflow.org. [21] A. Paszke, S. Gross, F. Massa, A. Lerer, J. Bradbury, G. Chanan, T. Killeen, Z. Lin, N. Gimelshein, L. Antiga, A. Desmaison, A. Kopf, E. Yang, Z. DeVito, M. Raison, A. Tejani, S. Chilamkurthy, B. Steiner, L. Fang, J. Bai, S. Chintala, Pytorch: An imperative style, high-performance deep learn-ing library, in: H. Wallach, H. Larochelle, A. Beygelzimer, F. d'Alché-Buc, E. Fox, R. Garnett (Eds.), Advances in Neural Information Processing Systems 32, Curran Associates, Inc., 2019, pp. 8024–8035. [22] J. Bradbury, R. Frostig, P. Hawkins, M.J. Johnson, C. Leary, D. Maclaurin, G. Necula, A. Paszke, J. VanderPlas, S. Wanderman-Milne, Q. Zhang, JAX: composable transformations of Python+NumPy programs, 2018. [23] R. Mattey, S. Ghosh, A novel sequential method to train physics informed neural networks for allen cahn and cahn hilliard equations, Computer Methods in Applied Mechanics and Engineering 390 (2022) 114474. [24] C.L. Wight, J. Zhao, Solving allen-cahn and cahn-hilliard equations using the adaptive physics informed neural networks, arXiv preprint arXiv:2007.04542 (2020). [25] B. Wu, O. Hennigh, J. Kautz, S. Choudhry, W. Byeon, Physics informed rnn-dct networks for time-dependent partial differential equations, arXiv preprint arXiv:2202.12358 (2022). [26] S. Wang, P. Perdikaris, Long-time integration of parametric evolution equations with physics-informed deeponets, Journal of Computational Physics (2022) 111855. [27] S. Wang, S. Sankaran, P. Perdikaris, Respecting causality is all you need for training physics-informed neural networks, arXiv preprint arXiv:2203.07404 (2022). [28] A. Krishnapriyan, A. Gholami, S. Zhe, R. Kirby, M.W. Mahoney, Characterizing possible failure modes in physics-informed neural networks, Advances in Neural Information Processing Systems 34 (2021) 26548–26560. [29] Y. Du, T.A. Zaki, Evolutional deep neural network, Physical Review E 104 (2021) 045303. [30] H. Zheng, Z. Huang, G. Lin, A physics-constrained neural network for multiphase flows, Physics of Fluids 34 (2022) 102102. [31] B. Stevens, T. Colonius, Finitenet: A fully convolutional lstm network architecture for time-dependent partial differential equations, arXiv preprint arXiv:2002.03014 (2020). [32] P. Ren, C. Rao, Y. Liu, J.X. Wang, H. Sun, Phycrnet: Physics-informed convolutional-recurrent network for solving spatiotemporal pdes, Computer Methods in Applied Mechanics and Engineering 389 (2022) 114399. 25 [33] Y. Hu, T. Zhao, S. Xu, Z. Xu, L. Lin, Neural-pde: A rnn based neural network for solving time dependent pdes, arXiv preprint arXiv:2009.03892 (2020). [34] N. Geneva, N. Zabaras, Modeling the dynamics of pde systems with physics-constrained deep auto-regressive networks, Journal of Computational Physics 403 (2020) 109056. [35] J. Qu, W. Cai, Y. Zhao, Learning time-dependent pdes with a linear and nonlinear separate convolu-tional neural network, Journal of Computational Physics 453 (2022) 110928. [36] S. Shit, A.R. Venkatakrishnan, I. Ezhov, J. Lipkova, M. Piraud, B. Menze, Implicit neural solver for time-dependent linear pdes with convergence guarantee, arXiv preprint arXiv:1910.03452 (2019). [37] Z. Li, H. Zheng, N. Kovachki, D. Jin, H. Chen, B. Liu, K. Azizzadenesheli, A. Anandkumar, Physics-informed neural operator for learning partial differential equations, arXiv preprint arXiv:2111.03794 (2021). [38] S. Dong, Z. Li, Local extreme learning machines and domain decomposition for solving linear and nonlinear partial differential equations, Computer Methods in Applied Mechanics and Engineering 387 (2021) 114129. [39] X. Meng, Z. Li, D. Zhang, G.E. Karniadakis, Ppinn: Parareal physics-informed neural network for time-dependent pdes, Computer Methods in Applied Mechanics and Engineering 370 (2020) 113250. [40] A.D. Jagtap, K. Kawaguchi, G.E. Karniadakis, Adaptive activation functions accelerate convergence in deep and physics-informed neural networks, Journal of Computational Physics 404 (2020) 109136. [41] Y.H. Tseng, T.S. Lin, W.F. Hu, M.C. Lai, A cusp-capturing pinn for elliptic interface problems, Journal of Computational Physics 491 (2023) 112359. [42] S. Dong, N. Ni, A method for representing periodic functions and enforcing exactly periodic boundary conditions with deep neural networks, Journal of Computational Physics 435 (2021) 110242. [43] M. Tancik, P. Srinivasan, B. Mildenhall, S. Fridovich-Keil, N. Raghavan, U. Singhal, R. Ramamoorthi, J. Barron, R. Ng, Fourier features let networks learn high frequency functions in low dimensional domains, Advances in Neural Information Processing Systems 33 (2020) 7537–7547. [44] D. Zwicker, py-pde: A python package for solving partial differential equations, Journal of Open Source Software 5 (2020) 2158. [45] C. Ma, L. Wu, E. Weinan, A qualitative study of the dynamic behavior for adaptive gradient algorithms, in: Mathematical and Scientific Machine Learning, PMLR, pp. 671–692. [46] D.R. Durran, Numerical methods for fluid dynamics: With applications to geophysics, volume 32, Springer Science & Business Media, 2010. 26
