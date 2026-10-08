@@ -1,0 +1,1475 @@
+Title: IGA-KAN: Isogeometric Analysis with Physics-Informed Closed-Form Kolmogorov-Arnold Networks for Forward and Inverse PDEs
+
+URL Source: https://arxiv.org/pdf/2610.06348v1
+
+Published Time: Tue, 06 Oct 2026 03:03:50 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# IGA–KAN: Isogeometric Analysis with Physics-Informed Closed-Form Kolmogorov–Arnold Networks for Forward and Inverse PDEs 
+
+Sima Naraghi a, Kourosh Parand b,c , Amirhossein Sadr d, Dara Rahmati d
+
+> aDepartment of Applied Mathematics, Faculty of Mathematical Sciences, Shahid Beheshti University, Tehran, Iran
+> bDepartment of Computer and Data Sciences, Faculty of Mathematical Sciences, Shahid Beheshti University, Tehran, Iran
+> cDepartment of Cognitive Modeling, Institute for Cognitive and Brain Sciences, Shahid Beheshti University, Tehran, Iran
+> dDepartment of Computer Science and Engineering, Shahid Beheshti University, Tehran, Iran
+
+Abstract 
+
+Isogeometric analysis (IGA) solves partial differential equations accurately on exact NURBS geometry, whereas neural solvers are mesh-free but often orders of magnitude less accurate and typically trained by non-convex optimization without error control. We propose IGA–KAN, which uses local Kolmogorov– Arnold networks, fitted in closed form, to improve the IGA solution instead of replacing it. An IGA Galerkin solve produces uh; on every knot-vertex patch a Kolmogorov–Arnold ridge model is fitted to the strong form of the equation, the exact boundary data and uh, and the models are blended by IGA hat functions. With fixed inner functions the fit is one batched linear least-squares problem, without optimizer, learning rate or initialization. An a posteriori safeguard, motivated by a maximum-principle bound, decides where local models are used, keeping the IGA solution elsewhere. On eight benchmarks with exact solutions, five from the literature and one also posed on a domain fitted to a brain slice from MRI, the method reduces the error of IGA, at an unchanged number of Galerkin unknowns, by factors of 
+
+4.2 to 90 in L2 and 4.1 to 220 in H1 on the reference meshes, and its L2 error is 6 to 6 × 10 4 times smaller than that of the best Kolmogorov–Arnold network trained from scratch on the same equations with a fixed budget. In an inverse problem it recovers an unknown constant source from one noise-free observation 167 
+
+times more accurately than IGA. The gain is attributed to the superconvergence of local averages of the Galerkin solution. 
+
+Keywords: Isogeometric Analysis, Kolmogorov–Arnold Networks, Scientific Machine Learning, Post-Processing, Superconvergence, Physics-Informed Learning, Inverse Problems 
+
+1. Introduction 
+
+Partial differential equations posed on curved geometries, whether described by CAD or segmented from medical images, are at the core of computational mechanics, and for them classical Galerkin discretizations offer what an engineering or clinical computation needs: convergence under refinement, error estimates and a cost that grows predictably with the number of unknowns. Isogeometric analysis (IGA) adds the exact geometry: it uses the NURBS description of a CAD geometry as the trial space of a Galerkin method, so that conic sections are represented exactly and the discrete functions are Cp−1 across knot spans [1, 2]. Its accuracy, however, is paid for in unknowns: at a given degree, a smaller error requires a finer mesh and a larger linear system. Machine learning has been proposed as a way to relax this trade-off. Physics-informed neural networks (PINNs) train a network on the residual of the equation at collocation points [3, 4]. They are mesh-free and differentiable, but their training is a non-convex optimization without error control, and its failure modes are well documented: spectral bias slows the learning of high frequencies, and the loss landscape becomes ill-conditioned as convection or reaction coefficients grow [5, 6, 7]. Asystematic comparison with the finite element method on linear and nonlinear model problems found that PINNs did not outperform it in either accuracy or solution time [8], and a systematic review of machine learning for fluid-related equations found that most articles claiming to outperform a standard numerical method had compared against a weak baseline [9]. For problems that classical solvers already handle well, the relevant question is therefore not whether a network can replace the solver, but whether it can add accuracy to the solution the solver produces.        
+
+> ∗Corresponding author.
+> Email addresses: s_naraghi@sbu.ac.ir (Sima Naraghi), k_parand@sbu.ac.ir (Kourosh Parand),
+> a.sadr@mail.sbu.ac.ir (Amirhossein Sadr), d_rahmati@sbu.ac.ir (Dara Rahmati) arXiv:2610.06348v1 [math.NA] 5 Oct 2026
+
+Kolmogorov–Arnold networks (KANs) are a natural candidate for such a role, because their building block is close to that of isogeometric analysis: learnable univariate splines replace fixed activations [10], and other univariate families, rational functions in rKAN [11] and radial basis functions in Lynx-Net [12], have been proposed as well. So far, however, KANs have been used in partial differential equations in the same role as other networks: inside a physics-informed loss. KINN [13], across strong, energy and boundary-integral formulations, finds a KAN more accurate than a multilayer perceptron on singularities and discontinuous coefficients and far less affected by spectral bias, provided its spline grid is fine enough, but no more accurate than the perceptron on complex geometries, and PG-KINN [14] moves it to a Petrov–Galerkin weak form. On the isogeometric side, networks of other types produce the control net of an isogeometric space [15, 16, 17], which makes the geometry exact and the essential conditions strict, but bounds the accuracy by that of the discretization being imitated. In both lines the network is the solver: it inherits the non-convex training, and no classical solution is left to fall back on where its prediction is poor. Networks that do correct a classical solution, by super-resolution, solver-in-the-loop training or a fine-scale correction of a coarse finite element solution, are trained on reference solutions [18, 19, 20, 21], and the closest scheme that needs no such data, FEM-LSSVR [22], post-processes a low-order finite element solution element by element (Section 2). What is missing is a correction that needs no reference data, works on the exact geometry and is used only where computable tests support it, with the isogeometric solution kept everywhere else. Such a correction is possible because a Galerkin solution carries more accuracy than its pointwise values show. Its error oscillates on the scale of the elements, whereas, for degree p ≥ 2, its local averages are far more accurate: the error superconverges in negative norms, which classical post-processors exploit by convolution [23], and its derivatives superconverge at particular points, which superconvergent patch recovery exploits by local fitting [24] (Section 2.5). A smooth local model fitted to uh keeps the accurate averages and discards the oscillation; if it is also required to satisfy the equation and the exact boundary data, it restores the fine structure that the averages lack. A small KAN can serve as such a model, provided that it is used according to the following principle: 
+
+Solve the problem classically; use the network only locally, only where its prediction passes a computable check, and with its inner functions fixed, so that fitting it is a linear problem. 
+
+The last condition is a design choice of this paper, not a property of KANs: the KAN-based solvers above train all the univariate functions of the network together by non-convex optimization, whereas fixing the inner functions, and freezing or linearizing any nonlinear term at the classical solution (Section 3.6), turns the fit of the outer functions into a linear least-squares problem with a closed-form solution. The method follows this principle in three steps. A standard isogeometric Galerkin solve produces 
+
+uh on the exact NURBS geometry. On every knot-vertex patch, one small Kolmogorov–Arnold model of 
+
+ridge type (learnable univariate splines composed with fixed linear forms) is fitted to the strong form of the equation, to the exact Dirichlet data on the NURBS boundary crossing the patch and to uh itself. The local models are then blended by the degree-one hat functions of the isogeometric mesh. Because neighboring local models overlap, they can be cross-examined: an a posteriori safeguard decides, from computable quantities alone, where a local model is used. The isogeometric solution is never discarded: it enters every local fit as data and serves as the exact fallback of the safeguard. The method therefore retains the exact geometry and the Galerkin solution, and adds accuracy only where computable tests support a local model. We call the result IGA–KAN or, for short, the hybrid: not a neural solver, but an isogeometric solution with a safeguarded local post-process .We use the Kolmogorov–Arnold form for its structure, not for its expressivity. With the single-span outer splines used throughout, the local model spans exactly the polynomials of its degree, and on the first benchmark of Section 5 a monomial basis of the same space reproduces the results (Remark 1). In this paper the form is therefore a parametrization, and the accuracy comes from what the model is fitted to: the equation, the exact boundary data and uh. We keep the form for two reasons. Every derivative of a ridge function Φ( a · x) is a multiple of a derivative of the univariate spline Φ, so the equation rows of every operator in this paper, in two and in three dimensions, are assembled from univariate splines and their derivatives alone. And it places the local model in the Kolmogorov–Arnold family: its outer functions are B-splines, like the trial functions of IGA and the edge functions of a KAN, and can be given interior knots to leave the polynomial space while the fit stays linear, an option this paper does not use. Across the eight benchmarks of Section 5 the hybrid reduces the error of its input, at an unchanged number of unknowns of the Galerkin solve, by factors of 4.2 to 90 in the relative L2 norm and 4.1 to 220 
+
+in the H1 norm on the reference meshes; the largest factors are those of the disk, whose quadratic solution lies in the local space, and on the six benchmarks with non-polynomial solutions, all but the disk and 2the thick ring, the factors are 4.2 to 27 and 4.1 to 148 . Its L2 error is also 6 to 6 × 10 4 times smaller than that of the best Kolmogorov–Arnold network we trained from scratch on the same equations with a fixed training protocol; these factors describe that protocol, not the best accuracy such networks can reach (Section 5). With the settings used throughout, the hybrid did not return a larger error than its input, beyond round-off, on any mesh of these benchmarks. Improving a Galerkin solution by local fitting is a classical idea (Section 2.5). What this paper adds is a local fit that also uses the equation and the exact geometry, takes the form of a Kolmogorov–Arnold model computed in closed form and is used only where computable tests support it, together with an analysis of its mechanism and numerical evidence on eight benchmarks. Specifically, the paper makes the following four contributions. 1. A closed-form local Kolmogorov–Arnold post-process for isogeometric solutions. The local model (2) has fixed inner functions and Bernstein outer functions, so its fit (4) to the equation, the boundary data and uh is one batched linear least-squares solve over all patches. The same construction covers advection–diffusion–reaction operators, the space–time heat operator, nonlinear terms frozen at or linearized about the classical solution, and triangularly coupled systems. 2. An a posteriori safeguard with an exact fallback. Four computable tests (neighbor consensus, the size of the correction, a residual indicator and a p-consistency test) decide patch by patch whether a local model is used; where it is not, the isogeometric solution is kept. For elliptic operators the constant of the residual indicator is taken from a maximum-principle bound on the error of a local model (Proposition 2). 3. An analysis of the mechanism. The post-process is a local average whose kernel is chosen by the equation; Propositions 1 and 2 bound the error of the blended solution by the residuals of the local models and by their errors on the patch boundaries, for which the residual and consensus tests are computable surrogates, and the analysis identifies the regimes in which the gain vanishes. 4. Numerical evidence on eight benchmarks with exact solutions , five of them taken from published work, on curved and complex NURBS geometries in two and three dimensions and on a ring-shaped domain fitted to a brain slice segmented from magnetic resonance images, with a comparison against isogeometric analysis and against Kolmogorov–Arnold networks (KAN, KINN) and the published results of PI-GGN, KINN and PG-KINN. The paper is organized as follows. Section 2 reviews the literature, Section 3 states the method, Section 4 analyzes why it works and when the gain vanishes, Section 5 gives the numerical examples, and Section 6 concludes and lists directions for further work. 
+
+2. Related work 
+
+2.1. Isogeometric analysis 
+
+Isogeometric analysis is a Galerkin method on the spline or NURBS space that already describes the CAD geometry [1, 2]. Two properties matter here. The map F : bΩ = (0 , 1) d → Ω is fixed at the coarsest mesh and unchanged by refinement, so a point can be placed on ∂Ω exactly; and k-refinement gives Cp−1
+
+spaces of degree p at roughly one unknown per element, (n+p)2 on an n×n mesh in two dimensions against the (np + 1) 2 of the C0 finite element space of the same degree and mesh, with established approximation properties, near-optimality against Sobolev n-widths and far more faithful operator spectra [25, 26, 27]. That smoothness is what makes the Galerkin error amenable to local averaging (Section 2.5). 
+
+2.2. Physics-informed neural networks and their failure modes 
+
+Collocating a differential operator on a neural ansatz is an old idea, revived as the physics-informed neural network (PINN) [3, 4]. Its difficulties are well documented. The eigenvector bias of the neural tangent kernel slows high-frequency learning, and the residual and boundary loss terms converge at very different rates [5, 6]. The residual loss landscape becomes ill-conditioned as a convection or reaction coefficient grows even when the PINN can represent the solution, so that the failure is optimization rather than expressivity [7]. Penalty boundary conditions hold only approximately and add a weight to be tuned; the alternative is to build them into the ansatz [28]. For linear equations, randomized networks avoid the non-convex training altogether: the hidden-layer parameters are drawn at random and frozen, and the output weights follow from one linear least-squares problem. The physics-informed extreme learning machine applies this to linear equations, with one network or, in a distributed variant, one per cell [29]. Local extreme learning machines assign one such network to each sub-domain, impose Ck continuity across the sub-domain boundaries and treat nonlinear equations 3by nonlinear least squares, which can be trapped in local minima without random perturbations [30], and the random feature method pieces local random-feature models together with a partition of unity [31]; both report accuracy on par with classical solvers. All three are stand-alone solvers, with random features and a least-squares problem coupled over the whole spatial domain. 
+
+2.3. Kolmogorov–Arnold networks 
+
+A KAN replaces the fixed activations of a multilayer perceptron (MLP) by learnable univariate B-splines on the graph edges [10]. Which univariate family those edge functions are drawn from is itself an open question, and rational ones, Padé approximants and rational Jacobi functions, have been proposed in place of the splines [11]. The transfer to PDEs has mostly substituted a KAN for the MLP inside an existing physics-informed loss. KINN reports gains on singularities and discontinuous coefficients, together with a loss of accuracy on geometrically complex domains [13]. MLP and KAN have been compared in a controlled setting [32]. The same substitution reaches operator learning and point-cloud regression [33, 34]. Two recent schemes move toward variational forms, the second of them, PG-KINN, with an independent, compactly supported piecewise-polynomial test space [35, 14]. Two of the authors of PG-KINN are authors of the present paper. Outside the Kolmogorov–Arnold family, PI-GGN trains a graph network on a finite-element Galerkin residual, for forward and inverse problems alike [36]. Its disk benchmark is one of ours (Section 5.1.2). All of these use the network as the discretization; we are not aware of work that keeps an isogeometric Galerkin solution as the substrate and uses KANs only as a local post-process. 
+
+2.4. Classical solver plus learned correction 
+
+Closest in intent is the hybrid FEM-LSSVR scheme, in which element-wise least-squares support vector regression with higher-order Legendre kernels interpolates, under the PDE, between the nodal values of a low-order finite element solve and stays consistent with them at the element boundaries [22]. Its local fit is convex and closed-form, and the same principle, a fixed feature map followed by one linear least-squares solve with the equation in the rows, is what makes the fit of Section 3 linear. Super-resolution of PDE fields, learned discretizations and closures, and solver-in-the-loop corrections are trained on reference data and carry no guarantee on an unseen field [18, 37, 38, 39, 19]. Networks have also predicted the fine-grid fluctuation above a coarse multigrid solution [40, 21]. Others have corrected a coarse finite element solution, enriched a Lagrange space and generated element stiffness matrices [20, 41, 42]. The isogeometric proposals so far are surrogates that reproduce an IGA solution faster: a network produces the spline coefficients, so accuracy is bounded above by the discretization being imitated [15, 16, 17]. 
+
+2.5. Post-processing and superconvergence 
+
+The mechanism our method relies on is classical. A local average of a Galerkin solution against a compactly supported kernel is accurate to O(h2p) in the interior of a locally translation-invariant mesh for degree-p elements, although the solution itself is only O(hp+1 ), because the error superconverges in negative norms; for p = 1 the two rates coincide and no order is gained [23]. The same holds for derivatives [43]. An early tensor-product instance and a collection of the theory are also available [44, 45]. The convolution post-processor reappears as the smoothness-increasing accuracy-conserving (SIAC) filter for discontinuous Galerkin fields [46, 47]. On the first benchmark of Section 5, a SIAC filter implemented for comparison is 32 
+
+times cheaper than the hybrid on the reference mesh and reduces the IGA error by more on an interior box than the hybrid does globally, but globally its L2 error is about ten times that of the unfiltered IGA solution, because its kernel must be shifted near the boundary. A second classical family recovers a better field by fitting rather than by convolution, and our per-patch fit belongs to it. The superconvergent patch recovery (SPR) fits a higher-order polynomial by least squares to the derivatives sampled at superconvergent points of a nodal patch [24]. The equilibrium residual and the boundary conditions have been added to that patch problem [48, 49], the patch polynomials have been blended by the nodal shape functions [50], and SPR-C imposes equilibrium and boundary conditions as constraints [51]. Polynomial-preserving recovery recovers the solution rather than its gradient [52], and patch recovery has been carried over to adaptive isogeometric analysis as an error estimator [53]. Our fit combines these ingredients: a recovery of the solution itself, with the strong-form residual and the boundary data in its rows, blended by a partition of unity [54]. What is new is their use as a solution post-process on exact NURBS geometry (boundary rows on the exact NURBS trace, patches at knot vertices, a periodic seam and a collapsed side identified), the Kolmogorov–Arnold ridge parametrization, which keeps every operator of Section 3.6 univariate, and the 
+
+a posteriori acceptance filter of Section 3.5. The equation in the rows is what carries the gain: on the first benchmark of Section 5 the fit without the physics rows gains a factor of 4.0 in L2 where the full fit gains 
+
+21 (Remark 1). For splines the superconvergent points are known and yield optimal-order collocation, so the pointwise structure the classical theory predicts is present in the isogeometric setting [55, 56]. 42.6. Positioning of the present method 
+
+This is not a neural solver: a classical isogeometric solve is performed first and never discarded, and the learned object is a family of small local models that post-process it, fitted by one batched linear least-squares problem, with no optimizer, no learning rate and no local minimum. Relative to FEM-LSSVR, whose principle of a fixed feature map and one linear system we adopt, we post-process an isogeometric solution on exact NURBS geometry, replace the Legendre kernel by a Kolmogorov–Arnold ridge model, and fit on overlapping knot-vertex patches blended by a partition of unity instead of element by element [22]. The randomized solvers above share the linear least-squares fit for linear equations; here the inner functions are fixed directions instead of random draws, the patch problems are small and independent of one another instead of coupled over the whole domain, the isogeometric solution enters the rows as data, and nonlinear terms are frozen or linearized at it, so that the fit stays linear (Section 3) [29, 30, 31]. Unlike the KAN solvers for PDEs, our KAN never has to represent the solution globally or resolve a singularity on its own. With the settings of this paper it spans exactly the polynomials of its degree (Remark 1), so what we claim is the safeguarded closed-form post-process built from it, not a gain in expressivity due to the Kolmogorov–Arnold form. An a posteriori safeguard using no exact solution then accepts a correction, refits it on a smaller support, or discards it, patch by patch, so where none is accepted the hybrid returns the isogeometric solution. The safeguard is a computable filter built on the error bound of Section 4.1; with the settings used throughout it did not leave the hybrid with a larger error than its input on the benchmarks of Section 5. Because the mechanism is the superconvergence of local averages, an L2 gain that grows under refinement requires p ≥ 2: at p = 1 the two rates of Section 2.5 coincide, and on the thick ring (Section 5.1.3) the measured L2 gain at p = 1 is smaller than at p = 2 and p = 3 and decreases between the two meshes computed, from 2.8 to 2.0 (Fig. 8a), while the H1 gain does not decrease. What improves is accuracy per degree of freedom of the Galerkin solve rather than the cost of a single solve. 
+
+3. The hybrid IGA–KAN method 
+
+This section states the method. It starts from an isogeometric solve on the exact geometry, whose Galerkin solution is uh, and returns a solution on the same geometry that is built like a piecewise multilinear spline on the isogeometric mesh, except that each nodal value is replaced, wherever a computable test accepts it, by a small local function fitted in the least-squares sense to the equation, the exact boundary data and uh (Section 3.4). The method has three steps: 1. Isogeometric solve (Section 3.1): a standard Galerkin solve on the exact NURBS geometry gives uh.2. Local Kolmogorov–Arnold fit (Sections 3.2 and 3.3): on every knot-vertex patch, a Kolmogorov– Arnold model of ridge type, with fixed inner functions, is fitted to the strong form of the equation, the exact boundary data and uh; all patches are fitted together in one batched linear least-squares solve. 3. Partition-of-unity blend (Section 3.4): the local models are combined by the degree-one hat functions of the isogeometric mesh. An a posteriori safeguard (Section 3.5) decides, patch by patch and without the exact solution, whether a local model is used; a patch whose model is not accepted contributes uh itself to the blend. Section 3.6 lists the operators to which the construction applies, and Section 3.7 its cost. We call the complete method IGA–KAN or, for short, the hybrid, and its second part (fit, safeguard and blend, without the solve) the post-process. Figure 1 compares the method with classical isogeometric analysis and with a stand-alone Kolmogorov–Arnold network, and Figure 3 shows its stages. 
+
+3.1. Model problem and the isogeometric solve 
+
+Let Ω ⊂ Rd, d ∈ { 2, 3}, be the image of the parametric domain bΩ = (0 , 1) d under a NURBS map 
+
+F of degree p with control points and weights (PA, w A). Circles, cylinders and the five-petal domain of Section 5.2 are represented exactly by such a map; no geometry error enters any number reported in this paper. We seek u with Lu = f in Ω and u = g on ΓD ⊆ ∂Ω, for L one of the operators of Section 3.6. The Galerkin solution uh ∈ Vh is computed in the push-forward NURBS basis RA = bRA ◦ F−1, with Gauss quadrature of at least p + 2 points per direction, Dirichlet data imposed by L2-projection onto the trace space and a Newton or Picard iteration for nonlinear problems. This step is classical; the accuracy of uh
+
+is the baseline against which every result below is measured. 5(a) Classical IGA 
+
+> one Galerkin solve
+
+(b) Stand-alone KAN 
+
+> KINN type, trained by descent
+
+(c) Hybrid IGA–KAN (this paper) 
+
+> IGA, then a closed-form local model per knot vertex
+
+domain unknowns fit output             
+
+> exact NURBS map F
+> control net
+> points xi
+> points xb
+> no mesh
+> the same NURBS mesh; at every knot vertex vone patch:
+> support of the hat Nv(2×2 el.) fitting patch ωv= support + halo ℓ
+> the hats Nvform a partition of unity
+
+uh = ∑
+
+> A
+
+RA cA      
+
+> numbers cA;RA=̂RA∘F−1
+
+uθ(x) on all of Ω  
+
+> weights θ: coupled, nonlinear
+
+Kv(x) = 
+
+> 12
+
+∑ 
+
+> q= 1
+
+Φq(aq ⋅ ( x − xv) 
+
+> ρv
+
+) aq        
+
+> fixed inner directions aq,θq=qπ /12; learned outer Φq=cq0B0, 9 + ⋯ + cq9B9, 9 : Bernstein, one span
+
+Galerkin: K c = F   
+
+> sparse solve (iterated if nonlinear); gby L2-proj.
+
+Adam + L-BFGS               
+
+> non-convex loss; gby a penalty λbc |uθ−g|2(xb)
+> physics
+> ρ2
+> v[Kv−f]( xi)
+> data
+> 0.1 [ Kv−uh]( xi)
+> boundary
+> 10 2[Kv−g]( xb)rows linear in the coefficients: ONE batched linear least-squares solve for all patches per halo pass
+
+uh
+
+> error at the element scale
+
+uθ                   
+
+> seed, learning rate, minima
+> safeguard, per patch
+> (a) consensus sv<δv/2 (b) size δv< 0.3̄ u
+> (c) residual Cvrv<δv
+> (d) p-consist. *‖Kv−Klo
+> v‖ < δv/5
+> *only where f≡ 0 on ωv
+> pass: keep Kv
+
+uhyb = ∑
+
+> v
+
+NvKv        
+
+> fail: refit with
+> halo ℓ= 1, ½, 0;
+> then set Kv=uh
+> uhenters the data rows of every patch fallback: uhis kept where no model is accepted
+
+Figure 1: What the hybrid adds to a Galerkin solve, read across four rows: what each method sees of the domain, what it solves for, how the unknowns are found and what it returns. (a) Classical isogeometric analysis, whose unknowns are the control variables cA. (b) A stand-alone Kolmogorov–Arnold network of the KINN type: one global uθ on sampled points, its weights found by a non-convex descent and its boundary data imposed by a penalty. (c) The method of this section: on every knot-vertex patch the ridge model (2), with fixed directions aq and outer functions Φq in the Bernstein basis, fitted by one batched linear least-squares solve to the physics, data and boundary rows (4) and screened by the four tests (8)–(11). The two lanes below show how the hybrid depends on IGA: uh enters the data rows of every patch, and a patch that fails the tests returns Kv := uh (red). 
+
+3.2. Local Kolmogorov–Arnold ridge models 
+
+Let {Nv }v∈V be the degree-one tensor-product B-splines (hat functions) on the same breakpoints as the isogeometric mesh, one per knot vertex v, so that 
+
+X
+
+v∈V 
+
+Nv ≡ 1 on bΩ. (1) Write ωv for the vertex patch , or fitting patch, of v: the support of Nv , that is, the 2d elements around v,enlarged by a halo of ℓ ∈ { 1, 12 , 0} local element widths per side, so graded meshes need no change. Every model is first fitted with ℓ = 1 ; the smaller halos are used only for the refits of the safeguard (Section 3.5). In what follows “patch” without qualification means a vertex patch; the patch of the geometry is called the NURBS patch. Let xv be the centroid of the mapped quadrature points of ωv and ρv = max i |xi − xv | its radius. On each patch we introduce a Kolmogorov–Arnold model of ridge type, 
+
+Kv (x) = 
+
+QX
+
+q=1 
+
+Φq
+
+ aq · (x − xv )
+
+ρv
+
+
+
+, |aq | = 1 , (2) with fixed linear inner functions and learnable univariate outer B-splines Φq of degree dloc : the Kolmogorov– Arnold form with the inner layer frozen. The directions are equispaced on the half circle in two dimensions, 
+
+θq = qπ/Q , a fundamental domain of RP 1 since a and −a give the same family, and over the half sphere in three. Throughout the paper Q = 12 and dloc = 9 with Φq single-span, i.e. a Bernstein polynomial of degree 9 on [−1.02 , 1.02] with dloc + 1 = 10 coefficients, so that a local model carries Q(dloc + 1) = 120 
+
+coefficients; in three dimensions, dloc = 8 and Q = 45 on the interval [−1.075 , 1.075] , whose half-width is 60.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00 0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00                  
+
+> 12 ridge directions aq
+> exact boundary points
+> dark blue: support of the hat Nv(2x2 elements) light blue: fitting patch with halo (4x4 elements) dots: PDE collocation + IGA data points
+> Knot-vertex patches on the physical mesh
+> xy
+> z11
+> z22
+> z33
+> z12 12
+> Kv(x)
+> fixed linear inner functions
+> zq=aq(xxv)/ v
+> learnable B-spline outer functions (degree 9), closed-form fit
+> blend: uhyb (x) = v
+> Nv( , )Kv(x), v
+> Nv1(IGA hat functions)
+> Local Kolmogorov-Arnold model Kvand the blend
+
+Figure 2: Left: the knot-vertex patches on the physical mesh, that is, the support of one hat function Nv (2 × 2 elements) and its vertex patch ωv , that support enlarged by the halo, with the collocation and data points and the exact boundary points marked. Right: the local model (2), with fixed linear inner functions zq = aq · (x − xv )/ρ v and learnable degree-dloc 
+
+outer B-splines. 
+
+1.02 divided by the largest of the seven Gauss abscissae, so that the corners of the patch stay inside it. Figure 2 shows a patch and its local model. 
+
+Role of the Bernstein basis. The Bernstein polynomials carry the learnable part of the model. Each outer function is expanded as 
+
+Φq (z) = 
+
+> dloc
+
+X
+
+> k=0
+
+cqk Bk,d loc (z), Bk,d loc (z) = 
+
+dloc 
+
+k
+
+
+
+sk(1 − s)dloc −k, s = z + 1 .02 2.04 , (3) which is the B-spline basis of a KAN edge with a single knot span; in two dimensions it is evaluated by the same Cox–de Boor routine as the isogeometric basis. The Q(dloc + 1) = 120 coefficients cqk are the only unknowns of the fit (Section 3.3), and the basis is used for three properties. First, the scaling by ρv maps the argument zq = aq · (x − xv )/ρ v of every sample point into [−1, 1] , inside the interval of the basis, which is widened by 2% as a margin. Second, the derivatives of a Bernstein polynomial are Bernstein polynomials of lower degree whose coefficients are differences of the cqk , so Φ′ 
+
+> q
+
+and Φ′′  
+
+> q
+
+in (5) are evaluated exactly as fixed linear combinations of the unknowns; with the inner functions fixed, every row of (4) is therefore linear in the cqk . Third, lowering the degree of the basis gives the smaller class of the p-consistency test (11) ( dloc = 7 , with Q = 10 ). The basis adds no approximation power of its own (by the remark below, the local space is Pdloc whatever basis represents it), and a multi-span outer spline would replace it by a piecewise polynomial one. 
+
+Remark 1 (what the local space is) . With Q ≥ dim Hdloc generic directions, where Hk denotes the homogeneous polynomials of degree k in d variables ( dim Hdloc = dloc + 1 in two dimensions, (dloc +1)( dloc + 2) /2 in three), the span of (2) is exactly Pdloc (Rd), since {(a · z)k} spans Hk. The representation is therefore redundant ( 120 coefficients for a 55 -dimensional space in two dimensions), and with the settings of this paper the Kolmogorov–Arnold form is a parametrization of Pdloc , not an extension of it. We keep it because it makes (5) univariate, so every operator of Section 3.6 reduces to derivatives of one-dimensional splines, and because a multi-span Φq leaves the polynomial span, covering local spaces that no polynomial basis reproduces. On the first benchmark of Section 5 a monomial basis for P9 reproduces the hybrid to four digits at a quarter of the cost, and multi-span outer splines change either error norm by less than 5% ;without the physics rows (a recovery of uh with the boundary data in the same local space) the gain falls from 21 to 4.0 in L2 and from 75 to 3.5 in H1, and without the boundary rows to 11 and 35 (in the error quadrature of this ablation, one 40 -point Gauss rule per direction over the whole NURBS patch, the full fit gains 21 and 75 instead of the 19 and 90 of Table 1). The gain thus comes from the equation and the exact boundary data in the rows, not from the choice of basis. Being a polynomial of degree dloc , the local model is high-order and smooth: it can represent what the solution does inside one patch, but not a singularity such as a crack tip or a re-entrant corner. 
+
+73.3. The fit is one linear least-squares problem 
+
+The coefficients of Φq follow from three kinds of rows, at the m = nds tensor Gauss points xi of ωv
+
+(ns = 12 per direction in two dimensions) and the nd−1 
+
+> s
+
+points xb of each Dirichlet side through it: 
+
+ρ2
+
+> v
+
+LKv − f (xi)
+
+| {z }
+
+> physics
+
+⊕ wdata 
+
+Kv − uh
+
+(xi)
+
+| {z }
+
+> data
+
+⊕ wbc 
+
+Kv − g(xb)
+
+| {z }
+
+> boundary
+
+−→ min . (4) Here ⊕ stacks the residuals of the three blocks, at all points xi and xb, into one vector, and the fit minimizes its Euclidean norm, that is, the sum of the squared residuals of all three blocks, over the coefficients cqk 
+
+of (3). The boundary rows use the exact NURBS geometry, so the Dirichlet condition is imposed on the true curved boundary, not on a polygonal approximation. With wdata = 0 .1 and wbc = 10 2, the ρ2 
+
+> v
+
+scaling makes the physics rows dimensionless and puts all three blocks on the same footing, which is why one pair of weights serves every example in this paper. With the inner functions fixed, these rows are linear in the unknown coefficients, and they are explicit, because differentiating a ridge function differentiates a univariate spline, 
+
+∇Kv = 1
+
+ρv
+
+X
+
+> q
+
+Φ′ 
+
+> q
+
+aq , ∆Kv = 1
+
+ρ2
+
+> v
+
+X
+
+> q
+
+Φ′′  
+
+> q
+
+, (5) so that L = −κ∆ + V · ∇ + c0 gives the row 
+
+ρ2 
+
+> v
+
+LKv = −κ X
+
+> q
+
+Φ′′  
+
+> q
+
++ ρv
+
+X
+
+> q
+
+(V · aq ) Φ ′ 
+
+> q
+
++ c0ρ2
+
+> v
+
+X
+
+> q
+
+Φq . (6) Hence (4) is an ordinary linear least-squares problem, solved in closed form (divide-and-conquer SVD: the least-squares matrix is rank-deficient by construction, and the redundancy of the ridge representation is resolved by the minimum-norm solution; the normal equations are then singular, and regularizing them biases the fit) and batched over all patches at once : no optimizer, learning rate, initialization, local minimum or back-propagation through the differential operator. Fitting all Qdk=1 (nk + 1) local models of a mesh (nk elements in direction k) is one call to a batched least-squares routine. 
+
+3.4. Blending 
+
+The local models are combined with the partition of unity (1), 
+
+uhyb (x) = X
+
+> v∈V
+
+Nv
+
+ F−1(x) Kv (x), ∇uhyb = X
+
+> v
+
+ Kv ∇Nv + Nv ∇Kv
+
+.
+
+If every local model is a constant, Kv ≡ cv , the blend is the piecewise multilinear spline P 
+
+> v
+
+cv Nv with nodal values cv : the method replaces each nodal value by a local function. If every local model returns the isogeometric solution, Kv = uh, the partition of unity (1) gives P 
+
+> v
+
+Nv uh = uh, which makes the fallback of Section 3.5 exact rather than approximate. Where two parametric sides describe the same physical points (a periodic seam) or one collapses to a point (a polar center), the hat functions are identified : those patches share one local model, fitted on the union of their supports and accepted or not as a unit, so the field is single-valued at a collapsed side and continuous across a seam, as the isogeometric solution is (on the flower of Section 5.2 the measured jumps are at the level of round-off). 
+
+3.5. The a posteriori safeguard 
+
+A smooth local model (2) need not represent the solution on its patch, for instance at a singularity, on a coarse mesh or in a boundary layer, and an uncontrolled post-process would then damage an otherwise good isogeometric solution. Four tests decide the question from computable quantities alone. For each patch let 
+
+δv = Kv − uh supp Nv , sv = Kv − uhyb supp Nv , rv = ρ2 
+
+> v
+
+(LKv − f ) ωv , (7) all root mean squares over points: δv and sv over a 3 × 3 grid of check points in each element of supp Nv
+
+(2 × 2 × 2 in three dimensions), rv and the difference in (11) over the Gauss points of the fitting patch 
+
+ωv . The three quantities are the correction the patch proposes, its disagreement with the blend of its neighbors, and the residual the fitted model leaves. During the tests uhyb is the blend of the current local models of all patches, accepted or not, and it includes Kv itself, weighted by Nv , so sv under-estimates 8the leave-one-out disagreement and the test is biased toward acceptance. With ¯u the root mean square of 
+
+uh, a patch is accepted when (a) consensus: sv < τ δ v , τ = 12 , (8) (b) size: δv < τ δ ¯u, τδ = 0 .3, (9) (c) residual: Cv rv < δ v , (10) (d) p-consistency (only where f ≡ 0 on ωv ): Kv − Klo   
+
+> vωv
+
+< τ p δv , τp = 15 . (11) Test (a) is the heart of the safeguard: neighboring patches overlap, so a model that has found the solution agrees with its neighbors better than any of them agrees with the isogeometric data, whereas one that has invented structure does not; (b) excludes corrections so large that the local model, and not the solver, is the more likely source of the discrepancy. In (c), Cv turns the residual into an error indicator. It is taken from the maximum-principle bound of Proposition 2 (Section 4), which controls the error of a local model by its residual and its error on the boundary of the patch: for L = −κ∆ + V · ∇ + c0 with c0 ≥ 0
+
+in two dimensions the barrier w = ( ρ2 
+
+> v
+
+− | x − xv |2)/(4 κ), together with the interior-extremum bound 
+
+∥L Kv − f ∥∞/c 0 for c0 > 0, leads to 
+
+Cv = min 
+
+ 1
+
+κβ v
+
+, 4
+
+c0ρ2
+
+> v
+
+
+
+, βv = 1 − |V|ρv
+
+2κ , (12) where the first entry is replaced by +∞ if βv ≤ 0 and the second if c0 = 0 (for the variable reaction coefficient of Section 5.4.1, c0 is its minimum over the sample points of the patch), in the units of the 
+
+ρ2 
+
+> v
+
+-scaled residual of (7): four times the constants of Proposition 2, normalized so that Cv = 1 for −∆.Because it drops the boundary term, replaces the supremum by a root mean square and uses the two-dimensional barrier constant also in three dimensions, where the constant of Proposition 2 is smaller (for the Poisson problem of Section 5.1.3, the only three-dimensional benchmark, (12) gives Cv = 1 ), Cv rv is a computable indicator calibrated on the bound (13) rather than the bound itself; for the space–time heat operator (Section 5.4.2) the test is likewise used with Cv = 1 , a normalization of the scaled residual that is not derived from the parabolic counterpart of Proposition 2. Section 4.1 relates tests (a) and (c) to the two terms of that bound. Test (d) exists because (c) is blind where f ≡ 0: every polynomial solution of the homogeneous equation (a harmonic polynomial for the Laplacian) has zero residual, so a smooth model under-fitting a corner singularity passes (c). It is applied only there, since where f̸ ≡ 0 the decision rests on (a)–(c), and refits the patch with a smaller class ( dloc = 7 , Q = 10 ), the refit being the Klo  
+
+> v
+
+of (11): an adequate class gives the same answer up to a fraction τp of the correction it claims, an inadequate one does not. None of the benchmarks of Section 5 has a singularity. Test (d) is active in two of them, the flower and the heat equation, where f ≡ 0; on the flower, where its effect was measured, it is conservative: it excludes patches that pass (a)–(c) and lowers the gain (Section 5.2). A patch failing any test is refitted on a smaller support, ℓ = 1 → 12 → 0, and if it still fails is set to 
+
+Kv := uh; the accepted set is then re-checked against the final blend in at most three passes, because excluding a patch changes its neighbors’ consensus (Algorithm 1). The procedure uses no exact solution and no reference computation, and costs one to three batched least-squares solves, or twice that where the 
+
+p-consistency test (11) is active. Figure 3 draws the procedure. 
+
+3.6. Operators and problem classes 
+
+Every row of (4) is linear in the coefficients for each of the four classes of operators in the benchmarks of Section 5, which is what makes the closed-form fit possible in all of them: • Second-order elliptic operators , −κ∆ + V · ∇ + c0 with constant coefficients, give the row (6) (the Poisson and Laplace benchmarks). • Parabolic operators are treated in space–time form, the last coordinate being time, so ∂t is one more ridge derivative in (5). Time is not stepped: the space–time cylinder is one B-spline patch, post-processed in space and time alike (Section 5.4.2). Under a time-stepping scheme (Sections 5.4.1 and 5.4.3) the local models are instead fitted at each output time on the elliptic operator of that level. • Nonlinear terms are frozen at the classical solution, so that the rows stay linear in Kv : the Bratu source becomes the given function λe uh (Section 5.3), and the logistic reaction of the Fisher– Kolmogorov equation is linearized by Newton’s rule about the discrete solution ch (Section 5.4.1). 9IGA solve patches local KAN fit, closed form safeguard blend                                                                 
+
+> degree-pGalerkin on the exact NURBS map F
+> (iterated if nonlinear)
+> uh=∑
+> A
+> RAcA
+> one per knot vertex v:supp Nv
+> + halo ℓ=ωv
+> ℓ∈ {1, 12, 0}
+> Kv(x) =
+> 12
+> ∑
+> q= 1
+> Φq(aq⋅ ( x−xv)
+> ρv)
+> fixed
+> aq
+> learned Φ q:Bernstein, deg. 9, 1 span
+> physics ρ2
+> v[Kv−f]( xi)
+> data 0.1 [ Kv−uh]( xi)
+> boundary 10 2[Kv−g]( xb), exact ∂Ω
+> ONE batched least-squares solve
+> (a) consensus
+> sv<δv/2 (b) size
+> δv< 0.3̄ u
+> (c) residual
+> Cvrv<δv
+> (d) p-consistency* ‖Kv−Klo
+> v‖ < δv/5 *only where f≡ 0 on ωv
+> ∑
+> v
+> Nv≡ 1
+> uhyb =
+> ∑
+> v
+> NvKv
+> not accepted v:
+> Kv=uh
+> fail: refit on a smaller halo, ℓ= 1 → 12→ 0 still failing at ℓ= 0: Kvis set to uh(exact fallback) re-check (a) on the final blend, at most 3 passes, no refit Stages 3 –5 use only computable data ( uh,f,g,F), never the exact solution; the IGA solve of stage 1 is not modified.
+> 12345
+
+Figure 3: The hybrid as five stages (the steps are listed in Algorithm 1): (1) the isogeometric solve; (2) one fitting patch 
+
+ωv per knot vertex, the support of the hat Nv enlarged by a halo of ℓ element widths; (3) the local model (2) with fixed directions and Bernstein outer functions (3), fitted to the three row blocks (4) by one batched least-squares solve; (4) the four tests (8)–(11); (5) the partition-of-unity blend. Red: a patch failing a test is refitted on a smaller halo and, if it still fails at ℓ = 0 , set to Kv := uh. Violet: test (a) is re-checked against the final blend. 
+
+• Systems are super-resolved in the order of their coupling: in Section 5.4.3 the second field is post-processed first and its super-resolved values enter the source term of the first. The identities (5) extend to fourth-order operators, through ∆2Kv = ρ−4
+
+> v
+
+P 
+
+> q
+
+Φ′′′′  
+
+> q
+
+, and, component by component, to linear elasticity. Neither is examined in this paper: the residual test (10) rests on a maximum principle, which is not available for fourth-order operators or for systems such as elasticity, so the safeguard of Section 3.5 does not carry over as it stands; counterparts of tests (c) and (d) for these classes are left to future work (Section 6). 
+
+3.7. Cost 
+
+The isogeometric solve is unchanged. Per patch the post-process assembles a matrix with 2m + nb rows (nb ≤ 2d n d−1 
+
+> s
+
+boundary rows) and Q(dloc + 1) columns and solves one least-squares problem, batched over patches and without sparse factorization; evaluating uhyb needs the 2d local models whose hats do not vanish at the point. The fit costs from a fraction of a second to over a minute where the isogeometric solve costs milliseconds to seconds; solve and fit together take 4 to about 500 times the time of the solve on the reference meshes of Section 5 (from 2.1 against 0.49 s on the Fisher–Kolmogorov equation to 19 .6
+
+against 0.039 s on the flower). What the hybrid offers is therefore accuracy per unknown of the Galerkin solve, above all in H1; where only L2 accuracy at the least computing time is wanted, mesh refinement can be the cheaper route: on the quarter annulus, IGA on 50 × 50 elements matches the L2 error of the hybrid on 16 × 16 in 0.036 s, against 1.17 s for the hybrid in the same timing run ( 1.18 s in Table 1). The fits of different patches are independent of each other, so the post-process is suited to parallel and GPU execution (Section 6). 
+
+4. Analysis: why a smooth local model can improve the Galerkin solution it is fitted to 
+
+The error of the Galerkin solution is orthogonal to the discrete space in the sense of the bilinear form (for a symmetric coercive problem the solution is the best approximation in the energy norm), so it oscillates on the element scale, while the local averages of uh are far more accurate: for smooth data a duality argument gives the negative-norm estimates ∥u − uh∥H−s(Ω) ≤ C h p+1+ s∥u∥Hp+1 (Ω) for 0 ≤ s ≤ p − 1, provided the adjoint problem is Hs+2 -regular, and the Bramble–Schatz post-processes exploit this to recover a higher order by convolution with a compactly supported kernel [23]. The post-process is a local average whose kernel is determined by the equation . Of the three blocks of (4), the data rows tie Kv to uh only weakly ( wdata = 0 .1): a least-squares fit of a smooth model to oscillatory data keeps its local averages and discards the oscillation, so Kv inherits only the accurate low-frequency content. The physics rows restore the discarded fine structure (among smooth functions near 10 Algorithm 1: Hybrid IGA–KAN super-resolution with the a posteriori safeguard. Input: NURBS patch F, data f, g ,degree p, mesh; output: uhyb . Steps 3–9 are the halo loop, run at ℓ = 1 , then 12 , then 0, each pass touching only the patches not yet accepted; the tests (a)–(d) are (8)–(11). 
+
+classical IGA solve → local KAN fit → four tests → partition-of-unity blend 
+
+# what is computed cost, or what it produces 
+
+Phase 1: the classical solve, unchanged 
+
+1 uh ← degree-p Galerkin IGA solve on the exact NURBS geometry F the baseline; never discarded 2 T ← ∅ , the set of accepted vertex patches bookkeeping 
+
+Phase 2, halo loop: for ℓ ∈ { 1, 12 , 0} do (steps 3–9) 3 fit every Kv , v / ∈ T , on its fitting patch ωv , the support of Nv with a halo of ℓ element widths: rows (4), linear by (5) 
+
+one batched linear least squares for all patches, Q(dloc + 1) coefficients each ( 120 in two dimensions, 405 in three): no optimizer, no learning rate, no local minimum 4 δv = ∥Kv − uh∥, sv = ∥Kv − uhyb ∥ over supp Nv and 
+
+rv = ∥ρ2 
+
+> v
+
+(LKv − f )∥ over ωv (7) root mean squares at check points and at the Gauss points of the patch; uhyb is here the blend of all current local models; no exact solution enters 5 test (a) consensus (8): sv < τ δ v , τ = 12 excludes a model that disagrees with its neighbors 6 test (b) size (9): δv < τ δ ¯u, τδ = 0 .3 excludes a correction too large to blame on the solver 7 test (c) residual (10): Cv rv < δ v , with Cv from (12) ( Cv = 1 in three dimensions and for the heat operator) a computable indicator modeled on the residual term of (13) 8 test (d) p-consistency (11), only where f ≡ 0 on ωv :
+
+∥Kv − Klo  
+
+> v
+
+∥ωv < τ p δv , τp = 15
+
+a refit in the smaller class dloc = 7 , Q = 10 :one extra batched solve 9 T ← T ∪ { v : (a)–(c) hold, and (d) where applied }; the rest go to the next ℓ
+
+end for ; the loop stops after ℓ = 0 
+
+Phase 3: fallback 
+
+10 Kv := uh for every v / ∈ T P 
+
+> v
+
+Nv ≡ 1, so where no patch through a point is accepted the blend is exactly uh: an exact fallback 
+
+Phase 4: re-check, at most three passes 
+
+11 recompute sv against the blend in which every patch not accepted is 
+
+uh and drop from T every v failing (a) (8); stop when a pass removes nothing no refit: excluding a patch changes its neighbors’ consensus 
+
+Output 
+
+12 uhyb = P 
+
+> v
+
+Nv (F−1(x)) Kv (x), ∇uhyb = P 
+
+> v
+
+(Kv ∇Nv + Nv ∇Kv )
+
+(Section 3.4) one to three batched solves in all, twice that where (d) is active; the IGA solve is untouched 
+
+Key point. Steps 4–11 use only uh, Kv and the data, never an exact solution or a reference computation. A patch still failing at ℓ = 0 returns uh.
+
+those averages, Kv satisfies LKv = f best on the patch), and the boundary rows fix the remaining freedom where the patch meets ∂Ω, on the exact geometry. The gain comes from the fact that Pdloc cannot follow an element-scale oscillation while satisfying the equation; a model that could would merely reproduce uh.The measured convergence rates are consistent with this picture at p = 2 : on the two finest mesh pairs the 
+
+L2 error of the hybrid converges at rates 3.9 and 4.0 on the Fisher–Kolmogorov test on the unit square (Section 5.4.1) and 3.8 and 3.7 on the quarter annulus (Section 5.1.1), against 3.0 for IGA. At p = 3 the hybrid does not converge faster than IGA on these mesh pairs ( 4.2 and 3.7 against 4.3 and 4.1 on the quarter annulus, 2.6 and 3.5 against 4.0 on the Fisher–Kolmogorov test), and the gain there is a factor of 
+
+9.7 to 39 .
+
+4.1. Error bounds for the blended solution 
+
+Two elementary results bound the error of the hybrid by quantities attached to the local models. The first concerns the blend: because the hats are non-negative and sum to one, the blend is at every point at least as accurate as the least accurate of the local models that meet there. It is a pointwise form of the partition-of-unity estimate of Melenk and Babuška [54], in which the term carrying the gradients of the hats involves the disagreement of the local models instead of their errors. 
+
+Proposition 1 (blend) . Let uhyb = P 
+
+> v
+
+Nv Kv with Nv ≥ 0 and P 
+
+> v
+
+Nv ≡ 1, the hats being read as functions of x through F−1, let Dv = supp( Nv ◦ F−1) and V(x) = {v : x ∈ Dv }. Then, at every x and, 
+
+11 for the gradient, at every x in the interior of an element, 
+
+|u − uhyb | ≤ max  
+
+> v∈V (x)
+
+|u − Kv |, |∇ (u − uhyb )| ≤ max  
+
+> v∈V (x)
+
+|∇ (u − Kv )| +
+
+X 
+
+> v
+
+|∇ Nv |
+
+
+
+max  
+
+> v,w ∈V (x)12
+
+Kv − Kw .
+
+Proof. u − uhyb = P 
+
+> v
+
+Nv (u − Kv ) by the partition of unity, which gives the first bound since the Nv are non-negative weights. Differentiating, ∇(u − uhyb ) = P 
+
+> v
+
+Nv ∇(u − Kv ) + P 
+
+> v
+
+∇Nv (u − Kv ), and because P 
+
+> v
+
+∇Nv = 0 the second sum is unchanged when any fixed function of x is subtracted from every (u − Kv );taking the mid-range of the errors (u − Kv )( x), v ∈ V (x), gives the stated form. The second concerns one local model: its error is controlled by its residual, which is computable, and by its error on the boundary of the patch. It is the classical a priori bound of the maximum principle [57, Thm. 3.7], made explicit on a small patch by a quadratic barrier; its explicit constants fix Cv in (12). 
+
+Proposition 2 (local model) . Let D ⊂ Ω be open and contained in the ball of radius ρ about a point xv ,let L = −κ∆ + V · ∇ + c0 with constants κ > 0 and V ∈ Rd and a reaction coefficient c0 ∈ C(D), c0 ≥ 0 (a constant or a function of x), and let u ∈ C2(D) ∩ C(D) satisfy Lu = f in D. If β := 1 − | V|ρ/ (dκ ) > 0,then every K ∈ C2(D) ∩ C(D) satisfies 
+
+max 
+
+> D
+
+|u − K| ≤ max  
+
+> ∂D
+
+|u − K| + ρ2
+
+2d κ β sup 
+
+> D
+
+LK − f . (13) 
+
+If c0 := inf D c0 > 0, then, whatever the sign of β, every such K also satisfies 
+
+max 
+
+> D
+
+|u − K| ≤ max 
+
+n
+
+max  
+
+> ∂D
+
+|u − K|, c −10 sup 
+
+> D
+
+LK − f
+
+o
+
+.
+
+Proof. Put e = K − u, r = LK − f = Le, R = sup D |r| and E = max ∂D |e|. The function w =(ρ2 − | x − xv |2) R/ (2 dκβ ) is non-negative on D and 
+
+L ρ2 − | x − xv |2 = 2 dκ − 2 V · (x − xv ) + c0
+
+ ρ2 − | x − xv |2 ≥ 2dκ − 2|V|ρ = 2 dκβ, 
+
+so Lw ≥ R in D. Hence z± = w + E ± e satisfies Lz± = Lw + c0E ± r ≥ 0 in D and z± ≥ 0
+
+on ∂D , and the weak maximum principle for L with c0 ≥ 0 [57, Cor. 3.2] gives z± ≥ 0 in D, that is, |e| ≤ E + w ≤ E + ρ2R/ (2 dκβ ). For the second bound, which does not use β, if |e| attains its maximum over D at an interior point x0, say with e(x0) > 0, then ∇e(x0) = 0 and ∆e(x0) ≤ 0, so 
+
+c0 e(x0) ≤ c0(x0) e(x0) ≤ L e(x0) = r(x0) ≤ R; the case e(x0) < 0 is the same for −e, and otherwise the maximum is attained on ∂D .Combining the two propositions on the interiors of the supports Dv , with ¯ρv the radius of Dv about 
+
+xv and ¯βv = 1 − | V|¯ρv /(dκ ) > 0, gives for a solution u ∈ C2(Ω) ∩ C(Ω) and every x ∈ Ω
+
+|u − uhyb |(x) ≤ max 
+
+n
+
+max 
+
+> v∈T
+> x∈Dv
+
+h
+
+max 
+
+> ∂D v
+
+|u − Kv | + ¯ρ 2
+
+> v
+
+2d κ ¯βv
+
+sup 
+
+> Dv
+
+|L Kv − f |
+
+i
+
+, |u − uh|(x)
+
+o
+
+, (14) where T is the set of accepted patches and the last term is present only if a patch through x was not accepted. The bound is for the linear operators of Proposition 2 with the exact right-hand side. Where the right-hand side of the rows is itself computed from the isogeometric solution, as for a frozen or lin-earized nonlinear term, a semi-discrete time derivative or a super-resolved second field (Sections 5.3, 5.4.1 and 5.4.3), the rows contain an approximation fh of f ; for the linearized reaction of Section 5.4.1, whose co-efficient c0 = α(2 ch − 1) is also taken from the isogeometric solution, L is the operator of the rows and f := 
+
+Lu. Since L(Kv − u) = ( LKv − fh) + ( fh − f ), the bound then holds with sup Dv |L Kv − fh| + sup Dv |fh − f |
+
+in place of sup Dv |L Kv − f |, and the second supremum depends on the error of uh and is not computable. An analogous bound holds for the space–time heat operator ∂t − κ∆ in dx space dimensions: the barrier 
+
+(¯ ρ 2 
+
+> v
+
+− | y − yv |2)/(2 dxκ) in the space variables y alone ( yv the space part of xv ), on which the operator equals one, and the weak maximum principle for parabolic operators [58, Ch. 3] give (14) with the parabolic boundary of Dv in place of ∂D v and the constant ¯ρ 2 
+
+> v
+
+/(2 dxκ) in front of the residual. 12 Relation to the safeguard. The bracket in (14) has two terms, for which tests (10) and (8) of Section 3.5 are computable surrogates; tests (9) and (11) are not derived from the bound. The residual term is computable where the right-hand side is exact data: rv in (7) is the root mean square of the ρ2 
+
+> v
+
+-scaled residual at the sample points, and for the elliptic operators of Proposition 2 in two dimensions Cv ρ2 
+
+> v
+
+, with Cv from (12), is four times the smaller of the two constants of the proposition, evaluated with ρ = ρv , an entry whose hypothesis fails ( βv ≤ 0, or c0 = 0 ) being counted as +∞ as in (12) (in three dimensions and for the heat operator the test is used with Cv = 1 , Section 3.5). The boundary term is known only on ∂Ω, where u = g
+
+and it is the misfit of the boundary rows; in the interior u is unknown, and the consensus test (8) is its surrogate, since on their overlap neighboring models are different estimates of the same solution and their disagreement sv is the observable trace of their errors. Proposition 1 shows why this quantity matters: in the gradient of the blend, the term amplified by P 
+
+> v
+
+|∇ Nv | = O(1 /h ) depends not on the size of the local errors but only on their disagreement . Because a root mean square replaces the supremum and the consensus replaces the unknown boundary error, passing the tests does not by itself guarantee that the right-hand side of (14) is small: the safeguard is a computable filter built on this bound, and its reliability is assessed on the benchmarks of Section 5. The same sensitivity suggests why the H1 gains usually exceed the L2 gains (a factor of 27 against 5.4 for u in Section 5.4.3): the isogeometric derivative carries the full oscillation; that of the blend, only the residual disagreement. 
+
+4.2. When the gain vanishes 
+
+The same reasoning identifies the regimes in which the post-process has nothing to gain. 1. Unresolved oscillations. A discrete solution with the right shape but the wrong phase, the typical error of a wave on a marginal mesh, has an error that is not oscillatory noise on an accurate average, and a phase-shifted wave satisfies the equation almost exactly, so the physics rows do not see it. Section 5.4.2 shows the transition: at 128 elements for 25 periods the safeguard accepts 266 of the 
+
+1161 patches and the hybrid reduces the error only by a factor of 1.28 , against 15 .5 at 256 elements, where it accepts 2264 of 2313 .2. Coarse meshes. When the patch is not small compared with the features of the solution, the tests cannot tell a good local model from a poor one: the safeguard declines, the hybrid returns uh and the gain is 1.00 , on the heat equation up to about three elements per wavelength (Fig. 13f,g) and on the coupled system on 8 × 8 elements (Section 5.4.3). On that mesh of the coupled system this decision is conservative at p = 2 and 3, where the unscreened fits would have reduced the L2 error by factors of 3.6 to 3.8, and necessary at p = 4 , where they would have increased it by a factor of 
+
+2.4.3. Non-smooth solutions. At a re-entrant corner or a crack tip the isogeometric error is a genuine local defect, not an element-scale oscillation with accurate averages, and the singular part of the solution is not approximated to high order by Pdloc on a patch that contains the singularity; the residual test (10) is also uninformative there when f ≡ 0, which is the reason for the p-consistency test (11). None of the benchmarks of Section 5 has a singularity, so the safeguard has been assessed on smooth solutions only and no claim is made here about its behavior at a singularity; enriching the local space for such solutions is left to future work (Section 6). With the settings used throughout, the safeguarded hybrid did not return a larger error than the isogeo-metric solution it post-processed, beyond round-off, on any mesh of the benchmarks of Section 5, the 24 
+
+three-dimensional runs with local degrees 6, 8 and 10 included (Section 5.1.3). 
+
+5. Numerical experiments 
+
+We demonstrate the IGA–KAN hybrid on eight benchmarks: three Poisson problems on curved NURBS domains, one of them in three dimensions and one also posed as an inverse problem, the Laplace equation on a complex geometry, the nonlinear Bratu equation, the Fisher–Kolmogorov equation of protein spreading, on the unit square and on a domain fitted to a brain slice segmented from magnetic resonance images, a high-frequency heat equation and a stiff coupled advection–diffusion–reaction system. Five of them are taken from published work (the disk of PI-GGN [36], the flower and the high-frequency heat equation of KINN [13], the Fisher–Kolmogorov test of Corti et al. [59], and the coupled system of Asmouh and Ostermann [60]), so that the hybrid can be compared with published numbers where they exist (PI-GGN, KINN, PG-KINN); the thick ring is the three-dimensional geometry of GeoPDEs [61]. The methods compared are the following. IGA is the classical isogeometric Galerkin solve uh on the exact NURBS geometry [1]. IGA–KAN is the hybrid: the same solve, followed on every knot-vertex patch 13 by one small Kolmogorov–Arnold ridge model fitted in closed form to the strong form of the equation, to the exact boundary data and to uh, the local models being blended by the hat functions and screened by an 
+
+a posteriori safeguard. KAN is a stand-alone physics-informed Kolmogorov–Arnold network [10] trained on the strong form [4], [2 , 10 , 10 , 1] with grid 6, and KINN is the same network built from the layer of KINN [13]; both are trained by Adam followed by L-BFGS, 1000 + 200 iterations, or 2000 + 400 on the disk and, for the KAN, on the thick ring. In all these runs the boundary and initial data are imposed by a penalty of weight 100 , and Adam starts from the learning rate 5 × 10 −3, decayed to 10 −4; these settings were not adjusted to the individual problems. The one exception is the heat equation, on which all networks follow KINN’s own protocol (Section 5.4.2). KINN’s layer is run on the quarter annulus, the disk, the Bratu equation, the Fisher–Kolmogorov test on the unit square, the heat equation and the coupled system; on the thick ring, the flower and the brain slice only the KAN is reported, and on the flower the errors of KINN are the published ones. The hybrid uses the same settings in every two-dimensional example: 12 
+
+ridge directions, local degree 9, 12 Gauss points per direction per patch; the three-dimensional example uses 45 directions, degree 8 and 7 points. 
+
+Scope of the comparison with the networks. The networks and the hybrid do not solve the same task: each network solves the equation from scratch, without access to uh, whereas the hybrid post-processes an isogeometric solution. The network rows of the tables therefore show what a Kolmogorov–Arnold network trained by a fixed physics-informed protocol delivers on these equations; they do not show the best accuracy these architectures can reach with tuning to the problem, longer training or adaptive sampling. Within this scope, the comparison is set up and reported as follows. First, on every benchmark on which we train both, KAN and KINN share the widths, the grid, the loss, the optimizer and the budget, and differ only in the layer, whose per-edge spline scale gives KINN up to 10% more parameters. Second, the KINN entries computed here are the median of three training seeds, and so are the KAN entries on the disk, the flower and the Fisher–Kolmogorov and heat equations and the perceptron of the heat equation; on the quarter annulus, the thick ring, the Bratu equation and the coupled system the KAN entry is a single seed; IGA and IGA–KAN are deterministic. Third, where a network has not resolved the solution within the budget, this is stated with the result: on the Fisher–Kolmogorov equation neither network has converged at the end of training (Section 5.4.1); on the heat equation the perceptron and the KAN built from our layer return 
+
+u ≈ 0, and the hybrid is compared with the KAN built from KINN’s layer (Section 5.4.2); on the coupled system both networks remain at errors of order 0.4 (Section 5.4.3). Fourth, published results are quoted as reported, each in its own error measure. Fifth, the factors over the networks quoted in Sections 1 and 6 are taken against the more accurate network on each benchmark. They range from 6 on the disk with 25 
+
+control points, where both networks are 13 to 15 times more accurate than IGA in L2, to 6 × 10 4 on the coupled system; against the KAN alone on the Fisher–Kolmogorov square the factor would be 2 × 10 5.The sizes in the tables are not matched: those of the networks count trainable parameters, those of IGA and IGA–KAN the Galerkin unknowns, to which the post-process adds 120 local coefficients per knot vertex ( 405 in three dimensions), each set determined by its own least-squares problem. The like-for-like comparisons of the hybrid are therefore with IGA at the same number of Galerkin unknowns, which is its input, on every benchmark (at equal computing time, mesh refinement can be cheaper in L2,Section 3.7), and, on the quarter annulus, with two classical post-processors of the same uh: a SIAC filter (Section 2.5) and a patch recovery of uh with the boundary data, that is, the same fit without the physics rows (Remark 1). The accuracy is measured by the relative errors 
+
+eL2 = ∥u − u∗∥L2(Ω) 
+
+∥u∗∥L2(Ω) 
+
+, eH1 = ∥u − u∗∥H1(Ω) 
+
+∥u∗∥H1(Ω) 
+
+, (15) with u∗ the exact solution and u, in (15) and in the captions of this section, the solution computed by the method in question ( uh, uhyb or a network), both evaluated by Gauss quadrature on the exact geometry; the tables report these relative errors. For each benchmark the methods are compared on one reference mesh , the mesh named in the caption of its table; results on the other meshes computed are quoted in the text and in the figures. The error maps of the figures show instead the pointwise absolute error |u − u∗|,each panel on its own color bar, and the number at the upper end of a bar is the maximum pointwise absolute error max |u − u∗| over the plotted points of that panel. It is neither relative nor averaged over the domain, so it is not comparable with the numbers in the tables. Network architectures other than 
+
+[2 , 10 , 10 , 1] are given in the tables. The size listed for IGA and IGA–KAN is that of the Galerkin solve: ‘unknowns’ are the coefficients not fixed by the Dirichlet data (quarter annulus, thick ring, flower, Bratu equation), and ‘coefficients’ or ‘control points’ are all coefficients of the spline space, those fixed by the Dirichlet data included (the other examples). The post-process adds one local model per knot vertex, with 14 120 coefficients in two dimensions and 405 in three, each determined by its own least-squares problem. All computations are in double precision on one CPU (Apple M4); the times of IGA and IGA–KAN are medians of three runs, and the time of IGA–KAN includes the solve. 
+
+5.1. Poisson equation 5.1.1. Quarter annulus 
+
+We start from the Poisson equation on a quarter annulus, the standard curved domain of isogeometric analysis [1], 
+
+−∆u = f in Ω = {(x, y ) : 1 < x 2 + y2 < 4, x > 0, y > 0}, u = 0 on ∂Ω, (16) with f chosen such that u∗(x, y ) = ( x2 + y2 − 1)( x2 + y2 − 4) sin x sin y. The domain is one NURBS patch whose arcs are exact. On the reference mesh, p = 2 on 16 × 16 elements ( 256 unknowns), the hybrid lowers the error of the IGA solution by a factor of 19 in L2 and of 90 in H1, in 1.2 s, and is more than two orders of magnitude more accurate than both networks (Table 1). Figure 4 shows the three kinds of error side by side: that of the network is irregular and largest along the boundary, where its data are imposed by a penalty; that of IGA follows the element pattern of the spline space; and that of the hybrid is more than an order of magnitude smaller, what remains lying mostly next to the outer arc. 0 1 2
+
+x     
+
+> 012
+> y
+> (a) exact u∗
+> −1.86 −0.93 0
+> 012
+
+x    
+
+> (b) KAN
+> 04.59.1
+> ·10 −3
+> 012
+
+x    
+
+> (c) IGA
+> 00.93 1.85
+> ·10 −4
+> 012
+
+x                      
+
+> (d) IGA–KAN
+> 00.65 1.3
+> ·10 −5
+> Figure 4: Poisson equation on the quarter annulus, p= 2 on 16 ×16 elements: (a) the exact solution; (b)–(d) the pointwise absolute errors of the KAN, of IGA and of IGA–KAN, each on its own color bar. The upper end of each error color bar is the maximum pointwise absolute error max |u−u∗|of that panel; the relative errors eL2and eH1are given in Table 1. Table 1: Poisson equation on the quarter annulus: comparison of the methods on the reference mesh ( p= 2 ,16 ×16 ).
+
+method size eL2 eH1 time [s] KAN 1300 parameters 1.22 × 10 −3 4.75 × 10 −3 49 KINN 1430 parameters 1.50 × 10 −3 4.77 × 10 −3 538 IGA 256 unknowns 6.57 × 10 −5 1.51 × 10 −3 0.006 IGA–KAN 256 unknowns 3.46 × 10 −6 1.67 × 10 −5 1.18 gain of IGA–KAN over IGA 19 .0× 90 .0×
+
+gain of IGA–KAN over KINN 434 × 285 ×
+
+5.1.2. Unit disk: forward and inverse solution 
+
+Next we solve the disk benchmark of PI-GGN [36] (their Sec. 3.1), 
+
+−∆u = f in Ω = {x : |x| < 1}, u = 0 on ∂Ω, u∗ = 14 (1 − x2 − y2) for f = 1 . (17) The disk is a single quadratic NURBS patch with an exact circle. In the forward problem f = 1 is given. In the inverse problem the constant source f ∗ = 2 is unknown and u is observed at one point, 
+
+xs = (0 .46 , −0.46) , read from Fig. 3a of PI-GGN. Because u is linear in f , IGA and IGA–KAN identify the source by one division, ˆf = u∗  
+
+> f∗
+
+(xs)/u h 
+
+> 1
+
+(xs), the observed value divided by the value at xs of the solution computed with f = 1 ; KINN trains the network together with f , with a penalty λ = 1000 on the datum or with the datum enforced exactly, as PI-GGN does. On 25 control points, the size of PI-GGN’s 15 graph, the hybrid is the most accurate of all methods in both problems (Fig. 5, Table 2). The solution is a quadratic polynomial, which the local models reproduce exactly away from the boundary, so this benchmark is a favorable case for the hybrid. PI-GGN’s error is a nodal norm and is quoted as reported. For 20 observation points drawn at random in the disk the ratio of the median source errors of IGA and IGA–KAN is 51 , against 167 at xs. With a relative Gaussian perturbation of standard deviation σ of the observation ( 400 realizations), the root-mean-square source error of IGA–KAN is 153 , 38 , 4.4 and 1.09 
+
+times smaller than that of IGA for σ = 10 −5, 10 −4, 10 −3 and 10 −2: the advantage shrinks once the noise exceeds the source error of the hybrid and is lost once it exceeds that of IGA, 4.14 × 10 −3.Figure 6 shows that these results are not a property of the 25 -point mesh. In the forward problem (a) the hybrid stays below IGA on every mesh at both degrees. In the inverse problem (b) the source error of KINN falls below PI-GGN’s bound of 1% only in the L-BFGS stage, after 2000 Adam iterations, and ends between the one-division results of IGA and IGA–KAN. Under refinement (c) the one-division source of IGA and IGA–KAN converges with the mesh, while that of the network, shown as a band, does not depend on it. −1 0 1                       
+
+> −101
+> (a) analytical u∗
+> 00.12 0.25
+> −101
+> (b) IGA–KAN
+> 00.12 0.25
+> −101
+> (c) IGA error
+> 035.94
+> ·10 −4
+> −101
+> (d) KAN error
+> 04.48.85
+> ·10 −5
+> −101
+> (e) KINN error
+> 04.28.31
+> ·10 −5
+> −101
+> (f) IGA–KAN error
+> 01.93.76
+> ·10 −6
+
+Figure 5: Unit disk, forward problem, p = 2 on 3 × 3 elements ( 25 control points): (a) the analytical solution with the observation point of the inverse problem; (b) the IGA–KAN solution; (c)–(f) the pointwise errors of IGA, the KAN, KINN and IGA–KAN, each on its own color bar (color map and layout as in PI-GGN’s Figs. 2–3). The upper end of each error color bar is the maximum pointwise absolute error max |u − u∗| of that panel; the relative errors eL2 and eH1 are given in Table 2. 25 50 100 200 400 
+
+Control points 
+
+10 −8
+
+10 −7
+
+10 −6
+
+10 −5
+
+10 −4
+
+10 −3
+
+10 −2
+
+> relative  L2 error,  f = 1
+
+(a) Forward problem 0 800 1,600 2,400 
+
+Iteration number 
+
+10 −5
+
+10 −4
+
+10 −3
+
+10 −2
+
+10 −1
+
+10 0  
+
+> |f − f ∗|/f  ∗
+> IGA, 25 c.p. IGA–KAN, 25 c.p. PI-GGN: <1% Adam L-BFGS
+
+(b) Inverse problem: training 25 50 100 200 400 
+
+Control points 
+
+10 −8
+
+10 −6
+
+10 −4
+
+10 −2
+
+10 0
+
+> | ˆf − f ∗|/f  ∗
+
+(c) Inverse problem: discretization         
+
+> IGA, p= 2 IGA–KAN, p= 2 IGA, p= 3 IGA–KAN, p= 3 KINN, forward KINN, penalty data KINN, hard data PI-GGN, published PI-GGN, reported bound
+
+Figure 6: Unit disk: (a) relative L2 error eL2 of the forward problem against the number of control points, for IGA and IGA–KAN at p = 2 , 3, KINN and PI-GGN’s published value (a nodal error, as in Table 2, not eL2 ); (b) relative error of the inferred source during the training of KINN (penalty and hard data), against the one-division results of IGA and IGA–KAN on 25 control points and PI-GGN’s reported bound; (c) relative error of the inferred source against the number of control points, the band marking the two KINN results. 
+
+5.1.3. Thick ring: a three-dimensional problem 
+
+To test the method in three dimensions we solve the Poisson equation on the thick ring of GeoPDEs [61, 62], 
+
+−∆u = f in Ω = {(x, y, z ) : 1 < x 2 + y2 < 4, x > 0, y > 0, 0 < z < 1}, u = u∗ on ∂Ω,u∗ = 110 (r2 − 1)(4 − r2) z(1 − z), (18) 16 Table 2: Unit disk: comparison of the methods on 25 control points ( p = 2 , 3 × 3), the size of PI-GGN’s graph. Forward: relative errors of u for f = 1 . Inverse: relative error of the identified source | ˆf − f ∗|/f ∗. The times of IGA and IGA–KAN are those of the forward problem; identifying the source adds 0.002 s to each. 
+
+method size eL2 (forward) eH1 (forward) source error (inverse) time [s] PI-GGN [36] 25 nodes 5 × 10 −4 (nodal) — < 1% —KAN 1300 parameters 1.12 × 10 −4 5.02 × 10 −4 — 105 KINN, forward 1430 parameters 9.75 × 10 −5 4.17 × 10 −4 — 196 KINN, penalty data 1430 parameters — — 1.55 × 10 −4 200 KINN, hard data 1430 parameters — — 5.39 × 10 −5 205 IGA 25 control points 1.43 × 10 −3 7.07 × 10 −3 4.14 × 10 −3 0.006 IGA–KAN 25 control points 1.59 × 10 −5 3.22 × 10 −5 2.48 × 10 −5 0.08 
+
+with r2 = x2 + y2. The domain is one trivariate NURBS volume with exact arcs. In three dimensions the local space needs more directions: the hybrid uses local degree 8, 45 ridge directions and 7 Gauss points per direction, and omits the p-consistency test since f̸ = 0 . On the reference mesh, p = 2 on 16 3 elements (4096 unknowns), it reduces the error of the IGA solution by a factor of 29 in L2 and of 92 in H1 and is more than three orders of magnitude more accurate than the KAN (Table 3). The solution vanishes on the two cylindrical faces and on z = 0 and z = 1 , but not on the flat faces x = 0 and y = 0 , where the Dirichlet datum is u∗; Fig. 7 shows the errors on two interior sections: the IGA error is the element-scale pattern of the spline space across the wall, and the hybrid lowers its maximum on the sections by factors of 12 and 14 , what remains lying next to the two cylindrical faces. 0 2.8 5.62   
+
+> ·10 −2
+> 012
+
+x
+
+> 012
+> y
+
+(b) IGA     
+
+> 01.22.36
+> ·10 −6
+> 012
+
+x
+
+(c) IGA–KAN       
+
+> 00.97 1.95
+> ·10 −7
+> 02.85.62
+> ·10 −2
+> 11.52
+
+r
+
+> 00.51
+> z
+
+(e) IGA     
+
+> 01.22.36
+> ·10 −6
+> 11.52
+
+r
+
+(f) IGA–KAN   
+
+> 00.82 1.65
+> ·10 −7
+
+(a) exact u∗
+
+> section  z = 12
+
+(d) exact u∗
+
+> section  θ = π/ 4
+
+Figure 7: Thick ring, p = 2 on 16 3 elements, on two interior sections: the mid-height section z = 12 (a–c) and the diagonal section θ = π/ 4 (d–f). (a), (d) The section inside the ring, colored by the exact solution; (b), (c), (e), (f) the pointwise absolute errors |u − u∗| of IGA and IGA–KAN on that section, the diagonal section drawn in the (r, z ) plane. The solution vanishes on four of the six faces, so the errors are shown on interior sections. The upper end of each error color bar is the maximum pointwise absolute error of that panel; the relative errors are given in Table 3. 
+
+Figure 8 shows the convergence and the role of the local degree. With local degree 8 (a) the hybrid gains on all eight meshes, the safeguard accepting 98 to 100% of the patches: in L2 by factors of 18 to 
+
+37 at p = 2 , of 3.8 to 70 at p = 3 , where the gain is largest on the coarsest mesh, and of 2.0 to 2.8 at 17 p = 1 , where it decreases from the coarser to the finer mesh (at p = 1 local averaging gains no order, Section 2.5); the H1 gains are 64 to 112 , 18 to 102 and 12 to 13 . Panel (b) shows the dependence on the local degree, with (dloc + 1)( dloc + 2) /2 = 28 , 45 and 66 directions for degrees 6, 8 and 10 . Degree 6 gives gains of 2.0 to 289 (in three of its runs, on 16 3 elements, the SVD driver did not converge for one patch, which was re-solved after column scaling). With degree 10 on the same seven sample points per direction the safeguard accepts as few as 10% of the patches, and the gain falls to 1.04 to 14 ; panel (c) shows that large gains need almost all patches accepted. In none of the 24 runs is the hybrid less accurate than IGA. The exact solution in (18) is a polynomial of degree six and lies in the local space, so, like the disk, this benchmark is a favorable case. For the non-polynomial test function u∗ = ex sin( xy ) cos z of the thick-ring example distributed with GeoPDEs [61, 62], with Dirichlet data on all six faces and the same settings, the hybrid gains on every mesh, by smaller factors: on the reference mesh by 3.7 in L2 and 5.8 in H1, and over all meshes by 3.7 to 31 and 4.9 to 21 at p = 2 , by 2.7 to 15 and 2.8 to 11 at p = 3 and by 2.2 to 2.5
+
+and 2.0 to 2.5 at p = 1 , the largest L2 factors on the coarsest mesh; the safeguard accepts 65 to 96% of the patches. 10 2 10 3                                                  
+
+> unknowns
+> 10 −7
+> 10 −6
+> 10 −5
+> 10 −4
+> 10 −3
+> 10 −2
+> relative  L2 error
+> (a) error against unknowns, dloc = 8
+> 6810
+> local degree dloc
+> 10 0
+> 10 1
+> 10 2
+> L2 gain over IGA
+> (b) gain against the local degree
+> 0.00 0.25 0.50 0.75 1.00
+> fraction of patches accepted
+> 10 0
+> 10 1
+> 10 2
+> L2 gain over IGA
+> (c) gain against the accepted fraction
+> p= 1 p= 2 p= 3 IGA IGA–KAN 43elements 83elements 16 3elements
+> Figure 8: Thick ring. (a) Relative L2error eL2against the number of unknowns for IGA (dashed, open markers) and IGA–KAN (solid, filled markers) at p= 1 ,2,3, local degree dloc = 8 ; (b) L2gain of IGA–KAN over IGA against the local degree dloc , one line per degree pand mesh; (c) L2gain against the fraction of patches the safeguard accepts, for all 24 runs. Color: degree p; marker: mesh. Table 3: Thick ring: comparison of the methods on the reference mesh ( p= 2 ,16 ×16 ×16 ).
+
+method size eL2 eH1 time [s] KAN [3 , 10 , 10 , 1] 1400 parameters 5.78 × 10 −3 1.82 × 10 −2 14 299 IGA 4096 unknowns 3.24 × 10 −5 7.16 × 10 −4 6.3 IGA–KAN 4096 unknowns 1.13 × 10 −6 7.76 × 10 −6 80.9 gain of IGA–KAN over IGA 28 .7× 92 .1×
+
+gain of IGA–KAN over KAN 5100 × 2340 ×
+
+5.2. Laplace equation on a complex geometry 
+
+We then consider the complex-geometry benchmark of KINN [13] (their Sec. 4.3), 
+
+∆u = 0 in Ω, u = u∗ on ∂Ω, u∗ = sin x sinh y + cos x cosh y, (19) on the five-petal flower bounded by five unit semicircles. The flower is one NURBS patch whose boundary consists of ten rational quadratic arcs, exact to machine precision [63]. KINN reports 4.73 × 10 −3 for its boundary-integral KAN and 2.06 × 10 −4 for the same method with a perceptron, and PG-KINN [14] reports the same value as the former, 4.73 × 10 −3, all three in KINN’s own discrete error measure (defined in Table 4). On the reference mesh, p = 2 with 80 × 16 elements, IGA–KAN reduces the error of the IGA solution by a factor of 4.2 and, in KINN’s measure, is 95 times more accurate than the published KINN and PG-KINN results (Fig. 9, Table 4). The NURBS patch is polar: its eighty angular elements close on a periodic seam and its innermost side collapses to the center, where the local models are identified (Section 3.4). Since f ≡ 0, the p-consistency test (d) is active; with it the safeguard accepts 904 of the 18 1377 patches although the solution is smooth, against 1296 without it, where the gain would be 14 in L2
+
+and 44 in H1. The figure shows how the errors are distributed: that of the KAN is spread over the whole flower, that of IGA follows the radial element lines and peaks at the tips of the petals, and the hybrid removes most of it, the remainder lying along a few radial lines. −2 0 2
+
+x   
+
+> −202
+> y
+> (a) exact u∗
+> −2.83 1.86.52
+> −202
+
+x  
+
+> (b) KAN
+> 02.75.33
+> ·10 −3
+> −202
+
+x  
+
+> (c) IGA
+> 01.52.9
+> ·10 −3
+> −202
+
+x
+
+> (d) IGA–KAN
+> 00.55 1.1
+> ·10 −3
+
+Figure 9: Flower, p = 2 on 80 × 16 elements: (a) the exact solution; (b)–(d) the pointwise absolute errors of the KAN, of IGA and of IGA–KAN, each on its own color bar (color map as in KINN’s Fig. 25). The upper end of each error color bar is the maximum pointwise absolute error max |u − u∗| of that panel, 1.1 × 10 −3 for IGA–KAN; Table 4 gives the relative errors, eL2 = 4 .80 × 10 −5 for IGA–KAN. Table 4: Flower: comparison of the methods on the reference mesh ( p = 2 , 80 × 16 elements, 1361 unknowns). Columns 3 and 4 are the relative errors eL2 and eH1 of (15), computed by Gauss quadrature over the whole flower. Column 5 is KINN’s error measure, ∥u−u∗∥2/∥u∗∥2 with discrete 2-norms over KINN’s 52 264 evaluation points (a uniform 300 ×300 grid restricted to the flower, without a band about 0.03 wide along the boundary); it is the only measure in which the published boundary-integral neural network (BINN; KINN’s Table 6) and PG-KINN (its Table 5) numbers exist, so only this column compares all methods. A dash means not reported .our measures KINN’s measure method size eL2 eH1 ∥u − u∗∥2/∥u∗∥2 time [s] 
+
+published 
+
+KINN-BINN (KAN) [13] 975 parameters — — 4.73 × 10 −3 —BINN (MLP) [13] 2911 parameters — — 2.06 × 10 −4 —PG-KINN [14] [2 , 5, 5, 5, 1] — — 4.73 × 10 −3 —
+
+this work 
+
+KAN 1300 parameters 6.24 × 10 −4 2.40 × 10 −3 6.24 × 10 −4 691 IGA 1361 unknowns 2.00 × 10 −4 4.34 × 10 −3 1.94 × 10 −4 0.04 IGA–KAN 1361 unknowns 4.80 × 10 −5 1.05 × 10 −3 4.96 × 10 −5 19.6 
+
+5.3. Nonlinear Bratu equation 
+
+The Bratu equation is the standard nonlinear benchmark of isogeometric analysis [64], 
+
+−∆u = λe u in Ω = (0 , 1) 2, u = u∗ on ∂Ω, u∗(x, y ) = −2 ln cosh  (x − 12 )θ/ 2
+
+cosh( θ/ 4) , (20) with λ = 1 and θ the lower-branch root of θ = √2λ cosh( θ/ 4) . The isogeometric solve uses Picard iteration, each step one linear Galerkin solve. The hybrid keeps the local fit linear by freezing the source at λe uh ,and reduces the error of the IGA solution by a factor of 18 in L2 and of 84 in H1 on the reference mesh; KINN’s layer is the better of the two networks here, but remains three orders of magnitude behind the hybrid in L2 (Fig. 10, Table 5). The solution depends on x only. The figure shows that the IGA error is the element-scale oscillation of the spline space across the whole square, and that the error of the hybrid is more than ten times smaller at its maximum and lies mainly in the patches next to the sides x = 0 and 
+
+x = 1 .
+
+5.4. Time-dependent problems 5.4.1. Fisher–Kolmogorov equation 
+
+We begin with the Fisher–Kolmogorov equation, the model of prion-like protein spreading in neurode-generation, in the verification test of Corti, Bonizzoni, Dedè, Quarteroni and Antonietti [59] (their Test 19 0 0.5 1                                        
+
+> x
+> 00.51
+> y
+> (a) exact u∗
+> 00.07 0.141
+> 00.51
+> x
+> (b) IGA
+> 00.56 1.12
+> ·10 −6
+> 00.51
+> x
+> (c) IGA–KAN
+> 03.56.98
+> ·10 −8Figure 10: Bratu equation, λ= 1 ,p= 2 on 16 ×16 elements: (a) the exact solution; (b), (c) the pointwise absolute errors of IGA and of IGA–KAN, each on its own color bar. The upper end of each error color bar is the maximum pointwise absolute error max |u−u∗|of that panel; the relative errors eL2and eH1are given in Table 5. The network runs of that table stored their errors but not the networks, so they have no panel. Table 5: Bratu equation, λ= 1 : comparison of the methods on the reference mesh ( p= 2 ,16 ×16 ,256 unknowns). IGA takes 11 Picard iterations.
+
+method size eL2 eH1 time [s] KAN 1300 parameters 6.94 × 10 −4 3.50 × 10 −3 690 KINN 1430 parameters 2.95 × 10 −4 9.96 × 10 −4 1618 IGA 256 unknowns 4.74 × 10 −6 1.48 × 10 −4 0.22 IGA–KAN 256 unknowns 2.60 × 10 −7 1.75 × 10 −6 1.87 gain of IGA–KAN over IGA 18 .3× 84 .3×
+
+gain of IGA–KAN over KINN 1140 × 568 ×
+
+case 1), first on its own domain, the unit square, and then on a slice of a human brain segmented from magnetic resonance images (MRI), 
+
+ct = κ ∆c + α c (1 − c) + f in (0 , 1) 2 × (0 , T ], κ = α = 1 , T = 10 −3, (21) with Dirichlet data, initial data and the source f derived from the exact solution 
+
+c∗ =  cos πx cos πy + 2  e−t. (22) Corti et al. solve it with a polytopal discontinuous Galerkin method and report optimal convergence in the energy norm at T ; they report the errors only as convergence plots in their energy norm, without tabulated values, so the comparison here is with IGA and with the networks. IGA advances (21) by Crank–Nicolson with their step ∆t = 10 −5 and Newton’s method at every step, from the Ritz projection of the initial datum, to the discrete solution ch at T , which is then super-resolved. Over this horizon the exact solution decays by 0.1% only, so the test, like that of Corti et al., verifies the spatial accuracy at T ; it does not probe the accumulation of error over long times. The hybrid keeps the local fit linear by Newton’s rule, 
+
+c(1 − c) ≈ ch(1 − ch) + (1 − 2ch)( Kv − ch), and treats the time derivative as a given function: its semi-discrete value at T is obtained from the Galerkin equations of the solve by one mass-matrix solve, with the boundary values of ∂tc∗, and is moved to the right-hand side (the coupled system of Section 5.4.3 is treated in the same way). The linearized reaction coefficient α(2 ch − 1) is positive, since c∗ ≥ e−T > 12 and 
+
+ch is close to it, so the residual test (c) has its maximum-principle constant (12), with c0 the minimum of this coefficient over the sample points of the patch. The two networks take (x, y, t/T ) as input, with the residual of (21) in physical units, as on the coupled system (where T = 1 ). 
+
+(a) Unit square. On the reference mesh, p = 2 on 16 × 16 elements ( 324 coefficients), the hybrid reduces the error of the IGA solution by a factor of 27 in L2 and of 148 in H1 (Table 6a), and on every mesh from 
+
+4 × 4 to 32 × 32 at p = 2 and 3 the gain is 11 to 54 in L2 and 15 to 265 in H1, the safeguard accepting all patches but one; the two networks stay at L2 errors of 10 −2 to 10 −1, three to four orders of magnitude above IGA and four to five above the hybrid; KINN’s layer is the better of the two here, its three seeds ending between 1.1 × 10 −2 and 8.4 × 10 −2 in L2. With the budget of 1000 + 200 iterations, the horizon 
+
+T = 10 −3 of Corti et al. and the scaled input t/T , the time derivative enters the residual with the factor 
+
+1/T = 10 3, and neither network has converged within the budget: over the last 160 L-BFGS iterations the 20 loss of the KAN still falls from 47 to 15 (seed 0). The network errors are those of this budget. As in the previous examples, the errors of the networks are smooth structures of the size of the solution’s features, the IGA error is the element-scale pattern of the spline space, and the hybrid removes most of it (Fig. 11). 0 0.5 1                                   
+
+> x
+> 00.51
+> y
+> (a) exact c∗(T)
+> 0.999 23
+> 00.51
+> x
+> (b) KAN
+> 00.29 0.577
+> 00.51
+> x
+> (c) KINN
+> 00.055 0.11
+> 00.51
+> x
+> (d) IGA
+> 03.26.32
+> ·10 −5
+> 00.51
+> x
+> (e) IGA–KAN
+> 02.54.93
+> ·10 −6
+> Figure 11: Fisher–Kolmogorov equation on the unit square at t=T,p= 2 on 16 ×16 elements: (a) the exact solution; (b)–(e) the pointwise absolute errors of the KAN, of KINN, of IGA and of IGA–KAN, each on its own color bar (networks: the seed with the median L2error). The upper end of each error color bar is the maximum pointwise absolute error of that panel; the relative errors are given in Table 6a.
+
+(b) Brain slice from MRI. Corti et al. also apply the equation to brain geometries reconstructed from MRI of the OASIS-3 database, a sagittal slice and a three-dimensional brain, in simulations of protein spreading without an exact solution and on data that, according to the article’s data-availability statement, its authors are not permitted to share. To test the hybrid on an anatomy of that kind we pose the same verification problem on a slice of a real brain. The slice is taken from the public MRI2FEM data set [65, 66], which holds MR image series under two subject labels and their FreeSurfer reconstructions [67]; we use the reconstruction labeled abby , its automatic segmentation and its T1-weighted volume in FreeSurfer’s conformed space ( 1 mm voxels), and take the axial slice in which the lateral ventricles have their largest area. The computational domain is the tissue between two closed curves about the centroid of the ventricles: the radial envelope of the lateral ventricles with their choroid plexus, after a morphological closing ( 3 × 3
+
+structuring element, six iterations) that fills the gaps between the two ventricles, and that of the segmented brain with its holes filled, each low-pass filtered ( 6 and 10 Fourier harmonics) and fitted with a periodic cubic B-spline with 32 control points (Fig. 12a,b). It is one spline patch, periodic in the angular direction, and the local models next to the seam are fitted on supports that wrap around it. The envelopes follow the outline of the brain and of the ventricles but bridge the cortical folds: every point of the two spline curves lies within 4.6 mm of the voxel contour of its mask; in the other direction the voxel contour lies up to 9.9 mm from the inner curve, which cuts off the anterior tips of the ventricles, and up to 36 mm from the outer one, the depth of the bridged interhemispheric fissure; the symmetric mean distance, the average of the two one-sided means, is 3.1 mm for the outer curve and 1.9 mm for the inner one; and 91% 
+
+of the domain is segmented brain tissue. The domain, 152 mm in its larger, antero-posterior extent, is scaled uniformly into the unit square, and (21)–(22) are solved on it unchanged, with Dirichlet data on both curves. This is the verification problem of Corti et al. on a real anatomy; their simulations of protein spreading, which have no exact solution, were not attempted. On the reference mesh, p = 2 on 32 × 8 elements ( 320 coefficients), the hybrid reduces the error of the IGA solution by a factor of 11 in L2 and of 13 .5 in H1, less than on the square (Table 6b, Fig. 12), and on every mesh from 16 × 4 to 128 × 32 at p = 2 and 3 the gain is 7.7 to 25 in L2 and 13 .5 to 23 in H1,the safeguard accepting all but 13 of the 11 488 vertex patches (the vertices on the seam are counted at both of its ends). On the slice only the KAN was trained (KINN’s layer was not run there), with the loss, optimizer and budget of part (a) and the same numbers of points, 27 000 in the interior, placed at Gauss points of the parametric ring, and 2420 on the two curves and the initial face. Its three seeds end at L2
+
+errors of 1.2 × 10 −1 to 1.6 × 10 −1, two orders of magnitude above IGA and three above the hybrid, and, as on the square, its training has not converged within the budget (the loss still falls from 13 to 10 over the last 160 L-BFGS iterations of seed 0). 
+
+5.4.2. High-frequency heat equation 
+
+KINN demonstrates the spectral bias of multilayer perceptrons on a heat equation of frequency F = 50 ,that is, 25 periods in space [13, 5], 
+
+ut = uxx 
+
+(F π )2 in (0 , 1) 2, u(x, 0) = sin( F πx ), u(0 , t ) = u(1 , t ) = 0 , u∗ = e−t sin( F πx ). (23) 21 0 0.5 1
+
+x
+
+> 00.51
+> y
+
+(a) MRI slice and segmentation    
+
+> 5 cm
+> APRL
+> white matter cortex deep gray matter ventricles
+> 00.51
+
+x
+
+(b) computational domain and mesh     
+
+> spline boundary curves IGA mesh, 32 ×8 elements
+> 00.51
+
+x
+
+(c) exact solution c∗(T )    
+
+> 1.25 22.77
+> 00.51
+
+x
+
+> 00.51
+> y
+
+(d) error of the KAN     
+
+> 00.36 0.721
+> 00.51
+
+x
+
+(e) error of IGA     
+
+> 03.97.84
+> ·10 −3
+> 00.51
+
+x
+
+(f) error of IGA–KAN   
+
+> 00.73 1.47
+> ·10 −3
+
+Figure 12: Fisher–Kolmogorov equation on a brain slice from MRI, all panels drawn on the T1-weighted slice of the MRI2FEM data set [66] (subject abby , CC BY 4.0) in the coordinates of the unit square. (a) The slice with its FreeSurfer segmentation. (b) The two spline curves that bound the computational domain and the reference mesh, p = 2 on 32 × 8 elements. (c) The exact solution at t = T . (d)–(f) The pointwise absolute errors at t = T of the KAN (the seed with the median L2 error), of IGA and of IGA–KAN, each on its own color bar, whose upper end is the maximum pointwise absolute error of that panel; the relative errors are given in Table 6b. Table 6: Fisher–Kolmogorov equation: comparison of the methods at t = T on the reference meshes, (a) on the unit square (p = 2 , 16 × 16 ) and (b) on the brain slice from MRI ( p = 2 , 32 × 8). The times of the networks are wall-clock times of single training runs, the median of three seeds, and vary between seeds (KINN: 3069 to 4970 s). 
+
+method size eL2 eH1 time [s] 
+
+(a) unit square 
+
+KAN [3 , 10 , 10 , 1] 1400 parameters 1.35 × 10 −1 4.41 × 10 −1 1883 KINN 1540 parameters 2.24 × 10 −2 1.51 × 10 −1 3820 IGA 324 coefficients 1.51 × 10 −5 1.06 × 10 −3 0.49 IGA–KAN 324 coefficients 5.57 × 10 −7 7.14 × 10 −6 2.07 gain of IGA–KAN over IGA 27 .1× 148 ×
+
+gain of IGA–KAN over KINN 40 200 × 21 100 ×
+
+(b) brain slice from MRI 
+
+KAN [3 , 10 , 10 , 1] 1400 parameters 1.45 × 10 −1 6.41 × 10 −1 1582 IGA 320 coefficients 8.92 × 10 −4 3.42 × 10 −2 0.54 IGA–KAN 320 coefficients 7.96 × 10 −5 2.53 × 10 −3 2.37 gain of IGA–KAN over IGA 11 .2× 13 .5×
+
+gain of IGA–KAN over KAN 1 830 × 254 ×
+
+22 It is solved in space–time with the time-upwind Galerkin scheme of Langer, Moore and Neumüller [68]. The three networks follow KINN’s protocol: 3000 Adam epochs with learning rate 10 −3 on 4000 interior points resampled at every epoch, three seeds each. The perceptron and the KAN built from our layer both return u ≈ 0; the KAN built from KINN’s layer resolves the 25 periods, IGA is 54 times more accurate than it in L2, and IGA–KAN 829 times (Fig. 13, Table 7). On the reference mesh the hybrid reduces the error of IGA by a factor of 15 .5 in L2 and of 32 .4 in H1. On 128 × 8 and 512 × 8 elements the gains at 
+
+p = 3 are 1.28 and 8.6 in L2 and 1.28 and 24 in H1, on 256 × 16 elements they are 5.8 and 6.9, and at 
+
+p = 4 they are 1.3 to 1.6 in both norms on the three meshes with eight elements in time. Figure 13 serves two purposes. Panels (a)–(e) show the spectral bias that KINN demonstrates with this benchmark: the error of the perceptron is the solution itself, the KAN built from KINN’s layer leaves pointwise errors up to 2 × 10 −2, IGA up to 2 × 10 −4 and IGA–KAN up to 2.5 × 10 −5. Panels (f) and (g) show where the hybrid gains: on meshes with up to about three elements per wavelength, in the upper left, the two maps coincide and the gain is 1.00 ; the gain appears only once the wave is resolved. In the opposite corner both maps level off at about 2 × 10 −7: at F = 5 the error of IGA falls only from 2.9 × 10 −7
+
+to 2.1 × 10 −7 between 128 and 256 elements in x, and on 256 elements the two maps coincide again. The figure is drawn like KINN’s Fig. 3 (viridis, a linear color bar per panel, t horizontal), except that (f) and (g) share one logarithmic scale, because their values span seven orders of magnitude. 0 0.5 1
+
+t
+
+> 00.51
+> x
+
+(a) exact u∗  
+
+> −101
+> 00.51
+
+t
+
+(b) MLP   
+
+> 00.52 1.03
+> 00.51
+
+t
+
+(c) KINN   
+
+> 01.22.38
+> ·10 −2
+> 00.51
+
+t
+
+(d) IGA   
+
+> 01.12.11
+> ·10 −4
+> 00.51
+
+t
+
+(e) IGA–KAN    
+
+> 01.22.48
+> ·10 −5
+> 32 64 128 256
+
+elements in x (p = 3, 8 in t)                                                                  
+
+> 510 20 30 40 50
+> frequency  F
+> 5.9·10 −53.4·10 −62.9·10 −72.1·10 −7
+> 1.2·10 −35.9·10 −53.4·10 −62.9·10 −7
+> 4.2·10 −21.2·10 −35.9·10 −53.4·10 −6
+> 4.5·10 −18.9·10 −33.3·10 −41.8·10 −5
+> 9.5·10 −14.2·10 −21.2·10 −35.9·10 −5
+> 9.9·10 −11.6·10 −13.5·10 −31.5·10 −4
+
+(f) IGA: relative L2 error over ( nx, F )   
+
+> 32 64 128 256
+
+elements in x (p = 3, 8 in t)                                                                  
+
+> 5.4·10 −63.2·10 −72.1·10 −72.1·10 −7
+> 5.7·10 −44.5·10 −63.1·10 −72.2·10 −7
+> 4.2·10 −25.8·10 −44.4·10 −63.1·10 −7
+> 4.5·10 −18.8·10 −32.2·10 −52.1·10 −6
+> 9.5·10 −14.2·10 −25.7·10 −44.4·10 −6
+> 9.9·10 −11.6·10 −12.8·10 −39.8·10 −6
+
+(g) IGA–KAN: relative L2 error over ( nx, F )
+
+> 10 −7
+> 10 −6
+> 10 −5
+> 10 −4
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+
+Figure 13: High-frequency heat equation, F = 50 : (a) the exact solution; (b)–(e) the pointwise absolute errors of KINN’s perceptron, of the KAN built from KINN’s layer, of IGA and of IGA–KAN at p = 3 on 256 × 8 elements, each on its own linear color bar, whose upper end is the maximum pointwise absolute error max |u − u∗| of that panel; (f), (g) the relative 
+
+L2 error eL2 of IGA and of IGA–KAN over the number of elements in x and the frequency F (p = 3 , 8 elements in t), on one shared logarithmic scale. The numbers printed in (f) and (g) are relative L2 errors, the measure of Table 7; the color-bar maxima of (b)–(e) are not. 
+
+5.4.3. Coupled advection–diffusion–reaction system 
+
+Finally we consider the stiff coupled system of Asmouh and Ostermann [60], 
+
+ut + V · ∇ u = d1∆u − bu + v, vt + V · ∇ v = d2∆v − cv in (0 , 2π)2 × (0 , 1] ,d1 = d2 = 12 , V = ( 12 , 12 ), b = 100 , c = 1 , (24) with Dirichlet and initial data from the exact solution 
+
+u∗ =  e−101 t + e−2t cos( x + y − t), v∗ = 99 e−2t cos( x + y − t). (25) The two fields are advanced by Crank–Nicolson with Richardson extrapolation and super-resolved at t = 1 ,
+
+v first and then u with the super-resolved v in its source. On the reference mesh the hybrid reduces the 23 Table 7: High-frequency heat equation, F = 50 : comparison of the methods on the reference mesh ( p = 3 , 256 × 8 space–time elements). 
+
+method size eL2 eH1 time [s] MLP [2 , 30 , 30 , 30 , 30 , 1] (KINN’s) 2911 parameters 1.00 1.00 844 KAN [2 , 5, 5, 1] , grid 100, our layer 4160 parameters 1.00 1.00 12 177 KINN: the same KAN, KINN’s layer 4200 parameters 8.09 × 10 −3 8.46 × 10 −3 11 440 IGA 2849 coefficients 1.51 × 10 −4 1.46 × 10 −3 0.11 IGA–KAN 2849 coefficients 9.76 × 10 −6 4.51 × 10 −5 36.0 gain of IGA–KAN over IGA 15 .5× 32 .4×
+
+gain of IGA–KAN over KINN 829 × 188 ×
+
+error of both fields, by a factor of 5 in L2 and of 12 to 27 in H1, while both networks remain at errors of order 0.4 (Fig. 14, Table 8). The figure shows the difference in kind: the errors of the networks are large smooth blobs of the size of the solution’s features, the IGA error is the element-scale pattern along the traveling wave, and the hybrid lowers its maximum by a factor of about eight for u and seven for v. On the coarsest mesh of the study, 8 × 8 elements, the safeguard accepts no patch and the hybrid coincides with IGA (Section 4.2); on 16 × 16 and 32 × 32 elements at p = 2 , 3 and 4 the gains are 4.9 to 20 in L2
+
+and 9.2 to 104 in H1.0
+
+> π
+> 2π
+> y
+
+(a) exact u∗  
+
+> −0.135 00.135
+
+(b) KAN   
+
+> 04.99.87
+> ·10 −2
+
+(c) KINN   
+
+> 00.075 0.15
+
+(d) IGA   
+
+> 04.89.68
+> ·10 −6
+
+(e) IGA–KAN     
+
+> 00.59 1.19
+> ·10 −6
+> 0π2π
+
+x
+
+> 0
+> π
+> 2π
+> y
+
+(f) exact v∗    
+
+> −13 .4013 .4
+> 0π2π
+
+x
+
+(g) KAN     
+
+> 0510
+> 0π2π
+
+x
+
+(h) KINN     
+
+> 07.615 .1
+> 0π2π
+
+x
+
+(i) IGA     
+
+> 04.89.58
+> ·10 −4
+> 0π2π
+
+x
+
+(j) IGA–KAN   
+
+> 00.72 1.45
+> ·10 −4
+
+Figure 14: Coupled advection–diffusion–reaction system at t = 1 , p = 3 on 16 × 16 elements; top row u, bottom row v: the exact fields and the pointwise absolute errors of the KAN, of KINN, of IGA and of IGA–KAN, each on its own color bar. The upper end of each error color bar is the maximum pointwise absolute error, max |u − u∗| or max |v − v∗|, of that panel; the relative errors eL2 and eH1 of both fields are given in Table 8. Table 8: Coupled advection–diffusion–reaction system: comparison of the methods at t = 1 on the reference mesh ( p = 3 ,
+
+16 × 16 ). 
+
+field u field v
+
+method size eL2 eH1 eL2 eH1 time [s] KAN [3 , 10 , 10 , 2] 1500 parameters 3.66 × 10 −1 4.14 × 10 −1 3.74 × 10 −1 4.24 × 10 −1 4068 KINN 1650 parameters 4.28 × 10 −1 4.96 × 10 −1 4.41 × 10 −1 5.06 × 10 −1 10 233 IGA 361 coefficients 3.19 × 10 −5 2.90 × 10 −4 3.19 × 10 −5 2.90 × 10 −4 0.99 IGA–KAN 361 coefficients 5.92 × 10 −6 1.06 × 10 −5 6.48 × 10 −6 2.36 × 10 −5 9.24 gain of IGA–KAN over IGA 5.39 × 27 .3× 4.92 × 12 .3×
+
+gain of IGA–KAN over KINN 72 300 × 46 700 × 68 100 × 21 400 ×
+
+24 6. Conclusions and future work 
+
+We kept the classical solver and used a Kolmogorov–Arnold network only where its prediction passes a computable check. A standard isogeometric Galerkin solve on the exact NURBS geometry provides uh;on every knot-vertex patch one small Kolmogorov–Arnold ridge model is fitted to the strong form of the equation, to the exact boundary data and to uh, in one batched linear least-squares problem, and an aposteriori safeguard decides patch by patch whether the local model may replace the isogeometric solution. The post-process therefore has no optimizer, no learning rate and no initialization, and wherever no local model is accepted the isogeometric solution is kept. We tested the method on eight benchmarks: three Poisson problems on curved domains, one of them three-dimensional and one also inverse, the Laplace equation on a complex geometry, the nonlinear Bratu equation, the Fisher–Kolmogorov equation on the unit square and on a domain fitted to a brain slice from magnetic resonance images, a high-frequency heat equation and a stiff coupled advection–diffusion– reaction system. On these benchmarks the hybrid reduced the error of the IGA solution it post-processes by factors of 4.2 to 90 in L2 and 4.1 to 220 in H1 on the reference meshes (the upper ends on the disk, whose solution is a quadratic polynomial; 4.2 to 27 and 4.1 to 148 on the six benchmarks with non-polynomial solutions, all but the disk and the thick ring), at an unchanged number of unknowns of the Galerkin solve and at 4 to about 500 times its time, and its L2 error was 6 to 6 × 10 4 times smaller than that of the best Kolmogorov–Arnold network we trained from scratch on the same equations with a fixed training protocol; these factors describe that protocol, not the best accuracy such networks can reach. On the disk of PI-GGN and on the flower of KINN and PG-KINN it is more accurate than the published results, and on the disk it identifies an unknown source from a single observation by one division, with an error 167 
+
+times smaller than IGA. The analysis of Section 4 attributes these gains to the superconvergence of local averages of the Galerkin solution, which the local fit recovers with a kernel chosen by the equation, and bounds the error of the blended solution by the residual of the local models, which the safeguard computes, and by their error on the patch boundaries, for which the consensus of overlapping patches is a computable surrogate. With the settings used throughout, the safeguarded hybrid did not return a larger error than the isogeometric solution, beyond round-off, on any mesh of the benchmarks. 
+
+Future work. The results suggest the following directions. 1. Efficiency. The fits of different patches are independent, so the post-process maps directly onto a GPU, and on the first benchmark a non-redundant basis of the local polynomial space reproduced the result at a quarter of the cost; how far the two together reduce the cost of the post-process remains to be measured. 2. Coarse meshes. On coarse meshes (up to about three elements per wavelength on the heat equation, and on the coarsest mesh of the coupled system) the safeguard returns the isogeometric solution. The patches that are not accepted mark where a smooth local model fails the tests, and this map needs no exact solution, which suggests the safeguard as a solve-free indicator for adaptive refinement; coupling the two, and choosing the patch size, the local degree and the number of sample points automatically (in three dimensions the gain depends on them, Section 5.1.3), is a way to obtain gains in this regime. 3. Non-smooth solutions. Corner and crack singularities and material interfaces are outside a polynomial local space. Enriching the local models with the singular functions, where the exponent is known, or combining the post-process with graded meshes, is the natural extension. Outer splines with interior knots, which leave the polynomial space while the fit stays linear, are the part of the Kolmogorov– Arnold form not used in the method (on the quarter annulus they change the errors by less than 5% ,Remark 1); whether they help near layers and interfaces remains to be tested. 4. Vector-valued and higher-order problems. The ridge identities extend to linear elasticity and to fourth-order operators; what is missing there are counterparts of the residual and p-consistency tests, without which the safeguard does not carry over as it stands. 5. Sharper guarantees. Replacing the consensus test by a computable bound on the boundary term of (14) would turn the safeguard from a filter into a guaranteed error estimate, and a quantitative account of the gain in terms of the negative-norm estimates would predict it a priori ; both could also relax the p-consistency test, which is conservative where the right-hand side vanishes (Section 5.2). 6. Noisy data. In the inverse problem of Section 5.1.2 the advantage of the hybrid decreases once the noise in the observation approaches the discretization error; a noise-aware weighting of the data rows is the natural remedy. 25 Code and data availability 
+
+The code and the result files of this study are openly available at https://github.com/Sima-Naraghi/iga-kan . The repository contains the Python library igakan (the isogeometric solvers, the local Kolmogorov–Arnold fit with its safeguard, and the stand-alone network baselines); one executed Jupyter notebook per benchmark, which solves it with IGA and IGA–KAN and evaluates the network baselines; the scripts that produce every table and figure of this paper, including those that train the networks; and the result files (CSV, JSON and NPZ, with the logs and, for the flower, the Fisher–Kolmogorov equation, the heat equation and the coupled system, the trained network weights) from which every number reported here is read. The brain slice of Section 5.4.1 is taken from the subject labeled abby of the public MRI2FEM data set [66] (version 2.0, CC BY 4.0), which is not redistributed; the repository gives the instructions to obtain it. 
+
+Declaration of generative AI and AI-assisted technologies in the manuscript preparation process 
+
+During the preparation of this work the authors used Claude (Anthropic) in order to edit the text and to check its grammar and language. After using this tool, the authors reviewed and edited the content as needed and take full responsibility for the content of the published article. 
+
+References 
+
+[1] T. J. R. Hughes, J. A. Cottrell, Y. Bazilevs, Isogeometric analysis: CAD, finite elements, NURBS, exact geometry and mesh refinement, Computer Methods in Applied Mechanics and Engineering 194 (39–41) (2005) 4135–4195. doi:10.1016/j.cma.2004.10.008 .[2] J. A. Cottrell, T. J. R. Hughes, Y. Bazilevs, Isogeometric Analysis: Toward Integration of CAD and FEA, John Wiley & Sons, Chichester, 2009. doi:10.1002/9780470749081 .[3] I. E. Lagaris, A. Likas, D. I. Fotiadis, Artificial neural networks for solving ordinary and partial differential equations, IEEE Transactions on Neural Networks 9 (5) (1998) 987–1000. doi:10.1109/ 72.712178 .[4] M. Raissi, P. Perdikaris, G. E. Karniadakis, Physics-informed neural networks: a deep learning frame-work for solving forward and inverse problems involving nonlinear partial differential equations, Jour-nal of Computational Physics 378 (2019) 686–707. doi:10.1016/j.jcp.2018.10.045 .[5] S. Wang, H. Wang, P. Perdikaris, On the eigenvector bias of Fourier feature networks: from regression to solving multi-scale PDEs with physics-informed neural networks, Computer Methods in Applied Mechanics and Engineering 384 (2021) 113938. doi:10.1016/j.cma.2021.113938 .[6] S. Wang, X. Yu, P. Perdikaris, When and why PINNs fail to train: a neural tangent kernel perspective, Journal of Computational Physics 449 (2022) 110768. doi:10.1016/j.jcp.2021.110768 .[7] A. S. Krishnapriyan, A. Gholami, S. Zhe, R. M. Kirby, M. W. Mahoney, Characterizing possible failure modes in physics-informed neural networks, in: Advances in Neural Information Processing Systems 34 (NeurIPS 2021), Curran Associates, Inc., 2021, pp. 26548–26560, arXiv:2109.01050. [8] T. G. Grossmann, U. J. Komorowska, J. Latz, C.-B. Schönlieb, Can physics-informed neural networks beat the finite element method?, IMA Journal of Applied Mathematics 89 (1) (2024) 143–174. doi: 10.1093/imamat/hxae011 .[9] N. McGreivy, A. Hakim, Weak baselines and reporting biases lead to overoptimism in machine learning for fluid-related partial differential equations, Nature Machine Intelligence 6 (10) (2024) 1256–1269. 
+
+doi:10.1038/s42256-024-00897-5 .[10] Z. Liu, Y. Wang, S. Vaidya, F. Ruehle, J. Halverson, M. Soljačić, T. Y. Hou, M. Tegmark, KAN: Kolmogorov–Arnold networks, in: International Conference on Learning Representations (ICLR 2025), 2025, pp. 70367–70413, arXiv:2404.19756. doi:10.48550/arXiv.2404.19756 .[11] A. Afzal Aghaei, M. Hosseinzadeh, K. Parand, rKAN: rational Kolmogorov–Arnold networks, Neural Networks 201 (2026) 108888, arXiv:2406.14495. doi:10.1016/j.neunet.2026.108888 .[12] E. Mirzabeigi, M. Babaei, A. H. Karami, S. Rezaee, R. Salehi, K. Parand, Physics-informed Lane– Emden solvers using Lynx-Net: implementing radial basis functions in Kolmogorov representation, Astronomy and Computing 54 (2026) 100997. doi:10.1016/j.ascom.2025.100997 .26 [13] Y. Wang, J. Sun, J. Bai, C. Anitescu, M. S. Eshaghi, X. Zhuang, T. Rabczuk, Y. Liu, Kolmogorov– Arnold-informed neural network: a physics-informed deep learning framework for solving forward and inverse problems based on Kolmogorov–Arnold networks, Computer Methods in Applied Mechanics and Engineering 433 (2025) 117518, arXiv:2406.11045. doi:10.1016/j.cma.2024.117518 .[14] A. Sadr, N. Soltani, V. Moghtadaiee, A. Pakniyat, D. Rahmati, S. Gorgin, PG-KINN: a physics-informed Petrov–Galerkin Kolmogorov–Arnold network for solving forward and inverse PDEs, arXiv:2607.20378 (2026). doi:10.48550/arXiv.2607.20378 .[15] A. Li, Y. J. Zhang, Isogeometric analysis-based physics-informed graph neural network for studying traffic jam in neurons, Computer Methods in Applied Mechanics and Engineering 403 (2023) 115757. 
+
+doi:10.1016/j.cma.2022.115757 .[16] M. Möller, G. Obermair, I. Singer, C. Gollmann, A. Reali, S. Elgeti, IGANets: isogeometric analysis networks and their applications to linear structural analysis problems, Engineering with Computers 42 (3) (2026) 102. doi:10.1007/s00366-026-02312-6 .[17] J. Gasick, X. Qian, Isogeometric neural networks: a new deep learning approach for solving parame-terized partial differential equations, Computer Methods in Applied Mechanics and Engineering 405 (2023) 115839. doi:10.1016/j.cma.2022.115839 .[18] K. Fukami, K. Fukagata, K. Taira, Super-resolution reconstruction of turbulent flows with machine learning, Journal of Fluid Mechanics 870 (2019) 106–120. doi:10.1017/jfm.2019.238 .[19] K. Um, R. Brand, Y. R. Fei, P. Holl, N. Thuerey, Solver-in-the-loop: learning from differentiable physics to interact with iterative PDE-solvers, in: Advances in Neural Information Processing Systems 33 (NeurIPS 2020), Curran Associates, Inc., 2020, pp. 6111–6122, arXiv:2007.00016. [20] U. Kapustsin, U. Kaya, T. Richter, A hybrid finite element/neural network solver and its application to the Poisson problem, Proceedings in Applied Mathematics and Mechanics (PAMM) 23 (3) (2023) e202300135, arXiv:2307.00947. doi:10.1002/pamm.202300135 .[21] N. Margenberg, R. Jendersie, C. Lessig, T. Richter, DNN-MG: a hybrid neural network/finite element method with applications to 3D simulations of the Navier–Stokes equations, Computer Methods in Applied Mechanics and Engineering 420 (2024) 116692. doi:10.1016/j.cma.2023.116692 .[22] M. Babaei, P. Rucz, M. Kaltenbacher, S. Schoder, Super-resolution of elliptic PDE solutions using least squares support vector regression, arXiv:2512.09967 (2025). doi:10.48550/arXiv.2512.09967 .[23] J. H. Bramble, A. H. Schatz, Higher order local accuracy by averaging in the finite element method, Mathematics of Computation 31 (137) (1977) 94–111. doi:10.1090/s0025-5718-1977-0431744-9 .[24] O. C. Zienkiewicz, J. Z. Zhu, The superconvergent patch recovery and a posteriori error estimates. Part 1: the recovery technique, International Journal for Numerical Methods in Engineering 33 (7) (1992) 1331–1364. doi:10.1002/nme.1620330702 .[25] Y. Bazilevs, L. Beirão da Veiga, J. A. Cottrell, T. J. R. Hughes, G. Sangalli, Isogeometric analysis: approximation, stability and error estimates for h-refined meshes, Mathematical Models and Methods in Applied Sciences 16 (7) (2006) 1031–1090. doi:10.1142/s0218202506001455 .[26] J. A. Evans, Y. Bazilevs, I. Babuška, T. J. R. Hughes, n-Widths, sup–infs, and optimality ratios for the k-version of the isogeometric finite element method, Computer Methods in Applied Mechanics and Engineering 198 (21–26) (2009) 1726–1741. doi:10.1016/j.cma.2009.01.021 .[27] J. A. Cottrell, A. Reali, Y. Bazilevs, T. J. R. Hughes, Isogeometric analysis of structural vibrations, Computer Methods in Applied Mechanics and Engineering 195 (41–43) (2006) 5257–5296. doi: 10.1016/j.cma.2005.09.027 .[28] N. Sukumar, A. Srivastava, Exact imposition of boundary conditions with distance functions in physics-informed deep neural networks, Computer Methods in Applied Mechanics and Engineering 389 (2022) 114333. doi:10.1016/j.cma.2021.114333 .[29] V. Dwivedi, B. Srinivasan, Physics informed extreme learning machine (PIELM) – a rapid method for the numerical solution of partial differential equations, Neurocomputing 391 (2020) 96–118, arXiv:1907.03507. doi:10.1016/j.neucom.2019.12.099 .[30] S. Dong, Z. Li, Local extreme learning machines and domain decomposition for solving linear and nonlinear partial differential equations, Computer Methods in Applied Mechanics and Engineering 387 (2021) 114129, arXiv:2012.02895. doi:10.1016/j.cma.2021.114129 .[31] J. Chen, X. Chi, W. E, Z. Yang, Bridging traditional and machine learning-based algorithms for solving PDEs: the random feature method, Journal of Machine Learning 1 (3) (2022) 268–298, arXiv:2207.13380. doi:10.4208/jml.220726 .[32] K. Shukla, J. D. Toscano, Z. Wang, Z. Zou, G. E. Karniadakis, A comprehensive and FAIR com-parison between MLP and KAN representations for differential equations and operator networks, 27 Computer Methods in Applied Mechanics and Engineering 431 (2024) 117290. doi:10.1016/j.cma. 2024.117290 .[33] D. W. Abueidda, P. Pantidis, M. E. Mobasher, DeepOKAN: deep operator network based on Kol-mogorov Arnold networks for mechanics problems, Computer Methods in Applied Mechanics and Engineering 436 (2025) 117699. doi:10.1016/j.cma.2024.117699 .[34] A. Kashefi, Kolmogorov–Arnold PointNet: deep learning for prediction of fluid fields on irreg-ular geometries, Computer Methods in Applied Mechanics and Engineering 439 (2025) 117888, arXiv:2408.02950. doi:10.1016/j.cma.2025.117888 .[35] B. Kim, J. Zhang, G. Lin, Weak-form evolutionary Kolmogorov–Arnold networks for solving partial differential equations, Computer Methods in Applied Mechanics and Engineering 458 (2026) 119065, arXiv:2602.18515. doi:10.1016/j.cma.2026.119065 .[36] H. Gao, M. J. Zahr, J.-X. Wang, Physics-informed graph neural Galerkin networks: a unified frame-work for solving PDE-governed forward and inverse problems, Computer Methods in Applied Me-chanics and Engineering 390 (2022) 114502, arXiv:2107.12146. doi:10.1016/j.cma.2021.114502 .[37] K. Fukami, K. Fukagata, K. Taira, Super-resolution analysis via machine learning: a survey for fluid flows, Theoretical and Computational Fluid Dynamics 37 (4) (2023) 421–444. doi:10.1007/s00162-023-00663-0 .[38] Y. Bar-Sinai, S. Hoyer, J. Hickey, M. P. Brenner, Learning data-driven discretizations for partial differential equations, Proceedings of the National Academy of Sciences 116 (31) (2019) 15344–15349. 
+
+doi:10.1073/pnas.1814058116 .[39] D. Kochkov, J. A. Smith, A. Alieva, Q. Wang, M. P. Brenner, S. Hoyer, Machine learning–accelerated computational fluid dynamics, Proceedings of the National Academy of Sciences 118 (21) (2021) e2101784118. doi:10.1073/pnas.2101784118 .[40] N. Margenberg, D. Hartmann, C. Lessig, T. Richter, A neural network multigrid solver for the Navier– Stokes equations, Journal of Computational Physics 460 (2022) 110983. doi:10.1016/j.jcp.2022. 110983 .[41] H. Barucq, M. Duprez, F. Faucher, E. Franck, F. Lecourtier, V. Lleras, V. Michel-Dansac, N. Vic-torion, Enriching continuous Lagrange finite element approximation spaces using neural networks, ESAIM: Mathematical Modelling and Numerical Analysis 60 (2) (2026) 541–603, arXiv:2502.04947. 
+
+doi:10.1051/m2an/2026007 .[42] J. Jung, K. Yoon, P.-S. Lee, Deep learned finite elements, Computer Methods in Applied Mechanics and Engineering 372 (2020) 113401. doi:10.1016/j.cma.2020.113401 .[43] V. Thomée, High order local approximations to derivatives in the finite element method, Mathematics of Computation 31 (139) (1977) 652–660. doi:10.1090/s0025-5718-1977-0438664-4 .[44] J. Douglas, Jr., T. Dupont, M. F. Wheeler, An L∞ estimate and a superconvergence result for a Galerkin method for elliptic equations based on tensor products of piecewise polynomials, Revue française d’automatique, informatique, recherche opérationnelle. Analyse numérique 8 (R2) (1974) 61–66. doi:10.1051/m2an/197408r200611 .[45] L. B. Wahlbin, Superconvergence in Galerkin Finite Element Methods, Vol. 1605 of Lecture Notes in Mathematics, Springer, Berlin, Heidelberg, 1995. doi:10.1007/bfb0096835 .[46] B. Cockburn, M. Luskin, C.-W. Shu, E. Süli, Enhanced accuracy by post-processing for finite element methods for hyperbolic equations, Mathematics of Computation 72 (242) (2003) 577–606. doi:10. 1090/s0025-5718-02-01464-3 .[47] L. Ji, P. van Slingerland, J. K. Ryan, K. Vuik, Superconvergent error estimates for position-dependent smoothness-increasing accuracy-conserving (SIAC) post-processing of discontinuous Galerkin solu-tions, Mathematics of Computation 83 (289) (2014) 2239–2262. doi:10.1090/s0025-5718-2014-02835-4 .[48] N.-E. Wiberg, F. Abdulwahab, Patch recovery based on superconvergent derivatives and equilibrium, International Journal for Numerical Methods in Engineering 36 (16) (1993) 2703–2724. doi:10.1002/ nme.1620361603 .[49] N.-E. Wiberg, F. Abdulwahab, S. Ziukas, Enhanced superconvergent patch recovery incorporating equilibrium and boundary conditions, International Journal for Numerical Methods in Engineering 37 (20) (1994) 3417–3440. doi:10.1002/nme.1620372003 .[50] T. Blacker, T. Belytschko, Superconvergent patch recovery with equilibrium and conjoint interpolant enhancements, International Journal for Numerical Methods in Engineering 37 (3) (1994) 517–536. 
+
+doi:10.1002/nme.1620370309 .28 [51] J. J. Ródenas, M. Tur, F. J. Fuenmayor, A. Vercher, Improvement of the superconvergent patch recovery technique by the use of constraint equations: the SPR-C technique, International Journal for Numerical Methods in Engineering 70 (6) (2007) 705–727. doi:10.1002/nme.1903 .[52] Z. Zhang, A. Naga, A new finite element gradient recovery method: superconvergence property, SIAM Journal on Scientific Computing 26 (4) (2005) 1192–1213. doi:10.1137/s1064827503402837 .[53] M. Kumar, T. Kvamsdal, K. A. Johannessen, Superconvergent patch recovery and a posteriori error estimation technique in adaptive isogeometric analysis, Computer Methods in Applied Mechanics and Engineering 316 (2017) 1086–1156. doi:10.1016/j.cma.2016.11.014 .[54] J. M. Melenk, I. Babuška, The partition of unity finite element method: basic theory and applications, Computer Methods in Applied Mechanics and Engineering 139 (1–4) (1996) 289–314. doi:10.1016/ s0045-7825(96)01087-0 .[55] M. Montardini, G. Sangalli, L. Tamellini, Optimal-order isogeometric collocation at Galerkin super-convergent points, Computer Methods in Applied Mechanics and Engineering 316 (2017) 741–757. 
+
+doi:10.1016/j.cma.2016.09.043 .[56] D. Wang, D. Qi, X. Li, Superconvergent isogeometric collocation method with Greville points, Com-puter Methods in Applied Mechanics and Engineering 377 (2021) 113689. doi:10.1016/j.cma.2021. 113689 .[57] D. Gilbarg, N. S. Trudinger, Elliptic Partial Differential Equations of Second Order, Classics in Mathematics, Springer, Berlin, Heidelberg, 2001. doi:10.1007/978-3-642-61798-0 .[58] M. H. Protter, H. F. Weinberger, Maximum Principles in Differential Equations, Springer, New York, 1984. doi:10.1007/978-1-4612-5282-5 .[59] M. Corti, F. Bonizzoni, L. Dedè, A. M. Quarteroni, P. F. Antonietti, Discontinuous Galerkin methods for Fisher–Kolmogorov equation with application to α-synuclein spreading in Parkinson’s disease, Computer Methods in Applied Mechanics and Engineering 417 (2023) 116450. doi:10.1016/j.cma. 2023.116450 .[60] I. Asmouh, A. Ostermann, Highly efficient NURBS-based isogeometric analysis for coupled nonlinear diffusion–reaction equations with and without advection, Journal of Computational Science 83 (2024) 102434, arXiv:2404.04017. doi:10.1016/j.jocs.2024.102434 .[61] C. de Falco, A. Reali, R. Vázquez, GeoPDEs: a research tool for isogeometric analysis of PDEs, Advances in Engineering Software 42 (12) (2011) 1020–1034. doi:10.1016/j.advengsoft.2011.06. 010 .[62] R. Vázquez, A new design for the implementation of isogeometric analysis in Octave and Matlab: GeoPDEs 3.0, Computers & Mathematics with Applications 72 (3) (2016) 523–554. doi:10.1016/j. camwa.2016.05.010 .[63] L. Piegl, W. Tiller, The NURBS Book, 2nd Edition, Monographs in Visual Communication, Springer, Berlin, Heidelberg, 1997. doi:10.1007/978-3-642-59223-2 .[64] L. Dalcin, N. Collier, P. Vignal, A. M. A. Côrtes, V. M. Calo, PetIGA: a framework for high-performance isogeometric analysis, Computer Methods in Applied Mechanics and Engineering 308 (2016) 151–181. doi:10.1016/j.cma.2016.05.011 .[65] K.-A. Mardal, M. E. Rognes, T. B. Thompson, L. M. Valnes, Mathematical Modeling of the Human Brain: From Magnetic Resonance Images to Finite Element Simulation, Simula SpringerBriefs on Computing, Springer, Cham, 2022. doi:10.1007/978-3-030-95136-8 .[66] K.-A. Mardal, M. E. Rognes, T. B. Thompson, L. M. Valnes, MRI2FEM data set, Zenodo, version 2.0 (2021). doi:10.5281/zenodo.4899120 .[67] B. Fischl, FreeSurfer, NeuroImage 62 (2) (2012) 774–781. doi:10.1016/j.neuroimage.2012.01.021 .[68] U. Langer, S. E. Moore, M. Neumüller, Space–time isogeometric analysis of parabolic evolu-tion problems, Computer Methods in Applied Mechanics and Engineering 306 (2016) 342–363, arXiv:1509.02008. doi:10.1016/j.cma.2016.03.042 .29
