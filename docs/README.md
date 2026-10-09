@@ -6,68 +6,73 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-10-07
-- 运行时间：2026-10-08 00:05:22 UTC
+- 最新运行日期：2026-10-08
+- 运行时间：2026-10-09 00:08:43 UTC
 - 运行状态：成功
-- 本次总论文数：15
-- 精读区：4
+- 本次总论文数：17
+- 精读区：6
 - 速读区：11
 
 ### 今日简报（AI）
-- 今日共生成 15 篇推荐（精读 4 篇，速读 11 篇）
-- 精读：《Error Estimates in Physics-Informed Neural Networks to Heat-Wave Fluid-Structure Interactive System》（8.0/10）, 《Training Numerical Intelligence via Auto-Diagnosis and Skill Discovery》（8.0/10）
-- 速读：《Hyperparameter selection for equation learning with biologically-informed neural networks》（7.0/10）, 《Geometry Meets Physics: Data-Efficient Pre-Training for Unstructured Neural PDE Solvers》（7.0/10）, 《FTD-GNO: Memory-Efficient Graph Neural Operators through Functional Tensor Decomposition of the Kernel》（7.0/10）
-- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202610/07/README](/202610/07/README)
+今日精选17篇，6篇精读、11篇速读，PINN与神经PDE求解器是绝对主线。  
+最值得看：9.0分的《SAGE-PINN》用无奇点轴对称几何编码处理柱坐标多物理流，8.0分的《Training Numerical Intelligence》探索自动诊断与技能发现；速读中的自适应采样、数值溯源和自重塑求解器也值得扫一眼。  
+普通读者可先翻SAGE-PINN，再按“自适应采样/溯源/自
+- 详情：[/202610/08/README](/202610/08/README)
 
 ### 精读区论文标签
-1. [Error Estimates in Physics-Informed Neural Networks to Heat-Wave Fluid-Structure Interactive System](/202610/07/2610.03575v1-error-estimates-in-physics-informed-neural-networks-to-heat-wave-fluid-structure-interactive-system)  
-   标签：评分：8.0/10、query:sci-ml-agent
-   evidence：面向耦合PDE系统的PINN逼近与误差估计
-2. [Training Numerical Intelligence via Auto-Diagnosis and Skill Discovery](/202610/07/2610.03872v1-training-numerical-intelligence-via-auto-diagnosis-and-skill-discovery)  
+1. [SAGE-PINN: A Singularity-free Axisymmetric Geometry-Encoded Physics-Informed Neural Network for Axisymmetric Multiphysics Flow in Cylindrical Coordinates](/202610/08/2610.10449v1-sage-pinn-a-singularity-free-axisymmetric-geometry-encoded-physics-informed-neural-network-for-axisymmetric-multiphysics-flow-in-cylindrical-coordinates)  
+   标签：评分：9.0/10、query:sci-ml-agent
+   evidence：面向轴对称流动PDE的物理信息神经网络
+2. [Training Numerical Intelligence via Auto-Diagnosis and Skill Discovery](/202610/08/2610.03872v1-training-numerical-intelligence-via-auto-diagnosis-and-skill-discovery)  
    标签：评分：8.0/10、query:ai-pde
-   evidence：AI智能体诊断优先的可复用数值求解器技能发现
-3. [IGA-KAN: Isogeometric Analysis with Physics-Informed Closed-Form Kolmogorov-Arnold Networks for Forward and Inverse PDEs](/202610/07/2610.06348v1-iga-kan-isogeometric-analysis-with-physics-informed-closed-form-kolmogorov-arnold-networks-for-forward-and-inverse-pdes)  
+   evidence：诊断优先的智能体框架发现可复用数值求解技能
+3. [Green-Routed Neural Operators:\\Physics Determines Where the Network Reads](/202610/08/2610.05337v1-green-routed-neural-operatorsphysics-determines-where-the-network-reads)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：物理信息闭式KAN改进等几何PDE求解
-4. [Do Neural PDE Solvers Learn the Right Dynamics?](/202610/07/2610.06952v1-do-neural-pde-solvers-learn-the-right-dynamics)  
+   evidence：利用控制方程决定采样位置的PDE神经算子
+4. [Discovered, Not Designed: Population Evolution for Collaborative and Compute-Intensive Model Discovery](/202610/08/2610.05950v1-discovered-not-designed-population-evolution-for-collaborative-and-compute-intensive-model-discovery)  
    标签：评分：8.0/10、query:sci-ml-agent
-   evidence：面向神经PDE求解器物理动力学的评估框架
+   evidence：由大模型驱动的演化搜索用于模型与算法发现
+5. [Learning PDE solution operators with variable initial conditions via Latent Dynamics Networks](/202610/08/2610.08475v1-learning-pde-solution-operators-with-variable-initial-conditions-via-latent-dynamics-networks)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：用神经网络学习PDE解算子作为代理模型
+6. [Neural-Operator-Predicted Time-Dependent Reduced Subspaces for Projection-Based Simulation of Nonlinear PDEs](/202610/08/2610.08693v1-neural-operator-predicted-time-dependent-reduced-subspaces-for-projection-based-simulation-of-nonlinear-pdes)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：神经算子将初始条件映射到降维子空间以进行投影式非线性PDE仿真
 
 ### 速读区论文标签
-1. [Hyperparameter selection for equation learning with biologically-informed neural networks](/202610/07/2610.02954v1-hyperparameter-selection-for-equation-learning-with-biologically-informed-neural-networks)  
+1. [Domain-informed Adaptive Sampling for Generalizable PINNs in Metal Additive Manufacturing via Conditional Flow Matching](/202610/08/2610.09126v1-domain-informed-adaptive-sampling-for-generalizable-pinns-in-metal-additive-manufacturing-via-conditional-flow-matching)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：通过自适应采样设计提升PINN求解PDE的泛化能力
+2. [The Symbol of the Surrogate: Measuring Numerical Provenance in Neural PDE Solvers](/202610/08/2610.09255v1-the-symbol-of-the-surrogate-measuring-numerical-provenance-in-neural-pde-solvers)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：度量神经PDE求解器数值来源与验证的诊断方法
+3. [Physics-Informed Neural Plasticity: PDE Solvers That Reshape Themselves](/202610/08/2610.09510v1-physics-informed-neural-plasticity-pde-solvers-that-reshape-themselves)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：表示结构可自适应重塑的物理信息PDE求解器
+4. [Cross-Domain Pretraining for Steady-State Neural CFD Surrogates](/202610/08/2610.10398v1-cross-domain-pretraining-for-steady-state-neural-cfd-surrogates)  
+   标签：评分：8.0/10、query:sci-ml-agent
+   evidence：跨域预训练提升泛化的神经CFD代理模型
+5. [Schema: Discovering Unknown Environments via Agentic Program Induction](/202610/08/2609.39140v1-schema-discovering-unknown-environments-via-agentic-program-induction)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：面向PINN子类BINN的超参数选择，用于PDE方程学习
-2. [Geometry Meets Physics: Data-Efficient Pre-Training for Unstructured Neural PDE Solvers](/202610/07/2610.03363v1-geometry-meets-physics-data-efficient-pre-training-for-unstructured-neural-pde-solvers)  
+   evidence：智能体程序归纳：LLM将环境理解表达为可执行程序
+6. [Neural Network Solvers for Nonlinear ODEs: Benchmarking MLPs and B-Spline/Chebyshev KANs](/202610/08/2610.03783v1-neural-network-solvers-for-nonlinear-odes-benchmarking-mlps-and-b-splinechebyshev-kans)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：面向非结构神经PDE代理模型的数据高效预训练
-3. [FTD-GNO: Memory-Efficient Graph Neural Operators through Functional Tensor Decomposition of the Kernel](/202610/07/2610.04212v1-ftd-gno-memory-efficient-graph-neural-operators-through-functional-tensor-decomposition-of-the-kernel)  
+   evidence：仅用方程残差训练的神经网络求解器，对比MLP与KAN物理信息求解器
+7. [AdaEva: Accelerating LLM-Driven Algorithm Design with Adaptive Partial Evaluation](/202610/08/2610.03896v1-adaeva-accelerating-llm-driven-algorithm-design-with-adaptive-partial-evaluation)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：面向PDE的内存高效图神经算子代理模型
-4. [Stochastic Adaptive Fourier Decomposition for Operator Learning](/202610/07/2610.04241v1-stochastic-adaptive-fourier-decomposition-for-operator-learning)  
+   evidence：面向LLM驱动自动算法设计的自适应部分评估框架
+8. [Localized Operator Learning with Adaptive Partition-of-Unity Mixture-of-Expert Networks](/202610/08/2610.04708v1-localized-operator-learning-with-adaptive-partition-of-unity-mixture-of-expert-networks)  
    标签：评分：7.0/10、query:sci-ml-agent
-   evidence：面向PDE求解的谱神经算子代理，采用自适应傅里叶分解
-5. [Fusion is the New Mutation: Bandit-Guided Evolution on Workflow Graphs](/202610/07/2610.05284v1-fusion-is-the-new-mutation-bandit-guided-evolution-on-workflow-graphs)  
-   标签：评分：7.0/10、query:sci-ml-agent
-   evidence：基于赌博机引导的智能体工作流图演化
-6. [Parameter Estimation in Machining Dynamics with Regenerative Delay and Nonsmooth Friction using Physics-Informed Neural Networks](/202610/07/2610.06230v1-parameter-estimation-in-machining-dynamics-with-regenerative-delay-and-nonsmooth-friction-using-physics-informed-neural-networks)  
-   标签：评分：7.0/10、query:sci-ml-agent
-   evidence：用XPINN求解非光滑延迟微分方程
-7. [Higher-Order Kolmogorov-Arnold Networks for Dynamics](/202610/07/2610.02637v1-higher-order-kolmogorov-arnold-networks-for-dynamics)  
+   evidence：基于单位分解专家混合网络的局部算子学习
+9. [Composing Task-specific Agent Harnesses at Test Time with Reusable Primitives](/202610/08/2609.38912v1-composing-task-specific-agent-harnesses-at-test-time-with-reusable-primitives)  
+   标签：评分：6.0/10、query:ai-pde
+   evidence：可组合的智能体框架原语与技能机制
+10. [Self-Supervised Scaling of Terminal Environments for Scientific Domains](/202610/08/2610.02710v1-self-supervised-scaling-of-terminal-environments-for-scientific-domains)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：基于KAN的数据驱动动力系统控制方程发现
-8. [Dynamic Harness Search: Building Multi-Agent Systems Per-Query via Prediction](/202610/07/2610.04137v1-dynamic-harness-search-building-multi-agent-systems-per-query-via-prediction)  
+   evidence：为科学智能体自监督构建可执行验证器
+11. [MESH-Harness: Self-Improving Agent Harnesses via Bandit-Guided Compositional Evolution](/202610/08/2610.05300v1-mesh-harness-self-improving-agent-harnesses-via-bandit-guided-compositional-evolution)  
    标签：评分：6.0/10、query:sci-ml-agent
-   evidence：LLM架构师通过MCTS搜索学习构建智能体harness的策略
-9. [Checkable NTK Positivity and Finite-Width Gradient Descent for Scalar- and Vector-Valued PINNs with Strong-Form, Weak-Form, and Nonlocal Linear Constraints](/202610/07/2610.04357v1-checkable-ntk-positivity-and-finite-width-gradient-descent-for-scalar--and-vector-valued-pinns-with-strong-form-weak-form-and-nonlocal-linear-constraints)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：PINN的可检验NTK正定性与收敛理论
-10. [A Locally Conservative Enriched Linearized Neural Network Approximation to Elliptic PDEs](/202610/07/2610.04524v1-a-locally-conservative-enriched-linearized-neural-network-approximation-to-elliptic-pdes)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：面向椭圆型PDE的局部守恒神经网络逼近
-11. [Recursive Improvement of a Differentiable Scientific Software Ecosystem](/202610/07/2610.04561v1-recursive-improvement-of-a-differentiable-scientific-software-ecosystem)  
-   标签：评分：6.0/10、query:sci-ml-agent
-   evidence：智能体驱动的可微科学软件演化
+   evidence：基于赌博机引导组合演化的自改进智能体框架
 
 
 <div class="dpr-home-promo-card">

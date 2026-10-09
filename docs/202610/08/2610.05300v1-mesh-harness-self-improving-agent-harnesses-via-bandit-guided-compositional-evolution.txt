@@ -1,0 +1,1001 @@
+Title: MESH-Harness: Self-Improving Agent Harnesses via Bandit-Guided Compositional Evolution
+
+URL Source: https://arxiv.org/pdf/2610.05300v1
+
+Published Time: Tue, 06 Oct 2026 02:06:36 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# MESH-H ARNESS : S ELF -I MPROVING AGENT 
+
+# HARNESSES VIA BANDIT -G UIDED 
+
+# COMPOSITIONAL EVOLUTION 
+
+Zhiwei Shang 1,6, Yu Huo 2,6, Mingrong Gong 3, An Yan 4,6, Zikun Qu 1,Junhao Dong 3, Bryan Kian Hsiang Low 5, Chenglin Wu 6, Zhongxiang Dai 11The Chinese University of Hong Kong, Shenzhen  
+
+> 2The Chinese University of Hong Kong
+> 3Nanyang Technological University
+> 4Fudan University
+> 5National University of Singapore
+> 6DeepWisdom Correspondence to: Zhongxiang Dai <daizhongxiang@cuhk.edu.cn>
+
+## ABSTRACT 
+
+An agent harness is the code that organizes context, maintains state, and coor-dinates tool calls for a language model. We study how to improve the harness under a limited evaluation budget while keeping model weights fixed. Our method, 
+
+MESH-Harness , organizes each harness into functional modules with explicit role-specific interfaces, allowing alternative implementations of each module to be sub-stituted and recombined. It uses shared module representations and full-covariance LinUCB to score candidate combinations based on predicted performance and exploration value. Mixed-start coordinate ascent selects complete configurations for evaluation without enumerating the combinatorial space. Validation traces then guide local code edits, and the resulting candidates are incorporated into fixed-capacity role-specific pools for subsequent recombination. On text tasks, retrieval-augmented mathematical reasoning, code generation, and interactive scien-tific tasks, MESH-Harness outperforms Meta-Harness by 5.70, 7.01, 2.00, and 5.00 points, respectively, under matched candidate-evaluation budgets. Iterative harness optimization improves MESH-Harness by 5.63–7.79 points over its first-round configurations. For the reported configurations, aggregate test-time cost is 44.2% lower than that of Meta-Harness, while total cost including search is 14.6% lower. These results show that combining module-level design reuse with feedback-driven compositional search can systematically improve agent harnesses while keeping overall optimization cost under control. 
+
+## 1 INTRODUCTION 
+
+Large language models (LLMs) can act as agents by retrieving information, calling tools, and interacting with environments (Yao et al., 2023). Their behavior also depends on the external program that controls memory, context construction, tool use, and failure recovery. This program is referred to as the agent harness . Unlike a single prompt, a harness specifies how successive model calls work together to solve a task. For example, harnesses for long-running agents support this coordination through explicit state handoffs, progress records, and execution checks (Young, 2025). Because the harness governs how model calls work together, optimizing it offers a way to improve an agent without updating model weights. AutoHarness synthesizes action validators and policy code through iterative refinement using environment feedback (Lou et al., 2026). Meta-Harness searches over task-specific Python programs, allowing a proposer agent to inspect previous candidates’ code, scores, and execution traces (Lee et al., 2026). Both approaches make the surrounding program an object of optimization rather than a fixed implementation. The difficulty is that evaluating a harness can be much more expensive than proposing it. Even a small edit may require an end-to-end validation run involving many model calls and environment interactions. Meta-Harness likewise identifies candidate evaluation as its main computational bot-tleneck (Lee et al., 2026). Under a limited budget, the search must therefore decide not only what to generate, but what to execute. We study how to use past evaluations to make these decisions and obtain larger improvements within a fixed number of candidate evaluations. We introduce MESH-Harness , a bandit-guided framework for compositional harness evolution. Contextual bandits use shared features to generalize from observed rewards and balance predicted performance against uncertainty (Li et al., 2010; Chu et al., 2011). To apply this idea to harnesses, we organize each harness into functional slots with fixed interfaces, maintain a candidate pool 1arXiv:2610.05300v1 [cs.AI] 4 Oct 2026 MESH-Harness  Self-Improving Agent Harnesses via Bandit-Guided Compositional Evolution 
+
+(a) Modular search space  (b) Bandit-guided composition  (c) Execution & evaluation 
+
+(d) Trace-aware module evolution   
+
+> Existing harness
+> m1m2mk…
+> Task-specific module interfaces
+> LLM-initialized candidate pools
+> P1
+> </>
+> </>
+> </>
+> P2
+> </>
+> </>
+> </>
+> Pk
+> </>
+> </>
+> </>
+
+…                       
+
+> h = (c 1, …, c k), c j∈ P j
+> Module embeddings
+> …
+> x(h) = [e(c 1); …; e(c k)]
+> Selected composition h t
+> c1∈ P 1c2∈ P 2ck∈ P k…
+> Coordinate ascent
+> Mixed starts: best / top-k / random
+> Two sweeps, one module slot at a time
+> c1c2cj∈ P j…ck
+> Full-covariance LinUCB
+> Ut(h)=θtTx+α g t(h)
+
+√xT At 
+
+> - 1 x
+
++ B t(h) − F t(h)                        
+
+> Bt: module exploration Ft: family usage
+> gt: similarity-aware scale x = x(h)
+> Posterior update A ← A + xx Tb ← b + r txθ = A −1 b
+> Task batch
+> Composed agent LLM + tools
+> Environment / evaluator
+> actions observations
+> Validation
+> reward r t
+> Current validation
+> traces τ t
+> Store (h t, r t)
+> Validation
+> archive
+> Best harness
+> h*
+> Held-out
+> evaluation
+> 3. Pool refresh
+> Contract checks + lineage tracking
+> Pi
+> cic′ i
+> Pj
+> cjc′ j
+> Retention + redundancy eviction
+> Unique children, |P j| = N Invalid: repropose
+> 2. LLM module proposer
+> def module(state, ctx): # trace-guided edit
+> − return baseline(ctx)
+> + return revised(ctx)
+> Failure-driven / random-diverse / top-local
+> Two children in different slots (i ≠ j)
+> 1. Diagnose traces
+> τ1m1mimk×
+> τ2m1mjmk×
+> τ3m1mimk✓
+> Cluster failures, locate suspect slots
+> New modules
+
+Figure 1: Overview of MESH-Harness. (a) Each functional slot has a fixed interface and a pool of LLM-initialized implementations with cached embeddings. (b) Full-covariance LinUCB scores configurations with one implementation per slot, and mixed-start coordinate ascent selects a configuration for evaluation. (c) The selected harness is executed to obtain validation rewards and traces. (d) Trace diagnosis guides edits to implementations and fixed-capacity pool updates. Rewards update the bandit model; new implementations join their respective pools for subsequent composition. per slot, and select one implementation per slot. Each implementation is encoded separately; concatenating the selected embeddings in slot order represents a complete harness. A shared surrogate learns from observed harness scores to predict the performance of untested combinations of module implementations. Full-covariance LinUCB combines these predictions with an uncertainty bonus to score module combinations. We approximately maximize this criterion through mixed-start coordinate ascent, drawing one start per round from the incumbent, top-K archived configurations, or a random combination and substituting implementations within one slot at a time rather than enumerating the Cartesian product of candidate pools. Selection uses only cached representations and surrogate scores; the chosen complete harness is then executed on the validation tasks. This separates inexpensive candidate comparison from costly task evaluation. Selection alone cannot discover implementations absent from the candidate pools. MASPOB selects prompt combinations using bandit-guided coordinate ascent but does not update its candidate pools (Hong et al., 2026). MESH-Harness instead updates the available implementations in each slot during search. Validation traces provide evidence of local failures, such as missing information or repeated unsuccessful actions, and guide an LLM in editing implementations while preserving their slot interfaces. New implementations enter their slot’s fixed-capacity pool for combination with candidates in other slots. Each execution thus supplies two kinds of feedback: scores update the selection model, while traces guide module evolution. A new implementation need not trigger an immediate end-to-end evaluation. We evaluate MESH-Harness on text tasks, retrieval-augmented mathematical reasoning, Live-CodeBench (Jain et al., 2025), and ScienceWorld (Wang et al., 2022). Under matched candidate-evaluation budgets, it improves final test scores over Meta-Harness by 5.70, 7.01, 2.00, and 5.00 points, respectively. MESH-Harness improves by 5.63–7.79 points over its first-round configurations. On ScienceWorld, it starts at 51.90, below the ReAct reference score of 55.50, and reaches 58.10. Across all four tasks, the reported configurations reduce aggregate test-time cost by 44.2% relative to Meta-Harness. Total cost, including search and testing the reported configurations, is 14.6% lower. Our contributions are: 2Figure 2: Test performance across four task domains. (a) Text macro-average, overall Math pass@1, LiveCodeBench solve rate under the fixed cap-8 protocol, and ScienceWorld mean progress score. (b) Unweighted mean of the four task scores. All scores are on a 0–100 scale, with higher values indicating better performance. MESH-Harness achieves the highest score on all four aggregate metrics. • A bandit-guided harness optimizer that allocates a limited evaluation budget using shared performance predictions and uncertainty estimates. • A module-level representation and mixed-start coordinate ascent procedure that reuse evalu-ation feedback across configurations without enumerating the full combinatorial space. • A trace-driven module evolution mechanism, evaluated on four tasks in terms of final performance, search gains, and search and test costs. 
+
+## 2 RELATED WORK 
+
+Improving agents through external components. Recent work improves agents by optimizing the external artifacts that govern their behavior, ranging from natural-language skill documents to executable harnesses. ACE (Zhang et al., 2026c) incrementally curates execution experience into context playbooks, while SkillOpt (Yang et al., 2026) refines reusable skill documents through trajectory-driven edits and validation-gated updates. MCE (Ye et al., 2026) co-evolves context artifacts and the context-engineering skills that produce them. At the code level, Meta-Harness (Lee et al., 2026) gives an agentic proposer access to historical programs, scores, and traces to guide harness revision. ADIAS (Jiang et al., 2026) maintains persistent issue states to direct full-code modifications, and DGM-H (Zhang et al., 2026a) makes both the task agent and its self-improvement procedure editable. AEvo (Zhang et al., 2026b) uses accumulated evolution evidence to guide a meta-agent in editing the search procedure or agent context that governs subsequent evolution. Closely related to our work, AHE (Lin et al., 2026) exposes harness components as editable files and uses structured trajectory evidence and edit-outcome checks to guide revision and rollback. Whereas AHE organizes optimization around successive revisions to a working harness, MESH-Harness maintains alternative implementations in per-slot pools and learns which complete compositions to evaluate. Implementations discovered in different iterations can thus be combined by selecting one per slot, without requiring another LLM rewrite. 
+
+Bandit-guided search under limited evaluation budgets. Feature-based bandits (Li et al., 2010; Chu et al., 2011) provide a way to allocate evaluations by sharing reward information across candidates and balancing exploitation with uncertainty-driven exploration. TRIPLE (Shi et al., 2024) casts prompt selection as fixed-budget best-arm identification. For multi-agent systems, MASPOB (Hong et al., 2026) combines a topology-aware GNN surrogate with UCB-guided coordinate search to select prompt combinations from given candidate domains. MESH-Harness applies uncertainty-guided selection to configurations with one executable implementation per functional slot. A shared reward surrogate over component representations allows past evaluations to inform the ranking of untested compositions, while coordinate search avoids enumerating the full combination space. Unlike search over an unchanged candidate domain, this selection process is interleaved with trace-driven component evolution, so new implementations can enter the pools as optimization proceeds. Together, these choices separate implementation generation from evaluation allocation. MESH-Harness reuses existing implementations without additional LLM rewriting, shares feedback across 3candidate compositions, and introduces new implementations for existing slots from execution evidence. This allows search to exploit prior discoveries without remaining confined to the initial candidate pools. 
+
+## 3 PRELIMINARIES 
+
+With a fixed execution model M and tool set, a harness h is a program that organizes model calls, maintains state, and controls interaction with the environment. On an instance z ∼ D , it produces a trajectory τ ∼ Run( M, h, z ) with task score R(z, τ ). Harness optimization seeks to improve expected performance without changing model weights: 
+
+J(h) = Ez∼D , τ ∼Run( M,h,z ) [R(z, τ )] . (1) We organize the harness into k functional slots with fixed interfaces I = {I1, . . . , I k}. A slot specifies a fixed functional responsibility, such as retrieval or failure recovery, rather than a single model call; execution may include branches and loops. Before round t, pool Pj,t contains candidate implementations satisfying Ij . Substitution occurs within a slot; each configuration selects one implementation per slot: 
+
+h = ( c1, . . . , c k), cj ∈ Pj,t , Ht =
+
+> k
+
+Y
+
+> j=1
+
+Pj,t . (2) The executable harness is Compose I (h); N candidates per slot yield N k configurations. Each round evaluates a complete configuration ht, yielding a validation score rt, traces Tt, and resource-use records κt, all stored in an archive At. The score is aggregated under the task’s validation protocol and is an observed estimate rather than the unknown J(ht). A bandit pull selects a complete harness: no separate module rewards are observed. We seek a high-performing configuration within T evaluations and select the final harness from the validation archive. Test data are not used for generation, selection, or stopping. 
+
+## 4 METHOD 
+
+Algorithm 1 MESH-Harness 
+
+Require: M, I, N, T, S, L ; validation evaluator Initialize checked per-slot pools P = {Pj } and embeddings 
+
+A ← λI kd , b ← 0, A ← ∅, h⋆ ← ⊥ 
+
+Initialize use counts and lineage records 
+
+for t = 1 , . . . , T do 
+
+Form Ut using Eq. (6) 
+
+h ← MIXED START (P, A, h ⋆)
+
+h ← COORDINATE SEARCH (h, U t, P, S )
+
+ht ← NOVELTY FALLBACK (h, P, A)(rt, Tt, κ t) ← EVALUATE (M, h t)
+
+Update (A, b ) using Eq. (9) Archive (ht, r t, Tt, κ t); update usage 
+
+h⋆ ← SELECT VAL (A)
+
+if t < T and t mod L = 0 then 
+
+Z ← DIAGNOSE (Tt, A)
+
+C ← PROPOSE CHECKED (P, I, Z)
+
+for all accepted (j, c ′ 
+
+> j
+
+) ∈ C do 
+
+c− 
+
+> j
+
+← EVICT (Pj , A, h ⋆)
+
+Pj ← (Pj ∪ { c′ 
+
+> j
+
+}) \ { c− 
+
+> j
+
+}
+
+Cache e(c′ 
+
+> j
+
+) and lineage; n(c′ 
+
+> j
+
+) ← 0
+
+end for end if end for return h⋆
+
+MESH-Harness combines bandit-guided configuration selection with trace-driven module evolution. Valida-tion scores update a shared performance model, while execution traces guide changes to the candidate pools. Al-gorithm 1 summarizes the procedure; Appendix B specifies its state transitions and interfaces. 4.1 MODULE POOLS AND SHARED REPRESENTATIONS 
+
+An LLM initializes N implementations per slot from the task description, in-terfaces, and permitted training infor-mation. Candidates for a retrieval slot, for example, may rank evidence differ-ently. They must pass their slot’s inter-face checks and basic execution checks; duplicates are rejected, and invalid im-plementations are revised using error feedback. A fixed encoder maps each candidate’s role description, interface, and imple-mentation summary to an embedding, followed by a fixed projection and nor-malization to obtain e(c) ∈ Rd. The 4configuration representation concatenates embeddings in slot order: 
+
+x(h) = [ e(c1); . . . ; e(ck)] ∈ Rkd . (3) The shared surrogate (i.e., ˆμt(h) in Section 4.2) predicts harness performance from x(h), whose fixed slot order aligns module implementations by functional role across configurations. An observation from one configuration can therefore affect the ranking of other combinations, including those that have not been executed. Embeddings are cached; newly proposed implementations are encoded in the same space without resetting the model. 4.2 BANDIT -G UIDED COMPOSITIONAL SEARCH 
+
+Following linear contextual bandits (Li et al., 2010; Chu et al., 2011), we maintain shared reward statistics over configuration features. Let p = kd and xs = x(hs). Before round t,
+
+At−1 = λI p + X
+
+> s<t
+
+xsx⊤ 
+
+> s
+
+, bt−1 = X
+
+> s<t
+
+rsxs, (4) where λ > 0, A0 = λI p, and b0 = 0 . With ˆθt−1 = A−1
+
+> t−1
+
+bt−1, the predicted performance and exploration signal are 
+
+ˆμt(h) = x(h)⊤ ˆθt−1, σt(h) = 
+
+q
+
+x(h)⊤A−1
+
+> t−1
+
+x(h). (5) We retain the full information matrix, including cross-slot feature co-occurrences, for joint parameter estimation and configuration-level uncertainty. The predicted mean remains additive over slots: 
+
+ˆμt(h) = Pkj=1 e(cj )⊤ ˆθj,t −1, where ˆθj,t −1 is the parameter block for slot j. The shared reward model and uncertainty estimate guide the selection of complete configurations ; actual perfor-mance is determined by end-to-end execution. Appendices A.1–A.2 derive observation transfer and cross-slot uncertainty. To account for module coverage and lineage reuse as the pools evolve, we use 
+
+Ut(h) = ˆ μt(h) + αg t(h)σt(h) + Bt(h) − Ft(h), (6) with 
+
+Bt(h) = ηk
+
+> k
+
+X
+
+> j=1
+
+1
+
+p1 + nt−1(cj ) , Ft(h) = γk
+
+> k
+
+X
+
+> j=1
+
+log(1 + uj,t −1(f (cj ))) . (7) Here, nt−1(c) counts prior evaluations containing c, f (c) identifies its lineage family, and uj,t −1(f )
+
+counts that family’s uses in slot j over the latest W evaluations. Thus, Bt favors underused modules and Ft discourages repeated lineage selection .For similarity-aware exploration, set gt(h) = max {gmin , 1 − β¯st(h)}. Across slots, ¯st(h) averages each candidate’s maximum nonnegative cosine similarity to previously evaluated modules in the same slot and its parent when available; missing references contribute zero. This reduces the exploration premium for close variants. The coefficients α, η, γ, β ≥ 0 and gmin ∈ (0 , 1] control these terms, which affect selection only, not the reward update. We approximately maximize Ut by mixed-start coordinate ascent, building on the coordinate search used in MASPOB (Hong et al., 2026). Each round draws one start from a mixture of the incumbent, the top-K archived configurations restorable by the task adapter, and a random combination; an empty archive gives a random start. The incumbent supports local refinement, while archived and random starts provide alternative search points. We then sweep through the slots: 
+
+cj ← arg max 
+
+> c∈Pj,t
+
+Ut(h−j , c ), j = 1 , . . . , k, (8) where (h−j , c ) substitutes candidate c for the implementation in slot j and retains the latest choices elsewhere. Each update scores a complete configuration. We use two sweeps by default, favor uneval-uated configurations on ties, and use random fallback sampling to seek a new configuration when the result has already been evaluated. The S sweeps require O(S P 
+
+> j
+
+|Pj,t |) surrogate evaluations (Appendix A.3). Throughout these sweeps, Ut remains fixed and no harness is executed. Only the selected ht receives a task evaluation, after which 
+
+At = At−1 + xtx⊤ 
+
+> t
+
+, bt = bt−1 + rtxt. (9) We also update the archive, module-use counts, and lineage statistics. 54.3 TRACE -D RIVEN MODULE EVOLUTION 
+
+After every L evaluations, while budget remains, MESH-Harness groups validation traces by failure type and identifies slots whose implementations warrant revision. Diagnosis uses current failures, recurring errors, and previous edits in the relevant lineages. The proposer mixes failure-guided repair, exploration of less-covered designs, and local refinement of strong configurations. Each refresh targets two distinct slots and proposes one child implementation per slot from its interface, parent code, and execution evidence. Proposals undergo the checks in Section 4.1, with a bounded number of retries for invalid implementations. A child implements its parent’s slot and can be combined with candidates for other slots from other rounds. Each accepted child replaces one candidate in its slot’s pool, keeping the pool size fixed: 
+
+Pj,t +1 = ( Pj,t ∪ { c′ 
+
+> j
+
+}) \ { c− 
+
+> j
+
+}. (10) Among eligible candidates, we evict the one with the lowest retention value: the mean observed reward of configurations containing it. Unevaluated candidates have value zero and do not inherit parent scores. Ties favor removing the candidate most similar to others in the pool. The incumbent’s selected implementations and the newly inserted child are protected during the update; historical implementations and lineage records remain archived. Pools without an accepted child are unchanged. Refreshes preserve At and bt. A new implementation receives no immediate task evaluation: subse-quent bandit decisions determine when it is selected and which implementations fill the other slots. Search therefore learns both which combinations to evaluate and which implementations to add, without assigning an evaluation to every proposal. The final harness is chosen by the prespecified validation criterion and its implementations are frozen for testing. Generation and embedding costs count toward search expenditure; deployment executes only the selected harness, without further search. Algorithm 1 omits time subscripts on mutable state. Appendix B.3 details pool updates, and Appendix C.5 specifies the final selection criterion. 
+
+## 5 EXPERIMENTS 
+
+We evaluate final performance under a limited candidate-evaluation budget, examine the contributions of selection and module evolution, and assess the cost and reuse of the resulting harnesses. 5.1 EXPERIMENTAL SETUP 
+
+Tasks and evaluation. We study text tasks on LawBench (Fei et al., 2024), USPTO (Schneider et al., 2016), and Symptom-to-Diagnosis dataset (Gretel AI, 2023); retrieval-augmented mathematics constructed from OlympiadBench (He et al., 2024) and MathArena (Dekoninck et al., 2026); code generation on LiveCodeBench (Jain et al., 2025); and interaction in ScienceWorld (Wang et al., 2022). We report the macro-average over the three text datasets, overall Math pass@1 on the combined test set, LiveCodeBench solve rate under the fixed cap-8 protocol, and mean ScienceWorld progress. Math pass@1 divides the total number of correct answers across both datasets by their total number of test instances, weighting each instance equally (Appendix C.4). All methods use the same splits (Appendix C.1). Search and final harness selection use validation data; the selected implementations are frozen before held-out testing. All reported test scores are means over three test runs of the same frozen harness. 
+
+Comparisons and budget. We compare with SkillOpt (Yang et al., 2026), DGM-H (Zhang et al., 2026a), ADIAS (Jiang et al., 2026), AHE (Lin et al., 2026), and Meta-Harness (Lee et al., 2026). All optimization methods use the same execution model and a budget of 40 complete candidate evaluations per task. Meta-Harness evaluates 20 × 2 candidates, and MESH-Harness evaluates 40 × 1
+
+compositions. Meta-Harness starts from fixed harnesses, including few-shot (Brown et al., 2020) and BM25 (Robertson & Zaragoza, 2009), in Tables 2–3, or handcrafted ReAct (Yao et al., 2023) harnesses for LiveCodeBench and ScienceWorld; MESH-Harness initializes per-slot pools with LLM-generated implementations. 
+
+Implementation. Both optimizers use Claude Code (Anthropic, 2026a) with Claude Opus 5 (An-thropic, 2026b) at medium effort. Unless stated otherwise, task execution uses DeepSeek V4 Flash (Xu et al., 2026) with thinking disabled. MESH-Harness uses Qwen3-Embedding-8B (Zhang et al., 2025), 10 candidates per slot, α = 0 .8, and two coordinate-search sweeps per evaluation. Every five evaluations, while budget remains, it proposes one child implementation in each of two distinct slots. Appendix C.3 gives the full settings and execution limits. 65.2 PERFORMANCE UNDER A FIXED EVALUATION CAP 
+
+Table 1: Held-out test performance. All methods use 40 candidate evaluations; scores average three test runs. Text: dataset macro-average; Math: pooled pass@1; LiveCodeBench: cap-8 solve rate; ScienceWorld: mean progress. Scores use a 0–100 scale. Bold marks the column maximum; ∆
+
+compares MESH-Harness with Meta-Harness.                                  
+
+> Method Text Math LiveCodeBench ScienceWorld SkillOpt 53.27 46.40 57.00 53.00 DGM-H 42.78 53.00 72.00 52.20 ADIAS 42.50 52.60 69.00 43.10 AHE 47.39 50.60 69.00 49.00 Meta-Harness 50.63 46.20 75.00 53.10
+> MESH-Harness 56.33 53.21 77.00 58.10
+> ∆vs. Meta-Harness +5 .70 +7 .01 +2 .00 +5 .00
+
+Main comparison. MESH-Harness achieves the highest reported score on each of the four aggre-gate metrics (Table 1 and Figure 2). Relative to Meta-Harness, the gains are 5.70 points on Text, 7.01 on Math, 2.00 on LiveCodeBench, and 5.00 on ScienceWorld. The advantage therefore spans context construction, retrieval, execution feedback, and sequential interaction without changing the execution model. MESH-Harness is particularly strong on Text and ScienceWorld, while reaching the performance level of the strongest Math competitor, DGM-H (53.21 versus 53.00). 
+
+Where the gains arise. MESH-Harness exceeds the strongest fixed references by 6.33 points on Text and 10.83 on Math (Tables 2–3). The text improvement over Meta-Harness is driven by LawBench ( +8 .00 ) and USPTO ( +11 .00 ), offsetting a decrease on Symptom-to-Diagnosis (84.90 to 83.00). Both math subsets improve: OlympiadBench reaches 63.00 ( +4 .30 ), and MathArena reaches 43.10 ( +9 .80 ). The gains also extend beyond context-based tasks: MESH-Harness exceeds the handcrafted references on LiveCodeBench (77.00 versus 71.00) and ScienceWorld (58.10 versus 55.50). Appendix D analyzes the validation-selected harnesses and their task-specific behavior. Table 2: Text reference harnesses. Fixed Meta-Harness seeds appear above the divider; scores are macro-averages.          
+
+> Harness Score No memory 26.07 Few-shot (8) 41.00 Few-shot (32) 46.87 Few-shot (all) 50.00 ACE memory 50.00 MCE memory 48.93 Meta-Harness 50.63
+> MESH-Harness 56.33
+
+Table 3: Math reference harnesses. Fixed Meta-Harness seeds appear above the divider; scores are overall pass@1.        
+
+> Harness Score No retrieval 23.20 Random few-shot 41.42 BM25 42.18 ACE 42.38 Meta-Harness 46.20
+> MESH-Harness 53.21
+
+Improvement beyond initialization. Figure 3 shows that MESH-Harness improves by 5.63–7.79 points over its first evaluated compositions. On ScienceWorld, it rises from 51.90 to 58.10, despite beginning below the handcrafted reference at 55.50. These results establish that the final performance is not simply inherited from the first composition. The reference scores describe within-method changes; the matched-cap comparison is the final performance in Table 1. 5.3 CONTRIBUTIONS OF SELECTION AND EVOLUTION 
+
+The following ablations use the three text tasks, the default executor, and the candidate-evaluation cap from Section 5.1. 
+
+Selecting which compositions to evaluate matters. Randomly selecting one implementation per slot scores 48.80, 7.53 points below the full method (Table 4). Removing only the UCB uncertainty term ( α = 0 ), while retaining predicted reward, coverage, and lineage terms, yields 51.70. Thus, guided selection without the uncertainty term improves on random selection, but still trails the full 7Figure 3: Final performance relative to method-specific references. “Initial” denotes a fixed reference seed for Meta-Harness and the first evaluated composition for MESH-Harness, not a shared initialization. Meta-Harness references are 50.00 (Text), 42.38 (Math, ACE), 71.00 (LiveCodeBench), and 55.50 (ScienceWorld). Brackets show final minus reference. acquisition rule by 4.63 points. Performance increases from α = 0 to 0.8 and then falls at 1.6
+
+(Figure 4), favoring a moderate exploration bonus among the tested values. Figure 4: Exploration strength. Text macro-average versus α; the star marks the default. Ref-erence lines show Meta-Harness and random selec-tion. 
+
+Table 4: Configuration selection. Text macro-average; ∆ is relative to full MESH-Harness. Rows follow the α sweep at left.                      
+
+> Selection Score ∆
+> No UCB bonus ( α= 0 )51.70 −4.63
+> α= 0 .253.17 −3.16
+> α= 0 .454.87 −1.46
+> Full ( α= 0 .8)56.33 0.00
+> α= 1 .655.10 −1.23
+> Random composition 48.80 −7.53
+> Meta-Harness 50.63 −5.70
+
+Table 5: Module evolution. Text macro-average over three test runs and change from the full method.           
+
+> Variant Score ∆
+> MESH-Harness 56.33 0.00 No pool refresh 51.20 −5.13
+> Refresh without historical traces 53.80 −2.53
+> Meta-Harness 50.63 −5.70
+
+Evolving the pools improves perfor-mance. Keeping the initial pools for all slots fixed yields 51.20, a 5.13-point drop (Table 5). Refreshing them without his-torical traces, while retaining pool refresh and bandit statistics, recovers 2.60 points; restoring trace access adds a further 2.53. Together with the selection ablation, these results support the two parts of the design: use reward feedback to allocate evalua-tions among compositions, and execution evidence to improve the implementations available for future composition. 5.4 COST AND REUSE OF OPTIMIZED HARNESSES 
+
+Search and execution costs. Table 6 separates optimization-inclusive costs from execution costs. Across the four reported workloads, MESH-Harness reduces search-plus-test expenditure from $195.0537 to $166.6078 (14.6%) and test-only expenditure from $3.5528 to $1.9835 (44.2%). Both costs are lower on every task; the largest test-time savings occur on LiveCodeBench (27.0%) and ScienceWorld (59.5%). The final score improvements therefore do not rely on more expensive execution of the selected harnesses. 8Table 6: Search and execution costs (USD). Search + test includes optimization and testing the selected configurations; test only excludes optimization. Savings are relative to Meta-Harness. Totals sum the four reported task workloads.                                      
+
+> Search + test Test only Task Meta MESH Saving Meta MESH Saving Text 63.1843 51.1643 19.0% 0.1709 0.1662 2.8% Math 58.8652 47.2431 19.7% 0.5475 0.4987 8.9% LiveCodeBench 37.1387 34.7826 6.3% 0.5273 0.3847 27.0% ScienceWorld 35.8655 33.4178 6.8% 2.3071 0.9339 59.5%
+> Total 195.0537 166.6078 14.6% 3.5528 1.9835 44.2%
+
+Figure 5: Score–cost tradeoff. Circles: MESH-Harness; squares: Meta-Harness. The dashed line connects nondominated evaluated configurations. Cost uses a log scale. 
+
+Table 7: Frozen-harness transfer. Text macro-average and execution cost (USD), without further search. Bold marks the better result within each model.                        
+
+> Score ↑Cost ↓
+> Execution model Meta MESH Meta MESH DeepSeek V4 Flash 50.63 56.33 0.1709 0.1662
+> GPT-5.6 Luna 51.00 55.37 0.5359 0.4987
+> Qwen 3.8 Flash 49.17 53.70 0.2608 0.2496
+> Claude Sonnet 5 55.57 59.93 7.4215 6.8874
+
+Reuse across execution models. We freeze the text harnesses and replace only the executor with GPT-5.6 Luna (OpenAI, 2026), Qwen 3.8 Flash (Qwen Team, 2026), or Claude Sonnet 5 (Anthropic, 2026c). Including the default executor, MESH-Harness retains a 4.36–5.70-point advantage and a 2.8–7.2% cost reduction across all four models (Table 7). Among the measured configurations, its DeepSeek and Sonnet variants are the two nondominated points (Figure 5), offering the lowest cost and highest score, respectively. Table 8: Refining a Meta-Harness solution. Held-out text scores before and after 20 additional MESH-Harness candidate evaluations.         
+
+> Dataset Meta-Harness solution + MESH refinement LawBench 51.00 55.00
+> Symptom-to-Diagnosis 84.90 90.10
+> USPTO 16.00 18.00
+> Macro-average 50.63 54.37
+
+Reuse of an existing optimized harness. 
+
+Starting from a Meta-Harness solution, 20 additional MESH-Harness evaluations im-prove the text macro-average from 50.63 to 54.37, with gains on all three datasets (Ta-ble 8). Compositional refinement can there-fore build on an existing optimizer’s output, not only on MESH-Harness’s own initial-ization. This experiment studies further re-finement, separately from the matched-cap comparison. 
+
+## 6 CONCLUSION 
+
+We introduced MESH-Harness, which combines shared module representations, bandit-guided compositional search, and trace-driven module evolution to improve agent harnesses without changing model weights. Across four task domains, it achieves the highest aggregate scores among the evaluated methods and outperforms Meta-Harness under matched candidate-evaluation budgets. Text ablations support both guided selection and module evolution, while further experiments on these tasks show transfer across execution models and gains from refining a Meta-Harness solution. For the reported configurations, aggregate test-time cost is 44.2% lower than that of Meta-Harness, and combined search-and-test expenditure is 14.6% lower. These results show that reusing and refining implementations within fixed functional slots can improve task performance while reducing the execution cost of the resulting harnesses. 9AI U SE STATEMENT 
+
+We used generative AI tools to improve the clarity, grammar, and presentation of the manuscript and to assist with implementing, debugging, and refining research code. Generative models also serve as the proposer and executor in MESH-Harness, as described in the method and experimental setup. The authors reviewed and revised AI-assisted text and inspected and tested AI-assisted code. The authors take full responsibility for the final manuscript, implementation, and experimental results. 
+
+## ETHICS STATEMENT 
+
+This work studies the optimization of agent harnesses with existing language models and benchmark datasets spanning text tasks, mathematical reasoning, code generation, and simulated scientific interaction. The experiments evaluate model outputs and executable programs within the specified benchmark protocols; they do not involve recruiting human participants or deploying systems in real-world decision-making. Diagnosis, legal, and chemical outputs are used only as benchmark predictions. We are not aware of specific ethical concerns arising from the experiments reported in this study. 
+
+## REPRODUCIBILITY STATEMENT 
+
+The main text and appendices detail the MESH-Harness design and experiments. Algorithm 1 and Section 4 specify the MESH-Harness procedure, while Appendix A provides the theoretical analysis and Appendix B expands the optimization loop, composition selection, and module refresh procedures. Section 5.1 identifies the models, benchmarks, baselines, and evaluation protocol. Appendix C details the data splits, retrieval resources, memory boundaries, search hyperparameters, execution limits, scoring rules, and cost accounting. Appendix D describes the selected harnesses and their task-specific control flow. All comparisons use the shared task splits and scoring protocols described in the paper. Final harnesses are selected on validation data and frozen before testing; reported test scores average three executions of each frozen harness. The models, benchmarks, and retrieval sources are identified and cited in the manuscript. 
+
+## REFERENCES 
+
+Yasin Abbasi-Yadkori, D´ avid P´ al, and Csaba Szepesv´ ari. Improved algorithms for linear stochastic bandits. Advances in neural information processing systems , 24, 2011. AIMO-Corpus. PolyMath. Hugging Face dataset, 2026. URL https://huggingface.co/ datasets/AIMO-Corpus/PolyMath .Anthropic. Claude Code overview. Claude Code documentation, 2026a. URL https://code. claude.com/docs/en/overview . Accessed September 25, 2026. Anthropic. Introducing Claude Opus 5. Anthropic, July 2026b. URL https://www.anthropic. com/news/claude-opus-5 .Anthropic. Introducing Claude Sonnet 5. Anthropic, June 2026c. URL https://www. anthropic.com/news/claude-sonnet-5 .Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Language models are few-shot learners. Advances in neural information processing systems , 33:1877–1901, 2020. Wei Chu, Lihong Li, Lev Reyzin, and Robert Schapire. Contextual bandits with linear payoff functions. In Proceedings of the fourteenth international conference on artificial intelligence and statistics , pp. 208–214. JMLR Workshop and Conference Proceedings, 2011. Jasper Dekoninck, Nikola Jovanovi´ c, Tim Gehrunger, K´ ari R¨ ognvaldsson, Ivo Petrov, Chenhao Sun, and Martin Vechev. Beyond benchmarks: Matharena as an evaluation platform for mathematics with llms. arXiv preprint arXiv:2605.00674 , 2026. 10 Zhiwei Fei, Xiaoyu Shen, Dawei Zhu, Fengzhe Zhou, Zhuo Han, Alan Huang, Songyang Zhang, Kai Chen, Zhixin Yin, Zongwen Shen, et al. Lawbench: Benchmarking legal knowledge of large language models. In Proceedings of the 2024 conference on empirical methods in natural language processing , pp. 7933–7962, 2024. Bofei Gao, Feifan Song, Zhe Yang, Zefan Cai, Yibo Miao, Qingxiu Dong, Lei Li, Chenghao Ma, Liang Chen, Zhengyang Tang, et al. Omni-math: A universal olympiad level mathematic benchmark for large language models. In International Conference on Learning Representations ,volume 2025, pp. 100540–100569, 2025. Gretel AI. Symptom to Diagnosis Dataset. Hugging Face dataset, 2023. URL https:// huggingface.co/datasets/gretelai/symptom_to_diagnosis . Adapted from the Symptom2Disease dataset. Chaoqun He, Renjie Luo, Yuzhuo Bai, Shengding Hu, Zhen Thai, Junhao Shen, Jinyi Hu, Xu Han, Yujie Huang, Yuxiang Zhang, et al. Olympiadbench: A challenging benchmark for promoting agi with olympiad-level bilingual multimodal scientific problems. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 3828–3850, 2024. Zhiwei He, Tian Liang, Jiahao Xu, Qiuzhi Liu, Xingyu Chen, Yue Wang, Linfeng Song, Dian Yu, Zhenwen Liang, Wenxuan Wang, et al. Deepmath-103k: A large-scale, challenging, decontami-nated, and verifiable mathematical dataset for advancing reasoning. In International Conference on Learning Representations , volume 2026, pp. 138306–138322, 2026. Zhi Hong, Qian Zhang, Jiahang Sun, Zhiwei Shang, Mingze Kong, Xiangyi Wang, Yao Shu, and Zhongxiang Dai. MASPOB: Bandit-based prompt optimization for multi-agent systems with graph neural networks. In Forty-third International Conference on Machine Learning , 2026. URL 
+
+https://openreview.net/forum?id=A5venxSvpw .Naman Jain, King Han, Alex Gu, Wen-Ding Li, Fanjia Yan, Tianjun Zhang, Sida Wang, Armando Solar-Lezama, Koushik Sen, and Ion Stoica. Livecodebench: Holistic and contamination free eval-uation of large language models for code. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview.net/forum?id=chfJJYC3iL .Lekang Jiang, Bohan Tang, Stephan Goetz, and Yiwen Guo. Adias: Automated design of interactive agentic systems. arXiv preprint arXiv:2608.06410 , 2026. Yoonho Lee, Roshen Sanjay Nair, Qizheng Zhang, Kangwook Lee, Omar Khattab, and Chelsea Finn. Meta-harness: End-to-end optimization of model harnesses. In Third Conference on Language Modeling , 2026. URL https://openreview.net/forum?id=tmbOUyFx3R .Jia Li, Edward Beeching, Lewis Tunstall, Ben Lipkin, Roman Soletskyi, Shengyi Costa Huang, Kashif Rasul, Longhui Yu, Albert Jiang, Ziju Shen, Zihan Qin, Bin Dong, Li Zhou, Yann Fleureau, Guillaume Lample, and Stanislas Polu. NuminaMath. Hugging Face dataset, 2024. URL 
+
+https://huggingface.co/datasets/AI-MO/NuminaMath-1.5 .Lihong Li, Wei Chu, John Langford, and Robert E Schapire. A contextual-bandit approach to personalized news article recommendation. In Proceedings of the 19th international conference on World wide web , pp. 661–670, 2010. Jiahang Lin, Shichun Liu, Chengjun Pan, Lizhi Lin, Shihan Dou, Zhiheng Xi, Xuanjing Huang, Hang Yan, Zhenhua Han, Tao Gui, et al. Agentic harness engineering: Observability-driven automatic evolution of coding-agent harnesses. arXiv preprint arXiv:2604.25850 , 2026. Xinghua Lou, Miguel L´ azaro-Gredilla, Antoine Dedieu, Carter Wendelken, Wolfgang Lehrach, and Kevin P Murphy. Autoharness: improving llm agents by automatically synthesizing a code harness. 
+
+arXiv preprint arXiv:2603.03329 , 2026. Ivan Moshkov, Darragh Hanley, Ivan Sorokin, Shubham Toshniwal, Christof Henkel, Benedikt Schif-ferer, Wei Du, and Igor Gitman. Aimo-2 winning solution: Building state-of-the-art mathematical reasoning models with openmathreasoning dataset. arXiv preprint arXiv:2504.16891 , 2025. 11 OpenAI. GPT-5.6: Frontier intelligence that scales with your ambition. OpenAI, July 2026. URL 
+
+https://openai.com/index/gpt-5-6/ .Qwen Team. Latest model: Qwen3.8-Flash. QwenCloud documentation, 2026. URL https://docs.qwencloud.com/developer-guides/getting-started/ latest-model . Accessed September 25, 2026. Stephen Robertson and Hugo Zaragoza. The probabilistic relevance framework: Bm25 and beyond. 
+
+Foundations and trends® in information retrieval , 4(1-2):1–174, 2009. Nadine Schneider, Nikolaus Stiefl, and Gregory A Landrum. What’s what: The (nearly) definitive guide to reaction role assignment. Journal of chemical information and modeling , 56(12):2336– 2346, 2016. Jack Sherman and Winifred J Morrison. Adjustment of an inverse matrix corresponding to a change in one element of a given matrix. The Annals of Mathematical Statistics , 21(1):124–127, 1950. Chengshuai Shi, Kun Yang, Zihan Chen, Jundong Li, Jing Yang, and Cong Shen. Efficient prompt optimization through the lens of best arm identification. Advances in Neural Information Processing Systems , 37:99646–99685, 2024. Ruoyao Wang, Peter Jansen, Marc-Alexandre Cˆ ot´ e, and Prithviraj Ammanabrolu. Scienceworld: Is your agent smarter than a 5th grader? In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing , pp. 11279–11298, 2022. Anyi Xu, Bangcai Lin, Bing Xue, Bingxuan Wang, Bingzheng Xu, Bochao Wu, Bowei Zhang, Chaofan Lin, Chen Dong, Chenchen Ling, et al. Deepseek-v4: Towards highly efficient million-token context intelligence. arXiv preprint arXiv:2606.19348 , 2026. Yifan Yang, Ziyang Gong, Weiquan Huang, Qihao Yang, Ziwei Zhou, Zisu Huang, Yan Li, Xuemei Gao, Qi Dai, Bei Liu, et al. Skillopt: Executive strategy for self-evolving agent skills. arXiv preprint arXiv:2605.23904 , 2026. Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. ReAct: Synergizing reasoning and acting in language models. In International Conference on Learning Representations (ICLR) , 2023. Haoran Ye, Xuning He, Vincent Arak, Haonan Dong, and Guojie Song. Meta context engineering via agentic skill evolution. In Forty-third International Conference on Machine Learning , 2026. URL 
+
+https://openreview.net/forum?id=P1jHroBS5E .Justin Young. Effective harnesses for long-running agents. Anthropic Engineer-ing, November 2025. URL https://www.anthropic.com/engineering/ effective-harnesses-for-long-running-agents .Jenny Zhang, Bingchen Zhao, Wannan Yang, Jakob Foerster, Jeff Clune, Minqi Jiang, Sam Devlin, and Tatiana Shavrina. Hyperagents. arXiv preprint arXiv:2603.19461 , 2026a. Jiayi Zhang, Yongfeng Gu, Jianhao Ruan, Maojia Song, Yiran Peng, Zhiguang Han, Jinyu Xiang, Zhitao Wang, Caiyin Yang, Yixi Ouyang, et al. Harnessing agentic evolution. arXiv preprint arXiv:2605.13821 , 2026b. Qizheng Zhang, Changran Hu, Shubhangi Upasani, Boyuan Ma, Fenglu Hong, Vamsidhar Kama-nuru, Jay Rainton, Chen Wu, Mengmeng Ji, Hanchen Li, et al. Agentic context engineering: Evolving contexts for self-improving language models. In International Conference on Learning Representations , volume 2026, pp. 86069–86100, 2026c. Yanzhao Zhang, Mingxin Li, Dingkun Long, Xin Zhang, Huan Lin, Baosong Yang, Pengjun Xie, An Yang, Dayiheng Liu, Junyang Lin, et al. Qwen3 embedding: Advancing text embedding and reranking through foundation models. arXiv preprint arXiv:2506.05176 , 2025. 12 A THEORETICAL SUPPLEMENTS 
+
+This section analyzes the mechanisms that make compositional search useful under a limited evalua-tion budget: information transfer through a shared surrogate, uncertainty over module combinations, and inexpensive coordinate-wise selection. The first two results follow from the ridge state and the search rule themselves. The final result explicitly states the additional confidence-envelope assumption needed to relate acquisition-based selection to the task objective. A.1 HOW ONE EVALUATION INFORMS OTHER COMPOSITIONS 
+
+Let p = kd , and fix the embedding map throughout a search run. At a given round, write 
+
+A = λI + X
+
+> s<t
+
+xsx⊤ 
+
+> s
+
+, b = X
+
+> s<t
+
+rsxs, bθ = A−1b, (11) where λ > 0. Since each slot embedding has unit norm, ∥x(h)∥22 = k. In particular, A is positive definite and x(h)⊤A−1x(h) ≤ k/λ for every composition, including a composition that has not been evaluated. 
+
+Proposition A.1 (Transfer through the shared ridge state) . Suppose the next evaluated harness has feature vector x and reward r. Let A+ = A + xx ⊤ and b+ = b + rx . For any fixed comparison vector v, the posterior mean and squared uncertainty satisfy 
+
+v⊤ bθ+ − v⊤ bθ = v⊤A−1x
+
+1 + x⊤A−1x
+
+ r − x⊤ bθ, (12) 
+
+v⊤(A+)−1v = v⊤A−1v − (v⊤A−1x)2
+
+1 + x⊤A−1x . (13) 
+
+Proof. The Sherman–Morrison identity (Sherman & Morrison, 1950) gives 
+
+(A + xx ⊤)−1 = A−1 − A−1xx ⊤A−1
+
+1 + x⊤A−1x . (14) Multiplying by b + rx and using A−1b = bθ yields bθ+ = bθ + A−1x(r − x⊤ bθ)/(1 + x⊤A−1x). Left multiplication by v⊤ proves Eq. (12); taking the quadratic form of Eq. (14) proves Eq. (13). These identities make the reuse mechanism explicit. An evaluation changes another composition’s prediction through its overlap with the evaluated direction in the A−1 geometry, not merely through exact module identity. The update also depends on the prediction residual: a surprising result has a different effect from one already explained by the surrogate. Uncertainty cannot increase at a fixed vector after an observation, and its reduction is largest along directions coupled to the evaluated composition. This is surrogate-level information transfer; it is not an assignment of the observed reward to every selected module as an independent contribution. The same identities apply after a pool refresh. A new implementation is encoded in the existing feature space, so it can be scored immediately with the accumulated (A, b ). Its creation does not add an observation, and it receives neither its parent’s reward nor a synthetic reward. Retiring an implementation changes the feasible set of compositions but does not invalidate the stored observations. This separation between the feasible set and the statistical state is what allows the pools to evolve without restarting the surrogate. A.2 THE ROLE OF FULL COVARIANCE IN COMPOSITIONAL UNCERTAINTY 
+
+Partition bθ and A by functional slot. The mean prediction remains additive: 
+
+bμ(h) = 
+
+> k
+
+X
+
+> j=1
+
+bθ⊤ 
+
+> j
+
+e(cj ). (15) Full covariance does not introduce explicit pairwise reward features. Rather, its off-diagonal blocks retain which slot representations have been observed together: 
+
+Aij = λ 1{i = j}Id + X
+
+> s<t
+
+e(ci,s )e(cj,s )⊤. (16) 13 These blocks affect both the fitted coefficients and the uncertainty of a proposed combination. A two-slot example isolates the distinction. Let d = 1 , and suppose all n observations used 
+
+x+ = (1 , 1) ⊤. Then 
+
+A = λI + nx +x⊤
+
+> +
+
+, σ2(x+) = 2
+
+λ + 2 n , σ2(x−) = 2
+
+λ , x− = (1 , −1) ⊤. (17) Repeatedly observing the same pairing resolves the common direction but provides no information about the orthogonal contrast. Replacing A by its block diagonal would assign both directions uncertainty 2/(λ + n) and lose that distinction. In a compositional search, this matters when modules have repeatedly appeared with the same partners: frequent exposure of each module need not imply that a different pairing is well understood. The distinction is useful for evaluation allocation: exposure to individual modules and exposure to their joint directions are different forms of information. The embedding-based mean is a surrogate for program performance, while end-to-end execution supplies the observed reward. The selection ablations in Table 4 complement this algebraic analysis by measuring the effect of the acquisition rule under the fixed evaluation cap. A.3 MONOTONICITY AND COMPUTATIONAL COST OF COORDINATE SEARCH 
+
+During one selection step, the pools, posterior, usage counts, and lineage statistics are held fixed. Thus the acquisition Ut(h) is a fixed function on the current Cartesian product. A coordinate update enumerates the active candidates for one slot while retaining the other slots. 
+
+Proposition A.2 (Monotonic coordinate updates) . If each coordinate update includes the currently selected module among its choices and selects an acquisition maximizer, the acquisition is nonde-creasing over the coordinate updates. If the procedure is continued using only strict improving moves, it terminates at a coordinate-wise maximizer on a finite product space. Proof. The current composition is feasible in every coordinate subproblem, so the selected replace-ment has acquisition at least as large. With strict improving moves, a composition cannot be revisited. Finiteness therefore implies termination; at termination no single-coordinate replacement improves the acquisition. The implementation uses two sweeps as a bounded local-ascent procedure. The proposition character-izes each feasible coordinate update; convergence to a coordinate-wise maximizer would additionally require continuing strict improvement to termination. Novelty-based tie breaking preserves nonde-crease for equal acquisition values. Duplicate avoidance is a subsequent selection step, detailed in Section B.2. For slot pool sizes N1, . . . , N k and S sweeps, the coordinate comparisons require S P 
+
+> j
+
+Nj acquisi-tion evaluations, plus final scoring and any start-selection or duplicate-handling overhead. Exhaustive comparison would require Q 
+
+> j
+
+Nj evaluations. With Nj = 10 and S = 2 , this is 140 coordinate com-parisons instead of 10 7 for the seven-slot tasks, and 100 instead of 10 5 for the five-slot ScienceWorld controller. These counts concern inexpensive surrogate comparisons, not benchmark executions. Only the selected complete harness consumes a candidate-evaluation slot. The dense statistical state occupies O(p2) space. With a cached inverse, a rank-one update and a quadratic-form score each require O(p2) arithmetic; the agent implementation uses this update. The text and math implementation instead stores (A, b ) and evaluates the corresponding dense linear solves. These implementations realize the same statistical update with different linear-algebra costs. The comparison above concerns acquisition-query complexity; embedding newly proposed modules is accounted for as initialization or refresh work. A.4 DECOMPOSING UNCERTAINTY AND APPROXIMATE SELECTION 
+
+Coverage, lineage, and similarity adjustments modify evaluation priorities while leaving the observed rewards unchanged. The following decomposition separates these adjustments from uncertainty 14 and approximate maximization using the confidence-envelope formulation of linear bandit analy-sis (Abbasi-Yadkori et al., 2011). Consider a round on which, for some qt ≥ 0, the surrogate satisfies the uniform envelope 
+
+|J(h) − bμt(h)| ≤ qtσt(h) for all h ∈ H t. (18) Write Vt = bμt + qtσt and Dt = Ut − Vt. Let h∗ 
+
+> t
+
+maximize J over the current pools, and define the acquisition-search error εt = max h∈H t Ut(h) − Ut(ht) ≥ 0.
+
+Proposition A.3 (A conditional one-step decomposition) . Under Eq. (18) ,
+
+J(h∗ 
+
+> t
+
+) − J(ht) ≤ 2qtσt(ht) + osc Ht (Dt) + εt, (19) 
+
+where osc( D) = max D − min D.Proof. The envelope gives J(h∗ 
+
+> t
+
+) ≤ Vt(h∗ 
+
+> t
+
+) and J(ht) ≥ Vt(ht) − 2qtσt(ht). Moreover, Vt(h∗ 
+
+> t
+
+) −
+
+Vt(ht) = Ut(h∗ 
+
+> t
+
+) − Ut(ht) + Dt(ht) − Dt(h∗ 
+
+> t
+
+) ≤ εt + osc( Dt). Combining the inequalities proves the claim. For MESH-Harness, Dt = ( αg t − qt)σt + Bt − Ft. Equation (19) separates three sources of selection error: uncertainty in the chosen composition, the range of the acquisition adjustment, and the gap left by approximate search. It is a conditional statement under Eq. (18); the empirical α is a search coefficient rather than an asserted calibrated confidence radius. Coverage and lineage regularize exploration of an evolving candidate space, while coordinate search bounds the cost of comparing those candidates. Pool refresh changes the feasible set without resetting the statistical state. Protecting the incumbent preserves an already evaluated configuration, while retaining historical embeddings allows subsequent selection to reuse all completed observations. Section B makes these state transitions explicit, including the different roles of the composition reward, the pool-retention statistic, and the validation criterion used for final selection. 15 B ALGORITHMIC DETAILS 
+
+This section expands Algorithm 1 into the procedures used for initialization, composition selection, and pool refresh. The central design is to separate proposing an implementation from deciding to evaluate it. A checked module enters a reusable pool; only a complete composition selected by the bandit receives an end-to-end validation run. The resulting score updates the shared surrogate, while the associated traces inform subsequent code changes. B.1 SEARCH STATE AND COMPLETE PROCEDURE 
+
+The state consists of the active pools P = {Pj }kj=1 , a catalog V retaining all accepted implementations and their cached embeddings, the ridge statistics (A, b ), the validation archive A, and the set K of evaluated composition keys. A key is the ordered tuple of component identifiers. Usage records 
+
+U store each module’s evaluation count, accumulated reward, parent, lineage family, and selected rounds. An initial module starts its own family; a child retains its parent’s family. The encoder and task interfaces remain fixed throughout the run. Algorithm 2 uses t to count completed candidate evaluations, starting from one. The task adapter EVALUATE VAL implements the dataset-specific execution and scoring rules in Section C. S ELECT VAL 
+
+applies the prespecified validation criterion in Section C.5; neither the acquisition score nor a test score is substituted for that criterion. 
+
+Algorithm 2 MESH-Harness: complete optimization procedure 
+
+Require: Fixed executor M , proposer G, encoder E, ordered interfaces I
+
+Require: Permitted initialization data Dinit , training data Dtr , validation data Dval 
+
+Require: Fixed task resources C; pool size N , evaluation budget T , refresh interval L
+
+1: P, V, A, K, U ← ∅; h⋆ ← ⊥ 
+
+2: for j = 1 , . . . , k do 
+
+3: Pj ← ∅
+
+4: for i = 1 , . . . , N do 
+
+5: c ← CHECKED PROPOSAL (G, I j , D init , Vj , initial) ▷ Algorithm 5 6: Cache e(c) ← ENCODE NORMALIZE (E, I j , c ); initialize its family and zero usage 7: Pj ← Pj ∪ { c}; Vj ← V j ∪ { c}
+
+8: end for 
+
+9: end for 
+
+10: A ← λI kd ; b ← 0; initialize the seeded random generator 11: for t = 1 , . . . , T do 
+
+12: Hold (A, b, P, U) fixed during the following selection step 13: ht ← SELECT COMPOSITION (P, V, A, b, A, U, K, h ⋆) ▷ Algorithm 3 14: Ht ← Compose I (ht); xt ← [e(c1,t ); . . . ; e(ck,t )] 
+
+15: (rt, Tt, κ t) ← EVALUATE VAL (M, H t, D tr , D val , C)
+
+16: A ← A + xtx⊤ 
+
+> t
+
+; b ← b + rtxt
+
+17: A ← A ∪ { (t, h t, r t, Tt, κ t)}; K ← K ∪ { key( ht)}
+
+18: for all c ∈ ht do 
+
+19: n(c) ← n(c) + 1 ; s(c) ← s(c) + rt; append t to its usage history 20: end for 
+
+21: Update recent family uses and committed validation-trace history in U
+
+22: h⋆ ← SELECT VAL (A)
+
+23: if t < T and t mod L = 0 then 
+
+24: (P, V, U) ← REFRESH POOLS (t, h t, h ⋆, P, V, A, U)
+
+▷ Algorithm 4; no task evaluation and no change to (A, b, K)
+
+25: end if 
+
+26: Persist the completed-round state and resource-use records 27: end for 
+
+28: h⋆ ← SELECT VAL (A)
+
+29: return FREEZE (h⋆, V, I, M, C) and the validation archive 
+
+16 B.2 MIXED -START COMPOSITION SELECTION 
+
+The acquisition in Eq. (6) is evaluated on complete compositions, even when only one slot is being changed. For a candidate c in slot j, let Rj (c) contain previously evaluated modules in that slot and its direct parent, when available. With normalized embeddings, the similarity term is 
+
+sj (c) = max  {0} ∪ { e(c)⊤e(v) : v ∈ R j (c)}, ¯s(h) = 1
+
+k
+
+> k
+
+X
+
+> j=1
+
+sj (cj ). (20) Thus U (h) uses the ridge mean, full-covariance uncertainty scaled by max( gmin , 1 − β¯s(h)) , the module-coverage bonus, and the recent-family penalty. All these quantities are computed from cached representations and completed evaluations. Coordinate comparisons do not call the proposer, executor, or task evaluator. 
+
+Algorithm 3 Mixed-start coordinate search with novelty-aware tie breaking 
+
+Require: Search state from Algorithm 2; S = 2 , K = 5 , random-attempt limit R = 200 
+
+1: function SELECT COMPOSITION (P, V, A, b, A, U, K, h ⋆)2: Construct U from Eqs. (6)–(7) and (20) 3: B ← top-K validation-reward entries restorable by the task’s archive adapter 4: Draw u ∼ Uniform[0 , 1) 
+
+5: if u < 0.65 and h⋆̸ = ⊥ then 
+
+6: h ← h⋆
+
+7: else if u < 0.85 and B̸ = ∅ then 
+
+8: h ← a uniformly sampled composition from B
+
+9: else 
+
+10: h ← RANDOM NEW (P, K, R )
+
+11: end if 
+
+12: for s = 1 , . . . , S do 
+
+13: for j = 1 , . . . , k do 
+
+14: For every c ∈ Pj , form h(c) ← (h−j , c ) and compute U (h(c))
+
+15: c+ ← arg max c∈Pj
+
+ U (h(c)), 1{key( h(c)) /∈ K} , birth( c), id( c)
+
+16: h ← (h−j , c +) ▷ Lexicographic maximization; retain latest choices elsewhere 17: end for 
+
+18: end for 
+
+19: if key( h) ∈ K then 
+
+20: h ← RANDOM NEW (P, K, R )
+
+21: end if 
+
+22: return h
+
+23: end function 
+
+24: function RANDOM NEW (P, K, R )25: for a = 1 , . . . , R do 
+
+26: Draw each cj independently and uniformly from Pj ; h ← (c1, . . . , c k )
+
+27: if key( h) /∈ K then 
+
+28: return h
+
+29: end if 
+
+30: end for 
+
+31: return the last sampled h
+
+32: end function 
+
+The start mixture is sampled once per evaluation, rather than running three searches and evaluating their winners. The archived-start adapter reconstructs component identities from stored code. The agent runner restricts this bank to fully active compositions; the Text/Math runner can restore historical starts, whose slots are replaced from the active pools during the first sweep. The evaluated composition is in the active product space in either case. The monotonicity result in Proposition A.2 applies whenever the current coordinate is among the feasible replacements. Novelty is a tie breaker, not an additional reward, and bounded random sampling is the duplicate fallback rather than an exhaustive search for an unseen composition. 17 B.3 TRACE -GUIDED PROPOSALS AND FIXED -CAPACITY POOL UPDATES 
+
+Refresh ranks validation failure groups by recurring count and then diagnostic confidence. Failure-guided actions scan primary and secondary suspected slots, using the corresponding module in the latest composition. Coverage-oriented actions rank active parents by recent family use and evaluation count. Local-refinement actions rank incumbent modules by recent family use. Remaining ties use the runner’s deterministic creation-time and identifier ordering. These alternatives supply different parent designs through the same slot interface. The default plan first reserves an available failure-guided action, then fills the remaining position from the rotating order (failure , failure , coverage , local) . A slot can appear at most once. At refresh 
+
+q, the order is rotated by (q − 1) mod 4 ; refreshes follow evaluations 5, 10, 15, 20, 25, 30, and 35. NEXT ACTION below applies these rankings while excluding already selected slots. The planning loop is bounded by 12 attempts in Text/Math and 4 max(3 , k ) in the agent runner. 
+
+Algorithm 4 Trace-guided refresh without an immediate candidate evaluation 
+
+Require: Proposer G, encoder E, interfaces I; two children per refresh in distinct slots 1: function REFRESH POOLS (t, h t, h ⋆, P, V, A, U)2: Z ← recurring failure groups and representative validation traces from A
+
+3: Π ← [ ] ; J ← ∅
+
+4: a ← NEXT ACTION (failure , Z, h t, h ⋆, P, U, J )
+
+5: if a̸ = ⊥ then 
+
+6: Append a to Π; add its slot to J
+
+7: end if 
+
+8: ω ← the rotating default mode order for this refresh 9: for i = 1 , . . . , R plan do 
+
+10: if |Π| = 2 then break 
+
+11: a ← NEXT ACTION (ωi, Z, h t, h ⋆, P, U, J )
+
+12: if a̸ = ⊥ then 
+
+13: Append a to Π; add its slot to J
+
+14: end if 
+
+15: end for 
+
+16: Require |Π| = 2 ; otherwise report an incomplete refresh plan 17: if some planned slot has no old module outside h⋆ that can be evicted then 
+
+18: return (P, V, U) ▷ Keep the fixed-capacity pools unchanged 19: end if 
+
+20: Cnew ← ∅
+
+21: for all actions a = ( j, c parent , mode) ∈ Π do 
+
+22: Zj ← slot contract, parent code, failure evidence, and bounded related history 23: c′ 
+
+> j
+
+← CHECKED PROPOSAL (G, I j , Z j , Vj , mode) ▷ Algorithm 5 24: Cache e(c′ 
+
+> j
+
+); set its parent and family; initialize n(c′ 
+
+> j
+
+) = s(c′ 
+
+> j
+
+) = 0 
+
+25: Cnew ← C new ∪ { (j, c ′ 
+
+> j
+
+)}
+
+26: end for 
+
+27: for all (j, c ′ 
+
+> j
+
+) ∈ C new do 
+
+28: P + 
+
+> j
+
+← Pj ∪ { c′ 
+
+> j
+
+}; Dj ← { c ∈ Pj : c / ∈ h⋆}
+
+29: c− 
+
+> j
+
+← arg min c∈D j
+
+ v(c), δ (c; P + 
+
+> j
+
+), id( c)
+
+30: Pj ← P + 
+
+> j
+
+\ { c− 
+
+> j
+
+}; retain both implementations in Vj
+
+31: Mark c′ 
+
+> j
+
+active and c− 
+
+> j
+
+retired; record the proposal and replacement in U
+
+32: end for 
+
+33: Require |Pj | = N for every slot; commit the updated pool and history records 34: return (P, V, U) ▷ A , b, and evaluated keys are unchanged 35: end function 
+
+The retention and redundancy quantities used in the lexicographic eviction rule are 
+
+v(c) = 
+
+s(c)/n (c), n(c) > 0,
+
+0, n(c) = 0 , δ(c; P ) = min  
+
+> v∈P\{ c}
+
+ 1 − e(c)⊤e(v). (21) Lower observed mean reward is removed first; smaller nearest-neighbor distance breaks a tie. The incumbent and new child are protected during replacement. Retired code remains archived; later selection uses the ordinary acquisition, without forced child evaluations. 18 B.4 ADMISSIBILITY , HISTORY CONSTRUCTION , AND FROZEN EXECUTION 
+
+Initialization and refresh share the same admissibility principle: a candidate must implement its assigned responsibility and be executable through the declared interface. C HECK in Algorithm 5 combines syntax and signature validation, the permitted-capability checks, task-specific return-shape and state checks, and small execution fixtures. It also rejects duplicate identifiers and duplicate implementations within the slot’s historical catalog. Rejections are returned to the proposer as concrete correction feedback. The default limit is 20 attempts per requested module for both initialization and refresh. 
+
+Algorithm 5 Checked module generation and isolated evaluation of the frozen harness                                                               
+
+> 1: function CHECKED PROPOSAL (G, I j, Z, Vj,mode )2: F←[ ] ▷Rejected code and admissibility feedback 3: for a= 1 , . . . , 20 do
+> 4: c←PROPOSE (G, I j, Z, mode , F )
+> 5: (ok ,reason) ←CHECK (c, I j,Vj)
+> 6: if ok then
+> 7: return c
+> 8: end if
+> 9: Append the rejected implementation and reason to F
+> 10: end for
+> 11: Report generation exhaustion; do not commit an unchecked module or an undersized pool 12: end function
+> 13: function EVALUATE FROZEN (H⋆, D test , D tr ,C)14: for r= 1 ,2,3do
+> 15: Initialize an independent test repetition r
+> 16: Reset task memory and environment episodes; initialize permitted training memory 17: S(r)←TRUSTED TEST (H⋆, D test , D tr ,C)
+> 18: Store predictions, trusted scores, and resource use; do not update the optimizer 19: end for
+> 20: return 13
+> P3
+> r=1 S(r)
+> 21: end function
+
+History is selective context, not a new retrieval corpus. Failure statistics are accumulated over the committed validation history. The proposer receives a bounded view: up to eight error groups, at most two representative examples per group, up to six related family edits, and up to three higher-scoring historical trajectories for currently failed problems. Contrasts are chosen preferentially from configurations differing in fewer slots. The additional history context is limited to 24,000 characters by dropping complete records. Each record retains its originating evaluation and component identities, so the proposer can distinguish an observed result from the stated intent of an untested edit. These contrasts guide a modification hypothesis; the next complete-harness evaluation supplies its observed reward. 
+
+Three state transitions have different roles. A completed evaluation changes (A, b ), the archive, and usage statistics. A refresh changes which programs are available while retaining those statistics. Finalization freezes a validation-selected composition and removes the optimizer from the execution path. In particular, the empirical mean v(c) is used for pool retention, whereas the complete-harness reward rt is the observation for the bandit. A new module starts with zero observations and is represented immediately in the same feature space. This is the operational counterpart of Proposition A.1: reuse does not require assigning an inherited or synthetic reward to a new implementation. 
+
+Evaluation budget. The default initialization creates 70 modules for the seven-slot tasks or 50 for ScienceWorld. Seven refreshes can add at most 14 modules while preserving an active space of 10 7 or 10 5 compositions. The budget contains 40 complete-composition evaluations; generation, embedding, and checks are accounted for separately. Final testing follows Algorithm 5. 19 C IMPLEMENTATION DETAILS 
+
+This section describes the datasets, runtime settings, and evaluation protocol used in Section 5.1. MESH-Harness and Meta-Harness share the task data, execution model, and scoring rules. Their search budgets count complete candidate evaluations; each candidate may make several model calls while solving the task. C.1 DATASETS AND RETRIEVAL RESOURCES 
+
+Table 9 summarizes the task splits. Training data provide examples or initial memory, validation data guide harness optimization and selection, and held-out data measure the selected harness. The splits remain fixed across methods and repeated test runs. Table 9: Task splits and prediction units. A dash indicates no separate training split. Math contains 200 validation problems from each source; its 500 test problems comprise 254 from OlympiadBench and 246 from MathArena. ScienceWorld counts are episodes.                             
+
+> Dataset Train Validation Test Prediction or interaction unit USPTO 50 30 100 Precursor strings for a product molecule Symptom-to-Diagnosis 200 50 212 A diagnosis from a symptom description LawBench 200 50 100 A set of charges from a case description Mathematical reasoning –400 500 A final mathematical answer LiveCodeBench 100 100 100 One selected Python program per prob-lem ScienceWorld 66 22 102 One interactive episode
+
+Text tasks. The three text datasets require different outputs. USPTO asks for reactant precursors given a product molecule (Schneider et al., 2016); Symptom-to-Diagnosis asks for a diagnosis from symptoms (Gretel AI, 2023); and LawBench asks for the applicable charges in a legal case (Fei et al., 2024). For symptom diagnosis, we use Gretel’s 22-class adaptation of the original Symptom2Disease dataset, which filters diagnosis categories and rewrites symptom descriptions with an LLM. We use the same task-specific output and scoring rules for all harnesses. 
+
+Mathematical reasoning. Math combines answer-based problems from OlympiadBench (He et al., 2024) and MathArena (Dekoninck et al., 2026). The development set contains 200 problems from each source, totaling 400 problems, and is used for harness optimization. The held-out test set contains 254 OlympiadBench problems and 246 MathArena problems, totaling 500 problems. Final evaluation follows the common held-out protocol used for Meta-Harness: the two sources are pooled, and every test instance receives equal weight. Section C.4 defines this aggregation. The development and test questions are disjoint, and answers are evaluated by the corresponding source-specific programmatic graders. All retrieval-capable math harnesses use a fixed corpus of 433,926 problem–solution pairs drawn from NuminaMath (Li et al., 2024), Omni-MATH (Gao et al., 2025), DeepMath (He et al., 2026), OpenMathReasoning (Moshkov et al., 2025), and PolyMath (AIMO-Corpus, 2026). Table 10 gives its composition. The corpus is filtered against the evaluation questions and deduplicated before search; the same corpus is used for validation and testing. Retrieval indexes the full corpus. Each solution is truncated to at most 4,000 characters during preprocessing and 3,000 characters when inserted into a prompt. 
+
+Code generation. We use fixed training, validation, and test splits from LiveCodeBench release v6 (Jain et al., 2025), with 100 problems in each split. The test set contains 23 easy, 22 medium, and 55 hard problems. A harness can use public examples to test and repair its program; private tests are reserved for final scoring. The cap-8 protocol is defined in Section C.4. 
+
+Interactive scientific tasks. ScienceWorld (Wang et al., 2022) uses the episode splits provided with ADIAS (Jiang et al., 2026), covering 22 task types. Each type contributes three training variations and one validation variation, with 102 held-out episodes in total. Episodes use the easy simplifications, a 20 Table 10: Math retrieval corpus after evaluation-overlap filtering and deduplication.        
+
+> Retrieval source Problem–solution pairs NuminaMath 55,968 Omni-MATH 3,201 DeepMath 98,670 OpenMathReasoning 267,647 PolyMath 8,440 Total 433,926
+
+limit of 30 agent turns, and an environment step limit of 200. During search, each iteration samples 15 training episodes without replacement and evaluates all 22 validation episodes. C.2 MEMORY AND INFORMATION AVAILABLE TO EACH HARNESS 
+
+The optimizer’s validation archive, a harness’s runtime memory, and the fixed retrieval corpus serve different roles. Validation scores and traces guide code evolution. Runtime memory supports the current task, while retrieval supplies external examples. Held-out answers remain with the evaluator throughout execution. 
+
+Text. Each candidate builds a separate memory for each dataset through one pass over its training examples, receiving the gold label after each training prediction. Validation and test predictions use this training-derived memory without adding held-out labels. Memory is rebuilt for each candidate and each final repetition. 
+
+Math. The harness receives the problem, its answer-format instructions, and access to the fixed retrieval corpus. The evaluator retains the reference answer and grader. Retrieved solutions belong to the external corpus; development and test solutions are not added to it. A candidate’s verifier can inspect and refine an answer using the available context, but cannot consult the reference answer. 
+
+LiveCodeBench and ScienceWorld. Code-generation harnesses receive problem statements, starter-code interfaces, and public examples. Only public-test results can be used for repair. Science-World harnesses receive the task description and observations from their own actions, with memory reset at the start of every episode. Validation traces from these interactions can guide subsequent module proposals, as specified in Section B.4. C.3 SEARCH SETTINGS AND EXECUTION LIMITS 
+
+Text, Math, and LiveCodeBench have seven functional slots; ScienceWorld has five. Each slot starts with ten LLM-generated implementations. Table 11 lists the shared search parameters. The module encoder is Qwen3-Embedding-8B (Zhang et al., 2025); each slot is represented by a normalized 128-dimensional vector, cached throughout the run. Newly proposed modules use the same encoder and dimensionality reduction as the initial pool. 
+
+Models and token budgets. Both optimizers use Claude Code with Claude Opus 5 at medium effort for proposals and DeepSeek V4 Flash with thinking disabled for execution, as in Section 5.1. Maximum output lengths per executor call are 512 tokens for Text, 2,400 for Math, 8,000 for LiveCodeBench, and 512 for ScienceWorld. Text and ScienceWorld use temperature zero; the selected math harness uses temperature 0.1. 
+
+Task-specific computation. Math permits one primary solver call and at most one verifier call per problem. LiveCodeBench allocates separate draft and repair calls and skips repair when a draft passes every public example. ScienceWorld permits at most one solver call per agent turn. Retrieval, output parsing, and program tests are local operations. Executor identity and scoring remain fixed while the optimizer changes module implementations. 21 Table 11: Default search settings. The window W and refresh interval are measured in completed candidate evaluations. 
+
+Setting Value Candidate-evaluation budget 40 Implementations per slot 10 Feature dimensions d = 128 per slot; p = 896 for seven slots, p = 640 for five Ridge regularization; UCB coefficient λ = 1 ; α = 0 .8
+
+Coverage; family-reuse penalty η = 0 .04 ; γ = 0 .04 
+
+Similarity attenuation; minimum scale β = 0 .25 ; gmin = 0 .5
+
+Recent family-usage window W = 10 
+
+Start probabilities Incumbent 0.65, archived 0.20, random 0.15 Archived start candidates Top K = 5 configurations Coordinate sweeps 2 per selection Novelty sampling; module proposal limit 200 random attempts; 20 proposals per requested module Pool refresh Every 5 evaluations, while budget remains Children per refresh At most 2, in distinct slots Search seed 42 
+
+C.4 METRICS AND AGGREGATION 
+
+Scores are reported on a 0–100 scale. Each selected harness is frozen and evaluated three times on the same held-out data. For task score S(r) in repetition r, the reported score is S = 13
+
+P3 
+
+> r=1
+
+S(r).The cross-task score in Figure 2 is the unweighted mean of the four task scores. 
+
+Text. Let s(r) 
+
+> d
+
+be accuracy on dataset d in repetition r. Text gives equal weight to the three datasets: 
+
+S(r)Text = s(r)USPTO + s(r)Symptom + s(r)Law 
+
+3 . (22) USPTO uses exact set agreement on normalized precursor strings; Symptom-to-Diagnosis uses exact diagnosis agreement after case, whitespace, and punctuation normalization; LawBench requires agreement on the full set of charges. The same dataset-macro convention defines the validation reward. 
+
+Math. We use the pooled pass@1 protocol shared with Meta-Harness. Let nO = 254 and nA = 246 
+
+be the numbers of test instances from OlympiadBench and MathArena, and let C(r)O and C(r)A be their correct-answer counts in repetition r. Then 
+
+S(r)Math = 100 C(r)O + C(r)A
+
+nO + nA
+
+. (23) Every instance has equal weight, so the two source-level percentages are weighted by their test-set sizes. Each source’s programmatic grader evaluates the final extracted answer. Internal retrieval or verification calls are part of one harness execution; the resulting final answer is the prediction scored for that instance. 
+
+LiveCodeBench: cap-8 solve rate. For each problem, the evaluator concatenates the public and private test cases, in that order, and retains at most eight. The selected program solves the problem if it passes every retained case within the six-second timeout per case. The solve rate is the percentage of test problems solved. A harness may generate several drafts or use public feedback for repair, but only its final selected program is scored. The cap refers to test cases per problem. 
+
+ScienceWorld. For episode i, let s(r) 
+
+> i,t
+
+be the native environment score at step t. The episode contributes its highest attained progress, clipped to the 0–100 range: 
+
+z(r) 
+
+> i
+
+= min 
+
+
+
+100 , max 
+
+
+
+0, max  
+
+> t
+
+s(r)
+
+> i,t
+
+ 
+
+, S(r)SW = 1102 
+
+> 102
+
+X
+
+> i=1
+
+z(r) 
+
+> i
+
+. (24) Partial progress therefore contributes to the score, while full episode completion corresponds to 100. 22 C.5 FINAL SELECTION AND COST ACCOUNTING 
+
+Validation-based selection. The final harness is selected from the validation archive. Math ranks candidates by development pass@1, breaking ties by lower mean input-token use and then by candidate identifier. LiveCodeBench and ScienceWorld use validation score, then lower total token use and candidate identifier. Text uses validation accuracy under the strict component interface. The selected code, executor settings, and retrieval resources are fixed before testing. Each test repetition starts with fresh task memory and environment episodes. 
+
+Search budget. MESH-Harness evaluates 40 complete compositions; Meta-Harness evaluates two candidates in each of 20 proposal rounds (Lee et al., 2026). Pool initialization, embedding, interface checks, and coordinate comparisons are optimization work. Reference-harness evaluations are recorded separately from the 40 new-candidate evaluations. All initialization and reference-execution expenses are included in search cost. 
+
+Reported cost. The test-only totals in Table 6 measure execution of the frozen harnesses. Search-plus-test totals additionally include proposer, executor, and embedding usage during optimization, with provider-reported cache accounting. At deployment, only the selected harness and its task resources are required. Infrastructure interruptions are resumed as the same evaluation; an executed answer or program that fails the task receives the task’s failure score. 23 D ANALYSIS OF OPTIMIZED HARNESSES 
+
+We analyze the final harnesses selected by validation performance on the four tasks. Their structures show how MESH turns a pool of reusable implementations into task-specific programs: modules determine what information to retain, how to present it to the model, and how to act on the resulting response. We first examine these decisions within each task, then relate the selected components to their origins in the pool. The boxes reproduce prompt or code excerpts from the final implementations, with only line breaks or outer indentation adjusted for display. D.1 TEXT : EVIDENCE COMPOSITION WITH EXPLICIT ANSWER CONTRACTS 
+
+The Text harness separates seven decisions: maintaining training examples, defining the answer space, retrieving evidence, composing context, allocating computation, checking the response, and extracting the final answer. A shared answer contract connects these decisions across single-label prediction, multi-label prediction, and structured-string generation. The budget policy identifies the requested answer type from the input and stored examples, allowing downstream components to preserve the semantics of each task. Structured strings, for example, remain open-ended outputs rather than entries in a finite label inventory. The selected memory module removes exact input–target duplicates and, when its pool exceeds capacity, preferentially removes redundant examples from large signature groups. The retriever ranks examples using weighted feature overlap, input-length proximity, and script-dependent features, while suppressing near-duplicates and repeated answer labels. The composer displays at most four supplied examples and adds a short “Decisive difference” annotation to each: features shared with the query but absent from the other displayed cases are identified explicitly. Retrieval and composition thus serve complementary roles: one selects examples, while the other exposes the distinctions the model should consider. 
+
+Text: explicit label-set reasoning                                         
+
+> Examine each actor and each act on its own and decide which labels it supports. Report every applicable label. A combination never seen together in the cases below is allowed as long as each label is aknown atomic label. Before answering, re-scan the input for a supported label you left out, then drop any label with no direct support
+> in the input .
+
+The answer contract continues through generation and parsing. A JSON field carries the final answer, with separate rules for a complete label, a combination of labels, or a structured string. For the latter, the prompt requests preservation of stereochemistry, charges, and ring closures. The optimized program therefore joins evidence selection, comparison, and answer formatting through explicit interfaces. These connected choices make complete-program evaluation relevant: an example is useful to the solver only through the context and decision rules with which it is presented. D.2 MATH : COMPACT PROBLEM CONTEXT AND EXACT -ANSWER DISCIPLINE 
+
+The Math harness contains seven slots for query analysis, budget allocation, retrieval, context composition, solving, verification, and answer parsing. The selected combination centers on the requested mathematical quantity and its output form. Its analyzer distinguishes counting, finding all solutions, extremal questions, and exact-value questions, then extracts constraints and corresponding obligations. These include completeness for a solution set, or an attaining construction and a matching bound for an extremum. The selected composer preserves the complete problem and adds compact planning notes and an exact-answer contract. It does not insert the retrieved passages, even though retrieval is available through the task interface. This is a concrete choice within the optimization space: a component may determine which available information enters the solver context. Here, the resulting prompt keeps the problem, its constraints, and the required form of the answer together. 24 Math: compact context and exact answers                                       
+
+> Solve one olympiad math problem. No reference material
+> is supplied. EXACT FORM: keep radicals, fractions, factorials and
+> symbolic constants unevaluated rather than decimal; use
+> set or interval notation for collections or ranges; omit units unless the problem asks for them. Run the check, then emit the complete JSON final_answer;
+> if later checking corrects it, emit a new complete JSON
+> object with the corrected value.
+
+The solver adds a problem-dependent instruction: maintain a ledger when many named quantities occur, substitute explicitly given numerical constants when applicable, or proceed through the governing identity. For long derivations it requests forward progress without repeated restarts and a complete answer once a defensible value is available. The verifier checks specific completion defects, including a missing answer after truncation and an unresolved symbol where a definite result is requested. The parser first uses explicit answer fields, then applies answer-region and exact-form fallback rules. The resulting division of labor carries the answer specification from problem analysis through derivation and final extraction, while preserving a compact solver context. D.3 LIVE CODE BENCH : COMPLEMENTARY DRAFTS AND FAILURE -DIRECTED REPAIR 
+
+The LiveCodeBench harness separates problem analysis, budget selection, prompt construction, draft generation, public-test feedback, repair selection, and code parsing. The analyzer extracts the entry-point contract, requested output, input-size bounds, and boundary conditions. The prompt distinguishes a function or class method from a standard-input program and reproduces public examples. The selected budget requests two drafts with repair enabled. Both drafts use temperature zero, with different instructions: one models the process directly; the other is asked to re-derive the requested output quantity independently, using requirement sentences extracted from the statement when available. Each draft is evaluated on the public tests. The repair selector compares failures across drafts: a failing row is local if another draft passes it, contested if the drafts produce different wrong outputs, and shared otherwise. Syntax, timeout, and runtime defects take precedence when choosing the repair instruction. 
+
+LiveCodeBench: public-feedback arbitration                      
+
+> mine =_clip(r.get(’actual’), 300) tag =’shared’
+> for oin others: c=_cell(o, i)
+> if cis None:
+> continue if c.get(’passed’) is True: tag =’local’
+> break if _clip(c.get(’actual’), 300) != mine: tag =’contested’
+
+The feedback interface retains the evidence needed for this comparison, including outputs and failures for individual public-test rows. The repair module can therefore use a passing alternative to guide a local correction, or direct attention to the required output when multiple drafts disagree or fail together. Its prompt includes a small set of failing rows, requests preservation of passing behavior, and warns against special-casing public examples. This case illustrates how reusable components can 25 exchange structured execution evidence: draft generation supplies alternatives, feedback characterizes them, and repair turns those observations into a targeted instruction. D.4 SCIENCE WORLD : PLANNING WITH OBSERVED PRECONDITIONS 
+
+The ScienceWorld harness uses five slots: evidence memory, goal-phase planning, action-candidate ranking, a focus guard, and recovery. Evidence memory records attempted actions, observed changes, score increments, locations, and focus history. The planner converts this record into a concrete next subgoal; ranking and guard modules constrain which actions are proposed and accepted. Recovery uses the same state and permission interfaces to replace an invalid or repeatedly ineffective action. The selected planner also illustrates how a new implementation is incorporated into the pool. It was introduced at search iteration 24 by a trace-aware, failure-driven refresh targeting incomplete goals. The planner constructs an ordered chain of preconditions: perform a permitted focus action, navigate toward an absent target, inspect a visible object’s exact identity, establish a missing circuit element, measure an unresolved property, or execute a report branch supported by an observation. The following excerpt distinguishes an unknown property from a satisfied report condition. 
+
+ScienceWorld: observation-dependent planning                       
+
+> try :val =observed_property(r[’condition’], st, bd)
+> except Exception: val =None
+> if val is None:
+> if pending is None: pending =r
+> elif val is True and ready is None: ready =r
+
+When progress stalls, the planner can move to a less-attempted later precondition from its chain. The focus guard and recovery module then check proposed actions through their own interfaces. The refreshed planner was selected at iterations 27, 29, 32, 35, and 36, and the final iteration-36 combination joins it with four components from the initial pool. A new planning policy can therefore be evaluated and reused while the surrounding evidence, ranking, guard, and recovery implementations remain available for recombination. D.5 REUSE , SELECTION , AND EVOLUTION IN THE FINAL PROGRAMS 
+
+The final Text, Math, and LiveCodeBench harnesses each combine seven implementations from the initial pool; ScienceWorld combines four initial implementations with the refreshed planner. Their provenance illustrates the two roles of the pool: preserving alternatives for combination selection and admitting new implementations during search. Retention and evolution operate at the level of individual slots, while evaluation measures the behavior of the assembled program. Across tasks, the selected programs organize different forms of evidence: comparisons among examples in Text, mathematical constraints and answer forms in Math, public-test outcomes in LiveCodeBench, and observed preconditions in ScienceWorld. Stable interfaces allow these control policies to be stored and recombined without prescribing a single reasoning workflow. Together with the main-text ablations, these cases connect the search design to the concrete programs it produces. 26
